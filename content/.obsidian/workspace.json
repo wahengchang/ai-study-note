@@ -11,12 +11,14 @@
             "id": "b73a3c24a2cf3f70",
             "type": "leaf",
             "state": {
-              "type": "image",
+              "type": "markdown",
               "state": {
-                "file": "asset/sample.jpg"
+                "file": "OpenClaw/utm-set-ubuntu.md",
+                "mode": "source",
+                "source": false
               },
-              "icon": "lucide-image",
-              "title": "sample"
+              "icon": "lucide-file",
+              "title": "utm-set-ubuntu"
             }
           }
         ]
@@ -183,6 +185,14 @@
   },
   "active": "b73a3c24a2cf3f70",
   "lastOpenFiles": [
+    "assets/utm-ui.png",
+    "assets/image.png",
+    "assets/openclaw-success-running.png",
+    "assets/shared-folder-working.png",
+    "assets/ssd-utm-file.png",
+    "OpenClaw/index.md",
+    "assets/utm-network-shared-mode.png",
+    "assets",
     "Understanding-Layouts/index.md",
     "Understanding-Layouts/08.comments-and-popovers.md",
     "Understanding-Layouts/07.recent-notes.md",
@@ -209,8 +219,6 @@
     "Designer/05.custom-css.md",
     "Designer/04.reader-mode.md",
     "Designer/03.social-preview-cards.md",
-    "Designer/02.spa-routing.md",
-    "Designer/01.darkmode.md",
     "Designer",
     "Development",
     "Content-Writing",
@@ -219,7 +227,6 @@
     "asset",
     "04-Development",
     "03-Design",
-    "02-Layouts",
-    "01-Content-Writing"
+    "02-Layouts"
   ]
 }

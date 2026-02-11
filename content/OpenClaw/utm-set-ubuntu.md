@@ -1,5 +1,7 @@
 ---
 title: "$0 Free Setup: Apple Silicon Mac + UTM Ubuntu + OpenClaw AI"
+aliases:
+  - "OpenClaw/utm-set-ubuntu-copy"
 ---
 
 This guide documents a practical setup on an Apple Silicon Mac: running Ubuntu in UTM and deploying the OpenClaw AI Agent. It focuses on three high-impact areas:
@@ -39,7 +41,7 @@ flowchart LR
 ## 1. UTM Basics: Storage and Network
 
 ### 1.1 Save Local Space with External SSD
-
+![[utm-ui.png]]
 A UTM virtual machine is essentially a single `.utm` bundle, so you can move it directly.
 
 ```bash
@@ -50,6 +52,8 @@ A UTM virtual machine is essentially a single `.utm` bundle, so you can move it 
 
 - Use SSD, not HDD
 - HDD latency is high and causes noticeable lag in Ubuntu and dev tools
+
+![UTM VM file moved to external SSD](../assets/ssd-utm-file.png)
 
 ### 1.2 Use Shared Network Mode (Critical)
 
@@ -73,8 +77,7 @@ Setting path:
 
 `UTM Settings -> Network -> Mode -> Shared Network (Emulated VLAN)`
 
-> [!tip] Screenshot Suggestion
-> Screenshot suggestion: capture the UTM Network settings page and highlight `Shared Network`.
+![UTM network mode set to Shared Network](../assets/utm-network-shared-mode.png)
 
 ## 2. Ubuntu Environment Setup
 
@@ -90,17 +93,7 @@ Practical options:
 - Use Chromium and import bookmarks manually
 - Or switch to Firefox
 
-### 2.2 Terminal Shortcuts to Avoid Killing Services
-
-Common mistake: using `Ctrl + C` for copy and accidentally terminating the running server.
-
-```text
-Copy: Ctrl + Shift + C
-Paste: Ctrl + Shift + V
-Terminate process: Ctrl + C
-```
-
-### 2.3 Install Node.js 22 with nvm
+### 2.2 Install Node.js 22 with nvm
 
 ```bash
 nvm install 22
@@ -139,8 +132,7 @@ Verification points:
 - Check foreground logs for messages like `Missing config` or `Address already in use`
 - Confirm the error maps directly to config or port issues
 
-> [!tip] Screenshot Suggestion
-> Screenshot suggestion: capture the red error output from foreground launch (for example, missing config or port conflict).
+![OpenClaw gateway running successfully](../assets/openclaw-success-running.png)
 
 ### 3.2 Config Corruption: Full Reset Is Faster
 
@@ -210,8 +202,7 @@ Mount steps:
 - In `Connect to Server`, enter `dav://127.0.0.1:9843`
 - Click `Connect`
 
-> [!tip] Screenshot Suggestion
-> Screenshot suggestion: capture the `Connect to Server` field in Ubuntu Files with `dav://127.0.0.1:9843`.
+![Ubuntu shared folder mounted via WebDAV](../assets/shared-folder-working.png)
 
 ## 5. Quick Checklist
 

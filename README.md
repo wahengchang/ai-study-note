@@ -14,9 +14,12 @@ Site: https://wahengchang.github.io/ai-study-note/
 ## Commands
 
 - `npm run quartz -- build`: build site.
-- `npm run quartz -- build --serve`: build + local preview.
+- `npm run dev`: build + local preview with GitHub Pages base path.
+- `npm run dev:root`: build + local preview at root path (no base path).
 - `npm run docs`: preview docs folder as site.
 - `npm run clean`: remove macOS `._*` files.
+
+Local preview URL (recommended): `http://localhost:8080/ai-study-note/`
 
 ## Writing Conventions
 

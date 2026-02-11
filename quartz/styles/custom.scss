@@ -4,10 +4,12 @@
   --panel-bg: #000000;
   --panel-border: #333333;
   --panel-border-hover: #555555;
-  --panel-text: #e5e5e5;
+  --panel-text: #f0f0f0;
   --panel-muted: #737373;
   --panel-accent: #ff4f00;
   --panel-hover-bg: #111111;
+  --code-bg: #0b0f16;
+  --code-border: #3a4352;
 }
 
 html,
@@ -17,7 +19,7 @@ body {
 
 body {
   font-family: var(--bodyFont);
-  font-size: 14px;
+  font-size: 15px;
   color: var(--darkgray);
 }
 
@@ -52,6 +54,13 @@ td,
 th,
 .content {
   color: var(--panel-text);
+}
+
+.center > article p,
+.center > article li,
+.center > article td,
+.center > article th {
+  line-height: 1.72;
 }
 
 strong,
@@ -156,10 +165,23 @@ input:focus-visible {
 pre,
 code,
 figure[data-rehype-pretty-code-figure] > [data-rehype-pretty-code-title] {
-  background: #000000;
-  border: 1px solid var(--panel-border);
+  background: var(--code-bg);
+  border: 1px solid var(--code-border);
   border-radius: 8px;
   box-shadow: none;
+}
+
+pre > code {
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+
+pre > code > [data-line] {
+  padding: 0.08rem 0.35rem;
+}
+
+pre > code > [data-line]::before {
+  color: #7f8899;
 }
 
 blockquote {
