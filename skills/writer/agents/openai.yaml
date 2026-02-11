@@ -1,0 +1,4 @@
+interface:
+  display_name: "Writer"
+  short_description: "Write lean technical notes for fast learning"
+  default_prompt: "Use $writer to turn my tested workflow or experiment into a lean Markdown note that helps readers troubleshoot quickly."
