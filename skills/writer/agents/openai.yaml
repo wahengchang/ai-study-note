@@ -1,4 +1,4 @@
 interface:
   display_name: "Writer"
-  short_description: "Write lean technical notes for fast learning"
-  default_prompt: "Use $writer to turn my tested workflow or experiment into a lean Markdown note that helps readers troubleshoot quickly."
+  short_description: "Write decision-ready notes for fast debugging"
+  default_prompt: "Use $writer to convert my tested AI/tooling workflow into a lean note under content/ with precise terminology and Mermaid only when it improves decisions or troubleshooting."

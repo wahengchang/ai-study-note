@@ -18,6 +18,13 @@
 - Put clear `title` in frontmatter for each note.
 - This project supports column syntax via Quartz Smart Columns, plus normal Markdown/Obsidian Markdown syntax.
 
+## Skills
+- `writer`: Turn hands-on experiments and troubleshooting into lean Quartz notes with clear structure, precise terminology, Smart Columns, and Mermaid when useful.
+- Skill file: `skills/writer/SKILL.md`.
+- Skill agent config: `skills/writer/agents/openai.yaml`.
+- `simple-draw`: Create compact, readable Mermaid diagrams for Quartz notes with LR-first layouts and high-contrast styling.
+- Skill file: `skills/simple-draw/SKILL.md`.
+
 ## Config
 - Main config files: `quartz.config.ts`, `quartz.layout.ts`.
 - Visual guideline: `docs/visual-guideline.md`.

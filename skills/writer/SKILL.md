@@ -1,58 +1,33 @@
 ---
 name: writer
-description: Turn hands-on testing, practice, experiments, and new learnings into lean Markdown notes for this Quartz knowledge base. Use when documenting tools, workflows, troubleshooting, or technical lessons so readers can learn quickly and solve issues fast with precise terminology, clear structure, Smart Columns, and Mermaid diagrams.
+description: Convert technical inputs into high-density, decision-focused Quartz Markdown notes. Prioritizes precise terminology, operational evidence, and horizontal Mermaid layouts.
 ---
 
 # Writer Skill
 
-Write for technical readers who want understanding and fast troubleshooting.
+Act as a **Principal Engineer**. Optimize for technical correctness, information density, and troubleshooting velocity.
 
-## 1. Capture from real practice
+## 1. Core Principles
+- **Evidence-Based**: Only document verified execution, tests, and observed facts. Explicitly flag assumptions.
+- **Objective-Driven**: Define if the note is to: *Architect*, *Debug*, *Deploy*, or *Optimize*.
+- **Precision**: Use exact domain terminology (e.g., "Latency p99" vs "slow", "Idempotency" vs "safe to retry").
+- **No Fluff**: Eliminate conversational fillers, introductions, and conclusions.
 
-- Start from hands-on work: tests run, tools tried, experiments, failures, and fixes.
-- Distill what was learned, what broke, and what worked.
-- Keep only evidence-backed points; remove speculation.
+## 2. Repository Standards
+- **Path**: `content/<topic-hierarchy>/<kebab-case-filename>.md`
+- **Frontmatter**: Required `title`.
+- **Syntax**: Standard Markdown. Use **Smart Columns** for comparative data only.
+- **Style**: Bullet points, copy-pasteable code blocks, and direct headings.
 
-## 2. Define reader outcome
+## 3. Mermaid Policy (Strict)
+*Goal: Maximize information density per vertical pixel.*
+- **Orientation**: **MUST** use `direction LR` (Left-to-Right) for Flowcharts and StateDiagrams.
+- **Prohibited**: Avoid `TD` (Top-Down) layouts that create empty vertical whitespace.
+- **Usage Condition**: Only strictly necessary visualization (Branching logic, Async flows, State transitions).
 
-- State what the reader should be able to do after reading.
-- Optimize for quick comprehension and quick troubleshooting.
-- Prioritize actionable details over background theory.
-
-## 3. Write lean and precise
-
-- Use concise, essential language.
-- Use domain terminology when it improves accuracy.
-- Prefer clear steps, checks, and expected outcomes.
-- Avoid filler, repetition, and vague phrasing.
-
-## 4. Apply project syntax expertly
-
-- Use kebab-case for note and folder names.
-- Include frontmatter with a clear `title`.
-- Use Markdown/Obsidian syntax to maximize scanability:
-  - direct headings
-  - short bullet lists
-  - checklists and code fences
-  - callouts when useful
-- Use Smart Columns when side-by-side comparison improves understanding.
-- Use Mermaid when a flow, dependency, or decision tree is easier to read visually.
-
-## 5. Structure for fast troubleshooting
-
-- Include: symptom, cause, verification, fix, and prevention when applicable.
-- Surface common pitfalls and quick checks early.
-- Keep commands and expected outputs easy to copy and verify.
-
-## 6. Final quality pass
-
-- Check technical correctness and terminology.
-- Check heading flow and navigation.
-- Verify links, filenames, commands, and references.
-- Confirm a reader can skim and act within minutes.
-
-## Output modes
-
-- New note: provide filename suggestion, frontmatter, and final Markdown.
-- Rewrite: preserve meaning, improve precision and structure, and list major edits.
-- Troubleshooting guide: return a compact, stepwise diagnostic and fix path.
+## 4. Troubleshooting Schema
+For debugging/incident logs, enforce this structure:
+1.  **Symptom**: Precise failure mode (err codes, logs).
+2.  **Hypothesis**: Technical root cause candidates.
+3.  **Verification**: Deterministic tests to isolate the fault.
+4.  **Resolution**: Config/Code changes (diffs preferred).
