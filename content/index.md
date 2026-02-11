@@ -2,26 +2,12 @@
 title: Mr.Chang AI Practice Notebook
 ---
 
-This is Chang's AI hands-on practice notebook. Focus on real builds, experiments, and reusable notes.
+This site is a personal AI practice notebook.
 
-## Start here
+It records real experiments, setup issues, and working solutions from day-to-day learning and building.
 
-- [[ai-foundations]]
-- [[llms]]
-- [[prompt-engineering]]
-- [[agents]]
-- [[rag]]
-- [[tools]]
-- [[projects]]
+## About This Site
 
-## Working Rules
-
-- File and folder names use `kebab-case`.
-- Use clear note titles in frontmatter.
-- Capture practical takeaways after each experiment.
-
-## Docs
-
-- [[../docs/custom-syntax|Custom Syntax]]
-- [[../docs/visual-guideline|Visual Guideline]]
-- [[../AGENTS|Project Essentials]]
+- Focus: practical AI learning, not theory-only notes
+- Style: short, implementation-first writeups
+- Goal: keep reusable references for future projects
