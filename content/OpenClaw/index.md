@@ -1,5 +1,5 @@
 ---
-title: OpenClaw Setup
+title: OpenClaw 🦞 Setup
 ---
 
 Agent workflows, tool use, and orchestration notes.
