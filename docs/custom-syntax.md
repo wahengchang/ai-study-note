@@ -36,4 +36,4 @@ You can also use normal Markdown and Obsidian-style syntax:
 
 ## Reference
 
-- Smart columns example: <https://wahengchang.github.io/quartz-note/Content-Writing/08.smart-columns>
+- Site home: <https://wahengchang.github.io/ai-study-note/>

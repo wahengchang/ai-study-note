@@ -2,6 +2,8 @@
 
 Practical AI notes built on Quartz.
 
+Site: https://wahengchang.github.io/ai-study-note/
+
 ## Project Structure
 
 - `content/`: main AI notes.
@@ -24,4 +26,5 @@ Practical AI notes built on Quartz.
 
 ## References
 
+- Live site: https://wahengchang.github.io/ai-study-note/
 - Quartz docs: https://quartz.jzhao.xyz/
