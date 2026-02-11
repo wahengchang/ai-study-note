@@ -1,15 +1,15 @@
 {
-  "name": "@jackyzha0/quartz",
-  "description": "🌱 publish your digital garden and notes as a website",
+  "name": "ai-study-note",
+  "description": "Mr.Chang AI practice notebook powered by Quartz",
   "private": true,
   "version": "4.5.2",
   "type": "module",
-  "author": "jackyzha0 <j.zhao2k19@gmail.com>",
+  "author": "wahengchang",
   "license": "MIT",
-  "homepage": "https://quartz.jzhao.xyz",
+  "homepage": "https://wahengchang.github.io/ai-study-note/",
   "repository": {
     "type": "git",
-    "url": "https://github.com/jackyzha0/quartz.git"
+    "url": "https://github.com/wahengchang/ai-study-note.git"
   },
   "scripts": {
     "clean": "find . -name '._*' -type f -delete",
