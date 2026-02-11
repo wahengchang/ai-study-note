@@ -1,0 +1,24 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+public/
+.quartz/
+
+# OS/editor
+.DS_Store
+._*
+.vscode/
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Env
+.env
+.env.*
+
+# Quartz caches
+.quartz-cache/

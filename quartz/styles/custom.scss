@@ -1,0 +1,181 @@
+@use "./base.scss";
+
+// Immersive Dark Glass foundation (see visual-guideline.md)
+:root {
+  --glass-fill: rgba(255, 255, 255, 0.035);
+  --glass-fill-strong: rgba(255, 255, 255, 0.06);
+  --glass-border: linear-gradient(135deg,
+      rgba(255, 255, 255, 0.4) 0%,
+      rgba(255, 255, 255, 0.05) 100%);
+  --glass-shadow: 0 30px 80px rgba(0, 0, 0, 0.45);
+  --glass-glow: 0 0 30px rgba(34, 211, 238, 0.35);
+}
+
+body {
+  background: linear-gradient(160deg, #0f172a 0%, #0b1020 45%, #12091f 100%);
+  background-attachment: fixed;
+}
+
+.page {
+  background: transparent;
+}
+
+.glass-panel {
+  position: relative;
+  background: var(--glass-fill);
+  border-radius: 22px;
+  border: 1px solid transparent;
+  background-clip: padding-box;
+  box-shadow: var(--glass-shadow);
+  backdrop-filter: blur(20px);
+  padding: 2rem;
+  /* Added padding to prevent content from touching edges */
+  margin-bottom: 2rem;
+  /* Spacing between panels */
+}
+
+.glass-panel::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  padding: 1px;
+  border-radius: inherit;
+  background: var(--glass-border);
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+// Apply glass styling to core layout regions
+.center>article,
+.search-container,
+.search-layout,
+.callout,
+.explorer,
+.graph,
+.toc,
+.backlinks,
+.recent-notes {
+  @extend .glass-panel;
+}
+
+// Code blocks should not have the full glass panel effect (double border issue)
+// instead give them a subtle background
+pre {
+  background: var(--glass-fill-strong);
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  padding: 1rem;
+}
+
+// Emphasize primary interactive elements with glow
+a,
+button {
+  transition: color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+}
+
+a:hover,
+button:hover {
+  color: var(--tertiary);
+}
+
+button:focus-visible,
+a:focus-visible {
+  box-shadow: 0 0 0 2px rgba(34, 211, 238, 0.35), var(--glass-glow);
+  outline: none;
+}
+
+.search-button,
+.darkmode,
+.readermode {
+  box-shadow: 0 0 18px rgba(34, 211, 238, 0.2);
+}
+
+blockquote {
+  border-left: 3px solid var(--secondary);
+  background: var(--glass-fill-strong);
+  border-radius: 16px;
+  padding: 1rem 1.25rem;
+}
+
+// put your custom CSS here!
+.split-container {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin: 1.5rem 0;
+
+  @media (max-width: 768px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.column-content {
+  min-width: 0;
+}
+
+// Fixes for Glass Panel Components (TOC, Backlinks, Graph, etc.)
+// Fixes for Glass Panel Components (TOC, Backlinks, Graph, etc.)
+.glass-panel {
+  h3 {
+    color: var(--dark); // Ensure title is white
+  }
+
+  // Ensure content text is visible
+  color: var(--darkgray);
+
+  a {
+    color: var(--darkgray) !important; // Force visible color
+    transition: color 0.2s ease;
+    text-decoration: none;
+
+    &:hover {
+      color: var(--tertiary) !important;
+    }
+  }
+
+  // Ensure TOC links are visible despite opacity logic
+  &.toc {
+    flex-shrink: 0 !important; // Prevent squashing
+    overflow-y: visible !important; // Allow expansion
+
+    a {
+      color: var(--darkgray) !important;
+    }
+
+    ul {
+      max-height: none !important;
+      padding-left: 0 !important; // Align items left
+    }
+  }
+
+  &.backlinks {
+    flex-shrink: 0 !important;
+
+    ul {
+      max-height: none !important;
+    }
+  }
+}
+
+// Ensure right sidebar scrolls if content is too tall
+.sidebar.right {
+  overflow-y: auto !important; // Enable scrolling
+  justify-content: flex-start; // Stack from top
+  gap: 2rem; // Ensure spacing
+  height: 100vh;
+  position: sticky;
+  top: 0;
+
+  // Hide scrollbar for cleaner look but allow scroll
+  &::-webkit-scrollbar {
+    display: none;
+  }
+
+  -ms-overflow-style: none;
+  /* IE and Edge */
+  scrollbar-width: none;
+  /* Firefox */
+}

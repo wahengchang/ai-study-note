@@ -1,0 +1,225 @@
+{
+  "main": {
+    "id": "8c4356300558a717",
+    "type": "split",
+    "children": [
+      {
+        "id": "b9fb29f97f7390b5",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b73a3c24a2cf3f70",
+            "type": "leaf",
+            "state": {
+              "type": "image",
+              "state": {
+                "file": "asset/sample.jpg"
+              },
+              "icon": "lucide-image",
+              "title": "sample"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "2b02a7e728671de0",
+    "type": "split",
+    "children": [
+      {
+        "id": "8242d1a309f23f8e",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "2a9ccdc740c2d668",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "c09208c32b647559",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "221ead4f163d3e43",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "727de4604e7ebe3f",
+    "type": "split",
+    "children": [
+      {
+        "id": "fcf43927b932e72d",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "b00f7aa20ee83959",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "asset/sample.jpg",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for sample"
+            }
+          },
+          {
+            "id": "1742168c9a92f4f8",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "asset/sample.jpg",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from sample"
+            }
+          },
+          {
+            "id": "23626143bb50b9dc",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "9bff8ff91e21b737",
+            "type": "leaf",
+            "state": {
+              "type": "all-properties",
+              "state": {
+                "sortOrder": "frequency",
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-archive",
+              "title": "All properties"
+            }
+          },
+          {
+            "id": "7ce7791ea97587ad",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "asset/sample.jpg",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of sample"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "b73a3c24a2cf3f70",
+  "lastOpenFiles": [
+    "Understanding-Layouts/index.md",
+    "Understanding-Layouts/08.comments-and-popovers.md",
+    "Understanding-Layouts/07.recent-notes.md",
+    "Understanding-Layouts/06.search-fulltext.md",
+    "Understanding-Layouts/05.backlinks.md",
+    "Understanding-Layouts/04.breadcrumbs.md",
+    "Understanding-Layouts/03.graph-view.md",
+    "Understanding-Layouts/02.table-of-contents.md",
+    "Understanding-Layouts/01.explorer-sidebar.md",
+    "Understanding-Layouts",
+    "Development/index.md",
+    "Designer/index.md",
+    "Understanding Layouts/index.md",
+    "Content-Writing/index.md",
+    "Understanding Layouts/08.comments-and-popovers.md",
+    "Understanding Layouts/07.recent-notes.md",
+    "Understanding Layouts/06.search-fulltext.md",
+    "Understanding Layouts/05.backlinks.md",
+    "Understanding Layouts/04.breadcrumbs.md",
+    "Understanding Layouts/03.graph-view.md",
+    "Understanding Layouts/02.table-of-contents.md",
+    "Understanding Layouts/01.explorer-sidebar.md",
+    "Understanding Layouts",
+    "Designer/05.custom-css.md",
+    "Designer/04.reader-mode.md",
+    "Designer/03.social-preview-cards.md",
+    "Designer/02.spa-routing.md",
+    "Designer/01.darkmode.md",
+    "Designer",
+    "Development",
+    "Content-Writing",
+    "asset/sample.jpg",
+    "asset/360_F_143428338_gcxw3Jcd0tJpkvvb53pfEztwtU9sxsgT.jpg",
+    "asset",
+    "04-Development",
+    "03-Design",
+    "02-Layouts",
+    "01-Content-Writing"
+  ]
+}
