@@ -127,13 +127,19 @@ button.desktop-explorer {
     }
 
     & li > a {
-      color: var(--dark);
-      opacity: 0.75;
+      color: var(--darkgray);
+      opacity: 1;
       pointer-events: all;
+      font-size: 0.92rem;
+      font-weight: $normalWeight;
+      line-height: 1.45;
+      display: inline-block;
+      padding: 0.12rem 0;
 
       &.active {
         opacity: 1;
         color: var(--tertiary);
+        font-weight: $semiBoldWeight;
       }
     }
   }
@@ -154,9 +160,9 @@ button.desktop-explorer {
 
   .folder-outer > ul {
     overflow: hidden;
-    margin-left: 6px;
-    padding-left: 0.8rem;
-    border-left: 1px solid var(--lightgray);
+    margin-left: 8px;
+    padding-left: 0.65rem;
+    border-left: 1px solid var(--gray);
   }
 }
 
@@ -165,13 +171,14 @@ button.desktop-explorer {
   display: flex;
   align-items: center;
   user-select: none;
+  min-height: 1.5rem;
 
   & div > a {
-    color: var(--secondary);
+    color: var(--darkgray);
     font-family: var(--headerFont);
-    font-size: 0.95rem;
+    font-size: 0.92rem;
     font-weight: $semiBoldWeight;
-    line-height: 1.5rem;
+    line-height: 1.45;
     display: inline-block;
   }
 
@@ -192,12 +199,12 @@ button.desktop-explorer {
     font-family: var(--headerFont);
 
     & span {
-      font-size: 0.95rem;
+      font-size: 0.92rem;
       display: inline-block;
-      color: var(--secondary);
+      color: var(--darkgray);
       font-weight: $semiBoldWeight;
       margin: 0;
-      line-height: 1.5rem;
+      line-height: 1.45;
       pointer-events: none;
     }
   }
@@ -205,7 +212,7 @@ button.desktop-explorer {
 
 .folder-icon {
   margin-right: 5px;
-  color: var(--secondary);
+  color: var(--gray);
   cursor: pointer;
   transition: transform 0.3s ease;
   backface-visibility: visible;
@@ -218,6 +225,77 @@ li:has(> .folder-outer:not(.open)) > .folder-container > svg {
 
 .folder-icon:hover {
   color: var(--tertiary);
+}
+
+// Current reading highlight in explorer
+.explorer-content li:has(> a.active) > a {
+  color: var(--tertiary) !important;
+  font-weight: $semiBoldWeight;
+  background: var(--highlight);
+  border-left: 2px solid var(--tertiary);
+  border-radius: 4px;
+  padding: 0.18rem 0.45rem;
+  margin-left: -0.45rem;
+}
+
+.explorer-content li:has(a.active) > .folder-container .folder-title,
+.explorer-content .folder-container.active .folder-title {
+  color: var(--dark) !important;
+  font-weight: $semiBoldWeight;
+}
+
+.explorer-content li:has(a.active) > .folder-container .folder-icon,
+.explorer-content .folder-container.active .folder-icon {
+  color: var(--tertiary);
+}
+
+// Hierarchy styling: top-level bolder, deeper levels muted/smaller.
+.explorer-content > ul.explorer-ul > li > a,
+.explorer-content > ul.explorer-ul > li > .folder-container .folder-title {
+  color: var(--dark);
+  font-size: 0.99rem;
+  font-weight: $semiBoldWeight;
+}
+
+.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > a,
+.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-container .folder-title {
+  color: var(--panel-muted, #737373);
+  font-size: 0.88rem;
+  font-weight: $normalWeight;
+}
+
+.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer > ul > li > a,
+.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer > ul > li > .folder-container .folder-title,
+.explorer-content
+  > ul.explorer-ul
+  > li
+  > .folder-outer
+  > ul
+  > li
+  > .folder-outer
+  > ul
+  > li
+  > .folder-outer
+  > ul
+  > li
+  > a,
+.explorer-content
+  > ul.explorer-ul
+  > li
+  > .folder-outer
+  > ul
+  > li
+  > .folder-outer
+  > ul
+  > li
+  > .folder-outer
+  > ul
+  > li
+  > .folder-container
+  .folder-title {
+  color: var(--gray);
+  font-size: 0.82rem;
+  font-weight: $normalWeight;
 }
 
 .explorer {
