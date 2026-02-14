@@ -1,24 +1,20 @@
 {
   "main": {
-    "id": "8c4356300558a717",
+    "id": "f9b47962fadf8f4d",
     "type": "split",
     "children": [
       {
-        "id": "b9fb29f97f7390b5",
+        "id": "8354950c5aab347b",
         "type": "tabs",
         "children": [
           {
-            "id": "b73a3c24a2cf3f70",
+            "id": "bd0960ee9414f981",
             "type": "leaf",
             "state": {
-              "type": "markdown",
-              "state": {
-                "file": "SetupEnv/setup-nodejs-macbook.md",
-                "mode": "source",
-                "source": false
-              },
+              "type": "empty",
+              "state": {},
               "icon": "lucide-file",
-              "title": "setup-nodejs-macbook"
+              "title": "New tab"
             }
           }
         ]
@@ -27,15 +23,15 @@
     "direction": "vertical"
   },
   "left": {
-    "id": "2b02a7e728671de0",
+    "id": "3dbfaad111ccfab9",
     "type": "split",
     "children": [
       {
-        "id": "8242d1a309f23f8e",
+        "id": "7e69adcf0527b76c",
         "type": "tabs",
         "children": [
           {
-            "id": "2a9ccdc740c2d668",
+            "id": "b342c6bd16379701",
             "type": "leaf",
             "state": {
               "type": "file-explorer",
@@ -48,7 +44,7 @@
             }
           },
           {
-            "id": "c09208c32b647559",
+            "id": "f6a5ec914d637dbb",
             "type": "leaf",
             "state": {
               "type": "search",
@@ -65,7 +61,7 @@
             }
           },
           {
-            "id": "221ead4f163d3e43",
+            "id": "56f3b5d77b88460b",
             "type": "leaf",
             "state": {
               "type": "bookmarks",
@@ -81,20 +77,19 @@
     "width": 300
   },
   "right": {
-    "id": "727de4604e7ebe3f",
+    "id": "0f4f90dfdef06964",
     "type": "split",
     "children": [
       {
-        "id": "fcf43927b932e72d",
+        "id": "b5457efec9bfe935",
         "type": "tabs",
         "children": [
           {
-            "id": "b00f7aa20ee83959",
+            "id": "02bab7ce38e6aa91",
             "type": "leaf",
             "state": {
               "type": "backlink",
               "state": {
-                "file": "asset/sample.jpg",
                 "collapseAll": false,
                 "extraContext": false,
                 "sortOrder": "alphabetical",
@@ -104,25 +99,24 @@
                 "unlinkedCollapsed": true
               },
               "icon": "links-coming-in",
-              "title": "Backlinks for sample"
+              "title": "Backlinks"
             }
           },
           {
-            "id": "1742168c9a92f4f8",
+            "id": "01ceaa7294f106a9",
             "type": "leaf",
             "state": {
               "type": "outgoing-link",
               "state": {
-                "file": "asset/sample.jpg",
                 "linksCollapsed": false,
                 "unlinkedCollapsed": true
               },
               "icon": "links-going-out",
-              "title": "Outgoing links from sample"
+              "title": "Outgoing links"
             }
           },
           {
-            "id": "23626143bb50b9dc",
+            "id": "00ab37c099761069",
             "type": "leaf",
             "state": {
               "type": "tag",
@@ -137,7 +131,7 @@
             }
           },
           {
-            "id": "9bff8ff91e21b737",
+            "id": "80f48ff12533f287",
             "type": "leaf",
             "state": {
               "type": "all-properties",
@@ -151,18 +145,17 @@
             }
           },
           {
-            "id": "7ce7791ea97587ad",
+            "id": "b53d4bb05ad051a9",
             "type": "leaf",
             "state": {
               "type": "outline",
               "state": {
-                "file": "asset/sample.jpg",
                 "followCursor": false,
                 "showSearch": false,
                 "searchQuery": ""
               },
               "icon": "lucide-list",
-              "title": "Outline of sample"
+              "title": "Outline"
             }
           }
         ]
@@ -183,52 +176,6 @@
       "bases:Create new base": false
     }
   },
-  "active": "b73a3c24a2cf3f70",
-  "lastOpenFiles": [
-    "SetupEnv/setup-chrome-devtools-on-chrome.md",
-    "assets/CodexApp with DevTools opened.png",
-    "assets/image.png",
-    "assets/Chrome with DevTools opened.png",
-    "SetupEnv/setup-nodejs-macbook.md",
-    "OpenClaw/utm-set-ubuntu.md",
-    "SetupEnv",
-    "StepUpEnv",
-    "assets/utm-ui.png",
-    "assets/openclaw-success-running.png",
-    "assets/shared-folder-working.png",
-    "assets/ssd-utm-file.png",
-    "OpenClaw/index.md",
-    "assets/utm-network-shared-mode.png",
-    "assets",
-    "Understanding-Layouts/index.md",
-    "Understanding-Layouts/08.comments-and-popovers.md",
-    "Understanding-Layouts/07.recent-notes.md",
-    "Understanding-Layouts/06.search-fulltext.md",
-    "Understanding-Layouts/05.backlinks.md",
-    "Understanding-Layouts/04.breadcrumbs.md",
-    "Understanding-Layouts/03.graph-view.md",
-    "Understanding-Layouts/02.table-of-contents.md",
-    "Understanding-Layouts/01.explorer-sidebar.md",
-    "Understanding-Layouts",
-    "Development/index.md",
-    "Designer/index.md",
-    "Understanding Layouts/index.md",
-    "Content-Writing/index.md",
-    "Understanding Layouts/08.comments-and-popovers.md",
-    "Understanding Layouts/07.recent-notes.md",
-    "Understanding Layouts/06.search-fulltext.md",
-    "Understanding Layouts/05.backlinks.md",
-    "Understanding Layouts/04.breadcrumbs.md",
-    "Understanding Layouts/03.graph-view.md",
-    "Understanding Layouts/02.table-of-contents.md",
-    "Understanding Layouts/01.explorer-sidebar.md",
-    "Understanding Layouts",
-    "Designer",
-    "Development",
-    "Content-Writing",
-    "asset/sample.jpg",
-    "asset/360_F_143428338_gcxw3Jcd0tJpkvvb53pfEztwtU9sxsgT.jpg",
-    "asset",
-    "04-Development"
-  ]
+  "active": "bd0960ee9414f981",
+  "lastOpenFiles": []
 }
