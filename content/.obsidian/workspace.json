@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "OpenClaw/ch2-architecture-implementation-guide.md",
+                "file": "OpenClaw/ch3-agent-loop-openclaw.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "ch2-architecture-implementation-guide"
+              "title": "ch3-agent-loop-openclaw"
             }
           }
         ]
@@ -186,6 +186,10 @@
   "active": "057cc660cae5d8b6",
   "lastOpenFiles": [
     "OpenClaw/ch2-architecture-implementation-guide.md",
+    "assets/OpenCLaw/agent-loop.png",
+    "assets/OpenCLaw/agent-loo.png",
+    "assets/OpenCLaw/Gemini_Generated_Image_zhi57ozhi57ozhi5.png",
+    "OpenClaw/ch3-agent-loop-openclaw.md",
     "OpenClaw/utm-set-ubuntu.md",
     "assets/OpenCLaw/openclaw-architect.png",
     "assets/OpenCLaw/Gemini_Generated_Image_groc7tgroc7tgroc.png",
@@ -203,9 +207,6 @@
     "SetupEnv",
     "StepUpEnv",
     "assets/utm-ui.png",
-    "assets/openclaw-success-running.png",
-    "assets/shared-folder-working.png",
-    "assets/ssd-utm-file.png",
     "OpenClaw/index.md",
     "assets",
     "Understanding-Layouts/index.md",
@@ -224,7 +225,6 @@
     "Content-Writing/index.md",
     "Understanding Layouts/08.comments-and-popovers.md",
     "Understanding Layouts/07.recent-notes.md",
-    "Understanding Layouts/06.search-fulltext.md",
     "Understanding Layouts",
     "Designer",
     "Development",
