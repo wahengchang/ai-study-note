@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "OpenClaw/ch5-memory-storage-and-retrieval.md",
+                "file": "OpenClaw/ch6-agent-workspace-quick-recap.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "ch5-memory-storage-and-retrieval"
+              "title": "ch6-agent-workspace-quick-recap"
             }
           }
         ]
@@ -185,10 +185,12 @@
   },
   "active": "057cc660cae5d8b6",
   "lastOpenFiles": [
+    "OpenClaw/ch5-memory-storage-and-retrieval.md",
+    "assets/OpenCLaw/workspace.png",
+    "OpenClaw/ch6-agent-workspace-quick-recap.md",
     "OpenClaw/ch4-context-window-and-prompt-budget.md",
     "assets/OpenCLaw/memory.png",
     "assets/OpenCLaw/unnamed.png",
-    "OpenClaw/ch5-memory-storage-and-retrieval.md",
     "OpenClaw/ch3-agent-loop-openclaw.md",
     "assets/OpenCLaw/context.png",
     "assets/OpenCLaw/Gemini_Generated_Image_23lhhb23lhhb23lh.png",
@@ -199,7 +201,6 @@
     "assets/OpenCLaw/Gemini_Generated_Image_zhi57ozhi57ozhi5.png",
     "OpenClaw/utm-set-ubuntu.md",
     "assets/OpenCLaw/openclaw-architect.png",
-    "assets/OpenCLaw/Gemini_Generated_Image_groc7tgroc7tgroc.png",
     "OpenClaw/openclaw-architecture-four-pillars.md",
     "OpenClaw/ch1-architecture-four-pillars.md",
     "OpenClaw/openclaw-blueprint-ch2-architecture-implementation-guide.md",
@@ -224,7 +225,6 @@
     "Development/index.md",
     "Designer/index.md",
     "Understanding Layouts/index.md",
-    "Content-Writing/index.md",
     "Understanding Layouts",
     "Designer",
     "Development",
