@@ -9,6 +9,7 @@ Agent workflows, tool use, architecture, and orchestration notes.
 - [[OpenClaw/ch2-architecture-implementation-guide|Ch2: Architecture and Implementation Guide]]
 - [[OpenClaw/ch3-agent-loop-openclaw|Ch3: Agent Loop (OpenClaw)]]
 - [[OpenClaw/ch4-context-window-and-prompt-budget|Ch4: Context (What the Model Actually Sees)]]
+- [[OpenClaw/ch5-memory-storage-and-retrieval|Ch5: Memory (Storage, Search, and Retrieval)]]
 
 Planned topics:
 
