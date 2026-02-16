@@ -4,21 +4,21 @@
     "type": "split",
     "children": [
       {
-        "id": "b9fb29f97f7390b5",
+        "id": "7382cf0c529f14ce",
         "type": "tabs",
         "children": [
           {
-            "id": "b73a3c24a2cf3f70",
+            "id": "057cc660cae5d8b6",
             "type": "leaf",
             "state": {
               "type": "markdown",
               "state": {
-                "file": "OpenClaw/openclaw-architecture-four-pillars.md",
+                "file": "OpenClaw/ch2-architecture-implementation-guide.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "openclaw-architecture-four-pillars"
+              "title": "ch2-architecture-implementation-guide"
             }
           }
         ]
@@ -183,12 +183,17 @@
       "bases:Create new base": false
     }
   },
-  "active": "b73a3c24a2cf3f70",
+  "active": "057cc660cae5d8b6",
   "lastOpenFiles": [
+    "OpenClaw/ch2-architecture-implementation-guide.md",
+    "OpenClaw/utm-set-ubuntu.md",
+    "assets/OpenCLaw/openclaw-architect.png",
+    "assets/OpenCLaw/Gemini_Generated_Image_groc7tgroc7tgroc.png",
+    "OpenClaw/openclaw-architecture-four-pillars.md",
+    "OpenClaw/ch1-architecture-four-pillars.md",
+    "OpenClaw/openclaw-blueprint-ch2-architecture-implementation-guide.md",
     "assets/OpenCLaw/openclaw-4-pillar.png",
     "assets/OpenCLaw",
-    "OpenClaw/utm-set-ubuntu.md",
-    "OpenClaw/openclaw-architecture-four-pillars.md",
     "SetupEnv/setup-nodejs-macbook.md",
     "SetupEnv/index.md",
     "SetupEnv/setup-chrome-devtools-on-chrome.md",
@@ -202,7 +207,6 @@
     "assets/shared-folder-working.png",
     "assets/ssd-utm-file.png",
     "OpenClaw/index.md",
-    "assets/utm-network-shared-mode.png",
     "assets",
     "Understanding-Layouts/index.md",
     "Understanding-Layouts/08.comments-and-popovers.md",
@@ -221,15 +225,10 @@
     "Understanding Layouts/08.comments-and-popovers.md",
     "Understanding Layouts/07.recent-notes.md",
     "Understanding Layouts/06.search-fulltext.md",
-    "Understanding Layouts/05.backlinks.md",
-    "Understanding Layouts/04.breadcrumbs.md",
-    "Understanding Layouts/03.graph-view.md",
     "Understanding Layouts",
     "Designer",
     "Development",
     "Content-Writing",
-    "asset/sample.jpg",
-    "asset/360_F_143428338_gcxw3Jcd0tJpkvvb53pfEztwtU9sxsgT.jpg",
     "asset"
   ]
 }
