@@ -11,6 +11,7 @@ Agent workflows, tool use, architecture, and orchestration notes.
 - [[OpenClaw/ch4-context-window-and-prompt-budget|Ch4: Context (What the Model Actually Sees)]]
 - [[OpenClaw/ch5-memory-storage-and-retrieval|Ch5: Memory (Storage, Search, and Retrieval)]]
 - [[OpenClaw/ch6-agent-workspace-quick-recap|Ch6: Agent Workspace (Quick Recap)]]
+- [[OpenClaw/ch7-multi-agent-and-presence-quick-recap|Ch7: Multi-Agent and Presence (Quick Recap)]]
 
 Planned topics:
 
