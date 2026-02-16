@@ -13,12 +13,12 @@
             "state": {
               "type": "markdown",
               "state": {
-                "file": "SetupEnv/setup-nodejs-macbook.md",
+                "file": "OpenClaw/openclaw-architecture-four-pillars.md",
                 "mode": "source",
                 "source": false
               },
               "icon": "lucide-file",
-              "title": "setup-nodejs-macbook"
+              "title": "openclaw-architecture-four-pillars"
             }
           }
         ]
@@ -185,13 +185,16 @@
   },
   "active": "b73a3c24a2cf3f70",
   "lastOpenFiles": [
+    "assets/OpenCLaw/openclaw-4-pillar.png",
+    "assets/OpenCLaw",
+    "OpenClaw/utm-set-ubuntu.md",
+    "OpenClaw/openclaw-architecture-four-pillars.md",
+    "SetupEnv/setup-nodejs-macbook.md",
     "SetupEnv/index.md",
     "SetupEnv/setup-chrome-devtools-on-chrome.md",
     "assets/CodexApp with DevTools opened.png",
     "assets/image.png",
     "assets/Chrome with DevTools opened.png",
-    "SetupEnv/setup-nodejs-macbook.md",
-    "OpenClaw/utm-set-ubuntu.md",
     "SetupEnv",
     "StepUpEnv",
     "assets/utm-ui.png",
@@ -221,15 +224,12 @@
     "Understanding Layouts/05.backlinks.md",
     "Understanding Layouts/04.breadcrumbs.md",
     "Understanding Layouts/03.graph-view.md",
-    "Understanding Layouts/02.table-of-contents.md",
-    "Understanding Layouts/01.explorer-sidebar.md",
     "Understanding Layouts",
     "Designer",
     "Development",
     "Content-Writing",
     "asset/sample.jpg",
     "asset/360_F_143428338_gcxw3Jcd0tJpkvvb53pfEztwtU9sxsgT.jpg",
-    "asset",
-    "04-Development"
+    "asset"
   ]
 }

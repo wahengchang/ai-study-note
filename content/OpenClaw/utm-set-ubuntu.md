@@ -1,7 +1,7 @@
 ---
-title: "$0 Free Setup: Apple Silicon Mac + UTM Ubuntu + OpenClaw AI"
+title: Setup OpenClaw in Ubuntu
 aliases:
-  - "OpenClaw/utm-set-ubuntu-copy"
+  - OpenClaw/utm-set-ubuntu-copy
 ---
 
 This guide documents a practical setup on an Apple Silicon Mac: running Ubuntu in UTM and deploying the OpenClaw AI Agent. It focuses on three high-impact areas:
