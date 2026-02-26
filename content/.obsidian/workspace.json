@@ -183,8 +183,11 @@
       "bases:Create new base": false
     }
   },
-  "active": "057cc660cae5d8b6",
+  "active": "2a9ccdc740c2d668",
   "lastOpenFiles": [
+    "assets/OpenCLaw/chrome-extension.png",
+    "OpenClaw/common-questions/openclaw-browser-cli-install-profiles-and-scenarios.md",
+    "OpenClaw/common-questions",
     "assets/OpenCLaw/agent-architect.png",
     "OpenClaw/ch6-agent-workspace-quick-recap.md",
     "OpenClaw/ch7-multi-agent-and-presence-quick-recap.md",
@@ -224,11 +227,9 @@
     "Understanding-Layouts/01.explorer-sidebar.md",
     "Understanding-Layouts",
     "Development/index.md",
-    "Designer/index.md",
     "Understanding Layouts",
     "Designer",
     "Development",
-    "Content-Writing",
-    "asset"
+    "Content-Writing"
   ]
 }
