@@ -183,8 +183,9 @@
       "bases:Create new base": false
     }
   },
-  "active": "057cc660cae5d8b6",
+  "active": "2a9ccdc740c2d668",
   "lastOpenFiles": [
+    "OpenClaw/common-questions/tmux-quick-start-prefix-panes-windows-sessions.md",
     "OpenClaw/common-questions/openclaw-reinstall-and-cleanup.md",
     "OpenClaw/skill-notes/minimax/minimax-tts.zip",
     "OpenClaw/skill-notes/minimax/Archive.zip",
@@ -229,7 +230,6 @@
     "SetupEnv/setup-chrome-devtools-on-chrome.md",
     "OpenClaw/index.md",
     "Understanding-Layouts/index.md",
-    "Understanding-Layouts/08.comments-and-popovers.md",
-    "Understanding-Layouts/07.recent-notes.md"
+    "Understanding-Layouts/08.comments-and-popovers.md"
   ]
 }
