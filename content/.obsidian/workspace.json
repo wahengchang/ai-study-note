@@ -185,6 +185,9 @@
   },
   "active": "057cc660cae5d8b6",
   "lastOpenFiles": [
+    "OpenClaw/common-questions/openclaw-reinstall-and-cleanup.md",
+    "OpenClaw/skill-notes/minimax/minimax-tts.zip",
+    "OpenClaw/skill-notes/minimax/Archive.zip",
     "OpenClaw/skill-notes/airtable-api/references/curl-templates.md",
     "OpenClaw/skill-notes/airtable-api/references/curl-template.md",
     "OpenClaw/skill-notes/airtable-api/references",
@@ -224,12 +227,9 @@
     "SetupEnv/setup-nodejs-macbook.md",
     "SetupEnv/index.md",
     "SetupEnv/setup-chrome-devtools-on-chrome.md",
-    "SetupEnv",
-    "StepUpEnv",
     "OpenClaw/index.md",
     "Understanding-Layouts/index.md",
     "Understanding-Layouts/08.comments-and-popovers.md",
-    "Understanding-Layouts/07.recent-notes.md",
-    "Understanding-Layouts/06.search-fulltext.md"
+    "Understanding-Layouts/07.recent-notes.md"
   ]
 }
