@@ -185,6 +185,7 @@
   },
   "active": "2a9ccdc740c2d668",
   "lastOpenFiles": [
+    "OpenClaw/instruction-notes/workspace-modification-guideline.md",
     "OpenClaw/instruction-notes/sync-ssh-remote-local-instructions.md",
     "OpenClaw/instruction-notes",
     "OpenClaw/instruction-setup-notes/sync-ssh-remote-local-instructions.md",
@@ -229,7 +230,6 @@
     "OpenClaw/utm-set-ubuntu.md",
     "OpenClaw/openclaw-architecture-four-pillars.md",
     "OpenClaw/ch1-architecture-four-pillars.md",
-    "OpenClaw/openclaw-blueprint-ch2-architecture-implementation-guide.md",
-    "SetupEnv/setup-nodejs-macbook.md"
+    "OpenClaw/openclaw-blueprint-ch2-architecture-implementation-guide.md"
   ]
 }
