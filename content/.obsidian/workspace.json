@@ -185,6 +185,9 @@
   },
   "active": "2a9ccdc740c2d668",
   "lastOpenFiles": [
+    "OpenClaw/common-questions/how-oc-routes-and-triggers-agents.md",
+    "OpenClaw/common-questions/how-oc-discovers-agents-via-skill-definitions.md",
+    "OpenClaw/common-questions/how-oc-searches-for-agents-discovery.md",
     "OpenClaw/common-questions/tmux-quick-start-prefix-panes-windows-sessions.md",
     "OpenClaw/common-questions/openclaw-reinstall-and-cleanup.md",
     "OpenClaw/skill-notes/minimax/minimax-tts.zip",
@@ -227,9 +230,6 @@
     "assets/OpenCLaw",
     "SetupEnv/setup-nodejs-macbook.md",
     "SetupEnv/index.md",
-    "SetupEnv/setup-chrome-devtools-on-chrome.md",
-    "OpenClaw/index.md",
-    "Understanding-Layouts/index.md",
-    "Understanding-Layouts/08.comments-and-popovers.md"
+    "SetupEnv/setup-chrome-devtools-on-chrome.md"
   ]
 }
