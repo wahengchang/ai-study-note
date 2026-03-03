@@ -4,13 +4,15 @@ title: OpenClaw 系統資產盤點指引
 
 # 📋 OpenClaw 系統資產盤點指引
 
+> 架構語彙更新（核心精簡版）：在 `openclaw.json` 中，元件關聯以**階層宣告（Hierarchy）**與**路由配置（Routing）**為主；不再使用「Binding」作為核心概念。
+
 隨著 OpenClaw 專案擴展，定期盤點系統資產是確保系統安全、效能與架構清晰的關鍵。建立或審查系統時，請務必確認以下核心元件狀態。
 
 ## 📂 核心關聯檔案與路徑 (Core Files & Directories)
 
 盤點前請確認可存取以下核心設定與目錄：
 
-- `~/.openclaw/openclaw.json`：系統大腦，定義 Agents、Workspaces、Bindings 與 Gateway 高危權限黑名單。
+- `~/.openclaw/openclaw.json`：系統大腦，定義 Channels、Agents、Skills 掛載、Routing 規則與 Gateway 高危權限黑名單。
 - `~/.openclaw/sessions/`：動態狀態，存放活躍對話上下文檔（以 `context_id` 命名）與 Pairing 狀態。
 - `[workspace_path]/`：工作區沙盒，Agent 真正活動與讀寫範圍，含長期記憶 (`AGENTS.md`) 與專屬技能 (`skills/`)。
 - `[agentDir]/`：代理人提示與鑑權檔案位置（如 `SOUL.md`、`USER.md`、`auth-profiles.json`）。
@@ -23,7 +25,7 @@ title: OpenClaw 系統資產盤點指引
 
 - Session ID (`context_id`)：系統內部追蹤唯一碼。
 - 來源頻道與對象 (`channel` & `peer.id`)：群組或私訊來源。
-- 綁定代理人 (`agentId`)：會話由哪個 Agent 接待。
+- 路由目標代理人 (`agentId`)：該 Session 由哪個 Agent 接待。
 - 授權狀態 (Auth/Pairing)：私訊是否完成配對授權。
 - 對話記憶 (Memory State)：是否已累積長期上下文（影響 Token 消耗）。
 
@@ -44,7 +46,21 @@ title: OpenClaw 系統資產盤點指引
 - 代理人 ID (`agentId`)：設定檔唯一名稱。
 - 人格設定路徑 (`agentDir`)：提示詞與鑑權檔存放位置。
 - 驅動模型 (`model`)：如 Gemini 3 Flash、Claude Opus（影響成本與效能）。
-- 入站路由 (`bindings`)：外部如何喚醒；無綁定則屬內部使用。
+- 入站路由 (`routing`)：外部事件如何由 Gateway 路由到該 Agent。
+- 技能掛載 (`skills[]`)：該 Agent Runtime 具備哪些可執行技能（例如 `skills: ["weather", "youtube"]`）。
+
+## 3.1 元件關聯架構（核心精簡版）
+
+以下為 OpenClaw 官方語彙下的最小必要關聯：
+
+- **Channel ➔ Agent**：**Routing / Trigger**  
+  Channel 是外部事件的 Ingress；Gateway 依 Routing 規則將特定 Payload 路由給指定 Agent。
+- **Agent ➔ Skill**：**Mounting / Configuration**  
+  Agent 透過屬性陣列宣告可用技能，形成能力依賴注入（Dependency Injection）。
+- **Cron ➔ Agent**：**Job / Assignment**  
+  背景非同步任務在排程表定義時間規則後，指派給特定 Agent 執行。
+- **Session**：**Session Context**  
+  Agent 由 Channel 或 Cron 喚醒時，Gateway 動態 Create/Load 對應狀態空間，以隔離該次任務的對話紀錄與變數。
 
 ## 4. 列出所有技能 (Skills)
 
@@ -64,6 +80,8 @@ title: OpenClaw 系統資產盤點指引
 - 代為執行 Agent (`agentId`)：喚醒哪個 Agent。
 - 會話隔離度 (`sessionTarget`)：獨立 `isolated` 或混入日常群組會話。
 - 投遞與失敗策略 (`delivery` & `state`)：結果發給誰、失敗是否重試或告警。
+
+> ✅ 檢查原則：若文件或設定仍出現 `bindings` 作為主關聯欄位，應改寫為 `routing`（Channel ➔ Agent）與 `skills[]`（Agent ➔ Skill）兩條主軸。
 
 ## 📝 步驟三：產出盤點分析報告（填寫矩陣）
 
