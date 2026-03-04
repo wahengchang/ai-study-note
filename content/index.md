@@ -1,13 +1,14 @@
 ---
-title: Mr.Chang AI Practice Notebook
+title: AI Study Note
 ---
 
-This site is a personal AI practice notebook.
+This site is an AI study note for engineers.
 
-It records real experiments, setup issues, and working solutions from day-to-day learning and building.
+It captures hands-on experiments, environment setup issues, and practical fixes from daily learning and building.
 
 ## About This Site
 
-- Focus: practical AI learning, not theory-only notes
-- Style: short, implementation-first writeups
+- Focus: practical AI learning and implementation notes
+- Style: concise, build-first writeups
 - Goal: keep reusable references for future projects
+- Source repository: [wahengchang/ai-study-note](https://github.com/wahengchang/ai-study-note)
