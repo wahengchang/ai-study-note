@@ -1,5 +1,5 @@
 ---
-title: OpenClaw Cron: Executor, Session, Permissions, and Cross-Agent Delivery
+title: "OpenClaw Cron: Executor, Session, Permissions, and Cross-Agent Delivery"
 ---
 
 ## Summary

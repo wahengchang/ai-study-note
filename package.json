@@ -13,9 +13,9 @@
   },
   "scripts": {
     "clean": "find . -name '._*' -type f -delete",
-    "dev": "npm run quartz -- build --serve --baseDir /ai-study-note",
-    "dev:root": "npm run quartz -- build --serve",
-    "quartz": "./quartz/bootstrap-cli.mjs",
+    "dev": "node ./quartz/bootstrap-cli.mjs build --serve --baseDir /ai-study-note",
+    "dev:root": "node ./quartz/bootstrap-cli.mjs build --serve",
+    "quartz": "node ./quartz/bootstrap-cli.mjs",
     "docs": "npx quartz build --serve -d docs",
     "check": "tsc --noEmit && npx prettier . --check",
     "format": "npx prettier . --write",

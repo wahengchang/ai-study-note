@@ -1,5 +1,7 @@
-import { QuartzConfig } from "./quartz/cfg"
-import * as Plugin from "./quartz/plugins"
+import { QuartzConfig } from "./quartz/cfg";
+import * as Plugin from "./quartz/plugins";
+
+const isServeMode = process.argv.includes("--serve");
 
 /**
  * Quartz 4 Configuration
@@ -90,10 +92,10 @@ const config: QuartzConfig = {
       Plugin.Static(),
       Plugin.Favicon(),
       Plugin.NotFoundPage(),
-      // Comment out CustomOgImages to speed up build time
-      Plugin.CustomOgImages(),
+      // OG image generation fetches fonts from the network. Skip it in local serve mode.
+      ...(isServeMode ? [] : [Plugin.CustomOgImages()]),
     ],
   },
-}
+};
 
-export default config
+export default config;
