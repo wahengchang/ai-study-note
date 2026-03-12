@@ -1,5 +1,5 @@
 ---
-title:  🦞 OpenClaw Setup
+title: 🦞 OpenClaw Setup
 ---
 
 Agent workflows, tool use, architecture, and orchestration notes.
@@ -12,6 +12,8 @@ Agent workflows, tool use, architecture, and orchestration notes.
 - [[OpenClaw/ch5-memory-storage-and-retrieval|Ch5: Memory (Storage, Search, and Retrieval)]]
 - [[OpenClaw/ch6-agent-workspace-quick-recap|Ch6: Agent Workspace (Quick Recap)]]
 - [[OpenClaw/ch7-multi-agent-and-presence-quick-recap|Ch7: Multi-Agent and Presence (Quick Recap)]]
+
+- [[OpenClaw/common-questions/orchestrated-multi-agent-workflow-a-b-three-rounds|OpenClaw: Orchestrated Multi-Agent Workflow（A/B 三回合）]]
 
 Planned topics:
 
