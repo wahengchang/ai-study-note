@@ -16,18 +16,26 @@ Understanding how each one initializes, stays active, and reloads/terminates is 
 
 ## 1) Lifecycle Timeline
 
-```text
-Time ------------------------------------------------------------------------------>
+```mermaid
+flowchart LR
+    B[1. Bootstrap
+🟢 Start: openclaw gateway start] --> B2[🔴 End: process exit]
 
-[1. Bootstrap] 🟢 start (openclaw gateway start) ==========================> 🔴 process exit
-       |
-       +--> [2. Identity] 🟢 load + memory-resident (read SKILL.md YAML) ===> 🟡 hot-reload/restart
-                  |
-                  +--> [3. User] 🟢 session created (channel connected) ====> 💾 JSON persisted state
-                             |
-                             +--> [4. Soul] 🟢 dynamic prompt synthesis ======> 🔴 destroyed per turn
-                             |
-                             +--> [5. Tools] ⚙️ invoked on demand ==========> 🔴 process done + heartbeat update
+    B --> I[2. Identity
+🟢 Load SKILL.md YAML + memory resident]
+    I --> I2[🟡 Hot-reload or gateway restart]
+
+    I --> U[3. User
+🟢 Session created when channel connects]
+    U --> U2[💾 JSON persisted state]
+
+    U --> S[4. Soul
+🟢 Dynamic prompt synthesis per turn]
+    S --> S2[🔴 Destroyed after each turn]
+
+    U --> T[5. Tools
+⚙️ Invoked on demand]
+    T --> T2[🔴 Subprocess exits + heartbeat update]
 ```
 
 ## 2) Deep Dive by Component
