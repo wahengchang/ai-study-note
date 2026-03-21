@@ -4,6 +4,8 @@ title: 🦞 OpenClaw Setup
 
 Agent workflows, tool use, architecture, and orchestration notes.
 
+> Note: Removed outdated note `openclaw-subagent-workflow-handbook`.
+
 - [[OpenClaw/utm-set-ubuntu|Setup OpenClaw in Ubuntu]]
 - [[OpenClaw/ch1-architecture-four-pillars|Ch1: Architecture Four Pillars]]
 - [[OpenClaw/ch2-architecture-implementation-guide|Ch2: Architecture and Implementation Guide]]
