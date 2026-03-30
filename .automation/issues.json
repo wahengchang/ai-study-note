@@ -1,0 +1,10 @@
+{
+  "29": {
+    "title": "撰寫：learn-claude-code 研究筆記（zh-TW，可直接複用）",
+    "status": "in_progress",
+    "started_at": "2026-03-30T00:00:00Z",
+    "branch": "auto/issue-29",
+    "pr": null,
+    "notes": "研究 shareAI-lab/learn-claude-code repo，撰寫繁中筆記至 content/Claude/"
+  }
+}
