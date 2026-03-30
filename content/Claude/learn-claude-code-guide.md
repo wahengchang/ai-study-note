@@ -1,31 +1,55 @@
 ---
-title: "learn-claude-code 研究筆記"
-description: "shareAI-lab/learn-claude-code 完整研究整理，涵蓋 Agent 架構、工具模式、團隊協作等可複用知識"
+title: "AI Agent 駕駛框架全解析：從 30 行 Loop 到多 Agent 團隊"
+description: "基於 learn-claude-code 的 Harness Framework 操作手冊，涵蓋 agent 架構演進、工具模式、團隊協作——一份可直接落地的工作流框架"
 tags:
   - claude-code
   - agent
-  - study-note
+  - harness-framework
+  - operating-playbook
 ---
 
-# learn-claude-code 研究筆記
+# AI Agent 駕駛框架全解析：從 30 行 Loop 到多 Agent 團隊
 
-> 來源 Repo：[shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code)
+> 基於 [shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的 Harness Framework 操作手冊
 > License: MIT ｜ 語言：Python / TypeScript / Markdown
+
+---
+
+## 這篇文章是什麼
+
+這不是一般的 repo 摘要。
+
+這是一份 **AI Agent 駕駛框架 (Harness Framework) 的完整操作手冊**。它回答的核心問題是：**模型這麼強，你該怎麼「駕駛」它？**
+
+learn-claude-code 提出了一個關鍵洞見：**Model IS the Agent**——模型本身就是 agent，你寫的程式碼不是 agent，而是「駕駛框架 (harness)」。你的工作不是打造 AI，而是打造讓 AI 發揮的載具。
+
+這篇文章把這套框架從 12 個漸進式 session 中提煉出來，整理成可直接套用的架構模式、安全機制、團隊協作協議。無論你是在用 Claude Code、建自己的 agent、還是設計多 agent 工作流，這份手冊都是你的操作參考。
+
+**適合誰：**
+- 正在用 Claude Code 但想理解「它為什麼這樣設計」的開發者
+- 想從零打造 agent 的工程師
+- 需要設計多 agent 協作系統的架構師
+
+**什麼時候該回來看：**
+- 開始建新 agent 時（選對複雜度等級）
+- Agent 的 context 爆了（三層壓縮策略）
+- 需要多 agent 平行工作（JSONL mailbox + worktree 隔離）
+- 想加新工具但不確定怎麼設計（tool dispatch map 模式）
 
 ---
 
 ## TL;DR
 
-1. **核心理念**：「Model IS the Agent」— 模型本身就是 agent，周圍的程式碼是「駕駛框架 (harness)」，不是 agent 本體
-2. **12 階段漸進式學習**：從最基本的 agent loop（30 行），一路到 worktree 隔離的多 agent 團隊
+1. **核心公式**：`Harness = Tools + Knowledge + Observation + Actions + Permissions`——模型是駕駛，harness 是載具
+2. **12 階段漸進式架構**：從最基本的 agent loop（30 行），一路到 worktree 隔離的多 agent 團隊
 3. **每階段只加一個機制**：loop → tool dispatch → todo → subagent → skill loading → context compact → task system → background → teams → protocols → autonomous → worktree
 4. **技能系統 (Skill)**：SKILL.md + YAML frontmatter 的兩層載入模式，省 token 又靈活
 5. **安全防護完整**：path traversal 防護、危險指令黑名單、timeout、output 截斷、遞迴防護
 6. **多模型支援**：Claude / MiniMax / GLM / Kimi / DeepSeek 皆可用
 7. **附帶互動學習平台**：Next.js 建的視覺化教學網站
-8. **適合對象**：想從零理解 AI agent 架構的開發者，特別是已經在用 Claude Code 的人
-9. **最大價值**：不是教你「怎麼用」Claude Code，而是教你「Claude Code 是怎麼建出來的」
-10. **直接可用**：每個 session 的 Python 實作都可以獨立執行，也有 scaffold 腳本快速生成專案
+8. **不教你用工具，教你造工具**：揭示 Claude Code 背後的設計原理
+9. **直接可用**：每個 session 的 Python 實作都可以獨立執行，也有 scaffold 腳本快速生成專案
+10. **五級複雜度選擇**：從 Level 0（loop + bash）到 Level 4（teams + worktree），按需選用不過度工程
 
 ---
 
@@ -33,7 +57,7 @@ tags:
 
 ### 專案定位
 
-這是一個**教學型 repo**，目標是讓你理解 AI coding agent 的內部運作原理。它不是 Claude Code 的文件，而是一個「從零打造 Claude Code 等級 agent」的實作教程。
+這是一份 **Harness Engineering 的實作教科書**。它不是教你怎麼用 Claude Code，而是教你 Claude Code 是怎麼被建出來的——從第一行 while loop 到完整的多 agent 作業系統。
 
 ### 主要內容範圍
 

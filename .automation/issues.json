@@ -1,10 +1,26 @@
 {
   "29": {
     "title": "撰寫：learn-claude-code 研究筆記（zh-TW，可直接複用）",
-    "status": "in_progress",
+    "status": "pr_open",
     "started_at": "2026-03-30T00:00:00Z",
     "branch": "auto/issue-29",
-    "pr": null,
+    "pr": 30,
     "notes": "研究 shareAI-lab/learn-claude-code repo，撰寫繁中筆記至 content/Claude/"
+  },
+  "31": {
+    "title": "撰寫：agentskills 研究筆記（zh-TW，可直接複用）",
+    "status": "pr_open",
+    "started_at": "2026-03-30T00:00:00Z",
+    "branch": "auto/issue-31",
+    "pr": 32,
+    "notes": "研究 agentskills/agentskills repo，撰寫繁中筆記至 content/Claude/"
+  },
+  "33": {
+    "title": "更新：重寫 learn-claude-code 文章標題與 overview（改以 harness framework 定位）",
+    "status": "in_progress",
+    "started_at": "2026-03-30T00:00:00Z",
+    "branch": "auto/issue-33",
+    "pr": null,
+    "notes": "重寫標題與 overview，改以 harness framework 定位"
   }
 }
