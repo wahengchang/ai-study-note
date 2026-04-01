@@ -241,22 +241,6 @@ export function renderPage(
   const Header = HeaderConstructor()
   const Body = BodyConstructor()
 
-  const LeftComponent = (
-    <div class="left sidebar">
-      {left.map((BodyComponent) => (
-        <BodyComponent {...componentData} />
-      ))}
-    </div>
-  )
-
-  const RightComponent = (
-    <div class="right sidebar">
-      {right.map((BodyComponent) => (
-        <BodyComponent {...componentData} />
-      ))}
-    </div>
-  )
-
   const lang = componentData.fileData.frontmatter?.lang ?? cfg.locale?.split("-")[0] ?? "en"
   const direction = i18n(cfg.locale).direction ?? "ltr"
   const doc = (
@@ -265,8 +249,12 @@ export function renderPage(
       <body data-slug={slug}>
         <div id="quartz-root" class="page">
           <Body {...componentData}>
-            {LeftComponent}
-            <div class="center">
+            <nav class="left sidebar" aria-label="site navigation">
+              {left.map((BodyComponent) => (
+                <BodyComponent {...componentData} />
+              ))}
+            </nav>
+            <main class="center">
               <div class="page-header">
                 <Header {...componentData}>
                   {header.map((HeaderComponent) => (
@@ -279,15 +267,21 @@ export function renderPage(
                   ))}
                 </div>
               </div>
-              <Content {...componentData} />
+              <article>
+                <Content {...componentData} />
+              </article>
               <hr />
               <div class="page-footer">
                 {afterBody.map((BodyComponent) => (
                   <BodyComponent {...componentData} />
                 ))}
               </div>
-            </div>
-            {RightComponent}
+            </main>
+            <aside class="right sidebar" aria-label="related content">
+              {right.map((BodyComponent) => (
+                <BodyComponent {...componentData} />
+              ))}
+            </aside>
             <Footer {...componentData} />
           </Body>
         </div>

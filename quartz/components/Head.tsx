@@ -1,10 +1,12 @@
 import { i18n } from "../i18n"
-import { FullSlug, getFileExtension, joinSegments, pathToRoot } from "../util/path"
+import { FullSlug, getFileExtension, joinSegments, pathToRoot, simplifySlug } from "../util/path"
 import { CSSResourceToStyleElement, JSResourceToScriptElement } from "../util/resources"
 import { googleFontHref, googleFontSubsetHref } from "../util/theme"
 import { QuartzComponent, QuartzComponentConstructor, QuartzComponentProps } from "./types"
 import { unescapeHTML } from "../util/escape"
 import { CustomOgImagesEmitterName } from "../plugins/emitters/ogImage"
+import { getDate } from "./Date"
+
 export default (() => {
   const Head: QuartzComponent = ({
     cfg,
@@ -31,10 +33,82 @@ export default (() => {
     const socialUrl =
       fileData.slug === "404" ? url.toString() : joinSegments(url.toString(), fileData.slug!)
 
+    // Canonical URL for the current page
+    const canonicalUrl = socialUrl
+
     const usesCustomOgImage = ctx.cfg.plugins.emitters.some(
       (e) => e.name === CustomOgImagesEmitterName,
     )
     const ogImageDefaultPath = `https://${cfg.baseUrl}/static/og-image.png`
+
+    // Determine if this is a content page (article) vs index/listing page
+    const isHomePage = fileData.slug === "index"
+    const is404 = fileData.slug === "404"
+    const isContentPage = !isHomePage && !is404 && !fileData.slug?.startsWith("tags/")
+    const ogType = isContentPage ? "article" : "website"
+
+    // Date metadata for article pages
+    const createdDate = fileData.dates?.created
+    const modifiedDate = fileData.dates?.modified ?? getDate(cfg, fileData)
+
+    // Build JSON-LD structured data
+    const jsonLd: Record<string, unknown> = isContentPage
+      ? {
+          "@context": "https://schema.org",
+          "@type": "Article",
+          headline: fileData.frontmatter?.title ?? title,
+          description: description,
+          url: canonicalUrl,
+          ...(createdDate && { datePublished: createdDate.toISOString() }),
+          ...(modifiedDate && { dateModified: modifiedDate.toISOString() }),
+          publisher: {
+            "@type": "Organization",
+            name: cfg.pageTitle,
+            url: `https://${cfg.baseUrl}`,
+          },
+          mainEntityOfPage: {
+            "@type": "WebPage",
+            "@id": canonicalUrl,
+          },
+        }
+      : {
+          "@context": "https://schema.org",
+          "@type": "WebSite",
+          name: cfg.pageTitle,
+          url: `https://${cfg.baseUrl}`,
+        }
+
+    // Build BreadcrumbList structured data from slug path
+    const breadcrumbItems: { "@type": string; position: number; name: string; item?: string }[] = []
+    if (fileData.slug && !is404) {
+      const slugParts = simplifySlug(fileData.slug).split("/").filter(Boolean)
+      breadcrumbItems.push({
+        "@type": "ListItem",
+        position: 1,
+        name: "Home",
+        item: `https://${cfg.baseUrl}`,
+      })
+      let currentPath = ""
+      slugParts.forEach((part, idx) => {
+        currentPath += `${part}/`
+        const isLast = idx === slugParts.length - 1
+        breadcrumbItems.push({
+          "@type": "ListItem",
+          position: idx + 2,
+          name: part.replaceAll("-", " "),
+          ...(isLast ? {} : { item: `https://${joinSegments(cfg.baseUrl ?? "", currentPath)}` }),
+        })
+      })
+    }
+
+    const breadcrumbJsonLd =
+      breadcrumbItems.length > 1
+        ? {
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: breadcrumbItems,
+          }
+        : null
 
     return (
       <head>
@@ -53,14 +127,39 @@ export default (() => {
         <link rel="preconnect" href="https://cdnjs.cloudflare.com" crossOrigin="anonymous" />
         <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-        <meta name="og:site_name" content={cfg.pageTitle}></meta>
+        {/* Canonical URL */}
+        <link rel="canonical" href={canonicalUrl} />
+
+        {/* Robots directive */}
+        {is404 ? (
+          <meta name="robots" content="noindex, follow" />
+        ) : (
+          <meta name="robots" content="index, follow" />
+        )}
+
+        {/* Open Graph */}
+        <meta property="og:site_name" content={cfg.pageTitle} />
         <meta property="og:title" content={title} />
-        <meta property="og:type" content="website" />
+        <meta property="og:type" content={ogType} />
+        <meta property="og:description" content={description} />
+        <meta property="og:image:alt" content={description} />
+
+        {/* Article-specific OG meta tags */}
+        {isContentPage && createdDate && (
+          <meta property="article:published_time" content={createdDate.toISOString()} />
+        )}
+        {isContentPage && modifiedDate && (
+          <meta property="article:modified_time" content={modifiedDate.toISOString()} />
+        )}
+        {isContentPage &&
+          fileData.frontmatter?.tags?.map((tag: string) => (
+            <meta property="article:tag" content={tag} />
+          ))}
+
+        {/* Twitter Card */}
         <meta name="twitter:card" content="summary_large_image" />
         <meta name="twitter:title" content={title} />
         <meta name="twitter:description" content={description} />
-        <meta property="og:description" content={description} />
-        <meta property="og:image:alt" content={description} />
 
         {!usesCustomOgImage && (
           <>
@@ -76,15 +175,28 @@ export default (() => {
 
         {cfg.baseUrl && (
           <>
-            <meta property="twitter:domain" content={cfg.baseUrl}></meta>
-            <meta property="og:url" content={socialUrl}></meta>
-            <meta property="twitter:url" content={socialUrl}></meta>
+            <meta property="twitter:domain" content={cfg.baseUrl} />
+            <meta property="og:url" content={socialUrl} />
+            <meta property="twitter:url" content={socialUrl} />
           </>
         )}
 
         <link rel="icon" href={iconPath} />
         <meta name="description" content={description} />
         <meta name="generator" content="Quartz" />
+
+        {/* Structured Data: Article or WebSite */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+        />
+        {/* Structured Data: BreadcrumbList */}
+        {breadcrumbJsonLd && (
+          <script
+            type="application/ld+json"
+            dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbJsonLd) }}
+          />
+        )}
 
         {css.map((resource) => CSSResourceToStyleElement(resource, true))}
         {js
