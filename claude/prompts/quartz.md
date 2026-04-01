@@ -6,15 +6,16 @@ Reusable prompt fragment for Quartz-specific syntax, config, and build rules.
 
 ```
 content/
-├── Claude/              # Claude API and tools
-├── OpenClaw/            # Main tutorial series (ch1–ch7)
-│   ├── common-questions/
-│   ├── instruction-notes/
-│   └── skill-notes/
-├── SEO&GEO/             # Search and geo optimization
-├── SetupEnv/            # Environment setup
-├── gemini-prompts/      # Google Gemini examples
-└── index.md             # Landing page
+├── claude-code/              # Claude Code ecosystem
+│   └── tools-and-skills/     # Plugins, hooks, channels, frameworks
+├── openclaw/                 # OpenClaw agent framework (ch1–ch7)
+│   ├── common-questions/     # FAQ-style deep dives
+│   ├── instruction-notes/    # SOPs and operational guides
+│   └── skill-notes/          # Skill definitions with references
+├── gemini-prompts/           # Google Gemini prompt templates
+├── seo-and-geo/              # SEO & GEO strategy
+├── setup-env/                # Development environment setup
+└── index.md                  # Landing page
 ```
 
 ## Frontmatter
@@ -23,11 +24,23 @@ Required fields:
 
 ```yaml
 ---
-title: Your Note Title
+title: "Note Title"
 ---
 ```
 
-Optional fields supported by Quartz plugins: `date`, `tags`, `description`, `draft`.
+Recommended fields:
+
+```yaml
+description: "One-line summary (≤160 chars)"
+tags:
+  - platform-tag    # claude-code | openclaw | gemini | google-workspace
+  - topic-tag       # agent-architecture | automation | devops | ...
+  - type-tag        # guide | reference | tutorial | playbook | sop | template
+```
+
+Optional fields: `date`, `aliases`, `draft`.
+
+Full tag taxonomy and frontmatter rules: `docs/system-rules.md`.
 
 ## Supported Syntax
 

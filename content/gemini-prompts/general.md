@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - templates
+description: "Universal Gemini prompt patterns — research, analysis, and structured output workflows"
 ---
 
 # 通用 Prompt 範本與工作流

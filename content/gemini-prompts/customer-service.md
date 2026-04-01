@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - customer-service
+description: "Gemini prompts for customer service — empathetic complaint responses, escalation templates, and FAQ drafting"
 ---
 
 # 客戶服務 Prompt 範本

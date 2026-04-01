@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - marketing
+description: "Gemini prompts for marketing — campaign briefs, social media copy, and audience analysis"
 ---
 
 # 行銷 Prompt 範本

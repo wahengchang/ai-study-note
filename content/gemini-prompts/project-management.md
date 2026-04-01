@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - project-management
+description: "Gemini prompts for project management — status reports, risk assessments, and sprint planning"
 ---
 
 # 專案管理 Prompt 範本

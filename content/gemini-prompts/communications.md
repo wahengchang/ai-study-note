@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - communications
+description: "Gemini prompts for PR and communications — press releases, internal announcements, and stakeholder updates"
 ---
 
 # 溝通公關 Prompt 範本

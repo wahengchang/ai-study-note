@@ -5,6 +5,7 @@ tags:
   - Gemini
   - prompting
   - templates
+description: "Index of reusable Gemini prompt templates organized by business function"
 ---
 
 # Gemini 可複用 Prompt 範本集
