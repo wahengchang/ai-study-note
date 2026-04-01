@@ -22,3 +22,6 @@ yarn-error.log*
 
 # Quartz caches
 .quartz-cache/
+
+# Automation
+.automation/issues.json
