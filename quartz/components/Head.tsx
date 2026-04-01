@@ -44,39 +44,89 @@ export default (() => {
     // Determine if this is a content page (article) vs index/listing page
     const isHomePage = fileData.slug === "index"
     const is404 = fileData.slug === "404"
-    const isContentPage = !isHomePage && !is404 && !fileData.slug?.startsWith("tags/")
+    const isTagPage = fileData.slug?.startsWith("tags/") ?? false
+    const isFolderPage =
+      !isHomePage && !is404 && !isTagPage && fileData.slug?.endsWith("/index")
+    const isContentPage = !isHomePage && !is404 && !isTagPage && !isFolderPage
     const ogType = isContentPage ? "article" : "website"
 
     // Date metadata for article pages
     const createdDate = fileData.dates?.created
     const modifiedDate = fileData.dates?.modified ?? getDate(cfg, fileData)
 
+    // Estimate word count for article schema
+    const wordCount = fileData.text ? fileData.text.split(/\s+/).length : undefined
+
+    // OG image URL for structured data
+    const ogImageUrl = usesCustomOgImage
+      ? `https://${joinSegments(cfg.baseUrl ?? "", fileData.slug + ".png")}`
+      : ogImageDefaultPath
+
     // Build JSON-LD structured data
-    const jsonLd: Record<string, unknown> = isContentPage
-      ? {
-          "@context": "https://schema.org",
-          "@type": "Article",
-          headline: fileData.frontmatter?.title ?? title,
-          description: description,
-          url: canonicalUrl,
-          ...(createdDate && { datePublished: createdDate.toISOString() }),
-          ...(modifiedDate && { dateModified: modifiedDate.toISOString() }),
-          publisher: {
-            "@type": "Organization",
-            name: cfg.pageTitle,
-            url: `https://${cfg.baseUrl}`,
+    let jsonLd: Record<string, unknown>
+
+    if (isContentPage) {
+      jsonLd = {
+        "@context": "https://schema.org",
+        "@type": "Article",
+        headline: fileData.frontmatter?.title ?? title,
+        description: description,
+        url: canonicalUrl,
+        image: ogImageUrl,
+        ...(wordCount && { wordCount }),
+        ...(fileData.frontmatter?.tags?.length && { keywords: fileData.frontmatter.tags.join(", ") }),
+        ...(createdDate && { datePublished: createdDate.toISOString() }),
+        ...(modifiedDate && { dateModified: modifiedDate.toISOString() }),
+        author: {
+          "@type": "Person",
+          name: "AI Study Note",
+          url: `https://${cfg.baseUrl}`,
+        },
+        publisher: {
+          "@type": "Organization",
+          name: cfg.pageTitle,
+          url: `https://${cfg.baseUrl}`,
+          logo: {
+            "@type": "ImageObject",
+            url: `https://${joinSegments(cfg.baseUrl ?? "", "static/icon.png")}`,
           },
-          mainEntityOfPage: {
-            "@type": "WebPage",
-            "@id": canonicalUrl,
-          },
-        }
-      : {
-          "@context": "https://schema.org",
+        },
+        mainEntityOfPage: {
+          "@type": "WebPage",
+          "@id": canonicalUrl,
+        },
+      }
+    } else if (isTagPage || isFolderPage) {
+      jsonLd = {
+        "@context": "https://schema.org",
+        "@type": "CollectionPage",
+        name: fileData.frontmatter?.title ?? title,
+        description: description,
+        url: canonicalUrl,
+        isPartOf: {
           "@type": "WebSite",
           name: cfg.pageTitle,
           url: `https://${cfg.baseUrl}`,
-        }
+        },
+      }
+    } else {
+      // Homepage / WebSite schema with SearchAction
+      jsonLd = {
+        "@context": "https://schema.org",
+        "@type": "WebSite",
+        name: cfg.pageTitle,
+        url: `https://${cfg.baseUrl}`,
+        description: description,
+        potentialAction: {
+          "@type": "SearchAction",
+          target: {
+            "@type": "EntryPoint",
+            urlTemplate: `https://${cfg.baseUrl}/?q={search_term_string}`,
+          },
+          "query-input": "required name=search_term_string",
+        },
+      }
+    }
 
     // Build BreadcrumbList structured data from slug path
     const breadcrumbItems: { "@type": string; position: number; name: string; item?: string }[] = []
@@ -182,6 +232,8 @@ export default (() => {
         )}
 
         <link rel="icon" href={iconPath} />
+        <link rel="apple-touch-icon" href={iconPath} />
+        <meta name="theme-color" content="#050505" />
         <meta name="description" content={description} />
         <meta name="generator" content="Quartz" />
 

@@ -43,11 +43,14 @@ function generateSiteMap(cfg: GlobalConfiguration, idx: ContentIndexMap): string
   const base = cfg.baseUrl ?? ""
   const createURLEntry = (slug: SimpleSlug, content: ContentDetails): string => {
     const isIndex = slug === "" || slug === "/"
-    const priority = isIndex ? "1.0" : "0.8"
+    const depth = slug.split("/").filter(Boolean).length
+    // Homepage: 1.0, top-level pages: 0.9, nested: 0.8, deep nested: 0.7
+    const priority = isIndex ? "1.0" : depth <= 1 ? "0.9" : depth <= 2 ? "0.8" : "0.7"
+    const changefreq = isIndex ? "daily" : "weekly"
     return `<url>
     <loc>https://${joinSegments(base, encodeURI(slug))}</loc>
     ${content.date ? `<lastmod>${content.date.toISOString()}</lastmod>` : ""}
-    <changefreq>weekly</changefreq>
+    <changefreq>${changefreq}</changefreq>
     <priority>${priority}</priority>
   </url>`
   }
@@ -84,14 +87,18 @@ function generateRSSFeed(cfg: GlobalConfiguration, idx: ContentIndexMap, limit?:
     .slice(0, limit ?? idx.size)
     .join("")
 
+  const rssUrl = `https://${joinSegments(base, "index.xml")}`
+  const language = cfg.locale?.replace("_", "-") ?? "en"
   return `<?xml version="1.0" encoding="UTF-8" ?>
-<rss version="2.0">
+<rss version="2.0" xmlns:atom="http://www.w3.org/2005/Atom">
     <channel>
       <title>${escapeHTML(cfg.pageTitle)}</title>
       <link>https://${base}</link>
+      <atom:link href="${rssUrl}" rel="self" type="application/rss+xml" />
       <description>${!!limit ? i18n(cfg.locale).pages.rss.lastFewNotes({ count: limit }) : i18n(cfg.locale).pages.rss.recentNotes} on ${escapeHTML(
         cfg.pageTitle,
       )}</description>
+      <language>${language}</language>
       <generator>Quartz -- quartz.jzhao.xyz</generator>
       ${items}
     </channel>
