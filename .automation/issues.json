@@ -1,11 +1,11 @@
 {
   "29": {
     "title": "撰寫：learn-claude-code 研究筆記（zh-TW，可直接複用）",
-    "status": "pr_open",
+    "status": "done",
     "started_at": "2026-03-30T00:00:00Z",
     "branch": "auto/issue-29",
     "pr": 30,
-    "notes": "研究 shareAI-lab/learn-claude-code repo，撰寫繁中筆記至 content/Claude/"
+    "notes": "PR #30 已 merged"
   },
   "31": {
     "title": "撰寫：agentskills 研究筆記（zh-TW，可直接複用）",
@@ -17,11 +17,11 @@
   },
   "33": {
     "title": "更新：重寫 learn-claude-code 文章標題與 overview（改以 harness framework 定位）",
-    "status": "pr_open",
+    "status": "done",
     "started_at": "2026-03-30T00:00:00Z",
     "branch": "auto/issue-33",
     "pr": 34,
-    "notes": "重寫標題與 overview，改以 harness framework 定位"
+    "notes": "PR #34 已 merged"
   },
   "35": {
     "title": "加入 GA4 到 wahengchang.github.io/ai-study-note",
