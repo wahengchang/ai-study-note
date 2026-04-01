@@ -31,12 +31,20 @@
     "pr": null,
     "notes": "GA4 已在 quartz.config.ts 中配置 (provider: google, tagId: G-HQ2GFFXNDD)，無需額外修改"
   },
+  "36": {
+    "title": "Search for AI developer jobs",
+    "status": "pr_open",
+    "started_at": "2026-04-01T00:00:00Z",
+    "branch": "auto/issue-36",
+    "pr": 38,
+    "notes": "搜尋 AI developer 相關職缺，整理來源與基本資訊"
+  },
   "37": {
     "title": "Research Google Workspace with Gemini Prompt Guide",
-    "status": "pr_open",
+    "status": "done",
     "started_at": "2026-04-01T00:00:00Z",
     "branch": "auto/issue-37",
     "pr": 39,
-    "notes": "研究 Google Gemini Prompt Guide PDF，撰寫繁中研究筆記"
+    "notes": "PR #39 已 merged"
   }
 }
