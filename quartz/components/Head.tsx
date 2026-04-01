@@ -29,9 +29,10 @@ export default (() => {
     const baseDir = fileData.slug === "404" ? path : pathToRoot(fileData.slug!)
     const iconPath = joinSegments(baseDir, "static/icon.png")
 
-    // Url of current page
-    const socialUrl =
+    // Url of current page — strip trailing /index for clean canonical URLs
+    const rawUrl =
       fileData.slug === "404" ? url.toString() : joinSegments(url.toString(), fileData.slug!)
+    const socialUrl = rawUrl.replace(/\/index$/, "/")
 
     // Canonical URL for the current page
     const canonicalUrl = socialUrl

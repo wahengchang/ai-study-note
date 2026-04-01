@@ -35,11 +35,24 @@ function computeTagInfo(
         tag === "index"
           ? i18n(locale).pages.tagContent.tagIndex
           : `${i18n(locale).pages.tagContent.tag}: ${tag}`
+
+      // Count notes under this tag for a meaningful description
+      const tagCount =
+        tag === "index"
+          ? tags.size - 1 // exclude the "index" pseudo-tag
+          : allFiles.filter((f) => (f.frontmatter?.tags ?? []).includes(tag)).length
+
+      const description =
+        tag === "index"
+          ? i18n(locale).pages.tagContent.itemsUnderTag({ count: tagCount })
+          : i18n(locale).pages.tagContent.itemsUnderTag({ count: tagCount })
+
       return [
         tag,
         defaultProcessedContent({
           slug: joinSegments("tags", tag) as FullSlug,
           frontmatter: { title, tags: [] },
+          description,
         }),
       ]
     }),
