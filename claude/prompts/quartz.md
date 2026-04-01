@@ -53,6 +53,8 @@ Full tag taxonomy and frontmatter rules: `docs/system-rules.md`.
 | Math | `$...$` or `$$...$$` | KaTeX rendering |
 | Mermaid | ` ```mermaid ` | See mermaid.md for rules |
 | Code blocks | ` ```lang ` | Shiki syntax highlighting |
+| YouTube embed | `![](https://youtube.com/watch?v=ID)` | Auto-converts to iframe |
+| Media embed | `![](file.mp4)` | Video, audio, PDF supported |
 
 ## Build & Verify
 

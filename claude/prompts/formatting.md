@@ -6,7 +6,19 @@ Reusable prompt fragment for Markdown style and structure conventions.
 
 - **Naming**: All files and folders use `kebab-case`.
 - **Location**: Notes go under `content/<topic-hierarchy>/`.
-- **Frontmatter**: Every `.md` file must start with YAML frontmatter containing at minimum a `title` field.
+- **Frontmatter**: Every `.md` file must start with YAML frontmatter containing at minimum a `title` field. Recommended: include `description` and `tags`.
+
+Minimal frontmatter:
+
+```yaml
+---
+title: "Note Title"
+description: "One-line summary (≤160 chars)"
+tags:
+  - platform-tag
+  - topic-tag
+---
+```
 
 ## Writing Style
 

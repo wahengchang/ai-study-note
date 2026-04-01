@@ -31,11 +31,14 @@ npm run clean                    # Remove macOS ._* files
 ## Writing Rules
 
 1. **File naming**: `kebab-case` for all notes and folders.
-2. **Frontmatter**: Every note requires a `title` field.
+2. **Frontmatter**: Every note requires a `title` field. Recommended: `description` (≤160 chars) and `tags`.
 3. **Syntax**: Standard Markdown + Obsidian wikilinks + Smart Columns (`:::col`).
 4. **Style**: Bullet points, copy-pasteable code blocks, direct headings. No fluff.
 5. **Mermaid**: Use `direction LR` only. Never `TD`. Include only when visualization adds clarity.
 6. **Terminology**: Use precise domain terms (e.g., "p99 latency" not "slow").
+7. **Media embeds**: YouTube videos via `![](https://www.youtube.com/watch?v=VIDEO_ID)`. Supported formats: `youtu.be/`, `youtube.com/watch?v=`, `youtube.com/embed/`.
+
+Full writing governance, tag taxonomy, and frontmatter schema: `docs/system-rules.md`.
 
 ## Prompt System
 
@@ -84,5 +87,6 @@ Reference agents by name when delegating tasks:
 
 - `quartz.config.ts` — Site config, plugins, theme.
 - `quartz.layout.ts` — Page layout and sidebar components.
+- `docs/system-rules.md` — Tag taxonomy, frontmatter schema, linking protocols.
 - `docs/visual-guideline.md` — Full design token reference.
 - `docs/custom-syntax.md` — Smart Columns and extended syntax.

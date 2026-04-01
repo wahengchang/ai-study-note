@@ -16,6 +16,9 @@ defaults:
   file_naming: kebab-case
   frontmatter_required:
     - title
+  frontmatter_recommended:
+    - description
+    - tags
 
 agents:
   writer:
