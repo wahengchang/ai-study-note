@@ -5,15 +5,15 @@ title: OpenClaw Telegram 模式 1（單 Bot）部署教學與高頻故障排查
 ## Objective
 
 - **Objective**: Deploy + Debug
-- 目標讀者：需要把 OpenClaw 接到 Telegram 群組的工程師/維運。
-- 範圍：`模式 1：單 Bot（所有群組共用同一智能體身份）`。
+- 目標讀者：需要把 OpenClaw 接到 Telegram 群組的工程師／維運人員。
+- 範圍：`模式 1：單 Bot（所有群組共用同一 Agent 身份）`。
 
 ## 1) 模式定義（先對齊語義）
 
 - 單 Bot 模式：一個 `botToken`（例如 `111:aaa`）服務多個群組。
 - 該模式下，所有群共享同一 Bot 身份與同一行為策略（如 `requireMention`）。
 - 適合：統一助手、統一規則的團隊場景。
-- 不適合：需要「每個群不同人格/不同模型/不同策略」的場景。
+- 不適合：需要「每個群不同人格／不同模型／不同策略」的場景。
 
 ## 2) 最小可用流程（MVP）
 
@@ -39,7 +39,7 @@ openclaw start
 > **這是最容易漏掉的步驟。**
 
 - Bot 不會「啟動即自動回覆所有人」。
-- 使用者在 Telegram 側發起配對後，伺服器端必須執行：
+- 使用者在 Telegram 端發起配對後，伺服器端必須執行：
 
 ```bash
 openclaw pairing approve
@@ -84,15 +84,15 @@ openclaw pairing approve
 - **驗證**：BotFather 目前隱私設定 + 群成員列表中的 Bot 是否為新加入狀態。
 - **修復**：`/setprivacy` 關閉 -> 移除 Bot -> 重新拉入群。
 
-### 症狀 C：只有 @ 才回覆 / 或回覆過於頻繁
+### 症狀 C：只有 @ 才回覆／或回覆過於頻繁
 
 - **高機率原因**：`requireMention` 設定與預期不一致。
 - **驗證**：讀取實際生效的設定。
-- **修復**：根據群規模調整為 `true` 或 `false`，重啟/熱載入設定。
+- **修復**：根據群規模調整為 `true` 或 `false`，重啟／熱載入設定。
 
 ## 6) 工程化上線清單（Critical Actions）
 
-- [ ] Bot Token 已設定且來源安全（密鑰管理）。
+- [ ] Bot Token 已設定且來源安全（金鑰管理）。
 - [ ] 服務已啟動且日誌無初始化錯誤。
 - [ ] 私訊配對流程已跑通（含過期重試演練）。
 - [ ] BotFather 隱私模式已關閉。

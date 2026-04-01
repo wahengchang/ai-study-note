@@ -5,33 +5,33 @@ aliases:
   - OpenClaw/ch3-agent-loop
 ---
 
-This chapter explains the real end-to-end agent run path in OpenClaw: from intake to persistence, including queueing, hooks, streaming, and timeout behavior.
+這篇筆記說明 OpenClaw 中完整的 Agent 執行路徑：從接收請求到持久化，涵蓋 Queueing、Hooks、Streaming 與 Timeout 行為。
 ![[agent-loop.png]]
 
-Overview: this diagram shows the **OpenClaw Agent Loop Lifecycle** as 8 connected stages. It starts with **Entry & Initialization** (Gateway RPC/CLI validation, session parsing, metadata persistence, immediate `{ runId, acceptedAt }`), then **Queueing & Serialization** by session key. Next it prepares **Session & Workspace**, builds the **System Prompt** (base prompt, skill prompts, bootstrap context, overrides, token reserve), runs the **Execution Loop & Streaming** (assistant deltas + tool events with tool sanitization), applies **Reply Shaping** (`NO_REPLY` filtering and dedup), may enter **Compaction & Retries** on context overflow, and ends at **Completion & Persistence** (lifecycle end/error, transcript persistence, timeout/abort handling, final client status).
+總覽：這張圖展示 **OpenClaw Agent Loop Lifecycle** 的 8 個連續階段。從 **Entry & Initialization**（Gateway RPC/CLI 驗證、Session 解析、Metadata 持久化、立即回傳 `{ runId, acceptedAt }`）開始，接著是依 Session Key 進行的 **Queueing & Serialization**。然後準備 **Session & Workspace**，組裝 **System Prompt**（Base Prompt、Skill Prompts、Bootstrap Context、Overrides、Token Reserve），執行 **Execution Loop & Streaming**（Assistant Deltas + Tool Events，搭配 Tool Sanitization），套用 **Reply Shaping**（`NO_REPLY` 過濾與去重），遇到 Context 溢位時可能進入 **Compaction & Retries**，最後到達 **Completion & Persistence**（Lifecycle End/Error、Transcript 持久化、Timeout/Abort 處理、最終 Client 狀態）。
 
-## What "Agent Loop" Means
+## 什麼是 "Agent Loop"
 
-Use this definition to separate one full run from smaller internal steps.
+用這個定義來區分「一次完整執行」和「內部子步驟」。
 
-| Term | Meaning |
+| 術語 | 意義 |
 | --- | --- |
-| Agent loop | One full serialized run: intake -> context assembly -> inference -> tool execution -> streaming -> persistence |
-| Run unit | A single `runId` scoped to one session lane |
-| Goal | Produce actions and a final reply while keeping session state consistent |
+| Agent Loop | 一次完整的序列化執行：Intake -> Context 組裝 -> Inference -> Tool 執行 -> Streaming -> Persistence |
+| Run Unit | 一個 `runId`，對應一條 Session Lane |
+| 目標 | 產生動作與最終回覆，同時維持 Session State 一致性 |
 
 ## Entry Points
 
-These are the two main ways a loop starts.
+Loop 啟動的兩種主要方式。
 
-| Entry | API/Command | Purpose |
+| 進入方式 | API/Command | 用途 |
 | --- | --- | --- |
-| Gateway RPC | `agent`, `agent.wait` | Programmatic trigger and wait |
-| CLI | `agent` command | Operator-triggered run |
+| Gateway RPC | `agent`, `agent.wait` | 程式化觸發與等待 |
+| CLI | `agent` 指令 | 操作者手動觸發 |
 
-## End-to-End Flow
+## 端對端流程
 
-This is the authoritative run sequence from acceptance to completion state.
+從接受請求到完成狀態的權威執行順序。
 
 ```mermaid
 flowchart LR
@@ -42,139 +42,139 @@ flowchart LR
   E --> F[agent.wait\nok / error / timeout]
 ```
 
-## High-Level Steps
+## 高階步驟
 
-Use this table as a quick checkpoint map for debugging.
+把這張表當成 Debug 時的快速檢查點。
 
-| Step | Main Action | Output/Signal |
+| 步驟 | 主要動作 | 輸出/訊號 |
 | --- | --- | --- |
-| 1. Accept | Validate params, resolve session, persist session metadata | Immediate `{ runId, acceptedAt }` |
-| 2. Execute | Resolve model defaults, load skills snapshot, start embedded runtime | Active run in queue lane |
-| 3. Stream | Bridge pi events to OpenClaw streams | `assistant`, `tool`, `lifecycle` events |
-| 4. Complete | Ensure lifecycle `end/error` is emitted | Stable run terminal state |
-| 5. Wait | `agent.wait` blocks on lifecycle terminal event | `{ status, startedAt, endedAt, error? }` |
+| 1. Accept | 驗證參數、解析 Session、持久化 Session Metadata | 立即回傳 `{ runId, acceptedAt }` |
+| 2. Execute | 解析 Model 預設值、載入 Skills Snapshot、啟動 Embedded Runtime | 在 Queue Lane 中的活躍 Run |
+| 3. Stream | 將 Pi Events 橋接到 OpenClaw Streams | `assistant`、`tool`、`lifecycle` 事件 |
+| 4. Complete | 確保發出 Lifecycle `end/error` | 穩定的 Run 終止狀態 |
+| 5. Wait | `agent.wait` 阻塞等待 Lifecycle 終止事件 | `{ status, startedAt, endedAt, error? }` |
 
-## Queueing and Concurrency
+## Queueing 與 Concurrency
 
-This section explains why OpenClaw serializes runs and where race prevention happens.
+這個段落說明 OpenClaw 為什麼要序列化執行，以及 Race Condition 防範機制在哪裡。
 
-| Mechanism | Behavior | Why It Matters |
+| 機制 | 行為 | 為什麼重要 |
 | --- | --- | --- |
-| Session lane | Serializes runs per session key | Prevents session write races |
-| Global lane (optional) | Adds cross-session throttling/serialization | Controls host-level pressure |
-| Queue modes | `collect` / `steer` / `followup` feed lane logic | Keeps messaging channel behavior predictable |
+| Session Lane | 按 Session Key 序列化執行 | 防止 Session 寫入競爭 |
+| Global Lane（選用） | 加入跨 Session 的節流/序列化 | 控制主機層級的負載壓力 |
+| Queue Modes | `collect` / `steer` / `followup` 驅動 Lane 邏輯 | 讓訊息頻道行為保持可預測 |
 
-## Session and Workspace Preparation
+## Session 與 Workspace 準備
 
-Before inference and tools run, OpenClaw prepares execution context and write safety.
+在 Inference 和 Tool 執行前，OpenClaw 會準備執行 Context 與寫入安全機制。
 
-| Preparation Item | What Happens |
+| 準備項目 | 實際動作 |
 | --- | --- |
-| Workspace resolution | Workspace is resolved/created; sandbox may redirect workspace root |
-| Skills snapshot | Skills loaded or reused, injected into env/prompt |
-| Bootstrap context | Bootstrap files resolved and included in system prompt report |
-| Session lock | Session write lock acquired before streaming/persist |
+| Workspace Resolution | 解析/建立 Workspace；Sandbox 可能會重導 Workspace Root |
+| Skills Snapshot | 載入或重用 Skills，注入到 Env/Prompt |
+| Bootstrap Context | 解析 Bootstrap 檔案並納入 System Prompt Report |
+| Session Lock | 在 Streaming/Persist 前取得 Session Write Lock |
 
-## Prompt Assembly and Limits
+## Prompt 組裝與限制
 
-Prompt construction is controlled and budgeted before model execution.
+Prompt 的建構在 Model 執行前就受到控制與預算管理。
 
-| Concern | Behavior |
+| 關注點 | 行為 |
 | --- | --- |
-| Prompt inputs | Base prompt + skills prompt + bootstrap context + per-run overrides |
-| Token safety | Model-specific limits and compaction reserve enforced |
-| Reference | See system prompt docs for exact visible prompt shape |
+| Prompt 輸入 | Base Prompt + Skills Prompt + Bootstrap Context + 每次 Run 的 Overrides |
+| Token 安全機制 | 強制執行 Model 特定的限制與 Compaction Reserve |
+| 參考 | 詳見 System Prompt 文件了解實際的可見 Prompt 結構 |
 
 ## Hook Points
 
-Use hooks when you need to intercept behavior without rewriting the core loop.
+當你需要攔截行為但不想改寫核心 Loop 時，使用 Hooks。
 
 ### Internal Hooks (Gateway Hooks)
 
-| Hook/Event | Timing | Typical Use |
+| Hook/Event | 時機 | 典型用途 |
 | --- | --- | --- |
-| `agent:bootstrap` | During bootstrap build, before final system prompt | Add/remove bootstrap context files |
-| Command hooks (`/new`, `/reset`, `/stop`, ...) | Command lifecycle | Command-specific automation |
+| `agent:bootstrap` | Bootstrap 建構期間，在最終 System Prompt 之前 | 新增/移除 Bootstrap Context 檔案 |
+| Command Hooks (`/new`, `/reset`, `/stop`, ...) | Command Lifecycle | 指令專屬的自動化 |
 
 ### Plugin Hooks (Agent + Gateway Lifecycle)
 
-| Hook | Timing |
+| Hook | 時機 |
 | --- | --- |
-| `before_agent_start` | Before run start; inject context or override prompt |
-| `agent_end` | After completion; inspect final messages + metadata |
-| `before_compaction` / `after_compaction` | Around compaction cycle |
-| `before_tool_call` / `after_tool_call` | Around tool execution |
-| `tool_result_persist` | Synchronous transform before transcript write |
-| `message_received` / `message_sending` / `message_sent` | Inbound/outbound message pipeline |
-| `session_start` / `session_end` | Session boundary lifecycle |
-| `gateway_start` / `gateway_stop` | Gateway process lifecycle |
+| `before_agent_start` | Run 開始前；注入 Context 或覆寫 Prompt |
+| `agent_end` | 完成後；檢視最終 Messages + Metadata |
+| `before_compaction` / `after_compaction` | Compaction 前後 |
+| `before_tool_call` / `after_tool_call` | Tool 執行前後 |
+| `tool_result_persist` | Transcript 寫入前的同步轉換 |
+| `message_received` / `message_sending` / `message_sent` | 收發訊息的管線 |
+| `session_start` / `session_end` | Session 邊界的 Lifecycle |
+| `gateway_start` / `gateway_stop` | Gateway Process 的 Lifecycle |
 
-## Streaming and Partial Replies
+## Streaming 與 Partial Replies
 
-Streaming behavior controls what users see during generation.
+Streaming 行為決定使用者在生成過程中看到什麼。
 
-| Stream | Source | Notes |
+| Stream | 來源 | 備註 |
 | --- | --- | --- |
-| `assistant` | pi-agent-core deltas | Supports partial/block streaming |
-| `tool` | Tool start/update/end events | Includes sanitized tool outputs |
-| `lifecycle` | start/end/error events | Terminal signal for run state |
+| `assistant` | pi-agent-core Deltas | 支援 Partial/Block Streaming |
+| `tool` | Tool Start/Update/End 事件 | 包含經過 Sanitize 的 Tool 輸出 |
+| `lifecycle` | Start/End/Error 事件 | Run 狀態的終止訊號 |
 
-Additional behavior:
+額外行為：
 
-- Block streaming can emit partial replies at `text_end` or `message_end`
-- Reasoning can be emitted separately or embedded in block replies
+- Block Streaming 可在 `text_end` 或 `message_end` 時發出 Partial Replies
+- Reasoning 可以獨立發出，也可以嵌入 Block Replies 中
 
-## Tool Execution and Reply Shaping
+## Tool 執行與 Reply Shaping
 
-Final user-visible output is post-processed to remove noise and duplicates.
+最終的使用者可見輸出會經過後處理，移除雜訊與重複內容。
 
-| Rule | Effect |
+| 規則 | 效果 |
 | --- | --- |
-| Tool result sanitization | Limits payload size/image logging before emit/persist |
-| Messaging duplicate suppression | Avoids duplicate assistant confirmations |
-| `NO_REPLY` filtering | Silent token removed from outgoing payloads |
-| Fallback tool-error reply | Emitted when no renderable payload remains and tool failed (unless already user-visible) |
+| Tool Result Sanitization | 在 Emit/Persist 前限制 Payload 大小與 Image Logging |
+| Messaging Duplicate Suppression | 避免重複的 Assistant 確認訊息 |
+| `NO_REPLY` 過濾 | 從送出的 Payload 中移除 Silent Token |
+| Fallback Tool-Error Reply | 當沒有可渲染的 Payload 且 Tool 失敗時發出（除非已經對使用者可見） |
 
-## Compaction and Retries
+## Compaction 與 Retries
 
-Compaction can reset the run path and trigger retries safely.
+Compaction 可以重設執行路徑並安全地觸發 Retry。
 
-| Behavior | Impact |
+| 行為 | 影響 |
 | --- | --- |
-| Auto-compaction events emitted | Visible compaction lifecycle |
-| Retry after compaction | In-memory buffers/tool summaries reset to avoid duplicate output |
+| 自動發出 Compaction 事件 | 可見的 Compaction Lifecycle |
+| Compaction 後 Retry | 重設記憶體中的 Buffer/Tool Summary，避免重複輸出 |
 
-## Timeouts and Early Exit Conditions
+## Timeouts 與提前退出條件
 
-Different timeout types end different parts of the lifecycle.
+不同的 Timeout 類型會結束 Lifecycle 的不同部分。
 
-| Condition | Scope | Default |
+| 條件 | 作用範圍 | 預設值 |
 | --- | --- | --- |
-| `agent.wait` timeout | Wait-only (does not stop running agent) | `30s` |
-| Runtime timeout | Active run abort timer | `agents.defaults.timeoutSeconds` (commonly `600s`) |
-| Abort signal | Active run cancellation | Caller-controlled |
-| Disconnect / RPC timeout | Transport-layer interruption | Environment-dependent |
+| `agent.wait` Timeout | 僅等待（不會停止執行中的 Agent） | `30s` |
+| Runtime Timeout | 活躍 Run 的 Abort 計時器 | `agents.defaults.timeoutSeconds`（通常 `600s`） |
+| Abort Signal | 活躍 Run 的取消 | 由呼叫端控制 |
+| Disconnect / RPC Timeout | Transport 層的中斷 | 依環境而定 |
 
-## Event Streams and Chat Finalization
+## Event Streams 與 Chat 結束處理
 
-This section clarifies which stream exists today and how chat channels close runs.
+這個段落釐清目前存在哪些 Stream，以及 Chat Channel 如何結束 Run。
 
-| Event stream | Role today |
+| Event Stream | 目前的角色 |
 | --- | --- |
-| `lifecycle` | Emitted by embedded subscription (or fallback by `agentCommand`) |
-| `assistant` | Delta stream from pi-agent-core |
-| `tool` | Tool event stream from pi-agent-core |
+| `lifecycle` | 由 Embedded Subscription 發出（或由 `agentCommand` Fallback） |
+| `assistant` | 來自 pi-agent-core 的 Delta Stream |
+| `tool` | 來自 pi-agent-core 的 Tool Event Stream |
 
-Chat channel handling:
+Chat Channel 處理：
 
-- Assistant deltas are buffered into chat delta messages
-- Chat final is emitted on lifecycle `end` or `error`
+- Assistant Deltas 會被 Buffer 成 Chat Delta Messages
+- Chat Final 在 Lifecycle `end` 或 `error` 時發出
 
-## Practical Debug Checklist
+## 實務 Debug 檢查清單
 
-1. Confirm `agent` returned `runId` and `acceptedAt`
-2. Confirm run entered session lane (not blocked/starved)
-3. Confirm lifecycle `start` then `end/error` event sequence
-4. Confirm assistant/tool deltas arrived during run
-5. Confirm session transcript persisted and timestamps are set
-6. Confirm `agent.wait` timeout is not confused with runtime timeout
+1. 確認 `agent` 回傳了 `runId` 與 `acceptedAt`
+2. 確認 Run 進入了 Session Lane（沒有被阻塞/餓死）
+3. 確認 Lifecycle 事件順序為 `start` -> `end/error`
+4. 確認 Run 期間收到了 Assistant/Tool Deltas
+5. 確認 Session Transcript 已持久化且 Timestamp 已設定
+6. 確認 `agent.wait` Timeout 沒有和 Runtime Timeout 搞混
