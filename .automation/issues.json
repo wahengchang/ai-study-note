@@ -36,7 +36,7 @@
     "status": "pr_open",
     "started_at": "2026-04-01T00:00:00Z",
     "branch": "auto/issue-37",
-    "pr": null,
+    "pr": 39,
     "notes": "研究 Google Gemini Prompt Guide PDF，撰寫繁中研究筆記"
   }
 }
