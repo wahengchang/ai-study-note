@@ -68,6 +68,10 @@
         width: 90%;
       }
 
+      @media all and ($mobile) {
+        margin-top: 6vh;
+      }
+
       & > * {
         width: 100%;
         border-radius: 7px;

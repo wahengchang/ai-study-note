@@ -103,6 +103,7 @@ button.desktop-explorer {
   color: var(--dark);
   display: flex;
   align-items: center;
+  min-height: 44px;
 
   & h2 {
     font-size: 1rem;

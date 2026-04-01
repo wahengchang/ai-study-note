@@ -35,6 +35,12 @@
       &:hover {
         background-color: var(--lightgray);
       }
+
+      @media all and ($mobile) {
+        width: 36px;
+        height: 36px;
+        padding: 0.4rem;
+      }
     }
   }
 
@@ -67,6 +73,11 @@
 
       @media all and not ($desktop) {
         width: 90%;
+      }
+
+      @media all and ($mobile) {
+        width: 95vw;
+        height: 70vh;
       }
     }
   }

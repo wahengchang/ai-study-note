@@ -1,3 +1,5 @@
+@use "../../styles/variables.scss" as *;
+
 .darkmode {
   cursor: pointer;
   padding: 0;
@@ -17,6 +19,16 @@
     top: calc(50% - 10px);
     fill: var(--darkgray);
     transition: opacity 0.1s ease;
+  }
+
+  @media all and ($mobile) {
+    width: 44px;
+    height: 44px;
+
+    & svg {
+      top: calc(50% - 10px);
+      left: calc(50% - 10px);
+    }
   }
 }
 
