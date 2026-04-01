@@ -128,13 +128,22 @@ button.desktop-explorer {
 
     & li > a {
       color: var(--darkgray);
-      opacity: 1;
+      opacity: 0.85;
       pointer-events: all;
-      font-size: 0.92rem;
+      font-size: 0.88rem;
       font-weight: $normalWeight;
-      line-height: 1.45;
-      display: inline-block;
-      padding: 0.12rem 0;
+      line-height: 1.5;
+      display: block;
+      padding: 0.2rem 0.5rem;
+      border-radius: 4px;
+      transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
+      text-transform: capitalize;
+
+      &:hover {
+        opacity: 1;
+        background: var(--panel-hover-bg, rgba(255, 255, 255, 0.05));
+        color: var(--panel-text, #f0f0f0);
+      }
 
       &.active {
         opacity: 1;
@@ -160,9 +169,14 @@ button.desktop-explorer {
 
   .folder-outer > ul {
     overflow: hidden;
-    margin-left: 8px;
-    padding-left: 0.65rem;
-    border-left: 1px solid var(--gray);
+    margin-left: 4px;
+    padding-left: 0.75rem;
+    border-left: 1px solid var(--panel-border, #333333);
+  }
+
+  // Add spacing between top-level items for visual grouping
+  & > ul.explorer-ul > li {
+    margin-bottom: 0.35rem;
   }
 }
 
@@ -172,13 +186,21 @@ button.desktop-explorer {
   align-items: center;
   user-select: none;
   min-height: 1.5rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 4px;
+  transition: background 0.15s ease;
+  text-transform: capitalize;
+
+  &:hover {
+    background: var(--panel-hover-bg, rgba(255, 255, 255, 0.05));
+  }
 
   & div > a {
     color: var(--darkgray);
     font-family: var(--headerFont);
-    font-size: 0.92rem;
+    font-size: 0.88rem;
     font-weight: $semiBoldWeight;
-    line-height: 1.45;
+    line-height: 1.5;
     display: inline-block;
   }
 
@@ -199,12 +221,12 @@ button.desktop-explorer {
     font-family: var(--headerFont);
 
     & span {
-      font-size: 0.92rem;
+      font-size: 0.88rem;
       display: inline-block;
       color: var(--darkgray);
       font-weight: $semiBoldWeight;
       margin: 0;
-      line-height: 1.45;
+      line-height: 1.5;
       pointer-events: none;
     }
   }
@@ -234,8 +256,8 @@ li:has(> .folder-outer:not(.open)) > .folder-container > svg {
   background: var(--highlight);
   border-left: 2px solid var(--tertiary);
   border-radius: 4px;
-  padding: 0.18rem 0.45rem;
-  margin-left: -0.45rem;
+  padding: 0.2rem 0.5rem;
+  padding-left: 0.45rem;
 }
 
 .explorer-content li:has(a.active) > .folder-container .folder-title,
@@ -249,51 +271,26 @@ li:has(> .folder-outer:not(.open)) > .folder-container > svg {
   color: var(--tertiary);
 }
 
-// Hierarchy styling: top-level bolder, deeper levels muted/smaller.
+// Hierarchy styling: top-level bolder, deeper levels progressively muted.
 .explorer-content > ul.explorer-ul > li > a,
 .explorer-content > ul.explorer-ul > li > .folder-container .folder-title {
   color: var(--dark);
-  font-size: 0.99rem;
+  font-size: 0.92rem;
   font-weight: $semiBoldWeight;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
 }
 
 .explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > a,
 .explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-container .folder-title {
-  color: var(--panel-muted, #737373);
-  font-size: 0.88rem;
+  color: var(--panel-text, #e5e5e5);
+  font-size: 0.85rem;
   font-weight: $normalWeight;
 }
 
-.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer > ul > li > a,
-.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer > ul > li > .folder-container .folder-title,
-.explorer-content
-  > ul.explorer-ul
-  > li
-  > .folder-outer
-  > ul
-  > li
-  > .folder-outer
-  > ul
-  > li
-  > .folder-outer
-  > ul
-  > li
-  > a,
-.explorer-content
-  > ul.explorer-ul
-  > li
-  > .folder-outer
-  > ul
-  > li
-  > .folder-outer
-  > ul
-  > li
-  > .folder-outer
-  > ul
-  > li
-  > .folder-container
-  .folder-title {
-  color: var(--gray);
+.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer ul li > a,
+.explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer ul li > .folder-container .folder-title {
+  color: var(--panel-muted, #737373);
   font-size: 0.82rem;
   font-weight: $normalWeight;
 }
