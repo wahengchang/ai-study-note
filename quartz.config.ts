@@ -11,7 +11,7 @@ const isServeMode = process.argv.includes("--serve");
 const config: QuartzConfig = {
   configuration: {
     pageTitle: "AI Study Note",
-    pageTitleSuffix: "",
+    pageTitleSuffix: " | AI Study Note",
     enableSPA: true,
     enablePopovers: true,
     analytics: {
