@@ -37,7 +37,22 @@ export const defaultContentPageLayout: PageLayout = {
         { Component: Component.ReaderMode() },
       ],
     }),
-    Component.Explorer(),
+    Component.Explorer({
+      folderClickBehavior: "collapse",
+      folderDefaultState: "open",
+      mapFn: (node) => {
+        // Convert kebab-case slugs to readable titles
+        if (!node.isFolder && node.displayName) {
+          node.displayName = node.displayName
+            .replace(/^(ch\d+)-/, "$1: ")
+            .replace(/-/g, " ")
+        }
+        if (node.isFolder && node.displayName) {
+          node.displayName = node.displayName
+            .replace(/-/g, " ")
+        }
+      },
+    }),
   ],
   right: [
     Component.DesktopOnly(Component.TableOfContents()),
@@ -60,7 +75,21 @@ export const defaultListPageLayout: PageLayout = {
         },
       ],
     }),
-    Component.Explorer(),
+    Component.Explorer({
+      folderClickBehavior: "collapse",
+      folderDefaultState: "open",
+      mapFn: (node) => {
+        if (!node.isFolder && node.displayName) {
+          node.displayName = node.displayName
+            .replace(/^(ch\d+)-/, "$1: ")
+            .replace(/-/g, " ")
+        }
+        if (node.isFolder && node.displayName) {
+          node.displayName = node.displayName
+            .replace(/-/g, " ")
+        }
+      },
+    }),
   ],
   right: [],
 }

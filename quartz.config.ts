@@ -18,7 +18,7 @@ const config: QuartzConfig = {
       provider: "google",
       tagId: "G-HQ2GFFXNDD",
     },
-    locale: "en-US",
+    locale: "zh-TW",
     baseUrl: "wahengchang.github.io/ai-study-note",
     ignorePatterns: ["private", "templates", ".obsidian"],
     defaultDateType: "modified",
