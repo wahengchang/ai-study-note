@@ -61,139 +61,21 @@ Google 提出撰寫有效 prompt 的四大核心要素：
 
 ## 各角色 Prompt 模式整理
 
-### 1. Administrative Support（行政支援）
+完整可複用 prompt 已拆分為獨立檔案，詳見 **[Gemini 可複用 Prompt 範本集](./gemini-prompts/index.md)**。
 
-**高頻場景：**
-- 規劃議程（offsite、會議）→ Gemini App 腦力激盪 → Export to Docs
-- 管理多個 email 信箱 → Gmail side panel 摘要 → 引用 Drive 檔案回覆
-- 商務旅行規劃 → Gemini App 產出行程表 → Share & export → Draft in Gmail
-- 差旅預算追蹤 → Sheets side panel 建立 tracker
-- 會議簡報準備 → NotebookLM 上傳資料 → Briefing doc / Video Overview
-- 錯過的會議 → Meet 摘要 → NotebookLM Audio Overview
+以下為各角色概覽與高頻場景：
 
-**可複用 Prompt 範例：**
-```
-I am an executive administrator to a team director. Our newly formed team now
-consists of [team members]. We are gathering for the first time at a [N]-day
-offsite in [location]. Plan activities for each day that include team bonding
-activities and time for deeper strategic work. Create a sample agenda for me.
-```
-
-### 2. Communications（溝通公關）
-
-**高頻場景：**
-- 撰寫新聞稿 → Docs 引用 `@file` → 迭代補充資訊
-- 準備分析師/媒體簡報 → Docs 模板 + Sheets 聯繫人管理 + Slides 簡報
-- 模擬面試問題準備 → Gemini App → Export to Docs → 引用檔案寫建議答案
-- 內部溝通 → Docs 起草備忘錄 + Vids 製作公告影片
-
-**進階技巧：Gems 壓力測試**
-```
-建立 Gem 扮演 "Skeptical Tech Journalist" 或 "C-Suite Executive"，
-用來審查簡報文件並生成挑戰性問題，幫助發言人準備各種情境。
-```
-
-### 3. Customer Service（客服）
-
-**高頻場景：**
-- 回覆客訴 → Docs Help me write → 同理心回應 + 替代方案
-- 複雜問題 → Drive side panel 搜尋跨文件資訊 → Gmail 引用 FAQ 回覆
-- 標準化溝通框架 → 建立 Gem + Docs 模板（道歉/確認/感謝）
-- 客戶回饋分析 → Gemini App 上傳試算表 → 趨勢辨識
-- 客戶自助服務 → 簡化退貨政策 → 轉為部落格 + Vids 教學影片
-
-### 4. Executives（高階主管）
-
-**各 C-level 角色適用場景：**
-
-| 角色 | 場景 |
-|------|------|
-| **CEO** | 行動回信、簡報大綱（語音輸入）、每日 Audio Briefing（NotebookLM）、Deep Research 產業追蹤 |
-| **COO** | Town hall 開場白、模擬困難 Q&A、行動中快速委派 |
-| **CMO** | 目標受眾研究、品牌腦力激盪、競爭分析（Deep Research）、行銷漏斗分析（Sheets） |
-| **CTO** | 新興技術摘要、程式碼審查與盡職調查（Gemini App 上傳程式碼） |
-| **CIO** | 技術主題非技術化溝通、供應商研究、技術報告摘要、IT 資產追蹤 |
-| **CHRO** | 員工滿意度調查、績效趨勢分析、培訓計劃開發 |
-| **小型企業主** | 現金流分析（Sheets）、程式碼除錯（Canvas）、原型視覺化 |
-
-### 5. Frontline Management（前線管理）
-
-- 快速查找資訊 → Drive side panel → Docs side panel 提問
-- 零售新政策溝通 → Drive 搜尋 → Gmail 引用檔案摘要
-- 任務管理 → Sheets 建立 checklist → Gmail 交接未完成事項
-- 倉庫庫存管理 → Sheets 查詢 + 公式計算差異
-- 技術手冊查詢 → NotebookLM + 精確引用
-- 維修摘要 → Docs 語音轉文字 → 格式化報告
-
-### 6. Human Resources（人力資源）
-
-- 新人歡迎簡報 → Docs 引用公司價值觀 → Vids 歡迎影片
-- 招聘 → Sheets 統計 + Docs 職位描述 + Gem "Job Description Writer"
-- 面試準備 → Gemini App 上傳 JD → 生成問題清單
-- 員工入職 → Sheets 第一週行程 + Docs 團隊活動 + Vids 培訓影片
-- 員工調查 → Gemini App 清理數據 + Docs 分析摘要
-
-### 7. Marketing（行銷）
-
-- 品牌視覺開發 → Gemini App 生成 logo + 命名 + 標語
-- 品牌策略 → Gemini App 定義品牌架構
-- 市場研究 → Deep Research + A/B 測試文案
-- SEM 關鍵字與廣告文案 → Gemini App + Gem "SEM Ad Copy Generator"
-- 內容行銷 → Docs 起草 + Sheets 追蹤 + Slides 圖片 + Vids 產品 demo
-- 社群媒體 → Docs 生成貼文 + Gem "Social Media Copywriter"
-- 行銷漏斗 → Sheets 分析 + 氣泡圖
-- eBook → NotebookLM 整合部落格 → 多章節大綱
-
-### 8. Project Management（專案管理）
-
-- UAT 測試案例 → Gemini App 建立表格 → Sheets
-- 會議紀錄 → Meet Take notes → Docs 摘要 → Gmail 回顧信
-- 專案狀態更新 → Docs 模板化
-- 專案回顧 → Docs 20 題引導問題 → 摘要報告 + Vids 回顧影片
-- Issue tracker → Sheets + Docs 標準信件模板
-- 工作排程 → Gemini App 建立 workback schedule
-
-### 9. Sales（業務）
-
-- 客戶研究 → Gemini App 研究市場策略 → 摘要新聞/影片 → Docs 客製信
-- 客戶成功 → Docs 個人化 onboarding 資料
-- 行動辦公 → Gmail 摘要 + 快速回覆
-- 客戶關係 → Vids 客製影片邀請 + Docs 調查問卷
-- 銷售簡報準備 → Gemini App 腳本 + Docs 電梯簡報 + 異議處理 + Gem "Sales Call Prep"
-- 業務開發 → Docs 外展模板 + Gmail 客戶感謝信
-
-## 可複用 Prompt 範本
-
-### 通用研究型
-```
-I am a [role] at [company]. I need to [research/analyze] [topic].
-[Specific context and constraints].
-Include [specific output requirements].
-```
-
-### 文件引用型
-```
-Use @[File Name] to [generate/summarize/create] [output type]
-about [topic]. Use a [tone] tone.
-```
-
-### 迭代修正型
-```
-[Initial prompt] → [Review output] → [Follow-up with specifics]
-→ [Refine tone/format] → [Export to target app]
-```
-
-### Gem 建立型
-```
-建立角色 Gem：指定 persona + 場景規則 + 品牌指南
-用途：壓力測試、標準化輸出、批量處理
-```
-
-### 跨工具工作流
-```
-Gemini App（腦力激盪）→ Export to Docs（編輯）→ @file 引用
-→ Slides/Sheets（視覺化）→ Gmail（分享）→ Vids（影片化）
-```
+| 角色 | 高頻場景 | Prompt 範本 |
+|------|----------|-------------|
+| **行政支援** | 議程規劃、信箱管理、差旅安排、會議準備 | [admin.md](./gemini-prompts/admin.md) |
+| **溝通公關** | 新聞稿、媒體簡報、模擬面試、內部溝通 | [communications.md](./gemini-prompts/communications.md) |
+| **客戶服務** | 客訴回覆、FAQ 引用、溝通標準化、回饋分析 | [customer-service.md](./gemini-prompts/customer-service.md) |
+| **高階主管** | CEO/COO/CMO/CTO/CIO 場景、策略研究 | [executives.md](./gemini-prompts/executives.md) |
+| **人力資源** | 招聘、面試、入職、員工調查、培訓 | [hr.md](./gemini-prompts/hr.md) |
+| **行銷** | 品牌策略、SEM、社群媒體、內容行銷 | [marketing.md](./gemini-prompts/marketing.md) |
+| **專案管理** | UAT、會議紀錄、狀態更新、回顧、排程 | [project-management.md](./gemini-prompts/project-management.md) |
+| **業務銷售** | 客戶研究、簡報準備、關係維護、異議處理 | [sales.md](./gemini-prompts/sales.md) |
+| **通用範本** | 跨角色通用模式、Gem 建立、跨工具工作流 | [general.md](./gemini-prompts/general.md) |
 
 ## 關鍵原則
 
