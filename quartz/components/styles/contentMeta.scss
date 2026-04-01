@@ -1,6 +1,10 @@
 .content-meta {
   margin-top: 0;
-  color: var(--darkgray);
+  color: var(--gray);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  font-size: 0.75rem;
+  font-weight: 500;
 
   &[show-comma="true"] {
     > *:not(:last-child) {
