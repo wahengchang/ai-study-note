@@ -17,10 +17,26 @@
   },
   "33": {
     "title": "更新：重寫 learn-claude-code 文章標題與 overview（改以 harness framework 定位）",
-    "status": "in_progress",
+    "status": "pr_open",
     "started_at": "2026-03-30T00:00:00Z",
     "branch": "auto/issue-33",
-    "pr": null,
+    "pr": 34,
     "notes": "重寫標題與 overview，改以 harness framework 定位"
+  },
+  "35": {
+    "title": "加入 GA4 到 wahengchang.github.io/ai-study-note",
+    "status": "done",
+    "started_at": "2026-03-31T00:00:00Z",
+    "branch": null,
+    "pr": null,
+    "notes": "GA4 已在 quartz.config.ts 中配置 (provider: google, tagId: G-HQ2GFFXNDD)，無需額外修改"
+  },
+  "37": {
+    "title": "Research Google Workspace with Gemini Prompt Guide",
+    "status": "pr_open",
+    "started_at": "2026-04-01T00:00:00Z",
+    "branch": "auto/issue-37",
+    "pr": null,
+    "notes": "研究 Google Gemini Prompt Guide PDF，撰寫繁中研究筆記"
   }
 }
