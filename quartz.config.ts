@@ -92,6 +92,7 @@ const config: QuartzConfig = {
       Plugin.Static(),
       Plugin.Favicon(),
       Plugin.NotFoundPage(),
+      Plugin.RobotsTxt(),
       // OG image generation fetches fonts from the network. Skip it in local serve mode.
       ...(isServeMode ? [] : [Plugin.CustomOgImages()]),
     ],
