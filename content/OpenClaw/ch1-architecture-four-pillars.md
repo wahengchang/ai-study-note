@@ -1,30 +1,30 @@
 ---
-title: "Ch1: OpenClaw Architecture: Four Pillars"
+title: "Ch1: OpenClaw 架構：四大支柱"
 aliases:
   - OpenClaw/architecture-four-pillars
 ---
 
-This note summarizes OpenClaw as four layers: **Core Infrastructure, Agent Runtime, Memory & State, Connectivity & Extensions**.
+這篇筆記將 OpenClaw 架構整理成四個層級：**Core Infrastructure、Agent Runtime、Memory & State、Connectivity & Extensions**。
 
 ![[openclaw-4-pillar.png]]
 
-## At a Glance
+## 總覽
 
-| Pillar | Core Components | Main Question During Debugging |
+| 支柱 | 核心元件 | Debug 時的核心問題 |
 | --- | --- | --- |
-| 1. Core Infrastructure | Gateway, Canvas Host | Are the core daemons healthy and reachable? |
-| 2. Agent Runtime | System Prompt Builder, Agent Loop, Skills | Did the execution loop run correctly end-to-end? |
-| 3. Memory & State | Workspace, Memory Search, Session Store | Was context loaded/searched/persisted correctly? |
-| 4. Connectivity & Extensions | Clients, Nodes, Event Stream | Are external control and integrations connected? |
+| 1. Core Infrastructure | Gateway, Canvas Host | 核心 Daemon 是否正常運作且可連線？ |
+| 2. Agent Runtime | System Prompt Builder, Agent Loop, Skills | 執行迴圈是否從頭到尾正確完成？ |
+| 3. Memory & State | Workspace, Memory Search, Session Store | Context 是否正確載入／搜尋／持久化？ |
+| 4. Connectivity & Extensions | Clients, Nodes, Event Stream | 外部控制與整合是否正常連線？ |
 
-## Why This Model Works
+## 為什麼這個模型好用
 
-| Bucket | What to Check |
+| 分類 | 檢查重點 |
 | --- | --- |
-| Core Infrastructure | Gateway/Canvas Host process and port health |
-| Agent Runtime | Prompt assembly, think/act cycle, tool execution |
-| Memory & State | Bootstrap files, memory retrieval, transcript writes |
-| Connectivity & Extensions | Client access, node integration, event flow |
+| Core Infrastructure | Gateway / Canvas Host Process 與 Port 狀態 |
+| Agent Runtime | Prompt 組裝、Think/Act 循環、Tool 執行 |
+| Memory & State | Bootstrap 檔案、Memory 檢索、Transcript 寫入 |
+| Connectivity & Extensions | Client 存取、Node 整合、Event 流 |
 
 ```mermaid
 flowchart LR
@@ -37,29 +37,29 @@ flowchart LR
 ## 1. Core Infrastructure
 
 :::col
-### Components
+### 元件
 
 - **Gateway (Daemon)**
-  - "Brain" and router
-  - Single source of truth
-  - WebSocket on `:18789`
+  - 系統的「大腦」兼路由器
+  - 單一真實來源 (Single Source of Truth)
+  - WebSocket 監聽 `:18789`
 - **Canvas Host (UI Renderer)**
-  - A2UI rendering host
-  - UI service on `:18793`
+  - A2UI 渲染主機
+  - UI 服務位於 `:18793`
 :::
 
 :::col
-### Failure Signals
+### 故障訊號
 
-- No response at all: Gateway down or unreachable
-- Text works but UI is missing: Canvas Host unavailable
-- Random channel drop: adapter/session issue at gateway layer
+- 完全沒回應：Gateway 掛了或無法連線
+- 文字正常但 UI 不見：Canvas Host 無法使用
+- 頻道隨機斷線：Gateway 層的 Adapter / Session 問題
 :::
 
 ## 2. Agent Runtime
 
 :::col
-### Runtime Chain
+### Runtime 執行鏈
 
 1. Receive
 2. Prompt
@@ -68,18 +68,18 @@ flowchart LR
 5. Stream
 6. Persist
 
-- **System Prompt Builder (Context Assembly)**
-- **Agent Loop (Serial Process)**
-- **Skills (Pluggable Capability Packs)**
+- **System Prompt Builder（Context 組裝）**
+- **Agent Loop（序列化處理流程）**
+- **Skills（可插拔的能力模組）**
 :::
 
 :::col
-### Practical Checks
+### 實際檢查項目
 
-- Prompt builder includes rules + tool schemas + runtime context
-- Skills are loaded as expected for this run
-- Tool calls complete before persist step
-- Serialized writes prevent conflicting session updates
+- Prompt Builder 是否包含 Rules + Tool Schemas + Runtime Context
+- Skills 是否如預期載入本次執行
+- Tool Calls 是否在 Persist 步驟前完成
+- 序列化寫入是否防止了 Session 更新衝突
 :::
 
 ```mermaid
@@ -96,61 +96,61 @@ flowchart LR
 :::col
 ### Workspace (`~/.openclaw/workspace/`)
 
-- **Bootstrap Files**
+- **Bootstrap 檔案**
   - `AGENTS.md`
   - `SOUL.md`
   - `USER.md`
-- **Memory Files**
+- **Memory 檔案**
   - `MEMORY.md`
   - `memory/YYYY-MM-DD.md`
 - **Memory Search**
-  - Retrieval layer (vector + BM25)
+  - 檢索層（Vector + BM25）
 :::
 
 :::col
 ### Session Store (`~/.openclaw/agents/.../sessions/`)
 
-- JSONL transcripts (event history)
-- Compaction & pruning (auto-summary)
-- Separated from long-term Workspace memory
+- JSONL Transcript（事件歷史）
+- Compaction & Pruning（自動摘要）
+- 與長期 Workspace Memory 分離
 :::
 
-| Storage Area | Purpose |
+| 儲存區域 | 用途 |
 | --- | --- |
-| Workspace | Durable identity + long-term memory |
-| Session Store | Session transcript and event history |
+| Workspace | 持久身份 + 長期 Memory |
+| Session Store | Session Transcript 與事件歷史 |
 
 ## 4. Connectivity & Extensions
 
 :::col
-### External Control Plane
+### 外部控制平面
 
-- **Clients**: CLI, App, Web Admin
-- **Nodes**: capability providers (for example mobile/hardware access)
-- **Event Stream**: lifecycle, assistant, tool events
+- **Clients**：CLI、App、Web Admin
+- **Nodes**：能力提供者（例如行動裝置 / 硬體存取）
+- **Event Stream**：Lifecycle、Assistant、Tool 事件
 :::
 
 :::col
-### Troubleshooting Order
+### 排障順序
 
-1. Verify Gateway process and listening ports
-2. Verify client/node auth and session health
-3. Verify Event Stream flow
-4. Verify tool endpoint/network reachability
+1. 確認 Gateway Process 與監聽 Port
+2. 確認 Client / Node 的驗證與 Session 狀態
+3. 確認 Event Stream 流程
+4. 確認 Tool Endpoint / 網路可達性
 :::
 
-## Failure Mode Cheatsheet
+## 故障模式速查表
 
-| Symptom | Most Likely Layer |
+| 症狀 | 最可能的層級 |
 | --- | --- |
-| No response | Core Infrastructure / Connectivity |
-| Text response but no UI | Core Infrastructure (Canvas Host) |
-| Wrong persona or context | Agent Runtime / Memory & State |
-| Memory not retained | Memory & State |
-| Intermittent tool failures | Connectivity & Extensions |
+| 完全沒回應 | Core Infrastructure / Connectivity |
+| 有文字回應但沒有 UI | Core Infrastructure (Canvas Host) |
+| 人格或 Context 錯誤 | Agent Runtime / Memory & State |
+| Memory 沒有保留 | Memory & State |
+| Tool 間歇性失敗 | Connectivity & Extensions |
 
-## Mapping to This Repo
+## 對應本 Repo 的檔案
 
-- `content/OpenClaw/index.md`: topic index
-- `content/OpenClaw/utm-set-ubuntu.md`: deployment and troubleshooting guide
-- `content/OpenClaw/openclaw-architecture-four-pillars.md`: this architecture overview
+- `content/OpenClaw/index.md`：主題索引
+- `content/OpenClaw/utm-set-ubuntu.md`：部署與排障指南
+- `content/OpenClaw/openclaw-architecture-four-pillars.md`：本架構總覽

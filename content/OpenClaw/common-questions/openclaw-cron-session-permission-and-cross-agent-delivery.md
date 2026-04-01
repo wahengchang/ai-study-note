@@ -1,78 +1,80 @@
 ---
-title: "OpenClaw Cron: Executor, Session, Permissions, and Cross-Agent Delivery"
+title: "OpenClaw Cron：執行者、Session、權限與跨 Agent 遞送"
+aliases:
+tags:
 ---
 
-## Summary
+## 摘要
 
-| Question                 | Short answer                                                        |
-| ------------------------ | ------------------------------------------------------------------- |
-| Who executes `cron1`?    | Gateway scheduler triggers it; target agent runtime executes it.    |
-| Which session is used?   | A separate background/isolated session (not the user chat session). |
-| Whose permissions apply? | The executing agent’s service identity, not the user identity.      |
+| 問題 | 簡短回答 |
+| --- | --- |
+| 誰執行 `cron1`？ | Gateway Scheduler 觸發；目標 Agent Runtime 執行。 |
+| 使用哪個 Session？ | 獨立的背景 / 隔離 Session（不是使用者的聊天 Session）。 |
+| 套用誰的權限？ | 執行端 Agent 的 Service Identity，不是使用者身分。 |
 
-## Execution Model
+## 執行模型
 
-| Stage    | Component           | Responsibility                                          |
-| -------- | ------------------- | ------------------------------------------------------- |
-| Trigger  | Gateway cron module | Watches schedule and fires job at due time.             |
-| Dispatch | Gateway router      | Sends run to configured target agent.                   |
-| Run      | Agent runtime       | Executes reasoning, skills/tools, file/network actions. |
+| 階段 | 元件 | 職責 |
+| --- | --- | --- |
+| Trigger | Gateway cron module | 監控排程，到期時觸發 Job。 |
+| Dispatch | Gateway router | 將執行送往設定的目標 Agent。 |
+| Run | Agent runtime | 執行推理、Skill / Tool、檔案 / 網路操作。 |
 
-## Session Model
+## Session 模型
 
-For cron tasks, use an isolated background session.
+Cron 任務使用獨立的背景 Session。
 
-Why:
+原因：
 
-- Keep user chat context clean.
-- Allow separate retention/audit policy for scheduled runs.
-- Simplify retries and failure handling.
+- 保持使用者聊天上下文的乾淨。
+- 排程執行可以有獨立的保留 / 稽核政策。
+- 簡化重試與失敗處理。
 
-## Permission Model
+## 權限模型
 
-Cron runs should be evaluated with the target agent identity.
+Cron 執行應以目標 Agent Identity 來評估權限。
 
-| Permission boundary | Typical rule                                    |
-| ------------------- | ----------------------------------------------- |
-| Tools/skills        | Only tools allowed for that agent.              |
-| Workspace           | Only that agent’s sandbox/workspace scope.      |
-| Outbound channels   | Only channels explicitly granted to that agent. |
+| 權限邊界 | 典型規則 |
+| --- | --- |
+| Tools / Skills | 只能使用該 Agent 被允許的 Tool。 |
+| Workspace | 只能存取該 Agent 的 Sandbox / Workspace 範圍。 |
+| Outbound channels | 只能使用明確授權給該 Agent 的 Channel。 |
 
-## Your Scenario
+## 你的情境
 
-`cron1` runs on `agent1`, then result is sent by `agent2` to `telegramGroup2`.
+`cron1` 在 `agent1` 上執行，然後由 `agent2` 將結果送到 `telegramGroup2`。
 
-Yes, this is possible, but `agent1` should not impersonate `agent2`.
+這是可行的，但 `agent1` 不應該假冒 `agent2`。
 
-### Pattern A (recommended): Gateway event/webhook routing
+### Pattern A（建議）：Gateway event / webhook 路由
 
-1. `agent1` finishes cron job.
-2. `agent1` sends an internal event/webhook payload to Gateway.
-3. Gateway policy routes to `agent2`.
-4. `agent2` sends to `telegramGroup2` with its own credentials.
+1. `agent1` 完成 Cron Job。
+2. `agent1` 送出內部 event / webhook payload 給 Gateway。
+3. Gateway 政策將請求路由到 `agent2`。
+4. `agent2` 用自己的 credentials 發送到 `telegramGroup2`。
 
-### Pattern B: Shared outbox queue
+### Pattern B：共享 Outbox Queue
 
-1. `agent1` writes message payload to shared outbox.
-2. `agent2` polls/watches outbox.
-3. `agent2` sends message and marks item done.
+1. `agent1` 將訊息 payload 寫入共享 Outbox。
+2. `agent2` 輪詢 / 監看 Outbox。
+3. `agent2` 發送訊息並標記完成。
 
-Use Pattern A for low latency and clearer control-plane routing. Use Pattern B for stronger durability/retry behavior.
+低延遲且希望清楚的 control-plane 路由時用 Pattern A；需要更強的持久性 / 重試機制時用 Pattern B。
 
-## Minimum Security Rules
+## 最低安全規則
 
-1. No impersonation: `agent1` cannot use `agent2` token.
-2. Policy gate: cross-agent trigger must pass Gateway policy.
-3. Least privilege: grant only required tools/channels.
-4. Idempotency: use message/run IDs to avoid duplicates.
-5. Audit trail: log `cron trigger -> dispatch -> send` chain.
+1. 禁止假冒：`agent1` 不能使用 `agent2` 的 Token。
+2. Policy gate：跨 Agent 觸發必須通過 Gateway Policy。
+3. 最小權限：只授予需要的 Tool / Channel。
+4. 冪等性：使用 message / run ID 避免重複處理。
+5. 稽核軌跡：記錄 `cron trigger -> dispatch -> send` 完整鏈路。
 
-## Verification Checklist
+## 驗證清單
 
-Check these in your own environment:
+請在你自己的環境中檢查：
 
-1. `openclaw.json` for routing and channel permissions.
-2. `~/.openclaw/cron/jobs.json` for cron ownership and target agent.
-3. Gateway/runtime logs for isolated run/session IDs and dispatch traces.
+1. `openclaw.json` 中的路由與 Channel 權限設定。
+2. `~/.openclaw/cron/jobs.json` 中的 Cron 擁有者與目標 Agent。
+3. Gateway / Runtime Log 中的隔離 Run / Session ID 與 Dispatch 軌跡。
 
-Note: External web verification was blocked in this execution environment, so this note is based on architecture reasoning and internal project context.
+注意：本筆記是基於架構推理與專案內部脈絡所撰寫，外部網頁驗證在此執行環境中被阻擋。

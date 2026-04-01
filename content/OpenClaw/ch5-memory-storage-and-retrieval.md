@@ -1,184 +1,184 @@
 ---
-title: "Ch5: Memory (Storage, Search, and Retrieval)"
+title: "Ch5: Memory（儲存、搜尋與檢索）"
 aliases:
   - OpenClaw/ch5-memory
   - OpenClaw/memory
 ---
 
-This chapter explains how OpenClaw memory works in practice: what is persisted to disk, when memory is written, how search works, and how to tune retrieval safely.
+本章說明 OpenClaw Memory 的實際運作方式：哪些資料會寫入磁碟、何時寫入、搜尋如何運作，以及如何安全地調校檢索設定。
 ![[memory.png]]
 
-Overview: this diagram shows a full Markdown-first memory pipeline with four parts. **Write Cycle** captures durable facts (including silent pre-compaction flush and append-only daily logs), **Source of Truth** stores memory in local workspace Markdown files (`memory/YYYY-MM-DD.md` and `MEMORY.md`), **Indexing & Retrieval Engine** keeps a searchable index using hybrid retrieval (vector + BM25) with watcher-driven background sync, and **Read Cycle** exposes recall through `memory_search` (semantic snippets) and `memory_get` (targeted file reads). The backend comparison at the bottom highlights the tradeoff between built-in SQLite speed/integration and experimental QMD sidecar flexibility.
+概觀：上圖呈現一條完整的 Markdown-first Memory Pipeline，包含四個部分。**Write Cycle** 負責捕捉需要持久化的事實（包括靜默的 pre-compaction flush 與 append-only 的每日日誌），**Source of Truth** 將 Memory 儲存在本機 Workspace 的 Markdown 檔案中（`memory/YYYY-MM-DD.md` 和 `MEMORY.md`），**Indexing & Retrieval Engine** 透過 hybrid retrieval（vector + BM25）搭配 watcher 驅動的背景同步維護可搜尋的索引，**Read Cycle** 則透過 `memory_search`（語意片段）與 `memory_get`（指定檔案讀取）提供召回功能。底部的 Backend 比較凸顯了內建 SQLite 的速度/整合優勢，與實驗性 QMD sidecar 的彈性之間的取捨。
 
-## Analysis
+## 分析
 
-Use this as the core model before changing memory settings.
+在修改 Memory 設定之前，先把以下核心模型弄清楚。
 
-| Finding | Why It Matters |
+| 發現 | 為什麼重要 |
 | --- | --- |
-| Memory source of truth is Markdown on disk | If it is not written to files, it is not durable memory |
-| Context and memory are separate systems | Memory can exist without being in the active model window |
-| Search quality depends on backend + embeddings + indexing freshness | Most "memory misses" are retrieval/config issues, not model issues |
-| Compaction can lose unstored context | Memory flush before compaction protects durable facts |
+| Memory 的 Source of Truth 是磁碟上的 Markdown | 如果沒有寫入檔案，就不算持久化的 Memory |
+| Context 與 Memory 是兩套獨立系統 | Memory 可以存在，但不一定在當前的 model window 裡 |
+| 搜尋品質取決於 Backend + Embeddings + 索引新鮮度 | 大多數「Memory 找不到」的問題出在檢索/設定，而非模型本身 |
+| Compaction 可能導致未儲存的 Context 遺失 | 在 Compaction 前執行 Memory Flush 可以保護需要持久化的事實 |
 
-Core rule:
+核心原則：
 
-- If the user says "remember this", write to memory files, not just chat history.
+- 如果使用者說「記住這個」，就要寫入 Memory 檔案，而不是只留在聊天記錄裡。
 
-## Plan
+## 計畫
 
-This chapter follows the same order operators use in production.
+本章依照實務上 Operator 的操作順序進行。
 
-1. Define memory files and write policy
-2. Explain automatic memory flush before compaction
-3. Explain memory search backends and provider selection
-4. Explain retrieval tools and index lifecycle
-5. Cover advanced options (hybrid, cache, session memory, sqlite-vec)
-6. Provide troubleshooting checklist
+1. 定義 Memory 檔案與寫入策略
+2. 說明 Compaction 前的自動 Memory Flush
+3. 說明 Memory Search Backend 與 Provider 選擇
+4. 說明 Retrieval Tool 與索引生命週期
+5. 涵蓋進階選項（Hybrid、Cache、Session Memory、sqlite-vec）
+6. 提供疑難排解清單
 
-## Memory Files (Markdown)
+## Memory 檔案（Markdown）
 
-OpenClaw memory is workspace-first and file-based.
+OpenClaw Memory 採用 Workspace-first、以檔案為基礎的設計。
 
-| File | Role | Load Behavior |
+| 檔案 | 角色 | 載入行為 |
 | --- | --- | --- |
-| `memory/YYYY-MM-DD.md` | Daily append-only log | Typically reads today + yesterday at session start |
-| `MEMORY.md` (optional) | Curated long-term memory | Main private session only; not group contexts |
+| `memory/YYYY-MM-DD.md` | 每日 append-only 日誌 | 通常在 Session 啟動時讀取今天 + 昨天的紀錄 |
+| `MEMORY.md`（選用） | 精選的長期 Memory | 僅限 Main Private Session；不適用於 Group Context |
 
-Workspace root:
+Workspace 根目錄：
 
-- `agents.defaults.workspace` (default `~/.openclaw/workspace`)
+- `agents.defaults.workspace`（預設 `~/.openclaw/workspace`）
 
-Write policy:
+寫入策略：
 
-- Durable preferences, decisions, stable facts -> `MEMORY.md`
-- Day-to-day running notes -> `memory/YYYY-MM-DD.md`
+- 持久化的偏好、決策、穩定事實 -> `MEMORY.md`
+- 每日流水紀錄 -> `memory/YYYY-MM-DD.md`
 
-## Automatic Memory Flush (Pre-Compaction)
+## 自動 Memory Flush（Pre-Compaction）
 
-Before auto-compaction, OpenClaw can run a silent reminder turn so the agent stores durable facts.
+在 Auto-Compaction 執行前，OpenClaw 可以插入一個靜默的提醒 Turn，讓 Agent 儲存需要持久化的事實。
 
-| Setting | Meaning |
+| 設定 | 意義 |
 | --- | --- |
-| `agents.defaults.compaction.memoryFlush.enabled` | Enable memory flush reminder |
-| `softThresholdTokens` | Trigger when session nears compaction reserve |
-| `systemPrompt` + `prompt` | Reminder text for flush turn |
-| One flush per cycle | Tracked per compaction cycle in session state |
+| `agents.defaults.compaction.memoryFlush.enabled` | 啟用 Memory Flush 提醒 |
+| `softThresholdTokens` | 當 Session 接近 Compaction Reserve 時觸發 |
+| `systemPrompt` + `prompt` | Flush Turn 的提醒文字 |
+| 每個週期只 Flush 一次 | 透過 Session State 追蹤每個 Compaction Cycle |
 
-Important behavior:
+重要行為：
 
-- Default prompt encourages `NO_REPLY`, so users usually do not see this turn.
-- Flush is skipped if workspace is read-only or inaccessible (`workspaceAccess: "ro"`/`"none"`).
+- 預設 Prompt 會引導 `NO_REPLY`，所以使用者通常不會看到這個 Turn。
+- 如果 Workspace 是唯讀或無法存取（`workspaceAccess: "ro"` / `"none"`），Flush 會被跳過。
 
-## Memory Search Backends
+## Memory Search Backend
 
-OpenClaw supports two retrieval engines.
+OpenClaw 支援兩種 Retrieval Engine。
 
-| Backend | Status | Notes |
+| Backend | 狀態 | 備註 |
 | --- | --- | --- |
-| Built-in (`memory-core`) | Default | SQLite-based index/search over Markdown memory |
-| `qmd` | Experimental | Local sidecar, BM25 + vector + rerank, Markdown still source of truth |
+| 內建（`memory-core`） | 預設 | 基於 SQLite 的索引/搜尋，對象為 Markdown Memory |
+| `qmd` | 實驗性 | 本機 Sidecar，BM25 + vector + rerank，Markdown 仍為 Source of Truth |
 
-Disable memory plugins completely:
+完全停用 Memory Plugin：
 
 - `plugins.slots.memory = "none"`
 
-## Embedding Provider Selection (Built-in Search)
+## Embedding Provider 選擇（內建搜尋）
 
-If provider is not explicitly set, OpenClaw auto-selects in this order.
+如果沒有明確設定 Provider，OpenClaw 會按以下順序自動選擇。
 
-1. `local` (if local model path exists)
-2. `openai` (if key available)
-3. `gemini` (if key available)
-4. `voyage` (if key available)
-5. disabled until configured
+1. `local`（如果本機模型路徑存在）
+2. `openai`（如果有可用的 Key）
+3. `gemini`（如果有可用的 Key）
+4. `voyage`（如果有可用的 Key）
+5. 停用，直到設定完成
 
-Notes:
+注意事項：
 
-- Configure under `agents.defaults.memorySearch` (not top-level `memorySearch`).
-- Codex OAuth for chat/completions does not automatically satisfy embeddings.
-- Remote embeddings require provider API keys.
+- 設定路徑在 `agents.defaults.memorySearch`（不是頂層的 `memorySearch`）。
+- Codex OAuth 用於 chat/completions，不會自動滿足 Embeddings 的需求。
+- Remote Embeddings 需要對應 Provider 的 API Key。
 
-## Memory Tools
+## Memory Tool
 
-These tools are the primary retrieval interface.
+以下 Tool 是主要的檢索介面。
 
-| Tool | What It Returns |
+| Tool | 回傳內容 |
 | --- | --- |
-| `memory_search` | Snippets + path + line range + score + provider/model metadata |
-| `memory_get` | File content for allowed memory paths |
+| `memory_search` | Snippet + 路徑 + 行數範圍 + 分數 + Provider/Model Metadata |
+| `memory_get` | 允許範圍內的 Memory 路徑之檔案內容 |
 
-Guardrails:
+安全護欄：
 
-- `memory_get` rejects paths outside `MEMORY.md` / `memory/` scope.
-- `memory_search` returns snippets, not full file payloads.
+- `memory_get` 會拒絕超出 `MEMORY.md` / `memory/` 範圍的路徑。
+- `memory_search` 回傳的是 Snippet，不是完整檔案。
 
-## What Gets Indexed and When
+## 什麼會被索引、何時索引
 
-Index lifecycle determines freshness and recall.
+索引生命週期決定了新鮮度與召回率。
 
-| Aspect | Behavior |
+| 面向 | 行為 |
 | --- | --- |
-| Indexed content | Markdown memory files (`MEMORY.md`, `memory/**/*.md`) |
-| Store | Per-agent SQLite store (configurable path) |
-| Freshness | File watcher marks index dirty; sync happens on start/search/interval |
-| Reindex triggers | Provider/model/endpoint/chunking fingerprint changes |
+| 被索引的內容 | Markdown Memory 檔案（`MEMORY.md`、`memory/**/*.md`） |
+| 儲存位置 | 每個 Agent 獨立的 SQLite Store（路徑可設定） |
+| 新鮮度 | File Watcher 標記索引為 dirty；同步發生在啟動/搜尋/定時間隔 |
+| Reindex 觸發條件 | Provider/Model/Endpoint/Chunking fingerprint 變更 |
 
-Chunking behavior (default intent):
+Chunking 行為（預設意圖）：
 
-- Chunk target around ~400 tokens with overlap for better semantic continuity.
+- Chunk 目標約 ~400 tokens，並帶有重疊以提升語意連續性。
 
-## QMD Backend (Experimental)
+## QMD Backend（實驗性）
 
-Use QMD when you want local-first hybrid retrieval and sidecar-managed indexing.
+如果你需要 local-first 的 Hybrid Retrieval 加上 Sidecar 管理的索引，可以使用 QMD。
 
-| Topic | Key Point |
+| 主題 | 重點 |
 | --- | --- |
-| Enablement | `memory.backend = "qmd"` |
-| Runtime | Gateway shells out to `qmd` binary on `PATH` |
-| Data home | Isolated under `~/.openclaw/agents/<agentId>/qmd/` |
-| Update loop | Boot + interval refresh (`memory.qmd.update.*`) |
-| Fallback | If QMD fails, OpenClaw falls back to built-in manager |
+| 啟用方式 | `memory.backend = "qmd"` |
+| Runtime | Gateway 透過 shell 呼叫 `PATH` 上的 `qmd` Binary |
+| 資料目錄 | 隔離在 `~/.openclaw/agents/<agentId>/qmd/` 下 |
+| 更新迴圈 | 啟動時 + 定時刷新（`memory.qmd.update.*`） |
+| Fallback | 如果 QMD 失敗，OpenClaw 會回退到內建 Manager |
 
-Operational caveats:
+操作上的注意事項：
 
-- First query may be slow due to model downloads/warmup.
-- Requires local prerequisites (Bun, SQLite extension support, etc.).
+- 第一次查詢可能較慢，因為需要下載模型/暖機。
+- 需要本機前置條件（Bun、SQLite Extension 支援等）。
 
-## Search Quality Features
+## 搜尋品質功能
 
-These options improve retrieval relevance and indexing cost.
+這些選項可以改善檢索相關性和索引成本。
 
-| Feature | Benefit |
+| 功能 | 效益 |
 | --- | --- |
-| Hybrid search (BM25 + vector) | Better exact-token + semantic recall balance |
-| Embedding cache | Avoid re-embedding unchanged chunks |
-| sqlite-vec acceleration | Faster vector distance queries in SQLite |
-| Session memory search (experimental) | Optional recall over session transcripts |
+| Hybrid Search（BM25 + vector） | 更好的精確 Token + 語意召回平衡 |
+| Embedding Cache | 避免對未變更的 Chunk 重複 Embedding |
+| sqlite-vec 加速 | SQLite 中更快的向量距離查詢 |
+| Session Memory Search（實驗性） | 可選擇性地對 Session Transcript 進行召回 |
 
-Hybrid scoring concept:
+Hybrid Scoring 概念：
 
-- Candidate union from vector + BM25
-- Weighted merge (normalized vector/text weights)
-- Falls back gracefully if either side is unavailable
+- 從 vector + BM25 取得候選聯集
+- 加權合併（正規化的 vector/text 權重）
+- 如果任一方不可用，會優雅降級
 
-## Scope, Citations, and Safety
+## 範圍、引用與安全性
 
-Use these controls to avoid leaking memory in the wrong channels.
+善用這些控制項，避免 Memory 在錯誤的 Channel 中洩漏。
 
-| Control | Purpose |
+| 控制項 | 用途 |
 | --- | --- |
-| `memory.qmd.scope` | Allow/deny retrieval by chat type or key prefix |
-| `memory.citations` (`auto`/`on`/`off`) | Control source path footer in snippets |
-| Session indexing isolation | Per-agent boundaries reduce cross-agent bleed |
+| `memory.qmd.scope` | 依 Chat Type 或 Key Prefix 允許/拒絕檢索 |
+| `memory.citations`（`auto`/`on`/`off`） | 控制 Snippet 中的來源路徑 Footer |
+| Session Indexing 隔離 | 每個 Agent 的邊界降低跨 Agent 資料外洩風險 |
 
-Practical note:
+實務提醒：
 
-- Disk access remains the trust boundary for transcript files.
+- 磁碟存取權限仍然是 Transcript 檔案的信任邊界。
 
-## Minimal Config Patterns
+## 最小設定範例
 
-### Built-in search with OpenAI embeddings
+### 內建搜尋搭配 OpenAI Embeddings
 
 ```ts
 agents: {
@@ -191,7 +191,7 @@ agents: {
 }
 ```
 
-### Local embeddings only (no remote fallback)
+### 僅使用 Local Embeddings（不使用 Remote Fallback）
 
 ```ts
 agents: {
@@ -205,7 +205,7 @@ agents: {
 }
 ```
 
-### QMD backend enabled
+### 啟用 QMD Backend
 
 ```ts
 memory: {
@@ -217,19 +217,19 @@ memory: {
 }
 ```
 
-## Operator Troubleshooting Checklist
+## Operator 疑難排解清單
 
-1. Confirm memory plugin/backend is enabled (`memory-core` or `qmd`)
-2. Confirm workspace path and memory files exist
-3. Confirm embedding provider/key resolution
-4. Run `memory_search` and inspect backend/provider metadata
-5. Check index freshness (watcher/sync/reindex triggers)
-6. If using QMD, verify `qmd` binary and sidecar health
-7. If results are empty in channels, verify scope allow/deny rules
+1. 確認 Memory Plugin/Backend 已啟用（`memory-core` 或 `qmd`）
+2. 確認 Workspace 路徑與 Memory 檔案存在
+3. 確認 Embedding Provider/Key 解析正確
+4. 執行 `memory_search` 並檢查 Backend/Provider Metadata
+5. 檢查索引新鮮度（Watcher/Sync/Reindex 觸發條件）
+6. 如果使用 QMD，驗證 `qmd` Binary 與 Sidecar 健康狀態
+7. 如果在特定 Channel 結果為空，檢查 Scope Allow/Deny 規則
 
-## Practical Defaults Recommendation
+## 實務建議預設值
 
-- Start with built-in memory search and remote embeddings.
-- Keep memory files small and curated.
-- Enable hybrid search for mixed natural-language and exact-token queries.
-- Introduce QMD only when you need its retrieval pipeline and can operate sidecar dependencies.
+- 從內建 Memory Search 搭配 Remote Embeddings 開始。
+- 保持 Memory 檔案精簡且經過整理。
+- 啟用 Hybrid Search 以應對混合自然語言與精確 Token 的查詢。
+- 只有在你確實需要 QMD 的 Retrieval Pipeline 且能管理 Sidecar 相依性時，才引入 QMD。
