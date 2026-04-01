@@ -114,6 +114,7 @@ Tags are **lateral associations** that cross-cut the folder hierarchy. Use only 
 | `seo` | Search engine optimization, entity strategy |
 | `tts` | Text-to-speech synthesis |
 | `tmux` | Terminal multiplexer operations |
+| `research` | Notes derived from external sources (YouTube, articles, GitHub repos, official docs) |
 | `skill-definition` | OpenAI-compatible SKILL.md definitions |
 | `marketing` | Marketing strategy, campaigns |
 | `hr` | Human resources, hiring, onboarding |
@@ -161,6 +162,7 @@ content/
 │       ├── minimax/
 │       └── minimax-tts/
 ├── gemini-prompts/           # Gemini prompt templates by role
+├── research-notes/           # Study notes from external sources (YouTube, articles, repos)
 ├── seo-and-geo/              # SEO & GEO strategy
 ├── setup-env/                # Development environment setup
 └── index.md                  # Landing page

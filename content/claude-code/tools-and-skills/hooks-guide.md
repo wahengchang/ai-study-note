@@ -2,6 +2,7 @@
 title: "Claude Code Hooks 入門指南"
 description: "Deterministic automation hooks for Claude Code — auto-format, block dangerous commands, send notifications"
 tags:
+  - research
   - claude-code
   - automation
   - guide
@@ -256,3 +257,4 @@ exit 0
 
 - [[gsd-framework-scenarios|GSD 框架實戰情境]]
 - [[claude-folder-anatomy-guide|.claude/ 資料夾完全解析]]
+- [[research-notes/index|Research Notes]]

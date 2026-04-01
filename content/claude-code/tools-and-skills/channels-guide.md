@@ -2,6 +2,7 @@
 title: "Channels 頻道功能入門指南"
 description: "Push external messages from Telegram and Discord into a running Claude Code session via MCP channels"
 tags:
+  - research
   - claude-code
   - plugin
   - telegram
@@ -219,3 +220,4 @@ claude --channels plugin:discord@claude-plugins-official
 
 - [[telegram-bridge-guide|Telegram Bot 橋接運作原理]]
 - [[hooks-guide|Claude Code Hooks 入門]]
+- [[research-notes/index|Research Notes]]

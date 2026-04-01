@@ -2,6 +2,7 @@
 title: "GSD 框架實戰情境指南"
 description: "Get Stuff Done framework scenarios — from greenfield projects to legacy refactors using Claude Code"
 tags:
+  - research
   - claude-code
   - automation
   - playbook
@@ -139,3 +140,7 @@ cd your-existing-project
     ├── 重構大型檔案 → 情境 4 (/gsd:quick --full)
     └── 神秘 Bug → 情境 5 (/gsd:quick --research)
 ```
+
+## Related
+
+- [[research-notes/index|Research Notes]]

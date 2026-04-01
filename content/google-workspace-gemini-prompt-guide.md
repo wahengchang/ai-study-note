@@ -1,6 +1,7 @@
 ---
 title: Google Workspace with Gemini Prompt Guide 研究筆記
 tags:
+  - research
   - gemini
   - google-workspace
   - prompt-engineering
@@ -85,3 +86,8 @@ Google 提出撰寫有效 prompt 的四大核心要素：
 3. **Prompting 是人人可學的技能** — 不需要是 prompt engineer 也能使用
 4. **迭代是常態** — 第一次就得到完美結果很少見，多試幾種方式是正常的
 5. **善用 `@file` 引用** — 讓 AI 存取你自己的檔案是最強大的個人化手段
+
+## Related
+
+- [[gemini-prompts/index|Gemini 可複用 Prompt 範本集]]
+- [[research-notes/index|Research Notes]]

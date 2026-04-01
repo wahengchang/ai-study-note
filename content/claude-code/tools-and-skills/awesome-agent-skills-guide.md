@@ -2,6 +2,7 @@
 title: "Awesome Agent Skills 精選 AI Agent 技能清單"
 description: "Curated list of 1000+ reusable agent skills for Claude Code, Codex, Gemini CLI, Cursor, and Copilot"
 tags:
+  - research
   - claude-code
   - tools
   - reference
@@ -161,3 +162,4 @@ claude "根據 Figma 設計稿，產生對應的 React 元件：
 
 - [[agent-teams-guide|Claude Code Agent Teams 協作]]
 - [[hooks-guide|Claude Code Hooks 入門]]
+- [[research-notes/index|Research Notes]]
