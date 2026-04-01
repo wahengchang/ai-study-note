@@ -13,6 +13,7 @@ content/
 │   ├── instruction-notes/    # SOPs and operational guides
 │   └── skill-notes/          # Skill definitions with references
 ├── gemini-prompts/           # Google Gemini prompt templates
+├── research-notes/           # Study notes from external sources (YouTube, articles, repos)
 ├── seo-and-geo/              # SEO & GEO strategy
 ├── setup-env/                # Development environment setup
 └── index.md                  # Landing page

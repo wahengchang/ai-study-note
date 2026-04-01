@@ -3,6 +3,7 @@ title: "2026 AI SEO/GEO 策略與實踐：The 5-Step Playbook"
 aliases:
   - seo-and-geo/ai-seo-geo-playbook-2026
 tags:
+  - research
   - SEO
   - GEO
   - AI
@@ -137,3 +138,7 @@ flowchart LR
   classDef main fill:#1f2329,stroke:#d1d5db,stroke-width:1.5px,color:#f9fafb,font-size:15px;
   class E,H,S,A,T main;
 ```
+
+## Related
+
+- [[research-notes/index|Research Notes]]

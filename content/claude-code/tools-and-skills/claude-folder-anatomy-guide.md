@@ -2,6 +2,7 @@
 title: ".claude/ 資料夾完全解析"
 description: "Anatomy of the .claude folder — project-level vs global config, CLAUDE.md, settings, permissions, and memory"
 tags:
+  - research
   - claude-code
   - devops
   - reference
@@ -193,3 +194,7 @@ mkdir -p .claude/rules .claude/commands
 
 - [Akshay Pachaar (@akshay_pachaar) — 原始推文](https://x.com/akshay_pachaar/status/2035341800739877091)
 - [Daily Dose of Data Science — 完整文章](https://blog.dailydoseofds.com/p/anatomy-of-the-claude-folder)
+
+## Related
+
+- [[research-notes/index|Research Notes]]

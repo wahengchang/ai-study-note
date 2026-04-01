@@ -2,6 +2,7 @@
 title: "Telegram Bot 橋接 Claude Code 運作原理"
 description: "How Telegram Bot Plugin bridges messages to a persistent Claude Code CLI session for remote file and code operations"
 tags:
+  - research
   - claude-code
   - telegram
   - plugin
@@ -191,3 +192,4 @@ Telegram 訊息上限 4096 字元。超長回應會被 Plugin 自動分片發送
 - [[telegram-bridge-work-scenarios|Telegram 橋接實戰應用場景]]
 - [[telegram-plugin-uninstall-guide|完整移除 Telegram Plugin]]
 - [[channels-guide|Channels 頻道功能入門]]
+- [[research-notes/index|Research Notes]]
