@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - executives
+description: "Gemini prompts for C-suite — board meeting replies, strategic memos, and executive briefings"
 ---
 
 # 高階主管 Prompt 範本

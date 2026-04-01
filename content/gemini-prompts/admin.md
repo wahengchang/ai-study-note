@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - admin
+description: "Reusable Gemini prompts for admin tasks — offsite planning, event coordination, and scheduling"
 ---
 
 # 行政支援 Prompt 範本

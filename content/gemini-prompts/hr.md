@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - HR
+description: "Gemini prompts for HR — onboarding presentations, job descriptions, and employee development scripts"
 ---
 
 # 人力資源 Prompt 範本

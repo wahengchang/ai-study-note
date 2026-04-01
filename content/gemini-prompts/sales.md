@@ -4,6 +4,7 @@ tags:
   - Gemini
   - prompting
   - sales
+description: "Gemini prompts for sales — prospecting emails, proposal drafts, and competitive analysis"
 ---
 
 # 業務銷售 Prompt 範本
