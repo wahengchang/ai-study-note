@@ -6,8 +6,8 @@
   --panel-border-hover: #555555;
   --panel-text: #f0f0f0;
   --panel-muted: #737373;
-  --panel-accent: #ff4f00;
-  --panel-hover-bg: #111111;
+  --panel-accent: #ffffff;
+  --panel-hover-bg: #1A1A1A;
   --code-bg: #0b0f16;
   --code-border: #3a4352;
 }
@@ -28,12 +28,6 @@ body {
   padding: 0 0.75rem;
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6,
 article time,
 article .tags,
 article .tag-link,
@@ -63,15 +57,24 @@ th,
   line-height: 1.72;
 }
 
-strong,
+strong {
+  color: #ffffff;
+}
+
 a,
 a.internal {
-  color: var(--panel-accent);
+  color: #cccccc;
+  text-decoration: underline;
+  text-decoration-color: #555555;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
 }
 
 a:hover,
 a.internal:hover {
-  color: var(--panel-text);
+  color: #ffffff;
+  text-decoration-color: #ffffff;
+  background: none;
 }
 
 .center > article,
@@ -90,7 +93,7 @@ a.internal:hover {
 .callout {
   background: var(--panel-bg);
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: none;
 }
 
@@ -99,7 +102,7 @@ a.internal:hover {
 .sidebar .toc,
 .sidebar .backlinks,
 .sidebar .graph {
-  padding: 16px;
+  padding: 24px;
 }
 
 .search > .search-container,
@@ -121,7 +124,7 @@ a.internal:hover {
 .callout:hover,
 button:hover,
 input:hover {
-  border-color: var(--panel-accent);
+  border-color: #555555;
   background: var(--panel-hover-bg);
 }
 
@@ -133,7 +136,7 @@ button.toc-header,
 .graph .global-graph-icon,
 .mermaid-control-button {
   border: 1px solid var(--panel-border);
-  border-radius: 8px;
+  border-radius: 0;
   background: #000000;
   color: var(--panel-text);
   padding: 0.35rem 0.6rem;
@@ -150,15 +153,15 @@ button.desktop-explorer:hover,
 button.toc-header:hover,
 .graph .global-graph-icon:hover,
 .mermaid-control-button:hover {
-  border-color: var(--panel-accent);
-  color: var(--panel-accent);
+  border-color: #555555;
+  color: #ffffff;
   background: #111111;
 }
 
 button:focus-visible,
 a:focus-visible,
 input:focus-visible {
-  outline: 1px solid var(--panel-accent);
+  outline: 1px solid #ffffff;
   outline-offset: 2px;
 }
 
@@ -167,7 +170,7 @@ code,
 figure[data-rehype-pretty-code-figure] > [data-rehype-pretty-code-title] {
   background: var(--code-bg);
   border: 1px solid var(--code-border);
-  border-radius: 8px;
+  border-radius: 0;
   box-shadow: none;
 }
 
@@ -185,9 +188,9 @@ pre > code > [data-line]::before {
 }
 
 blockquote {
-  border-left: 3px solid var(--panel-accent);
+  border-left: 3px solid #ffffff;
   background: #111111;
-  border-radius: 8px;
+  border-radius: 0;
   padding: 1rem;
 }
 
@@ -218,7 +221,7 @@ ul.toc-content > li > a,
 ul.toc-content > li > a.in-view,
 .explorer-content a.active,
 .backlinks ul li a:hover {
-  color: var(--panel-accent);
+  color: #ffffff;
   opacity: 1;
 }
 
@@ -232,7 +235,7 @@ audio,
 video,
 iframe.pdf,
 .external-embed.youtube {
-  border-radius: 8px;
+  border-radius: 0;
 }
 
 .split-container {
@@ -244,4 +247,49 @@ iframe.pdf,
 
 .column-content {
   min-width: 0;
+}
+
+// Brutalist whitespace
+.page-header {
+  margin-top: 2rem;
+  margin-bottom: 1.5rem;
+}
+
+article > h2 {
+  margin-top: 3rem;
+}
+
+// Metadata system feel
+.content-meta,
+article time {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.75rem;
+}
+
+article .tags {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.75rem;
+}
+
+article .tag-link {
+  border: 1px solid #333333;
+  padding: 0.2rem 0.5rem;
+  text-decoration: none;
+  color: var(--panel-muted);
+}
+
+article .tag-link:hover {
+  border-color: #ffffff;
+  color: #ffffff;
+}
+
+// Explorer/TOC/sidebar links should not have underlines
+.explorer-content a,
+ul.toc-content > li > a,
+.backlinks ul li a,
+.page-title a,
+footer a {
+  text-decoration: none;
 }
