@@ -1,84 +1,84 @@
 ---
-title: Team File Structure & Logic Guide
+title: 團隊檔案結構與邏輯指南
 ---
 
-# Team File Structure & Logic Guide
+# 團隊檔案結構與邏輯指南
 
-- **From:** File Management Team
-- **To:** All Team Members
-- **Last Updated:** March 2026
+- **發佈者：** File Management Team
+- **對象：** 全體團隊成員
+- **最後更新：** 2026 年 3 月
 
-## Overview
+## 概述
 
-To ensure efficiency and knowledge retention, we use four file structures based on project complexity. Please follow these guidelines for creating, updating, and reading files.
+為了確保工作效率與知識留存，我們依據專案複雜度定義了四種檔案結構。請在建立、更新及閱讀檔案時遵循以下規範。
 
-## Type 1-A: Simple Daily Log
+## Type 1-A：簡單每日紀錄
 
-- **Path:** `workspace/topic/[date].md`
-- **Use case:** Simple chronological tracking (e.g., daily meeting notes, single-stream progress).
-- **Logic:** One file per day per topic. All updates for the day go in this single file.
+- **路徑：** `workspace/topic/[date].md`
+- **適用情境：** 簡單的時間序列追蹤（例如每日會議筆記、單一進度流）。
+- **邏輯：** 每天每個 topic 一個檔案，當天所有更新都寫在同一個檔案裡。
 
-### Create/Update
+### 建立 / 更新
 
-- If the file doesn't exist, create it (e.g., `2026-03-06.md`).
-- If it exists, append your notes and include a timestamp.
+- 檔案不存在就建立（例如 `2026-03-06.md`）。
+- 檔案已存在就直接追加內容，並附上時間戳。
 
-### Read
+### 閱讀
 
-- Check the specific date's file to see the day's progress.
+- 查看特定日期的檔案即可瞭解當天進度。
 
-## Type 1-B: Daily Log + Master Overview
+## Type 1-B：每日紀錄 + Master Overview
 
-- **Path:** `workspace/topic/[date].md` & `workspace/topic/overview.md`
-- **Use case:** Ongoing projects requiring a high-level summary for management or cross-functional teams.
-- **Logic:** Same as 1-A, plus a master `overview.md` file at the topic root.
+- **路徑：** `workspace/topic/[date].md` 及 `workspace/topic/overview.md`
+- **適用情境：** 需要為管理層或跨部門團隊提供高層摘要的持續性專案。
+- **邏輯：** 與 1-A 相同，另外在 topic 根目錄維護一份 `overview.md`。
 
-### Create/Update
+### 建立 / 更新
 
-- Update `[date].md` as usual.
-- **Crucial:** After finishing your daily log, add 1-2 summary bullet points to `overview.md` with a link to the daily log.
+- 照常更新 `[date].md`。
+- **重要：** 完成當天紀錄後，在 `overview.md` 中加入 1-2 條摘要，並附上指向當天紀錄的連結。
 
-### Read
+### 閱讀
 
-- Read `overview.md` for the big picture; click the links for daily details.
+- 讀 `overview.md` 掌握全局；點連結可查看每日細節。
 
-## Type 2-A: Sub-Topic Daily Folder
+## Type 2-A：Sub-Topic 每日資料夾
 
-- **Path:** `workspace/topic/[date]/[sub-topic].md`
-- **Use case:** Days with multiple independent workflows (e.g., Frontend, Backend, and Design working simultaneously).
-- **Logic:** Create a "daily folder" containing separate files for each sub-topic (workflow).
+- **路徑：** `workspace/topic/[date]/[sub-topic].md`
+- **適用情境：** 當天有多條獨立工作流並行（例如 Frontend、Backend、Design 同時進行）。
+- **邏輯：** 建立「每日資料夾」，裡面為每個 sub-topic（工作流）各開一個檔案。
 
-### Create/Update
+### 建立 / 更新
 
-- Create the date folder.
-- Create or update your specific `[sub-topic].md` (e.g., `2026-03-06/backend.md`).
-- Do not overwrite others' files.
+- 建立日期資料夾。
+- 建立或更新你負責的 `[sub-topic].md`（例如 `2026-03-06/backend.md`）。
+- 不要覆寫別人的檔案。
 
-### Read
+### 閱讀
 
-- Enter the date folder to check isolated progress for a specific sub-topic.
+- 進入日期資料夾，查看特定 sub-topic 的獨立進度。
 
-## Type 2-B: Comprehensive Matrix
+## Type 2-B：完整矩陣結構
 
-- **Path:** `workspace/topic/[date]/[sub-topic].md` & `workspace/topic/[date]/overview.md` & `workspace/topic/overview.md`
-- **Use case:** Complex, large-scale, long-term projects across multiple teams.
-- **Logic:** The most rigorous structure. Combines daily sub-topic files, a daily overview, and a master project overview.
+- **路徑：** `workspace/topic/[date]/[sub-topic].md` 及 `workspace/topic/[date]/overview.md` 及 `workspace/topic/overview.md`
+- **適用情境：** 跨多團隊的大型長期複雜專案。
+- **邏輯：** 最嚴謹的結構，結合每日 sub-topic 檔案、每日 overview，以及專案層級的 master overview。
 
-### Create/Update
+### 建立 / 更新
 
-- **Members:** Update your `[sub-topic].md` in the date folder.
-- **Leads:** At EOD, compile all sub-topic updates into `[date]/overview.md`.
-- **Leads:** Condense the daily overview into a single sentence and update the master `workspace/topic/overview.md`.
+- **成員：** 在日期資料夾中更新你的 `[sub-topic].md`。
+- **Lead：** 每天結束時，將所有 sub-topic 更新彙整到 `[date]/overview.md`。
+- **Lead：** 將每日 overview 濃縮成一句話，更新至 master `workspace/topic/overview.md`。
 
-### Read
+### 閱讀
 
-- **Execs:** Read the master `overview.md` for project health.
-- **Leads:** Read `[date]/overview.md` for total daily output.
-- **Members:** Read specific `[sub-topic].md` files for technical details.
+- **主管：** 讀 master `overview.md` 掌握專案健康狀態。
+- **Lead：** 讀 `[date]/overview.md` 瞭解當日總產出。
+- **成員：** 讀特定 `[sub-topic].md` 取得技術細節。
 
-## ⚠️ Important Rule: Standard Naming Format
+## 重要規則：標準命名格式
 
-To ensure proper file sorting, always use the `YYYY-MM-DD` format for all date variables (both folders and files).
+為確保檔案正確排序，所有日期變數（資料夾與檔案名稱）一律使用 `YYYY-MM-DD` 格式。
 
-- ✅ Correct: `2026-03-06.md`
-- ❌ Incorrect: `March-6.md`, `03-06-2026.md`, `today.md`
+- 正確：`2026-03-06.md`
+- 錯誤：`March-6.md`、`03-06-2026.md`、`today.md`

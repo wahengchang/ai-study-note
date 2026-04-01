@@ -1,180 +1,180 @@
-# Workspace Modification Guideline (OpenClaw)
+# Workspace 修改指南（OpenClaw）
 
-## 1. Purpose
+## 1. 目的
 
-This document is a reusable team guideline for safely modifying OpenClaw files in this repository, with focus on:
+這份文件是團隊安全修改 OpenClaw repository 檔案的可重複使用指南，涵蓋範圍：
 
-1. `workspace*` content (agent behavior/context files and workspace-scoped skills)
-2. `agents/*/agent` runtime agent settings
-3. platform config (`openclaw.json`)
-4. scheduled automation (`cron/jobs.json`)
+1. `workspace*` 內容（Agent 行為 / context 檔案與 workspace 層級的 Skill）
+2. `agents/*/agent` 執行階段 Agent 設定
+3. 平台設定檔（`openclaw.json`）
+4. 排程自動化（`cron/jobs.json`）
 
-Use this as the default operating procedure for team edits.
+請將此文件作為團隊編輯作業的預設操作流程。
 
 ---
 
-## 2. High-Level Architecture
+## 2. 高層架構
 
-### 2.1 Component map
+### 2.1 元件對照表
 
-| Layer | Primary Path(s) | Role | Change Frequency |
+| 層級 | 主要路徑 | 角色 | 異動頻率 |
 | --- | --- | --- | --- |
-| Control Plane | `openclaw.json` | Global system config (agents, bindings, channels, gateway, plugins) | Medium |
-| Agent Runtime Profiles | `agents/*/agent/auth-profiles.json` | Per-agent auth profile mapping and usage state | Low |
-| Workspace Persona/Context | `workspace*/AGENTS.md`, `SOUL.md`, `USER.md`, `TOOLS.md`, etc. | Agent behavior/persona conventions | High |
-| Workspace Skills | `workspace*/skills/*/SKILL.md` | Agent capabilities and execution instructions | Medium |
-| Scheduler | `cron/jobs.json` | Timed background jobs and delivery policy | Medium |
+| Control Plane | `openclaw.json` | 全域系統設定（Agents、Bindings、Channels、Gateway、Plugins） | 中 |
+| Agent Runtime Profiles | `agents/*/agent/auth-profiles.json` | 各 Agent 的 auth profile 對應與使用狀態 | 低 |
+| Workspace Persona/Context | `workspace*/AGENTS.md`, `SOUL.md`, `USER.md`, `TOOLS.md` 等 | Agent 行為 / 人格設定慣例 | 高 |
+| Workspace Skills | `workspace*/skills/*/SKILL.md` | Agent 能力與執行指令 | 中 |
+| Scheduler | `cron/jobs.json` | 定時背景任務與 delivery 策略 | 中 |
 
-### 2.2 Runtime relation
+### 2.2 執行階段關係
 
-| Question | Source of truth |
+| 問題 | 資料來源 |
 | --- | --- |
-| Which agent exists and where it runs | `openclaw.json > agents.list[]` |
-| Which workspace an agent uses | `openclaw.json > agents.list[].workspace` |
-| Which channels/messages route to which agent | `openclaw.json > bindings[]` and `channels.*` |
-| Agent-specific auth profile availability | `agents/<agent-id>/agent/auth-profiles.json` |
-| What the agent should do in that workspace | `workspace*/AGENTS.md`, `SOUL.md`, `HEARTBEAT.md`, `USER.md` |
-| Which extra tools/skills agent can use | `workspace*/skills/*/SKILL.md` (plus shared/global skills if present) |
-| Periodic tasks | `cron/jobs.json` |
+| 哪些 Agent 存在、在哪裡執行 | `openclaw.json > agents.list[]` |
+| Agent 使用哪個 Workspace | `openclaw.json > agents.list[].workspace` |
+| 哪些 Channel / 訊息路由到哪個 Agent | `openclaw.json > bindings[]` 及 `channels.*` |
+| Agent 專屬的 auth profile 可用性 | `agents/<agent-id>/agent/auth-profiles.json` |
+| Agent 在該 Workspace 中應做什麼 | `workspace*/AGENTS.md`, `SOUL.md`, `HEARTBEAT.md`, `USER.md` |
+| Agent 可使用的額外 Tools / Skills | `workspace*/skills/*/SKILL.md`（加上 shared/global Skills，如有） |
+| 週期性任務 | `cron/jobs.json` |
 
 ---
 
-## 3. How Workspace / Agents / Skills Work
+## 3. Workspace / Agents / Skills 運作方式
 
 ### 3.1 Workspaces
 
-Each top-level workspace (`workspace/`, `workspace-dev/`, `workspace-gg-helper/`) is a behavioral context package.
+每個頂層 Workspace（`workspace/`、`workspace-dev/`、`workspace-gg-helper/`）都是一個行為 context 套件。
 
-| File | Responsibility | Notes |
+| 檔案 | 職責 | 備註 |
 | --- | --- | --- |
-| `AGENTS.md` | Session boot rules, safety, heartbeat policy | Core operating contract |
-| `SOUL.md` | Behavior philosophy and boundaries | Persona constitution |
-| `USER.md` | Human profile and preferences | Update with care |
-| `TOOLS.md` | Environment-specific notes | Keep infra-specific data here |
-| `HEARTBEAT.md` | Lightweight periodic checklist | Keep minimal to reduce token burn |
-| `.openclaw/workspace-state.json` | Workspace bootstrap state metadata | System state, not narrative content |
+| `AGENTS.md` | Session 啟動規則、安全性、Heartbeat 策略 | 核心運作契約 |
+| `SOUL.md` | 行為哲學與邊界 | 人格設定基本法 |
+| `USER.md` | 人類使用者的 profile 與偏好 | 修改需謹慎 |
+| `TOOLS.md` | 環境專屬備註 | 將基礎設施相關資料放這裡 |
+| `HEARTBEAT.md` | 輕量級週期性檢查清單 | 盡量精簡以減少 token 消耗 |
+| `.openclaw/workspace-state.json` | Workspace bootstrap 狀態 metadata | 系統狀態，非敘述性內容 |
 
 ### 3.2 Agents
 
-Global agent registration is controlled in `openclaw.json`. Agent runtime auth profile files are under `agents/<id>/agent/`.
+Agent 的全域註冊在 `openclaw.json` 中管理。Agent 執行階段的 auth profile 檔案位於 `agents/<id>/agent/`。
 
-| Item | Behavior |
+| 項目 | 行為 |
 | --- | --- |
-| `agents.list[].id` | Agent identity key used by bindings, cron, and routing |
-| `agents.list[].workspace` | Selects which workspace files and workspace skills are used |
-| `agents.list[].agentDir` | Agent runtime directory (auth/session related) |
-| `subagents.allowAgents` | Explicit allowlist for delegating/using sub-agents |
-| `groupChat` | Mention patterns/history behavior in group channels |
+| `agents.list[].id` | Agent 身分識別 key，供 Bindings、Cron、路由使用 |
+| `agents.list[].workspace` | 決定使用哪個 Workspace 的檔案與 Skills |
+| `agents.list[].agentDir` | Agent 執行階段目錄（auth / session 相關） |
+| `subagents.allowAgents` | 明確的 allowlist，控制可委派 / 使用的 Sub-agent |
+| `groupChat` | 群組 Channel 中的 mention 模式 / 歷史訊息行為 |
 
 ### 3.3 Skills
 
-Skills are instruction bundles defined by `SKILL.md`.
+Skills 是以 `SKILL.md` 定義的指令套件。
 
-| Principle | Practical impact |
+| 原則 | 實務影響 |
 | --- | --- |
-| Skill identity is defined by `SKILL.md` metadata/frontmatter | Folder name alone does not define effective skill identity |
-| Workspace skills are per-workspace overrides | A skill in `workspace*/skills/` applies to agents using that workspace |
-| Scope precedence matters | Workspace-level skill can override lower-precedence shared/bundled versions with same name |
-| Eligibility != discovery | Missing binary/env/config dependencies can make a discovered skill unusable |
+| Skill 身分由 `SKILL.md` 的 metadata / frontmatter 定義 | 資料夾名稱本身不決定有效的 Skill 身分 |
+| Workspace Skills 是 per-workspace 的覆寫 | `workspace*/skills/` 下的 Skill 僅適用於使用該 Workspace 的 Agents |
+| Scope 優先順序很重要 | Workspace 層級的 Skill 可覆寫同名的較低優先序 shared / bundled 版本 |
+| 可被發現不等於可被使用 | 缺少 binary / env / config 依賴項會讓已發現的 Skill 無法執行 |
 
 ---
 
-## 4. Change Policy by File Type
+## 4. 各檔案類型的異動策略
 
-### 4.1 Safe-to-edit matrix
+### 4.1 安全編輯矩陣
 
-| File Type | Typical Owner | Risk | Validation Required |
+| 檔案類型 | 通常負責人 | 風險 | 需要的驗證 |
 | --- | --- | --- | --- |
-| `workspace*/**/*.md` | Prompt/agent designers | Low-Medium | Markdown sanity + section intent review |
-| `workspace*/skills/*/SKILL.md` | Tooling/automation devs | Medium | Metadata + dependency checks |
-| `cron/jobs.json` | Automation owner | Medium-High | JSON validity + schedule correctness + target agent/channel |
-| `openclaw.json` | Tech lead/platform owner | High | JSON validity + routing/auth/channel impact review |
-| `agents/*/agent/auth-profiles.json` | Platform/auth owner | High | JSON validity + profile key consistency |
+| `workspace*/**/*.md` | Prompt / Agent 設計者 | 低 - 中 | Markdown 格式檢查 + 段落意圖審查 |
+| `workspace*/skills/*/SKILL.md` | 工具 / 自動化開發者 | 中 | Metadata + 依賴項檢查 |
+| `cron/jobs.json` | 自動化負責人 | 中 - 高 | JSON 有效性 + 排程正確性 + 目標 Agent / Channel |
+| `openclaw.json` | Tech Lead / 平台負責人 | 高 | JSON 有效性 + 路由 / auth / Channel 影響評估 |
+| `agents/*/agent/auth-profiles.json` | 平台 / auth 負責人 | 高 | JSON 有效性 + profile key 一致性 |
 
-### 4.2 Do-not-break rules
+### 4.2 不可違反的規則
 
-1. Never commit or expose secrets/tokens in docs or PR discussion.
-2. Do not rename `agents.list[].id` casually; bindings/cron may break.
-3. Do not change workspace paths in `openclaw.json` without confirming directory existence.
-4. Keep `HEARTBEAT.md` concise; avoid large prompts in heartbeat context.
-5. Keep `cron/jobs.json` payload prompts deterministic and explicit about tools/outputs.
-6. Treat auth profile files as sensitive runtime config, not general docs.
+1. 永遠不要在文件或 PR 討論中提交或洩漏 secrets / tokens。
+2. 不要隨意重新命名 `agents.list[].id`；Bindings / Cron 可能會壞掉。
+3. 修改 `openclaw.json` 中的 Workspace 路徑前，先確認目錄確實存在。
+4. 保持 `HEARTBEAT.md` 精簡；避免在 Heartbeat context 中放大量 prompt。
+5. `cron/jobs.json` 的 payload prompt 需具確定性，且明確指定 Tools / 輸出格式。
+6. 將 auth profile 檔案視為敏感的執行階段設定，而非一般文件。
 
 ---
 
-## 5. Standard Workflow for Team Edits
+## 5. 團隊編輯標準流程
 
-### 5.1 Pre-change checklist
+### 5.1 變更前檢查清單
 
-| Step | Action | Command Example |
+| 步驟 | 動作 | 指令範例 |
 | --- | --- | --- |
-| 1 | Confirm target files and owner | `rg --files workspace* agents cron` |
-| 2 | Inspect impacted configs | `rg -n "<agentId|workspace|skill-name>" openclaw.json cron/jobs.json` |
-| 3 | Create small scoped change plan | One component at a time |
+| 1 | 確認目標檔案與負責人 | `rg --files workspace* agents cron` |
+| 2 | 檢視受影響的設定 | `rg -n "<agentId|workspace|skill-name>" openclaw.json cron/jobs.json` |
+| 3 | 擬定小範圍的變更計畫 | 一次只改一個元件 |
 
-### 5.2 Edit checklist
+### 5.2 編輯檢查清單
 
-| Component | Required checks while editing |
+| 元件 | 編輯時必要的檢查 |
 | --- | --- |
-| Workspace markdown files | Keep sections consistent with `setup-new-agent.md` structure map |
-| Skills (`SKILL.md`) | Verify name/description/dependencies and trigger clarity |
-| `openclaw.json` | Validate agent IDs, bindings, channel settings, gateway constraints |
-| `cron/jobs.json` | Validate `agentId`, schedule (`expr`, `tz`), payload target channel |
-| Auth profile JSON | Preserve key structure (`version`, `lastGood`, `profiles`, `usageStats`) |
+| Workspace markdown 檔案 | 段落結構需與 `setup-new-agent.md` 的結構對照保持一致 |
+| Skills（`SKILL.md`） | 驗證 name / description / dependencies 及觸發條件的清晰度 |
+| `openclaw.json` | 驗證 Agent ID、Bindings、Channel 設定、Gateway 限制 |
+| `cron/jobs.json` | 驗證 `agentId`、排程（`expr`、`tz`）、payload 目標 Channel |
+| Auth profile JSON | 保留 key 結構（`version`、`lastGood`、`profiles`、`usageStats`） |
 
-### 5.3 Post-change validation
+### 5.3 變更後驗證
 
-| Check | Command |
+| 檢查項目 | 指令 |
 | --- | --- |
-| JSON syntax | `jq . openclaw.json >/dev/null` |
-| Cron syntax file validity | `jq . cron/jobs.json >/dev/null` |
-| Agent auth profile syntax | `for f in agents/*/agent/auth-profiles.json; do jq . "$f" >/dev/null; done` |
-| Fast diff review | `git diff -- <paths>` |
+| JSON 語法 | `jq . openclaw.json >/dev/null` |
+| Cron 設定檔語法 | `jq . cron/jobs.json >/dev/null` |
+| Agent auth profile 語法 | `for f in agents/*/agent/auth-profiles.json; do jq . "$f" >/dev/null; done` |
+| 快速 diff 檢視 | `git diff -- <paths>` |
 
 ---
 
-## 6. Change Patterns (Reusable)
+## 6. 變更模式（可重複使用）
 
-### Pattern A: Update agent behavior in one workspace
+### Pattern A：更新單一 Workspace 中的 Agent 行為
 
-1. Edit `workspace-<target>/AGENTS.md`, `SOUL.md`, `HEARTBEAT.md` as needed.
-2. Keep persona (`IDENTITY.md`) and user profile (`USER.md`) coherent.
-3. Validate markdown readability and section consistency.
+1. 依需求編輯 `workspace-<target>/AGENTS.md`、`SOUL.md`、`HEARTBEAT.md`。
+2. 確保 persona（`IDENTITY.md`）和使用者 profile（`USER.md`）保持一致。
+3. 驗證 Markdown 可讀性與段落一致性。
 
-### Pattern B: Add/modify a workspace skill
+### Pattern B：新增 / 修改 Workspace Skill
 
-1. Create/update `workspace-<target>/skills/<skill-name>/SKILL.md`.
-2. Ensure metadata name/description clearly express trigger conditions.
-3. Document dependency requirements (bin/env/config).
-4. If skill name collides with shared/bundled skill, confirm override is intentional.
+1. 建立或更新 `workspace-<target>/skills/<skill-name>/SKILL.md`。
+2. 確保 metadata 中的 name / description 清楚表達觸發條件。
+3. 記錄依賴需求（binary / env / config）。
+4. 若 Skill 名稱與 shared / bundled Skill 衝突，確認覆寫是刻意的。
 
-### Pattern C: Add/modify an agent in platform config
+### Pattern C：在平台設定中新增 / 修改 Agent
 
-1. Update `openclaw.json > agents.list[]`.
-2. Set `workspace` and `agentDir` paths correctly.
-3. Add or update `bindings[]` if routing is needed.
-4. Revalidate JSON and impacted cron jobs referencing `agentId`.
+1. 更新 `openclaw.json > agents.list[]`。
+2. 正確設定 `workspace` 和 `agentDir` 路徑。
+3. 如需路由，新增或更新 `bindings[]`。
+4. 重新驗證 JSON 及引用 `agentId` 的 Cron 任務。
 
-### Pattern D: Modify scheduled jobs
+### Pattern D：修改排程任務
 
-1. Edit `cron/jobs.json` target job entry.
-2. Confirm `agentId` exists in `openclaw.json`.
-3. Confirm schedule timezone and expression match business expectation.
-4. Confirm payload prompt references valid skill paths/commands.
+1. 編輯 `cron/jobs.json` 中的目標任務項目。
+2. 確認 `agentId` 存在於 `openclaw.json` 中。
+3. 確認排程的時區與 cron expression 符合業務預期。
+4. 確認 payload prompt 引用的 Skill 路徑 / 指令有效。
 
 ---
 
-## 7. Collaboration Rules (Tech Lead Baseline)
+## 7. 協作規則（Tech Lead 基線）
 
-| Rule | Why |
+| 規則 | 原因 |
 | --- | --- |
-| Prefer small, atomic PRs by component | Easier rollback and lower blast radius |
-| Include “impact scope” in PR description | Makes cross-agent effects explicit |
-| Keep config and content changes separate when possible | Simplifies review and incident triage |
-| Require at least one platform-aware reviewer for `openclaw.json`, `cron/jobs.json` | Reduces production routing/scheduling risk |
-| Record non-obvious decisions in workspace docs | Preserves team context for future edits |
+| 以元件為單位發小型 atomic PR | 容易 rollback，影響範圍小 |
+| PR 描述中包含「影響範圍」 | 讓跨 Agent 的副作用一目了然 |
+| 盡可能將設定與內容的變更分開 | 簡化 review 及事故排查 |
+| `openclaw.json`、`cron/jobs.json` 至少需一位熟悉平台的 reviewer | 降低正式環境路由 / 排程出錯風險 |
+| 將非顯而易見的決策記錄在 Workspace 文件中 | 為日後編輯保留團隊 context |
 
-Recommended PR sections:
+建議的 PR 段落結構：
 
 1. Intent
 2. Files changed
@@ -184,11 +184,11 @@ Recommended PR sections:
 
 ---
 
-## 8. Common Failure Modes
+## 8. 常見失敗模式
 
-| Failure | Root Cause | Prevention |
+| 失敗現象 | 根本原因 | 預防方式 |
 | --- | --- | --- |
-| Agent stops receiving expected messages | `bindings` mismatch or `agentId` typo | Validate `agentId` references across files |
-| Scheduled job runs on wrong agent | `cron/jobs.json` `agentId` mismatch | Cross-check with `openclaw.json` |
-| Skill appears but cannot execute | Missing dependency (bin/env/config) | Declare prerequisites inside `SKILL.md` |
-| Sensitive data leakage | Editing/token exposure in config/docs | Redact secrets and restrict file visibility in reviews |
+| Agent 不再收到預期訊息 | `bindings` 不匹配或 `agentId` 打錯 | 跨檔案驗證 `agentId` 引用 |
+| 排程任務跑在錯誤的 Agent 上 | `cron/jobs.json` 的 `agentId` 不匹配 | 與 `openclaw.json` 交叉比對 |
+| Skill 出現但無法執行 | 缺少依賴項（binary / env / config） | 在 `SKILL.md` 中宣告先決條件 |
+| 敏感資料外洩 | 在設定 / 文件中編輯或暴露 token | 遮蔽 secrets 並在 review 時限制檔案可見性 |

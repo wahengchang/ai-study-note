@@ -1,85 +1,87 @@
 ---
-title: tmux Quick Start for OpenClaw (Prefix, Panes, Windows, Sessions)
+title: tmux 快速入門：搭配 OpenClaw 的 Prefix、Pane、Window、Session
+aliases:
+tags:
 ---
 
-## Objective
+## 目標
 
-- Provide a fast tmux reference for OpenClaw daily operations.
-- Cover the minimum command set: split panes, switch windows, detach/reattach sessions.
+- 提供一份精簡的 tmux 參考，方便日常操作 OpenClaw。
+- 涵蓋最基本的指令集：分割 Pane、切換 Window、Detach / Reattach Session。
 
-## Assumptions / Verification Status
+## 前提 / 驗證狀態
 
-- This note is based on user-provided guidance and common tmux defaults.
-- Commands are not executed in this note.
-- Verify in your environment:
+- 本筆記根據常見 tmux 預設值整理。
+- 指令並未在本筆記中實際執行。
+- 請在你的環境中驗證：
 
 ```bash
 tmux -V
 tmux list-keys | head
 ```
 
-## Core Rule: Prefix Key
+## 核心規則：Prefix Key
 
-- tmux commands are triggered with a **Prefix** key sequence.
-- Default Prefix: `Ctrl+b`.
+- tmux 的指令都要透過 **Prefix** 鍵序列觸發。
+- 預設 Prefix：`Ctrl+b`。
 
-### Usage Pattern
+### 操作模式
 
-1. Press `Ctrl+b`.
-2. Release keys.
-3. Press the command key.
+1. 按下 `Ctrl+b`。
+2. 放開按鍵。
+3. 再按指令鍵。
 
-## Install and Start
+## 安裝與啟動
 
 ```bash
 brew install tmux
 tmux
 ```
 
-- `brew install tmux`: install on macOS (Homebrew).
-- `tmux`: start a new tmux session.
+- `brew install tmux`：在 macOS 上用 Homebrew 安裝。
+- `tmux`：啟動新的 tmux Session。
 
-## Pane Management (Splits)
+## Pane 管理（分割畫面）
 
-| Action | Keys |
+| 動作 | 按鍵 |
 | --- | --- |
-| Split left/right (vertical split) | `Prefix` then `%` |
-| Split top/bottom (horizontal split) | `Prefix` then `"` |
-| Move between panes | `Prefix` then arrow keys |
-| Close active pane (confirm) | `Prefix` then `x` |
-| Zoom/unzoom active pane | `Prefix` then `z` |
+| 左右分割（垂直切割） | `Prefix` 然後 `%` |
+| 上下分割（水平切割） | `Prefix` 然後 `"` |
+| 在 Pane 之間移動 | `Prefix` 然後方向鍵 |
+| 關閉目前 Pane（需確認） | `Prefix` 然後 `x` |
+| 放大 / 還原目前 Pane | `Prefix` 然後 `z` |
 
-## Window Management (Tabs)
+## Window 管理（分頁）
 
-| Action | Keys |
+| 動作 | 按鍵 |
 | --- | --- |
-| New window | `Prefix` then `c` |
-| Next window | `Prefix` then `n` |
-| Previous window | `Prefix` then `p` |
-| Jump to window `0-9` | `Prefix` then `0..9` |
-| Close active window | `Prefix` then `&` |
+| 新增 Window | `Prefix` 然後 `c` |
+| 下一個 Window | `Prefix` 然後 `n` |
+| 上一個 Window | `Prefix` 然後 `p` |
+| 跳到第 `0-9` 個 Window | `Prefix` 然後 `0..9` |
+| 關閉目前 Window | `Prefix` 然後 `&` |
 
-## Session Management (Keep Work Running)
+## Session 管理（讓工作持續執行）
 
-| Action | Keys / Command |
+| 動作 | 按鍵 / 指令 |
 | --- | --- |
-| Detach from current session | `Prefix` then `d` |
-| Reattach to last session | `tmux attach` |
-| List sessions | `tmux ls` |
+| 從目前 Session 脫離 | `Prefix` 然後 `d` |
+| 重新接上最後的 Session | `tmux attach` |
+| 列出所有 Session | `tmux ls` |
 
-- Detach keeps processes running in background.
-- Reattach restores panes/windows exactly where you left off.
+- Detach 之後程式會繼續在背景執行。
+- Reattach 會完整恢復你離開時的 Pane / Window 狀態。
 
-## Suggested OpenClaw Layout
+## 建議的 OpenClaw 配置
 
-### 2-Pane Workflow
+### 雙 Pane 工作流
 
-| Pane | Use |
+| Pane | 用途 |
 | --- | --- |
-| Left pane | Run gateway (`openclaw gateway --port 18789`) |
-| Right pane | Run CLI checks / browser commands / logs |
+| 左邊 Pane | 執行 Gateway（`openclaw gateway --port 18789`） |
+| 右邊 Pane | 跑 CLI 檢查 / 瀏覽器指令 / 看 Log |
 
-### Example Session
+### 範例 Session
 
 ```bash
 tmux
@@ -92,23 +94,23 @@ openclaw gateway --port 18789
 openclaw --help
 ```
 
-## Troubleshooting
+## 疑難排解
 
-| Problem | Likely Cause | Check |
+| 問題 | 可能原因 | 檢查方式 |
 | --- | --- | --- |
-| Keybindings do nothing | Not in tmux session | Confirm prompt/status line; run `echo $TMUX` |
-| Prefix not working | Custom tmux config changed prefix | Check `~/.tmux.conf` |
-| `tmux attach` fails | No active session | Run `tmux ls`, then start with `tmux` |
+| 快捷鍵沒反應 | 不在 tmux Session 中 | 確認 Prompt / 狀態列；執行 `echo $TMUX` |
+| Prefix 無法使用 | 自訂 tmux 設定改了 Prefix | 檢查 `~/.tmux.conf` |
+| `tmux attach` 失敗 | 沒有執行中的 Session | 執行 `tmux ls`，再用 `tmux` 啟動新的 |
 
-## Minimal Cheat Sheet
+## 極簡速查表
 
-| Action | Shortcut |
+| 動作 | 快捷鍵 |
 | --- | --- |
 | Prefix | `Ctrl+b` |
-| Split left/right | `Prefix`, `%` |
-| Split top/bottom | `Prefix`, `"` |
-| Move panes | `Prefix`, arrows |
-| New window | `Prefix`, `c` |
-| Next window | `Prefix`, `n` |
+| 左右分割 | `Prefix`, `%` |
+| 上下分割 | `Prefix`, `"` |
+| 移動 Pane | `Prefix`, 方向鍵 |
+| 新增 Window | `Prefix`, `c` |
+| 下一個 Window | `Prefix`, `n` |
 | Detach | `Prefix`, `d` |
 | Reattach | `tmux attach` |
