@@ -13,6 +13,8 @@ tags:
 > 基於 [shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的 Harness Framework 操作手冊
 > License: MIT ｜ 語言：Python / TypeScript / Markdown
 
+![](https://www.youtube.com/watch?v=EsTrWCV0Ph4)
+
 ---
 
 ## 這篇文章是什麼
