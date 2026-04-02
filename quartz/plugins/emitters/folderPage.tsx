@@ -66,16 +66,29 @@ function computeFolderInfo(
 ): Record<SimpleSlug, ProcessedContent> {
   // Create default folder descriptions
   const folderInfo: Record<SimpleSlug, ProcessedContent> = Object.fromEntries(
-    [...folders].map((folder) => [
-      folder,
-      defaultProcessedContent({
-        slug: joinSegments(folder, "index") as FullSlug,
-        frontmatter: {
-          title: `${i18n(locale).pages.folderContent.folder}: ${folder}`,
-          tags: [],
-        },
-      }),
-    ]),
+    [...folders].map((folder) => {
+      // Count notes directly under this folder for a meaningful description
+      const folderCount = content.filter(([_tree, file]) => {
+        const slug = file.data.slug ?? ""
+        const folderPrefix = folder + "/"
+        // Match files in this folder (but not in deeper subfolders)
+        return slug.startsWith(folderPrefix) && !slug.slice(folderPrefix.length).includes("/")
+      }).length
+
+      const description = i18n(locale).pages.folderContent.itemsUnderFolder({ count: folderCount })
+
+      return [
+        folder,
+        defaultProcessedContent({
+          slug: joinSegments(folder, "index") as FullSlug,
+          frontmatter: {
+            title: `${i18n(locale).pages.folderContent.folder}: ${folder}`,
+            tags: [],
+          },
+          description,
+        }),
+      ]
+    }),
   )
 
   // Update with actual content if available
