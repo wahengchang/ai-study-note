@@ -4,7 +4,7 @@
 .callout {
   border: 1px solid var(--border);
   background-color: var(--bg);
-  border-radius: 5px;
+  border-radius: var(--radius-lg, 16px);
   padding: 0 1rem;
   overflow-y: hidden;
   box-sizing: border-box;

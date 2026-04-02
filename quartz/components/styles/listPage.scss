@@ -7,11 +7,20 @@ ul.section-ul {
 }
 
 li.section-li {
-  margin-bottom: 1em;
+  margin-bottom: 0.75em;
 
   & > .section {
     display: grid;
     grid-template-columns: fit-content(8em) 3fr 1fr;
+    padding: 0.75rem 1rem;
+    border: 1px solid var(--panel-border, rgba(255, 255, 255, 0.1));
+    border-radius: var(--radius-lg, 16px);
+    transition: border-color 0.2s ease, background 0.2s ease;
+
+    &:hover {
+      border-color: var(--panel-border-hover, rgba(255, 255, 255, 0.2));
+      background: var(--panel-hover-bg, rgba(255, 255, 255, 0.05));
+    }
 
     @media all and ($mobile) {
       & > .tags {

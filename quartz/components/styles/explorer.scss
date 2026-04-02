@@ -127,27 +127,26 @@ button.desktop-explorer {
     }
 
     & li > a {
-      color: var(--darkgray);
-      opacity: 0.85;
+      color: var(--gray);
+      opacity: 1;
       pointer-events: all;
-      font-size: 0.88rem;
+      font-family: var(--bodyFont);
+      font-size: 0.9rem;
       font-weight: $normalWeight;
       line-height: 1.5;
       display: block;
-      padding: 0.2rem 0.5rem;
-      border-radius: 4px;
-      transition: background 0.15s ease, color 0.15s ease, opacity 0.15s ease;
-      text-transform: capitalize;
+      padding: 0.4rem 0.75rem;
+      border-radius: var(--radius-md, 12px);
+      transition: background 0.2s ease, color 0.2s ease;
+      text-transform: none;
 
       &:hover {
-        opacity: 1;
         background: var(--panel-hover-bg, rgba(255, 255, 255, 0.05));
-        color: var(--panel-text, #f0f0f0);
+        color: var(--panel-text, #e5e5e5);
       }
 
       &.active {
-        opacity: 1;
-        color: var(--tertiary);
+        color: var(--panel-text, #e5e5e5);
         font-weight: $semiBoldWeight;
       }
     }
@@ -169,14 +168,14 @@ button.desktop-explorer {
 
   .folder-outer > ul {
     overflow: hidden;
-    margin-left: 4px;
+    margin-left: 0;
     padding-left: 0.75rem;
-    border-left: 1px solid var(--panel-border, #333333);
+    border-left: none;
   }
 
-  // Add spacing between top-level items for visual grouping
+  // Add spacing between top-level groups
   & > ul.explorer-ul > li {
-    margin-bottom: 0.35rem;
+    margin-bottom: 0.75rem;
   }
 }
 
@@ -186,26 +185,26 @@ button.desktop-explorer {
   align-items: center;
   user-select: none;
   min-height: 1.5rem;
-  padding: 0.15rem 0.35rem;
-  border-radius: 4px;
-  transition: background 0.15s ease;
-  text-transform: capitalize;
+  padding: 0.4rem 0.75rem;
+  border-radius: var(--radius-md, 12px);
+  transition: background 0.2s ease;
+  text-transform: none;
 
   &:hover {
     background: var(--panel-hover-bg, rgba(255, 255, 255, 0.05));
   }
 
   & div > a {
-    color: var(--darkgray);
-    font-family: var(--headerFont);
-    font-size: 0.88rem;
+    color: var(--panel-text, #e5e5e5);
+    font-family: var(--bodyFont);
+    font-size: 0.9rem;
     font-weight: $semiBoldWeight;
     line-height: 1.5;
     display: inline-block;
   }
 
   & div > a:hover {
-    color: var(--tertiary);
+    color: #ffffff;
   }
 
   & div > button {
@@ -218,12 +217,12 @@ button.desktop-explorer {
     padding-right: 0;
     display: flex;
     align-items: center;
-    font-family: var(--headerFont);
+    font-family: var(--bodyFont);
 
     & span {
-      font-size: 0.88rem;
+      font-size: 0.9rem;
       display: inline-block;
-      color: var(--darkgray);
+      color: var(--panel-text, #e5e5e5);
       font-weight: $semiBoldWeight;
       margin: 0;
       line-height: 1.5;
@@ -251,13 +250,11 @@ li:has(> .folder-outer:not(.open)) > .folder-container > svg {
 
 // Current reading highlight in explorer
 .explorer-content li:has(> a.active) > a {
-  color: var(--tertiary) !important;
+  color: var(--panel-text, #e5e5e5) !important;
   font-weight: $semiBoldWeight;
-  background: var(--highlight);
-  border-left: 2px solid var(--tertiary);
-  border-radius: 4px;
-  padding: 0.2rem 0.5rem;
-  padding-left: 0.45rem;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: var(--radius-md, 12px);
+  padding: 0.4rem 0.75rem;
 }
 
 .explorer-content li:has(a.active) > .folder-container .folder-title,
@@ -271,27 +268,27 @@ li:has(> .folder-outer:not(.open)) > .folder-container > svg {
   color: var(--tertiary);
 }
 
-// Hierarchy styling: top-level bolder, deeper levels progressively muted.
+// Hierarchy styling: top-level = group headers (bold, white), children = muted gray
 .explorer-content > ul.explorer-ul > li > a,
 .explorer-content > ul.explorer-ul > li > .folder-container .folder-title {
-  color: var(--dark);
-  font-size: 0.92rem;
+  color: var(--panel-text, #e5e5e5);
+  font-size: 0.9rem;
   font-weight: $semiBoldWeight;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
+  text-transform: none;
+  letter-spacing: normal;
 }
 
 .explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > a,
 .explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-container .folder-title {
-  color: var(--panel-text, #e5e5e5);
-  font-size: 0.85rem;
+  color: var(--gray);
+  font-size: 0.9rem;
   font-weight: $normalWeight;
 }
 
 .explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer ul li > a,
 .explorer-content > ul.explorer-ul > li > .folder-outer > ul > li > .folder-outer ul li > .folder-container .folder-title {
-  color: var(--panel-muted, #737373);
-  font-size: 0.82rem;
+  color: var(--gray);
+  font-size: 0.88rem;
   font-weight: $normalWeight;
 }
 

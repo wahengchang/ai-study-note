@@ -50,7 +50,7 @@ $desktopGrid: (
   templateRows: "auto auto auto",
   templateColumns: "#{$sidePanelWidth} auto #{$sidePanelWidth}",
   rowGap: "24px",
-  columnGap: "24px",
+  columnGap: "48px",
   templateAreas:
     '"grid-sidebar-left grid-header grid-sidebar-right"\
       "grid-sidebar-left grid-center grid-sidebar-right"\
