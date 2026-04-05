@@ -1,9 +1,9 @@
 ---
 title: "Airtable curl Templates"
 tags:
-  - openclaw
-  - skill-definition
   - reference
+  - openclaw
+  - airtable
 description: "Copy-pasteable curl commands for Airtable API — list bases, CRUD records, and upload attachments"
 ---
 

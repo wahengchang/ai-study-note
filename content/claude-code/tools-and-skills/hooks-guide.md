@@ -2,10 +2,9 @@
 title: "Claude Code Hooks 入門指南"
 description: "Deterministic automation hooks for Claude Code — auto-format, block dangerous commands, send notifications"
 tags:
-  - research
+  - guide
   - claude-code
   - automation
-  - guide
 ---
 
 # Claude Code Hooks 入門指南

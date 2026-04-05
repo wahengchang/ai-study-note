@@ -1,10 +1,11 @@
 ---
+title: "Airtable API Skill"
 name: airtable-api
-description: Airtable Web API operations for listing bases and tables, validating PAT access, and performing record CRUD (create/read/update/delete), including attachment uploads via URL. Use when users ask to inspect Airtable metadata, verify token permissions, or automate Airtable record workflows with curl.
+description: "Airtable Web API skill — list bases/tables, validate PAT access, and perform record CRUD with curl"
 tags:
-  - openclaw
   - skill-definition
-  - automation
+  - openclaw
+  - airtable
 ---
 
 # Airtable API

@@ -1,8 +1,8 @@
 ---
 title: 🦞 OpenClaw 設定與筆記
 tags:
-  - openclaw
   - reference
+  - openclaw
 description: "Index of OpenClaw notes — architecture chapters, common questions, instruction notes, and skill definitions"
 ---
 
@@ -10,7 +10,6 @@ Agent 工作流程、Tool 使用、架構與 Orchestration 筆記。
 
 > 備註：已移除過時的筆記 `openclaw-subagent-workflow-handbook`。
 
-- [[openclaw/utm-set-ubuntu|在 Ubuntu 中設定 OpenClaw]]
 - [[openclaw/ch1-architecture-four-pillars|Ch1: 架構四大支柱]]
 - [[openclaw/ch2-architecture-implementation-guide|Ch2: 架構與實作指南]]
 - [[openclaw/ch3-agent-loop-openclaw|Ch3: Agent Loop (OpenClaw)]]

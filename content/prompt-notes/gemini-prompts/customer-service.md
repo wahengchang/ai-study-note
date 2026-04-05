@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：客戶服務"
 tags:
-  - Gemini
-  - prompting
-  - customer-service
+  - template
+  - prompt-engineering
+  - gemini
 description: "Gemini prompts for customer service — empathetic complaint responses, escalation templates, and FAQ drafting"
 ---
 

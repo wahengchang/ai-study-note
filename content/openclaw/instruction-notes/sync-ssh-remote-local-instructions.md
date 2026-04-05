@@ -1,9 +1,9 @@
 ---
 title: "OpenClaw 同步設定說明（以編輯為中心）"
 tags:
+  - sop
   - openclaw
   - devops
-  - sop
 description: "Edit-centric sync between local and remote — workspace, skills, agent config, and cron with sync-ignore controls"
 ---
 

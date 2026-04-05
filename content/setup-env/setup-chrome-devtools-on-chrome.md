@@ -1,8 +1,9 @@
 ---
 title: 在 Chrome 上設定 Chrome DevTools 以搭配 MCP 使用（macOS）
 tags:
+  - guide
   - devops
-  - tutorial
+  - mcp
 description: "Configure Chrome DevTools for MCP debugging — remote debugging port, DOM inspection, and network monitoring"
 ---
 

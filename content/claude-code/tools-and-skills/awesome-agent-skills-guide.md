@@ -2,10 +2,8 @@
 title: "Awesome Agent Skills 精選 AI Agent 技能清單"
 description: "Curated list of 1000+ reusable agent skills for Claude Code, Codex, Gemini CLI, Cursor, and Copilot"
 tags:
-  - research
-  - claude-code
-  - tools
   - reference
+  - claude-code
 ---
 
 # Awesome Agent Skills 精選 AI Agent 技能清單

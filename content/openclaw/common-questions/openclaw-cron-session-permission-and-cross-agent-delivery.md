@@ -1,9 +1,9 @@
 ---
 title: "OpenClaw Cron：執行者、Session、權限與跨 Agent 遞送"
 tags:
+  - faq
   - openclaw
   - automation
-  - reference
 description: "Cron execution model — Gateway scheduler triggers, isolated background sessions, and service identity permissions"
 ---
 

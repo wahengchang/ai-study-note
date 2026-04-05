@@ -1,11 +1,9 @@
 ---
 title: Google Workspace with Gemini Prompt Guide 研究筆記
 tags:
-  - research
-  - gemini
-  - google-workspace
-  - prompt-engineering
   - guide
+  - prompt-engineering
+  - gemini
 description: "Comprehensive research note on using Gemini across Google Workspace — Docs, Sheets, Slides, Gmail, and Meet"
 ---
 

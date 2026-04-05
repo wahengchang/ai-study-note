@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：行政支援"
 tags:
-  - Gemini
-  - prompting
-  - admin
+  - template
+  - prompt-engineering
+  - gemini
 description: "Reusable Gemini prompts for admin tasks — offsite planning, event coordination, and scheduling"
 ---
 

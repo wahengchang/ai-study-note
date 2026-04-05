@@ -1,9 +1,9 @@
 ---
 title: How OC Routes and Triggers Agents (Bindings, Intent, Health)
 tags:
+  - faq
   - openclaw
-  - routing
-  - reference
+  - multi-agent
 description: "Agent routing via bindings and agentId — skills load after agent selection, not before"
 ---
 

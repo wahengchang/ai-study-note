@@ -1,9 +1,8 @@
 ---
 title: "Workspace 修改指南（OpenClaw）"
 tags:
-  - openclaw
-  - workspace
   - sop
+  - openclaw
 description: "Reusable SOP for modifying workspace content, agent config, platform config, and cron automation safely"
 ---
 

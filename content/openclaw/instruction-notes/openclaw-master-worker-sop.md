@@ -1,9 +1,9 @@
 ---
 title: OpenClaw 主從架構建置標準作業程序（SOP）
 tags:
+  - sop
   - openclaw
   - multi-agent
-  - sop
 description: "Standard operating procedure for master-worker agent architecture — directory structure, SOUL.md, and task routing"
 ---
 

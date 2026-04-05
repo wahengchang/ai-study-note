@@ -1,9 +1,9 @@
 ---
 title: 團隊檔案結構與邏輯指南
 tags:
+  - guide
   - openclaw
   - devops
-  - guide
 description: "Four file structure types by project complexity — daily logs, indexed series, multi-source, and cross-team collaboration"
 ---
 

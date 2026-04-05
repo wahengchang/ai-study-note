@@ -4,9 +4,8 @@ aliases:
   - openclaw/ch6-workspace
   - openclaw/workspace-recap
 tags:
-  - openclaw
-  - workspace
   - reference
+  - openclaw
 description: "Agent workspace as home directory — identity files, context files, memory, and backup via private git"
 ---
 

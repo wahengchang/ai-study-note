@@ -1,10 +1,9 @@
 ---
 title: OC 如何透過 Skill 定義來發現 Agent
 tags:
+  - faq
   - openclaw
-  - routing
-  - skill-definition
-  - reference
+  - multi-agent
 description: "SKILL.md defines skills not agents — how OpenClaw scans skill folders and builds the available skill set"
 ---
 

@@ -3,9 +3,9 @@ title: "Ch2: 架構與實作指南"
 aliases:
   - openclaw/blueprint-ch2
 tags:
+  - guide
   - openclaw
   - agent-architecture
-  - guide
 description: "System-level control flow from clients through Gateway, Runtime, Workspace, and Canvas Host"
 ---
 

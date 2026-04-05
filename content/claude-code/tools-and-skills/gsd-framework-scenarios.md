@@ -2,10 +2,9 @@
 title: "GSD 框架實戰情境指南"
 description: "Get Stuff Done framework scenarios — from greenfield projects to legacy refactors using Claude Code"
 tags:
-  - research
+  - playbook
   - claude-code
   - automation
-  - playbook
 ---
 
 # GSD 框架實戰情境指南

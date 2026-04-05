@@ -1,9 +1,9 @@
 ---
 title: "MiniMax TTS Skill"
 tags:
-  - openclaw
   - skill-definition
-  - tts
+  - openclaw
+  - minimax
 description: "Text-to-speech skill optimized for Cantonese — MiniMax API integration with configurable voice and speed"
 ---
 

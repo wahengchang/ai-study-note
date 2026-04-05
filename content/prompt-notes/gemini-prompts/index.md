@@ -1,10 +1,9 @@
 ---
 title: Gemini 可複用 Prompt 範本集
 tags:
-  - AI
-  - Gemini
-  - prompting
-  - templates
+  - reference
+  - prompt-engineering
+  - gemini
 description: "Index of reusable Gemini prompt templates organized by business function"
 ---
 

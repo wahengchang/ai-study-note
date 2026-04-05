@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：專案管理"
 tags:
-  - Gemini
-  - prompting
-  - project-management
+  - template
+  - prompt-engineering
+  - gemini
 description: "Gemini prompts for project management — status reports, risk assessments, and sprint planning"
 ---
 

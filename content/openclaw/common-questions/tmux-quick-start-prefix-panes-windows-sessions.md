@@ -1,10 +1,10 @@
 ---
 title: tmux 快速入門：搭配 OpenClaw 的 Prefix、Pane、Window、Session
 tags:
-  - openclaw
-  - tmux
-  - devops
   - reference
+  - openclaw
+  - devops
+  - tmux
 description: "Minimal tmux cheat sheet for OpenClaw — prefix key, pane splitting, window management, and session detach/reattach"
 ---
 

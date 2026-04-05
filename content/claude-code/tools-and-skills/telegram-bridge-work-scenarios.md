@@ -2,9 +2,9 @@
 title: "Telegram 橋接 Claude Code 實戰應用場景"
 description: "Three real-world scenarios for remote Claude Code operations via Telegram — code review, deployment, and monitoring"
 tags:
+  - playbook
   - claude-code
   - telegram
-  - playbook
 ---
 
 # Telegram 橋接 Claude Code 實戰應用場景

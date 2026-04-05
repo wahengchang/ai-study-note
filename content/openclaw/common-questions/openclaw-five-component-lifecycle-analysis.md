@@ -1,9 +1,9 @@
 ---
 title: OpenClaw Five-Component Lifecycle Analysis (Bootstrap, Identity, User, Soul, Tools)
 tags:
+  - faq
   - openclaw
   - agent-architecture
-  - reference
 description: "Runtime lifecycle of Bootstrap, Identity, User, Soul, and Tools — initialization, active state, and reload/termination"
 ---
 

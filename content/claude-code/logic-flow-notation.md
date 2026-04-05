@@ -2,9 +2,9 @@
 title: "邏輯與流程標記法"
 description: "Personal notation system for writing clear logic documents — step symbols, conditionals, loops, and error flows"
 tags:
+  - reference
   - claude-code
   - prompt-engineering
-  - reference
 ---
 
 # 我的邏輯與流程標記法

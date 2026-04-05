@@ -3,9 +3,8 @@ title: Setup OpenClaw in Ubuntu
 aliases:
   - openclaw/utm-set-ubuntu-copy
 tags:
-  - openclaw
+  - guide
   - devops
-  - tutorial
 description: "Running Ubuntu in UTM on Apple Silicon — network modes, service crash diagnosis, and Mac-Ubuntu access"
 ---
 

@@ -1,10 +1,10 @@
 ---
 title: n8n + OpenClaw 更新 Workflow（MCP-ready）
 tags:
-  - openclaw
-  - n8n
-  - automation
   - guide
+  - openclaw
+  - automation
+  - n8n
 description: "Deploy an MCP-compatible n8n workflow — webhook, chat, and form trigger interfaces for OpenClaw"
 ---
 

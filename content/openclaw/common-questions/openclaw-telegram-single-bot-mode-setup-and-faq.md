@@ -1,9 +1,9 @@
 ---
 title: OpenClaw Telegram 模式 1（單 Bot）部署教學與高頻故障排查
 tags:
+  - faq
   - openclaw
   - telegram
-  - tutorial
 description: "Single-bot Telegram deployment — one botToken serving multiple groups with shared behavior policy"
 ---
 

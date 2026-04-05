@@ -2,10 +2,9 @@
 title: ".claude/ 資料夾完全解析"
 description: "Anatomy of the .claude folder — project-level vs global config, CLAUDE.md, settings, permissions, and memory"
 tags:
-  - research
+  - reference
   - claude-code
   - devops
-  - reference
 ---
 
 # .claude/ 資料夾完全解析

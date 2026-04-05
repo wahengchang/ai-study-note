@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：業務銷售"
 tags:
-  - Gemini
-  - prompting
-  - sales
+  - template
+  - prompt-engineering
+  - gemini
 description: "Gemini prompts for sales — prospecting emails, proposal drafts, and competitive analysis"
 ---
 

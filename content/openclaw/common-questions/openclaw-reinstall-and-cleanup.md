@@ -1,9 +1,9 @@
 ---
 title: OpenClaw Reinstall / Cleanup (Reset State Safely)
 tags:
+  - playbook
   - openclaw
   - devops
-  - playbook
 description: "Safe state cleanup and reinstall playbook — preserve config, delete stale state, and reset predictably"
 ---
 

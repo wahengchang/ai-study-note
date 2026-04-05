@@ -1,8 +1,8 @@
 ---
 title: 在 MacBook 上安裝 Node.js（Xcode -> nvm -> npm -> Node.js）
 tags:
+  - guide
   - devops
-  - tutorial
 description: "Install Node.js on macOS via Xcode CLI Tools, nvm, and npm — step-by-step verification"
 ---
 

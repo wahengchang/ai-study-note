@@ -1,9 +1,9 @@
 ---
 title: OpenClaw 系統資產盤點指引
 tags:
+  - playbook
   - openclaw
   - devops
-  - playbook
 description: "System asset inventory guide — core config files, agent directories, skill mounts, and routing rules"
 ---
 

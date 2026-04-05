@@ -1,11 +1,12 @@
 ---
+title: "MiniMax TTS Skill"
 name: minimax-tts
-description: High-quality text-to-speech (TTS) using the MiniMax API (t2a_v2). Use when you want audio output (mp3) from text in any supported language (e.g., 廣東話/粵語, 國語, 英語). Includes Cantonese defaults and supports short clips (<20s).
+description: "High-quality text-to-speech via MiniMax API (t2a_v2) — supports Cantonese, Mandarin, English, short clips under 20s"
 metadata: {"openclaw":{"emoji":"🔊","requires":{"bins":["curl","python3"] ,"env":["MINIMAX_API_KEY"]},"primaryEnv":"MINIMAX_API_KEY"}}
 tags:
-  - openclaw
   - skill-definition
-  - tts
+  - openclaw
+  - minimax
 ---
 
 Generate short audio via MiniMax TTS (default: <20 seconds).

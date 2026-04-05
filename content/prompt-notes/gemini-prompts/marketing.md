@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：行銷"
 tags:
-  - Gemini
-  - prompting
-  - marketing
+  - template
+  - prompt-engineering
+  - gemini
 description: "Gemini prompts for marketing — campaign briefs, social media copy, and audience analysis"
 ---
 

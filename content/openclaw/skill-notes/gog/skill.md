@@ -1,9 +1,10 @@
 ---
+title: "gog — Google Workspace CLI Skill"
 name: gog
-description: Google Workspace CLI for Gmail, Calendar, Drive, Contacts, Sheets, and Docs. Use when the user asks to search/send email, check calendar events, search Drive files, list contacts, read/write Google Sheets, or export/read Google Docs.
+description: "Google Workspace CLI skill — Gmail, Calendar, Drive, Contacts, Sheets, and Docs via OAuth"
 tags:
-  - openclaw
   - skill-definition
+  - openclaw
 metadata:
   clawdbot:
     emoji: "🎮"

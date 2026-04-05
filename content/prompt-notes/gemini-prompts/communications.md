@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：溝通公關"
 tags:
-  - Gemini
-  - prompting
-  - communications
+  - template
+  - prompt-engineering
+  - gemini
 description: "Gemini prompts for PR and communications — press releases, internal announcements, and stakeholder updates"
 ---
 

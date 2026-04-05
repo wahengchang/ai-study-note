@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：人力資源"
 tags:
-  - Gemini
-  - prompting
-  - HR
+  - template
+  - prompt-engineering
+  - gemini
 description: "Gemini prompts for HR — onboarding presentations, job descriptions, and employee development scripts"
 ---
 

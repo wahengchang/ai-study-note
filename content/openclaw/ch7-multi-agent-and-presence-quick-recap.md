@@ -4,9 +4,9 @@ aliases:
   - openclaw/ch7-multi-agent
   - openclaw/presence-recap
 tags:
+  - reference
   - openclaw
   - multi-agent
-  - reference
 description: "Multi-agent routing on one Gateway — deterministic binding priority, isolated scopes, and presence monitoring"
 ---
 

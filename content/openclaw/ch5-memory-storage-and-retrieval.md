@@ -4,9 +4,9 @@ aliases:
   - openclaw/ch5-memory
   - openclaw/memory
 tags:
-  - openclaw
-  - memory
   - guide
+  - openclaw
+  - agent-architecture
 description: "Markdown-first memory pipeline — write cycle, source of truth, hybrid retrieval engine, and read cycle"
 ---
 

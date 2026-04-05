@@ -2,10 +2,10 @@
 title: "Claude Code Agent Teams 協作指南"
 description: "Multi-agent team coordination in Claude Code — team lead, teammates, shared task lists, and mailbox messaging"
 tags:
-  - research
+  - guide
   - claude-code
   - agent-architecture
-  - guide
+  - multi-agent
 ---
 
 # Claude Code Agent Teams 協作指南

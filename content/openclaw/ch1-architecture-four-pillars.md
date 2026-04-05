@@ -3,10 +3,10 @@ title: "Ch1: OpenClaw 架構：四大支柱"
 aliases:
   - openclaw/architecture-four-pillars
 tags:
+  - guide
   - openclaw
   - agent-architecture
-  - guide
-description: "OpenClaw architecture organized into four pillars — Core Infrastructure, Agent Runtime, Memory & State, Connectivity & Extensions"
+description: "OpenClaw architecture in four pillars — Core Infrastructure, Agent Runtime, Memory & State, Connectivity"
 ---
 
 這篇筆記將 OpenClaw 架構整理成四個層級：**Core Infrastructure、Agent Runtime、Memory & State、Connectivity & Extensions**。
@@ -157,7 +157,7 @@ flowchart LR
 ## 對應本 Repo 的檔案
 
 - `content/openclaw/index.md`：主題索引
-- `content/openclaw/utm-set-ubuntu.md`：部署與排障指南
+- `content/setup-env/utm-set-ubuntu.md`：部署與排障指南
 - `content/openclaw/openclaw-architecture-four-pillars.md`：本架構總覽
 
 ## Related

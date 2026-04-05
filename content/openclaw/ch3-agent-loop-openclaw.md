@@ -4,9 +4,9 @@ aliases:
   - openclaw/agent-loop
   - openclaw/ch3-agent-loop
 tags:
+  - guide
   - openclaw
   - agent-architecture
-  - guide
 description: "Complete agent execution path — intake, queueing, prompt assembly, streaming, reply shaping, and persistence"
 ---
 

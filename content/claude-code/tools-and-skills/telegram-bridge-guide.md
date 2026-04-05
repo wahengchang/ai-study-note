@@ -2,11 +2,9 @@
 title: "Telegram Bot 橋接 Claude Code 運作原理"
 description: "How Telegram Bot Plugin bridges messages to a persistent Claude Code CLI session for remote file and code operations"
 tags:
-  - research
+  - guide
   - claude-code
   - telegram
-  - plugin
-  - guide
 ---
 
 # Telegram Bot 橋接 Claude Code 運作原理

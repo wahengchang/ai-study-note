@@ -1,9 +1,9 @@
 ---
 title: Automation Task — High-level Implementation Guide
 tags:
+  - guide
   - openclaw
   - automation
-  - guide
 description: "Design principles for automation workflow scripts — discovery, AI analysis, and structured output"
 ---
 

@@ -3,11 +3,8 @@ title: "2026 AI SEO/GEO 策略與實踐：The 5-Step Playbook"
 aliases:
   - seo-and-geo/ai-seo-geo-playbook-2026
 tags:
-  - research
-  - SEO
-  - GEO
-  - AI
-  - 數位行銷
+  - playbook
+  - seo
 description: "5-step AI SEO/GEO playbook for zero-click search era — entity strategy, hub building, and citation seeding"
 ---
 

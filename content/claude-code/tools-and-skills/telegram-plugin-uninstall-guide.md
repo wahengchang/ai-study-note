@@ -2,10 +2,9 @@
 title: "完整移除 Telegram Plugin 指南"
 description: "Complete removal of Telegram Plugin from Claude Code — config cleanup, pairing disconnect, and cache purge"
 tags:
+  - guide
   - claude-code
   - telegram
-  - plugin
-  - guide
 ---
 
 # 完整移除 Telegram Plugin 指南

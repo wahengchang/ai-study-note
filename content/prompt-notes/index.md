@@ -2,8 +2,8 @@
 title: "Prompt Notes"
 description: "Index of prompt engineering notes and reusable Gemini/LLM prompt templates"
 tags:
-  - prompt-engineering
   - reference
+  - prompt-engineering
 ---
 
 Prompt engineering 研究筆記與可複用範本集。

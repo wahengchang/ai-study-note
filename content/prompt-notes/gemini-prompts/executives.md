@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：高階主管"
 tags:
-  - Gemini
-  - prompting
-  - executives
+  - template
+  - prompt-engineering
+  - gemini
 description: "Gemini prompts for C-suite — board meeting replies, strategic memos, and executive briefings"
 ---
 

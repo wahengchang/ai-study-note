@@ -1,9 +1,9 @@
 ---
 title: OpenClaw Browser CLI - 安裝、Profile 管理與常見情境
 tags:
+  - faq
   - openclaw
   - devops
-  - tutorial
 description: "Browser CLI installation, profile management, and Chrome Extension Relay setup for OpenClaw"
 ---
 

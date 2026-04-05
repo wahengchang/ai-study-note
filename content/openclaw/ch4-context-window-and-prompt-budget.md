@@ -4,9 +4,9 @@ aliases:
   - openclaw/ch4-context
   - openclaw/context-window
 tags:
-  - openclaw
-  - context-window
   - guide
+  - openclaw
+  - agent-architecture
 description: "What the model sees per run — system prompt, conversation history, run I/O, and hidden budget pressure"
 ---
 

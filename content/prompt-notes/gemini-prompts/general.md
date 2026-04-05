@@ -1,9 +1,9 @@
 ---
 title: "Gemini Prompt：通用範本與工作流"
 tags:
-  - Gemini
-  - prompting
-  - templates
+  - template
+  - prompt-engineering
+  - gemini
 description: "Universal Gemini prompt patterns — research, analysis, and structured output workflows"
 ---
 

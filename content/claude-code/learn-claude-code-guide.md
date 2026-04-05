@@ -2,11 +2,9 @@
 title: "AI Agent 駕駛框架全解析：從 30 行 Loop 到多 Agent 團隊"
 description: "基於 learn-claude-code 的 Harness Framework 操作手冊，涵蓋 agent 架構演進、工具模式、團隊協作——一份可直接落地的工作流框架"
 tags:
-  - research
+  - guide
   - claude-code
-  - agent
-  - harness-framework
-  - operating-playbook
+  - agent-architecture
 ---
 
 # AI Agent 駕駛框架全解析：從 30 行 Loop 到多 Agent 團隊
