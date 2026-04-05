@@ -161,8 +161,8 @@ content/
 │       ├── gog/
 │       ├── minimax/
 │       └── minimax-tts/
-├── gemini-prompts/           # Gemini prompt templates by role
-├── research-notes/           # Study notes from external sources (YouTube, articles, repos)
+├── prompt-notes/             # Prompt engineering notes and reusable templates
+│   └── gemini-prompts/       # Gemini prompt templates by role
 ├── seo-and-geo/              # SEO & GEO strategy
 ├── setup-env/                # Development environment setup
 └── index.md                  # Landing page

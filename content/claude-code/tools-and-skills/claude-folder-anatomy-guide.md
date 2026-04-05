@@ -195,6 +195,3 @@ mkdir -p .claude/rules .claude/commands
 - [Akshay Pachaar (@akshay_pachaar) — 原始推文](https://x.com/akshay_pachaar/status/2035341800739877091)
 - [Daily Dose of Data Science — 完整文章](https://blog.dailydoseofds.com/p/anatomy-of-the-claude-folder)
 
-## Related
-
-- [[research-notes/index|Research Notes]]

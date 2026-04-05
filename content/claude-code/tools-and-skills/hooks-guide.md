@@ -257,4 +257,3 @@ exit 0
 
 - [[gsd-framework-scenarios|GSD 框架實戰情境]]
 - [[claude-folder-anatomy-guide|.claude/ 資料夾完全解析]]
-- [[research-notes/index|Research Notes]]

@@ -90,4 +90,4 @@ Google 提出撰寫有效 prompt 的四大核心要素：
 ## Related
 
 - [[gemini-prompts/index|Gemini 可複用 Prompt 範本集]]
-- [[research-notes/index|Research Notes]]
+- [[index|Prompt Notes]]

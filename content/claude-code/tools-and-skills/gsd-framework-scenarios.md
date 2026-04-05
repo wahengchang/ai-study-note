@@ -141,6 +141,3 @@ cd your-existing-project
     └── 神秘 Bug → 情境 5 (/gsd:quick --research)
 ```
 
-## Related
-
-- [[research-notes/index|Research Notes]]

@@ -139,6 +139,3 @@ flowchart LR
   class E,H,S,A,T main;
 ```
 
-## Related
-
-- [[research-notes/index|Research Notes]]

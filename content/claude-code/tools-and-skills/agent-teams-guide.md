@@ -237,4 +237,3 @@ Each teammate owns their own directory. Coordinate on the API contract first.
 - [[awesome-agent-skills-guide|Awesome Agent Skills 精選清單]]
 - [[gsd-framework-scenarios|GSD 框架實戰情境]]
 - [[learn-claude-code-guide|AI Agent 駕駛框架全解析]]
-- [[research-notes/index|Research Notes]]

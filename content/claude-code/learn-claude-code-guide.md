@@ -423,4 +423,3 @@ Agent = Model + Harness
 - [[agent-teams-guide|Claude Code Agent Teams 協作]]
 - [[hooks-guide|Claude Code Hooks 入門]]
 - [[claude-folder-anatomy-guide|.claude/ 資料夾完全解析]]
-- [[research-notes/index|Research Notes]]

@@ -18,10 +18,8 @@ description: "AI Study Note — landing page and content index for the digital g
 
 ## 內容索引
 
-- [[research-notes/index|Research Notes — 外部來源研究筆記]]
+- [[prompt-notes/index|Prompt Notes — Prompt 工程筆記與範本]]
 - [[claude-code/learn-claude-code-guide|Claude Code — AI Agent 駕駛框架全解析]]
 - [[openclaw/index|OpenClaw 設定與筆記]]
-- [[gemini-prompts/index|Gemini 可複用 Prompt 範本集]]
 - [[seo-and-geo/ai-seo-geo-playbook-2026|AI SEO/GEO 策略 Playbook]]
 - [[setup-env/index|環境建置]]
-- [[google-workspace-gemini-prompt-guide|Google Workspace Gemini Prompt Guide]]

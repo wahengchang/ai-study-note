@@ -220,4 +220,3 @@ claude --channels plugin:discord@claude-plugins-official
 
 - [[telegram-bridge-guide|Telegram Bot 橋接運作原理]]
 - [[hooks-guide|Claude Code Hooks 入門]]
-- [[research-notes/index|Research Notes]]
