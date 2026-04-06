@@ -1,6 +1,10 @@
 ---
 title: "Craft Agents OSS — Workspace, Session, Permission & Agent Workflow Patterns"
-tags: [AI-agents, patterns, workspace, session, permissions, workflow]
+tags:
+  - research
+  - claude-code
+  - agent-architecture
+description: "Craft Agents OSS patterns — workspace isolation, permission pipeline, session lifecycle, and event-bus automations"
 ---
 
 ## TL;DR
