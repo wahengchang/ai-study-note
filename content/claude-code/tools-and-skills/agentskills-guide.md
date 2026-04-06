@@ -2,10 +2,9 @@
 title: "Agent Skills 規格研究筆記"
 description: "agentskills/agentskills 完整研究整理，涵蓋 Skill 規格、漸進式揭露、觸發工程、評估框架等可複用知識"
 tags:
-  - agent-skills
+  - research
   - claude-code
-  - specification
-  - study-note
+  - agent-architecture
 ---
 
 # Agent Skills 規格研究筆記
