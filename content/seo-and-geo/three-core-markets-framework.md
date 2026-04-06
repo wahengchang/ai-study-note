@@ -1,6 +1,9 @@
 ---
 title: "The 3 Core Markets Framework — 市場選擇、利基定位與產品構思"
-tags: [marketing, niche-selection, framework, ideation, market-research]
+tags:
+  - research
+  - seo
+description: "3 Core Markets framework from Expert Secrets — Health/Wealth/Relationships, niche drilling, and new-opportunity positioning"
 ---
 
 # The 3 Core Markets Framework — 市場選擇、利基定位與產品構思
