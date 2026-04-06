@@ -2,7 +2,10 @@
 title: "系統提示詞模式研究：從外洩的生產級 Prompt 萃取可複用規則"
 date: 2026-04-01
 source: "https://github.com/asgeirtj/system_prompts_leaks"
-tags: [prompt-engineering, system-prompts, patterns, AI-agents, safety]
+description: "Reusable patterns extracted from leaked production system prompts — structure, safety, and role directives"
+tags:
+  - research
+  - prompt-engineering
 ---
 
 # 系統提示詞模式研究
