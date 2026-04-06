@@ -2,11 +2,9 @@
 title: awesome-nanobanana-pro 資源筆記
 tags:
   - research
-  - gemini
-  - nanobanana
   - prompt-engineering
-  - image-generation
-description: "精選整理 ZeroLu/awesome-nanobanana-pro：Gemini Nano Banana Pro 圖像模型的高保真 prompt 範式、可複用模板與結構化寫法"
+  - gemini
+description: "Curated prompt patterns from ZeroLu/awesome-nanobanana-pro for Gemini Nano Banana Pro image generation"
 ---
 
 # awesome-nanobanana-pro 資源筆記
