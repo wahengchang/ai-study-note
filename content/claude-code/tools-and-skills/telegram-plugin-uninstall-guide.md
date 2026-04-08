@@ -7,8 +7,6 @@ tags:
   - telegram
 ---
 
-# 完整移除 Telegram Plugin 指南
-
 > 停用 Telegram Plugin 不等於移除。本文教你如何徹底清除 Plugin、斷開配對、防止自動重建。
 
 ---

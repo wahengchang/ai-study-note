@@ -8,8 +8,6 @@ tags:
   - multi-agent
 ---
 
-# Claude Code Agent Teams 協作指南
-
 > Agent Teams 讓你同時啟動多個 Claude Code 實例，組成一支「AI 團隊」。一個 session 當隊長（team lead），負責分工、協調與彙整；其他隊友（teammates）各自獨立運作，擁有自己的 context window，彼此還能直接溝通。
 
 ---

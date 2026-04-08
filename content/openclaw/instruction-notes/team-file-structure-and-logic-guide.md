@@ -7,8 +7,6 @@ tags:
 description: "Four file structure types by project complexity — daily logs, indexed series, multi-source, and cross-team collaboration"
 ---
 
-# 團隊檔案結構與邏輯指南
-
 - **發佈者：** File Management Team
 - **對象：** 全體團隊成員
 - **最後更新：** 2026 年 3 月

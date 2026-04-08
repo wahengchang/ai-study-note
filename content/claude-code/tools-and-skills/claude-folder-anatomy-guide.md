@@ -7,8 +7,6 @@ tags:
   - devops
 ---
 
-# .claude/ 資料夾完全解析
-
 > 來源：[@akshay_pachaar](https://x.com/akshay_pachaar/status/2035341800739877091) — "Anatomy of the .claude/ folder"
 >
 > 大多數開發者把 `.claude/` 資料夾當成黑盒子，從未打開過。但它其實是 Claude Code 的**控制中心**，決定了 Claude 在你專案中的行為方式。

@@ -7,8 +7,6 @@ tags:
 description: "Comprehensive research note on using Gemini across Google Workspace — Docs, Sheets, Slides, Gmail, and Meet"
 ---
 
-# Google Workspace with Gemini Prompt Guide 研究筆記
-
 > 來源：[Google Workspace with Gemini Prompting Guide (PDF)](https://services.google.com/fh/files/misc/workspace_with_gemini_prompting_guide.pdf)
 
 ## 核心 Prompt 框架：四大要素

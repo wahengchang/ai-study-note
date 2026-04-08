@@ -6,8 +6,6 @@ tags:
   - claude-code
 ---
 
-# Awesome Agent Skills 精選 AI Agent 技能清單
-
 > [awesome-agent-skills](https://github.com/VoltAgent/awesome-agent-skills) 是一份由 VoltAgent 社群維護的精選清單，收錄超過 1,030 個來自真實團隊的 Agent Skills。這些 Skill 可用於 Claude Code、Codex、Gemini CLI、Cursor、GitHub Copilot 等多種 AI 編程助手平台。
 
 ---

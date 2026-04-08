@@ -7,8 +7,6 @@ tags:
   - telegram
 ---
 
-# Telegram Bot 橋接 Claude Code 運作原理
-
 > Telegram Bot Plugin 可以將你的 Telegram 訊息橋接到正在執行的 Claude Code 會話，讓你用手機就能遠端操控 Claude Code——讀寫檔案、執行程式碼、管理專案，全部透過 Telegram 對話完成。
 
 ---

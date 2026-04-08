@@ -7,8 +7,6 @@ tags:
   - telegram
 ---
 
-# Telegram 橋接 Claude Code 實戰應用場景
-
 > 三個真實工作場景，展示如何用 Telegram 遠端操控 Claude Code 提升開發效率。
 
 ---

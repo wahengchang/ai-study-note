@@ -7,8 +7,6 @@ tags:
 description: "Edit-centric sync between local and remote — workspace, skills, agent config, and cron with sync-ignore controls"
 ---
 
-# OpenClaw 同步設定說明（以編輯為中心）
-
 ## 1) 需求摘要
 - 本機作業主要是編輯：`workspace`、`skills`、`agent config` 和 `cron`。
 - Remote 端可能會產生新的 Skills 或 Cron 項目；本機應拉取後進行編輯。
