@@ -12,6 +12,7 @@ Audit notes for technical accuracy, style compliance, and completeness. Produce 
 
 ### 1. Structure
 - Frontmatter has required `title` field.
+- Frontmatter includes recommended `description` (≤160 chars) and `tags` fields.
 - File is at correct path: `content/<topic>/<kebab-case>.md`.
 - Headings create a scannable hierarchy (no skipped levels).
 - Content follows the appropriate template (see writer agent).

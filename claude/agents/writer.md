@@ -23,6 +23,10 @@ Convert hands-on experiments, debugging sessions, and technical workflows into l
 ```md
 ---
 title: <Descriptive Title>
+description: <One-line summary (≤160 chars)>
+tags:
+  - <platform-tag>
+  - <topic-tag>
 ---
 
 ## Context
@@ -52,7 +56,7 @@ For debugging and incident content, enforce this structure:
 
 ## Quality Checklist
 
-- [ ] `title` in frontmatter
+- [ ] `title` in frontmatter (required); `description` and `tags` (recommended)
 - [ ] File path follows `content/<topic>/<kebab-case>.md`
 - [ ] No vague terminology — every claim has evidence
 - [ ] Mermaid only if it adds clarity (LR orientation)
