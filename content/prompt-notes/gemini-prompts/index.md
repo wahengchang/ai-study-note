@@ -7,8 +7,6 @@ tags:
 description: "Index of reusable Gemini prompt templates organized by business function"
 ---
 
-# Gemini 可複用 Prompt 範本集
-
 > 從 [Google Workspace with Gemini Prompt Guide 研究筆記](../google-workspace-gemini-prompt-guide.md) 萃取的實用 prompt，依用途分類。
 
 ## 分類索引

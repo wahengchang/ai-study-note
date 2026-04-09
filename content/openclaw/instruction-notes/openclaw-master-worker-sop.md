@@ -7,8 +7,6 @@ tags:
 description: "Standard operating procedure for master-worker agent architecture — directory structure, SOUL.md, and task routing"
 ---
 
-# OpenClaw 主從架構建置標準作業程序（SOP）
-
 ## 目的
 
 本指南旨在協助團隊成員快速建置「老闆－員工」代理架構。主代理（如 `ABC`）作為唯一對外窗口，統籌並管理內部專屬子代理（`agent-1`、`agent-2`、`agent-3`），實現任務分流與安全隔離。

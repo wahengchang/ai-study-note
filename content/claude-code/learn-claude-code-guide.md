@@ -7,8 +7,6 @@ tags:
   - agent-architecture
 ---
 
-# AI Agent 駕駛框架全解析：從 30 行 Loop 到多 Agent 團隊
-
 > 基於 [shareAI-lab/learn-claude-code](https://github.com/shareAI-lab/learn-claude-code) 的 Harness Framework 操作手冊
 > License: MIT ｜ 語言：Python / TypeScript / Markdown
 

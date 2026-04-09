@@ -7,7 +7,6 @@ tags:
 description: "Text-to-speech skill optimized for Cantonese — MiniMax API integration with configurable voice and speed"
 ---
 
-# MiniMax TTS Skill
 文字轉語音技能，支援多種語言與模型，特別針對廣東話生成做了優化。
 
 ## 設定

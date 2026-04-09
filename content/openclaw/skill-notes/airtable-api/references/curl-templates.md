@@ -7,8 +7,6 @@ tags:
 description: "Copy-pasteable curl commands for Airtable API — list bases, CRUD records, and upload attachments"
 ---
 
-# Airtable curl templates
-
 Set once:
 
 ```bash

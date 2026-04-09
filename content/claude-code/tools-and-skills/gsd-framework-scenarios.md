@@ -7,8 +7,6 @@ tags:
   - automation
 ---
 
-# GSD 框架實戰情境指南
-
 > GSD (Get Stuff Done) 是一套 AI 輔助開發框架，將大型任務拆解為可執行的階段，並透過指令驅動 Claude Code 完成規劃、開發、驗證的完整循環。
 
 ---

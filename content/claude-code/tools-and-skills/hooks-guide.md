@@ -7,8 +7,6 @@ tags:
   - automation
 ---
 
-# Claude Code Hooks 入門指南
-
 > Hooks（鉤子）是 Claude Code 的自動化機制，讓你在特定時機自動執行 shell 指令、呼叫 API 或觸發 AI 判斷。你可以用它來格式化程式碼、阻擋危險操作、發送通知等，不再依賴 Claude 自己「記得」要做什麼。
 
 ---

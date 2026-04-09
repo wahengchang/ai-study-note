@@ -6,8 +6,6 @@ tags:
 description: "Reusable SOP for modifying workspace content, agent config, platform config, and cron automation safely"
 ---
 
-# Workspace 修改指南（OpenClaw）
-
 ## 1. 目的
 
 這份文件是團隊安全修改 OpenClaw repository 檔案的可重複使用指南，涵蓋範圍：

@@ -7,8 +7,6 @@ tags:
   - telegram
 ---
 
-# Channels 頻道功能入門指南
-
 > Channels（頻道）可以將外部訊息（如 Telegram、Discord）推送到正在執行的 Claude Code 會話中，讓 Claude 即時回應你的指令，即使你不在終端機前也能操作。
 
 ---
