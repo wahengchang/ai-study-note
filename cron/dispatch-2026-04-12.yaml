@@ -1,0 +1,169 @@
+# Dispatch Manifest — 2026-04-12
+# Generated from GitHub issue queue audit.
+# Consumed by cron/git-auto.md execution workflow.
+#
+# Scope: research & writing tasks only.
+# Excluded: #67 (bug fix — duplicate titles), #63 (infra — Mintlify migration).
+
+batch:
+  id: "2026-04-12"
+  created: "2026-04-12"
+  source: "wahengchang/ai-study-note issues (OPEN)"
+  filter: "research | writing | documentation"
+  total_issues_audited: 7
+  total_dispatched: 5
+  total_excluded: 2
+
+# ─── Execution order (lowest issue number first, per git-auto.md §4) ───
+
+dispatches:
+
+  - issue: 61
+    title: "Research 小紅書: auto-optimize prompt tools"
+    type: research
+    priority: 1
+    branch: "auto/issue-61"
+    agent:
+      primary: "@writer"
+      supporting: []
+    output:
+      path: "content/prompt-notes/auto-optimize-prompt-tools.md"
+      format: research-note
+    requirements:
+      - Identify the open-source project referenced in the 小紅書 post
+      - Produce TL;DR (3–5 lines), core features, and use cases
+      - List at least 3 reusable takeaways
+      - Include a recommendation on whether to add to ai-study-note
+    validation:
+      - "npm run quartz -- build"
+    acceptance:
+      - Source project confirmed with repo link
+      - Readable research summary produced
+      - At least 3 reusable points documented
+
+  - issue: 74
+    title: "Write study note on Astron Agent, Serper, Jina AI, Python node, and LLM"
+    type: writing
+    priority: 2
+    branch: "auto/issue-74"
+    agent:
+      primary: "@writer"
+      supporting:
+        - "@diagram"
+        - "@reviewer"
+    output:
+      path: "content/ai-workflow-tools/astron-serper-jina-study-note.md"
+      format: study-note
+    requirements:
+      - Explain each tool's role (AI model vs tool vs platform vs logic node)
+      - Clarify free tier vs paid pricing for each
+      - Include official links
+      - Add a workflow diagram showing how tools collaborate
+      - Frame as "workflow components" not "single AI tool"
+      - Write for non-technical readers with a plain-language section
+    validation:
+      - "npm run quartz -- build"
+      - "Mermaid diagram renders without errors"
+    acceptance:
+      - Clear article title
+      - Each tool's role and pricing is unambiguous
+      - Workflow-components framing is explicit
+
+  - issue: 75
+    title: "Research LLM-based knowledge management with raw and wiki workflow"
+    type: research
+    priority: 3
+    branch: "auto/issue-75"
+    agent:
+      primary: "@writer"
+      supporting:
+        - "@diagram"
+        - "@reviewer"
+    output:
+      path: "content/llm-knowledge-management/raw-wiki-workflow.md"
+      format: learn-note
+    requirements:
+      - Explain raw/wiki two-layer separation design
+      - Document the AI-driven raw→wiki transformation process
+      - Cover query, cross-reference, and write-back loop
+      - Reference Andrej Karpathy and 林穎俊 approaches
+      - Include a flow diagram (raw → AI → wiki → query → write-back)
+      - Keep implementation grounded in IDE + Obsidian + Markdown + Git
+    validation:
+      - "npm run quartz -- build"
+      - "Mermaid diagram renders without errors"
+    acceptance:
+      - Clear article topic and outline
+      - Core flow design and advantages documented
+      - raw/wiki separation value clearly articulated
+      - Extensible content framework for public notes
+
+  - issue: 76
+    title: "Research AI-powered YouTube automation workflow from n8n video"
+    type: research
+    priority: 4
+    branch: "auto/issue-76"
+    agent:
+      primary: "@writer"
+      supporting:
+        - "@diagram"
+        - "@reviewer"
+    output:
+      path: "content/ai-youtube-automation/n8n-workflow-research.md"
+      format: research-note
+    requirements:
+      - Decompose end-to-end workflow (ideation → publish → monitor)
+      - Inventory all tools by category (orchestration, LLM, visual, audio, rendering, publishing)
+      - Clarify which steps are truly no-code vs require engineering
+      - Assess API cost structure and tool dependencies
+      - Evaluate feasibility for Chinese-language content
+      - Propose a minimal viable PoC architecture
+      - Flag risks (content quality, copyright, YouTube policy)
+    validation:
+      - "npm run quartz -- build"
+      - "Mermaid diagram renders without errors"
+    acceptance:
+      - Complete workflow with tool classification
+      - Each tool category has purpose, strengths, and limitations
+      - At least 1 actionable PoC proposal
+      - Risks explicitly documented
+
+  - issue: 77
+    title: "Research terminal multiplexing workflow for Claude Code productivity"
+    type: research
+    priority: 5
+    branch: "auto/issue-77"
+    agent:
+      primary: "@writer"
+      supporting:
+        - "@reviewer"
+    output:
+      path: "content/claude-code/terminal-multiplexing-workflow.md"
+      format: research-note
+    requirements:
+      - Confirm identity and purpose of cmux from original 小紅書 post
+      - Compare at least 3 tools (cmux, tmux, zellij, WezTerm)
+      - Document why terminal multiplexing boosts Claude Code efficiency
+      - Describe common usage patterns (agent pane, logs pane, git/test pane, monitor pane)
+      - Produce a tool comparison table
+      - Propose 1 practical minimal workflow
+    validation:
+      - "npm run quartz -- build"
+    acceptance:
+      - Original tool identity confirmed
+      - At least 3 tools compared
+      - At least 1 practical workflow with clear applicability and limitations
+
+# ─── Excluded issues ───
+
+excluded:
+
+  - issue: 67
+    title: "Fix duplicate article titles on ai-study-note pages"
+    reason: "Bug fix — template/layout logic, not research or writing."
+    suggested_agent: "@content-ops"
+
+  - issue: 63
+    title: "Adopt Mintlify as new framework for ai-study-note docs site"
+    reason: "Infrastructure migration — architecture decision, not content authoring."
+    suggested_agent: null
