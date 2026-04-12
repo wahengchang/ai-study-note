@@ -1,0 +1,134 @@
+# Issue Dispatch Plan — Research & Writing Tasks
+# Generated: 2026-04-12
+# Source: GitHub issue queue audit (7 open issues → 5 filtered)
+#
+# This file maps filtered research/writing issues to the agent system
+# defined in claude/config.yaml. The git-auto.md workflow consumes this
+# plan to determine execution order and agent assignment.
+#
+# Execution order follows git-auto.md: lowest issue number first,
+# one issue per branch, one branch per PR.
+
+filter_criteria:
+  included_labels: [documentation, enhancement]
+  excluded_types: [bug-fix, infrastructure, framework-migration]
+
+# ── Filtered OUT ──────────────────────────────────────────────────
+# #67  Fix duplicate article titles        → bug fix (engineering)
+# #63  Adopt Mintlify as new framework      → infrastructure (migration)
+
+# ── Dispatch Queue ────────────────────────────────────────────────
+
+queue:
+  - issue: 61
+    title: "Research: auto-optimize prompt project (小紅書)"
+    type: research
+    agents:
+      primary: writer
+      supporting: []
+    output_path: content/prompt-notes/auto-optimize-prompt-research.md
+    deliverables:
+      - Project identification and repo/source link
+      - TL;DR summary (3-5 lines)
+      - Core feature inventory
+      - Applicable use cases
+      - Suitability assessment for ai-study-note
+    requirements:
+      - Web research to identify the open-source project
+      - Structured research summary following writer agent template
+    acceptance:
+      - Source project confirmed
+      - Readable research summary produced
+      - At least 3 reusable takeaways
+      - Inclusion/exclusion recommendation stated
+
+  - issue: 74
+    title: "Write study note on Astron Agent, Serper, Jina AI, Python node, and LLM"
+    type: writing
+    agents:
+      primary: writer
+      supporting: [diagram]
+    output_path: content/ai-tools/astron-agent-serper-jina-workflow.md
+    deliverables:
+      - Article with clear tool definitions and roles
+      - Pricing and free-tier summary per tool
+      - Workflow component relationship explanation
+      - Mermaid diagram showing how components connect in a pipeline
+    requirements:
+      - Structure content for non-technical readers
+      - Distinguish model vs. tool vs. platform vs. logic node
+      - Include official links for each tool
+    acceptance:
+      - Clear article title
+      - Publishable draft or outline
+      - Tool roles and pricing not conflated
+      - Framed as workflow components, not a single AI tool
+
+  - issue: 75
+    title: "Research: LLM-based knowledge management with raw/wiki workflow"
+    type: research-writing
+    agents:
+      primary: writer
+      supporting: [diagram]
+    output_path: content/knowledge-management/llm-raw-wiki-workflow.md
+    deliverables:
+      - Study note on raw/wiki two-layer separation
+      - Explanation of AI-driven raw-to-wiki transformation
+      - Mermaid diagram of the data flow (raw → AI → wiki → query → feedback)
+      - Practical implementation guidance (IDE + Obsidian + Markdown + Git)
+    requirements:
+      - Reference Andrej Karpathy and 林穎俊 approaches
+      - Clearly separate raw (immutable) vs. wiki (evolving) layers
+      - Explain query-driven knowledge reinforcement loop
+    acceptance:
+      - Clear article topic and outline
+      - Core design and advantages documented
+      - Raw/wiki separation value articulated
+      - Extensible content framework for public notes
+
+  - issue: 76
+    title: "Research: AI-powered YouTube automation workflow (n8n)"
+    type: research-writing
+    agents:
+      primary: writer
+      supporting: [diagram]
+    output_path: content/ai-automation/n8n-youtube-automation-workflow.md
+    deliverables:
+      - End-to-end workflow breakdown (7 stages)
+      - Tool inventory across categories (orchestration, LLM, visual, audio, rendering, publishing, storage)
+      - Mermaid diagram of the pipeline
+      - PoC architecture sketch (minimum viable version)
+      - Risk and policy assessment (copyright, YouTube ToS, content quality)
+    requirements:
+      - Analyze video content for workflow steps
+      - Categorize 20+ tools by function
+      - Identify no-code vs. engineering-required segments
+      - Evaluate Chinese/Traditional Chinese content applicability
+    acceptance:
+      - Complete workflow with tool mappings
+      - Per-tool purpose, strengths, and limitations
+      - At least 1 actionable PoC proposal
+      - Risks clearly labeled
+
+  - issue: 77
+    title: "Research: terminal multiplexing workflow for Claude Code productivity"
+    type: research-writing
+    agents:
+      primary: writer
+      supporting: [diagram]
+    output_path: content/developer-tools/terminal-multiplexing-claude-code.md
+    deliverables:
+      - Tool identification (cmux and actual project from source)
+      - Comparison table (cmux vs. tmux vs. zellij vs. WezTerm)
+      - Recommended multi-pane workflow for Claude Code
+      - Mermaid diagram of the terminal workspace layout
+    requirements:
+      - Trace original 小紅書 content to identify actual tool
+      - Compare at least 3 terminal multiplexing tools
+      - Design 1 practical workflow optimized for Claude Code
+      - Document applicable scenarios and limitations
+    acceptance:
+      - Original tool identity confirmed
+      - 3+ tools compared
+      - 1 deployable workflow produced
+      - Scenarios and limitations stated
