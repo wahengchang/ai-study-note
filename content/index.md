@@ -19,6 +19,7 @@ description: "AI Study Note — landing page and content index for the digital g
 ## 內容索引
 
 - [[prompt-notes/index|Prompt Notes — Prompt 工程筆記與範本]]
+- [[ai-workflows/index|AI Workflows — AI workflow 架構與元件分工]]
 - [[claude-code/learn-claude-code-guide|Claude Code — AI Agent 駕駛框架全解析]]
 - [[openclaw/index|OpenClaw 設定與筆記]]
 - [[seo-and-geo/ai-seo-geo-playbook-2026|AI SEO/GEO 策略 Playbook]]
