@@ -1,3 +1,13 @@
+---
+title: "n8n Workflow Skill"
+name: n8n-workflow-skill
+description: "Standardize n8n workflow management — CLI-based CRUD, project-scoped install, and workflows-as-code"
+tags:
+  - skill-definition
+  - openclaw
+  - n8n
+---
+
 # n8n-workflow-skill
 
 ## Description

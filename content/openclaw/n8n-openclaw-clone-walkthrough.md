@@ -3,6 +3,7 @@ title: "用 n8n 打造 OpenClaw Clone — 完整架構拆解"
 description: "Research notes from n8n official walkthrough on building an OpenClaw clone with RAG memory, MCP skills, and expert agents"
 tags:
   - research
+  - openclaw
   - agent-architecture
   - automation
   - n8n

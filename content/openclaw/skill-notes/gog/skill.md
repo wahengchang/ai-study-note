@@ -5,6 +5,7 @@ description: "Google Workspace CLI skill — Gmail, Calendar, Drive, Contacts, S
 tags:
   - skill-definition
   - openclaw
+  - gemini
 metadata:
   clawdbot:
     emoji: "🎮"
