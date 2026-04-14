@@ -170,7 +170,7 @@ button.desktop-explorer {
     overflow: hidden;
     margin-left: 0;
     padding-left: 0.75rem;
-    border-left: none;
+    border-left: 1px solid var(--panel-border);
   }
 
   // Add spacing between top-level groups
@@ -255,6 +255,8 @@ li:has(> .folder-outer:not(.open)) > .folder-container > svg {
   background: rgba(255, 255, 255, 0.08);
   border-radius: var(--radius-md, 12px);
   padding: 0.4rem 0.75rem;
+  border-left: 3px solid #FF4F00;
+  padding-left: calc(0.75rem - 3px);
 }
 
 .explorer-content li:has(a.active) > .folder-container .folder-title,
