@@ -4,7 +4,6 @@ description: "以 raw 素材層 + wiki 知識層分離為核心，使用 IDE + O
 tags:
   - research
   - prompt-engineering
-  - knowledge-management
 ---
 
 ## TL;DR
