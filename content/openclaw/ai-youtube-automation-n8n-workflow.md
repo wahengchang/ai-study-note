@@ -1,12 +1,10 @@
 ---
 title: "AI YouTube 自動化 workflow 拆解（n8n × LLM × 視覺生成）"
-description: "Research note on end-to-end AI YouTube content factory workflow using n8n as orchestrator, mapping each stage to LLM / visual / audio / publishing tools, plus cost, risk, and PoC breakdown"
+description: "End-to-end AI YouTube automation with n8n: 7-stage pipeline, tool map, cost structure, and MVP PoC"
 tags:
   - research
+  - automation
   - n8n
-  - ai-workflow
-  - content-automation
-  - llm
 ---
 
 > 來源：【全自動】AIエージェントにYouTube動画を無限に作ってもらう方法（神ツールn8n×コード不要）— [YouTube](https://www.youtube.com/watch?v=5Htbfh_LYSE)
