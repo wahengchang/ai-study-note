@@ -14,6 +14,7 @@ Prompt engineering 研究筆記與可複用範本集。
 |------|---------|---------|
 | [[google-workspace-gemini-prompt-guide\|Google Workspace Gemini Prompt Guide]] | PDF 研究 | [Google Workspace Prompting Guide (PDF)](https://services.google.com/fh/files/misc/workspace_with_gemini_prompting_guide.pdf) |
 | [[prompt-notes/karpathy-llm-wiki-pattern\|Karpathy LLM Wiki Pattern]] | 研究筆記 | Karpathy LLM-maintained wiki 研究 |
+| [[prompt-notes/raw-wiki-llm-knowledge-system\|Raw / Wiki 雙層 LLM 個人知識管理工作流]] | 研究筆記 | raw / wiki 雙層個人知識系統 |
 | [[prompt-notes/system-prompt-patterns-research\|System Prompt Patterns Research]] | 研究筆記 | System prompt patterns 研究 |
 | [[prompt-notes/awesome-nanobanana-pro\|Awesome Nanobanana Pro]] | 資源筆記 | awesome-nanobanana-pro 資源 |
 
