@@ -1,25 +1,48 @@
 ---
-title: AI 學習筆記
+title: AI Study Note
 tags:
   - reference
 description: "AI Study Note — landing page and content index for the digital garden"
 ---
 
-這個網站是工程師的 AI 學習筆記。
+<div class="homepage-hero">
 
-記錄了日常學習與實作過程中的動手實驗、環境建置問題，以及實用的解決方法。
+# AI Study Note
 
-## 關於這個網站
+A hands-on learning garden for engineers exploring AI — experiments, setup guides, and practical solutions.
 
-- 主題：AI 實務學習與實作筆記
-- 風格：精簡、動手做優先的紀錄
-- 目標：留下可重複利用的參考資料，方便未來的專案使用
-- 原始碼倉庫：[wahengchang/ai-study-note](https://github.com/wahengchang/ai-study-note)
+</div>
 
-## 內容索引
+<div class="category-grid">
 
-- [[prompt-notes/index|Prompt Notes — Prompt 工程筆記與範本]]
-- [[claude-code/learn-claude-code-guide|Claude Code — AI Agent 駕駛框架全解析]]
-- [[openclaw/index|OpenClaw 設定與筆記]]
-- [[seo-and-geo/ai-seo-geo-playbook-2026|AI SEO/GEO 策略 Playbook]]
-- [[setup-env/index|環境建置]]
+<a class="category-card" href="prompt-notes/">
+<span class="card-icon">&#x1F4DD;</span>
+<span class="card-title">Prompt Notes</span>
+<span class="card-desc">Prompt engineering patterns and templates</span>
+</a>
+
+<a class="category-card" href="claude-code/learn-claude-code-guide">
+<span class="card-icon">&#x1F916;</span>
+<span class="card-title">Claude Code</span>
+<span class="card-desc">AI Agent framework deep-dive</span>
+</a>
+
+<a class="category-card" href="OpenClaw/">
+<span class="card-icon">&#x1F43E;</span>
+<span class="card-title">OpenClaw</span>
+<span class="card-desc">Configuration and study notes</span>
+</a>
+
+<a class="category-card" href="seo-and-geo/ai-seo-geo-playbook-2026">
+<span class="card-icon">&#x1F50D;</span>
+<span class="card-title">SEO & GEO</span>
+<span class="card-desc">AI-era search optimization playbook</span>
+</a>
+
+<a class="category-card" href="setup-env/">
+<span class="card-icon">&#x2699;&#xFE0F;</span>
+<span class="card-title">Setup & Env</span>
+<span class="card-desc">Environment setup and tooling</span>
+</a>
+
+</div>

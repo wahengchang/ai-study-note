@@ -5,7 +5,21 @@ import * as Component from "./quartz/components"
 export const sharedPageComponents: SharedLayout = {
   head: Component.Head(),
   header: [],
-  afterBody: [Component.Graph()],
+  afterBody: [
+    Component.ConditionalRender({
+      component: Component.Backlinks(),
+      condition: (page) => page.fileData.slug !== "index",
+    }),
+    Component.ConditionalRender({
+      component: Component.RecentNotes({ title: "More Reading", limit: 8, showTags: false }),
+      condition: (page) => page.fileData.slug !== "index",
+    }),
+    Component.ConditionalRender({
+      component: Component.RecentNotes({ title: "Recently Updated", limit: 8, showTags: true }),
+      condition: (page) => page.fileData.slug === "index",
+    }),
+    Component.Graph(),
+  ],
   footer: Component.Footer({
     links: {
       GitHub: "https://github.com/wahengchang/ai-study-note",
@@ -21,7 +35,10 @@ export const defaultContentPageLayout: PageLayout = {
       component: Component.Breadcrumbs(),
       condition: (page) => page.fileData.slug !== "index",
     }),
-    Component.ArticleTitle(),
+    Component.ConditionalRender({
+      component: Component.ArticleTitle(),
+      condition: (page) => page.fileData.slug !== "index",
+    }),
     Component.ContentMeta(),
     Component.TagList(),
   ],
@@ -55,8 +72,14 @@ export const defaultContentPageLayout: PageLayout = {
     }),
   ],
   right: [
-    Component.DesktopOnly(Component.TableOfContents()),
-    Component.Backlinks(),
+    Component.ConditionalRender({
+      component: Component.DesktopOnly(Component.TableOfContents()),
+      condition: (page) => page.fileData.slug !== "index",
+    }),
+    Component.ConditionalRender({
+      component: Component.RelatedNotes({ title: "Related Articles", limit: 5, showTags: false }),
+      condition: (page) => page.fileData.slug !== "index",
+    }),
   ],
 }
 

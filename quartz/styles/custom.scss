@@ -442,3 +442,111 @@ article .tag-link,
 .breadcrumb-container a {
   text-decoration: none;
 }
+
+// === Homepage Hero ===
+.homepage-hero {
+  text-align: center;
+  padding: 3rem 1rem 2rem;
+  margin-bottom: 1rem;
+
+  h1 {
+    font-size: 2.2rem;
+    font-weight: 700;
+    margin-bottom: 0.75rem;
+    color: #ffffff;
+  }
+
+  p {
+    font-size: 1.05rem;
+    color: var(--panel-muted);
+    max-width: 540px;
+    margin: 0 auto;
+    line-height: 1.6;
+  }
+}
+
+// === Category Card Grid ===
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 1rem;
+  margin: 1.5rem 0 2.5rem;
+}
+
+.category-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 1.5rem 1rem;
+  border: 1px solid var(--panel-border);
+  border-radius: var(--radius-lg);
+  background: var(--panel-bg);
+  text-decoration: none !important;
+  transition: border-color 0.2s ease, background 0.2s ease, transform 0.15s ease;
+  cursor: pointer;
+
+  &:hover {
+    border-color: var(--panel-border-hover);
+    background: var(--panel-hover-bg);
+    transform: translateY(-2px);
+  }
+
+  .card-icon {
+    font-size: 2rem;
+    margin-bottom: 0.75rem;
+    display: block;
+  }
+
+  .card-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #ffffff;
+    margin-bottom: 0.35rem;
+    display: block;
+  }
+
+  .card-desc {
+    font-size: 0.82rem;
+    color: var(--panel-muted);
+    line-height: 1.4;
+    display: block;
+  }
+}
+
+// === AfterBody sections spacing ===
+.backlinks,
+.recent-notes {
+  margin-top: 2rem;
+  padding-top: 2rem;
+  border-top: 1px solid var(--panel-border);
+}
+
+// === Hide ArticleTitle on homepage (hero section replaces it) ===
+body[data-slug="index"] .article-title {
+  display: none;
+}
+
+// Mobile adjustments for card grid
+@media all and (max-width: 800px) {
+  .homepage-hero {
+    padding: 2rem 0.5rem 1.5rem;
+
+    h1 {
+      font-size: 1.6rem;
+    }
+  }
+
+  .category-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+
+  .category-card {
+    padding: 1rem 0.75rem;
+
+    .card-icon {
+      font-size: 1.5rem;
+    }
+  }
+}
