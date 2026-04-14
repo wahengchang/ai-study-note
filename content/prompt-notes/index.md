@@ -10,12 +10,13 @@ Prompt engineering 研究筆記與可複用範本集。
 
 ## 研究筆記
 
-| 筆記 | 來源類型 | 原始來源 |
-|------|---------|---------|
-| [[google-workspace-gemini-prompt-guide\|Google Workspace Gemini Prompt Guide]] | PDF 研究 | [Google Workspace Prompting Guide (PDF)](https://services.google.com/fh/files/misc/workspace_with_gemini_prompting_guide.pdf) |
-| [[prompt-notes/karpathy-llm-wiki-pattern\|Karpathy LLM Wiki Pattern]] | 研究筆記 | Karpathy LLM-maintained wiki 研究 |
-| [[prompt-notes/system-prompt-patterns-research\|System Prompt Patterns Research]] | 研究筆記 | System prompt patterns 研究 |
-| [[prompt-notes/awesome-nanobanana-pro\|Awesome Nanobanana Pro]] | 資源筆記 | awesome-nanobanana-pro 資源 |
+| 筆記                                                                                                                    | 來源類型 | 原始來源                                                                                                                      |
+| ----------------------------------------------------------------------------------------------------------------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| [[google-workspace-gemini-prompt-guide\|Google Workspace Gemini Prompt Guide]]                                          | PDF 研究 | [Google Workspace Prompting Guide (PDF)](https://services.google.com/fh/files/misc/workspace_with_gemini_prompting_guide.pdf) |
+| [[prompt-notes/karpathy-llm-wiki-pattern\|Karpathy LLM Wiki Pattern]]                                                   | 研究筆記 | Karpathy LLM-maintained wiki 研究                                                                                             |
+| [[prompt-notes/system-prompt-patterns-research\|System Prompt Patterns Research]]                                       | 研究筆記 | System prompt patterns 研究                                                                                                   |
+| [[prompt-notes/awesome-nanobanana-pro\|Awesome Nanobanana Pro]]                                                         | 資源筆記 | awesome-nanobanana-pro 資源                                                                                                   |
+| [[prompt-notes/ai-workflow-components-astron-serper-jina\|AI Workflow 零件分工：Astron / Serper / Jina / Python / LLM]] | 研究筆記 | Issue #74 素材整理                                                                                                            |
 
 ## Prompt 範本集
 
