@@ -15,6 +15,7 @@ Every top-level folder under `content/` has a single purpose. A new note belongs
 | `content/prompt-notes/` | Prompt engineering research and reusable prompt templates | Prompting research notes, reusable prompt template sets |
 | `content/setup-env/` | Environment and development tooling setup | Install guides, OS setup, dev tool configuration |
 | `content/seo-and-geo/` | SEO and Generative Engine Optimization strategy | Strategy playbooks, frameworks, tactic notes |
+| `content/ai-workflows/` | AI tool research, workflow analysis, and automation pipeline studies | Tool comparisons, workflow breakdowns, PoC architectures |
 | `content/assets/` | Static assets — images, PDFs, diagrams | Binary files only; never Markdown notes |
 
 ### Approved subfolders
@@ -162,7 +163,9 @@ Is it primarily about Claude Code (CLI, config, plugins)?
                               ├── yes → setup-env/
                               └── no  → Is it SEO / marketing strategy?
                                         ├── yes → seo-and-geo/
-                                        └── no  → STOP and ask user — do not guess
+                                        └── no  → Is it AI tool research, workflow analysis, or automation pipeline study?
+                                                  ├── yes → ai-workflows/
+                                                  └── no  → STOP and ask user — do not guess
 ```
 
 If the tree yields "STOP and ask," the agent must not invent a new folder. It reports the ambiguity and lets the user decide.
