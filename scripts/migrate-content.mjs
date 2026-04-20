@@ -111,40 +111,148 @@ function todayYMD() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function stripObsidianSyntax(body) {
-  let out = body;
-
-  // a. Image wikilinks:  ![[path/to/foo.png]]
-  out = out.replace(/!\[\[([^\]]+?)\]\]/g, (_m, captured) => {
-    stats.imageWikilinks++;
-    return `![](${ASSET_URL_PREFIX}${captured})`;
-  });
-
-  // b. Labeled wikilinks:  [[target|Label text]]
-  out = out.replace(/\[\[([^\]|]+?)\|([^\]]+?)\]\]/g, (_m, _target, label) => {
-    stats.labeledWikilinks++;
-    return label;
-  });
-
-  // c. Bare wikilinks:  [[path/or/name]]
-  out = out.replace(/\[\[([^\]]+?)\]\]/g, (_m, captured) => {
-    stats.bareWikilinks++;
-    const segments = captured.split("/");
-    return segments[segments.length - 1];
-  });
-
-  // d. Smart Columns: remove fence lines only, keep body
-  const lines = out.split("\n");
-  const kept = [];
+/**
+ * Split body into segments that alternate between "prose" (where wikilinks
+ * should be transformed) and "code" (fenced blocks + inline code spans, where
+ * we must NOT touch [[...]] because JSON/array literals collide with the
+ * wikilink syntax, e.g. --values-json '[["x","y","z"]]').
+ *
+ * Fenced code blocks: lines that start with ``` (any backtick run >=3).
+ * Inline code spans: text between matching backtick runs on the same line.
+ */
+function segmentByCode(body) {
+  const lines = body.split("\n");
+  const segments = []; // { type: "prose"|"code", text }
+  let buf = [];
+  let inFence = false;
+  let fenceMarker = null;
+  const flushProse = () => {
+    if (buf.length === 0) return;
+    segments.push({ type: "prose", text: buf.join("\n") });
+    buf = [];
+  };
   for (const line of lines) {
-    const trimmed = line.trim();
-    if (/^:::col(\b|\{|$)/.test(trimmed)) {
-      stats.smartColFences++;
+    const fenceMatch = line.match(/^(\s*)(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[2];
+      if (!inFence) {
+        // Opening fence — flush prose, start code segment with the fence line.
+        flushProse();
+        inFence = true;
+        fenceMarker = marker[0]; // backtick or tilde char
+        segments.push({ type: "code", text: line });
+      } else if (marker[0] === fenceMarker) {
+        // Closing fence — append to the last code segment, then end it.
+        const last = segments[segments.length - 1];
+        last.text += "\n" + line;
+        inFence = false;
+        fenceMarker = null;
+      } else {
+        // Different fence char inside a fence: treat as content.
+        segments[segments.length - 1].text += "\n" + line;
+      }
       continue;
     }
-    if (/^:::$/.test(trimmed)) {
-      stats.smartColFences++;
+    if (inFence) {
+      segments[segments.length - 1].text += "\n" + line;
+    } else {
+      buf.push(line);
+    }
+  }
+  flushProse();
+  return segments;
+}
+
+/**
+ * Protect inline code spans (`...`) inside a prose segment by replacing them
+ * with placeholders, running the transform, and restoring originals.
+ * Handles single and multi-backtick spans.
+ */
+function withInlineCodeProtected(text, transform) {
+  const spans = [];
+  const placeholder = (i) => `\u0000CODE_SPAN_${i}\u0000`;
+  // Match inline code spans: runs of N backticks, non-greedy up to matching N backticks.
+  // Using a simple tick-pair approach — handles `foo`, ``foo`bar``, etc.
+  const protectedText = text.replace(/(`+)([\s\S]*?)\1/g, (m) => {
+    const idx = spans.length;
+    spans.push(m);
+    return placeholder(idx);
+  });
+  let out = transform(protectedText);
+  for (let i = 0; i < spans.length; i++) {
+    out = out.replace(placeholder(i), () => spans[i]);
+  }
+  return out;
+}
+
+function stripObsidianSyntax(body) {
+  // First split body into prose/code segments. Only transform prose.
+  const segments = segmentByCode(body);
+
+  const transformProse = (proseText) => {
+    return withInlineCodeProtected(proseText, (safe) => {
+      let out = safe;
+
+      // a. Image wikilinks:  ![[path/to/foo.png]]
+      out = out.replace(/!\[\[([^\]]+?)\]\]/g, (_m, captured) => {
+        stats.imageWikilinks++;
+        return `![](${ASSET_URL_PREFIX}${captured})`;
+      });
+
+      // b. Labeled wikilinks:  [[target|Label text]]
+      out = out.replace(
+        /\[\[([^\]|]+?)\|([^\]]+?)\]\]/g,
+        (_m, _target, label) => {
+          stats.labeledWikilinks++;
+          return label;
+        },
+      );
+
+      // c. Bare wikilinks:  [[path/or/name]]
+      out = out.replace(/\[\[([^\]]+?)\]\]/g, (_m, captured) => {
+        stats.bareWikilinks++;
+        const segs = captured.split("/");
+        return segs[segs.length - 1];
+      });
+
+      return out;
+    });
+  };
+
+  const rebuilt = segments
+    .map((s) => (s.type === "prose" ? transformProse(s.text) : s.text))
+    .join("\n");
+
+  // d. Smart Columns: remove fence lines only, keep body.
+  // Done AFTER prose/code split so :::col inside code blocks is left alone too.
+  const lines = rebuilt.split("\n");
+  const kept = [];
+  let inCodeFenceForSmartCol = false;
+  let smartColFence = null;
+  for (const line of lines) {
+    const fenceMatch = line.match(/^(\s*)(`{3,}|~{3,})/);
+    if (fenceMatch) {
+      const marker = fenceMatch[2];
+      if (!inCodeFenceForSmartCol) {
+        inCodeFenceForSmartCol = true;
+        smartColFence = marker[0];
+      } else if (marker[0] === smartColFence) {
+        inCodeFenceForSmartCol = false;
+        smartColFence = null;
+      }
+      kept.push(line);
       continue;
+    }
+    if (!inCodeFenceForSmartCol) {
+      const trimmed = line.trim();
+      if (/^:::col(\b|\{|$)/.test(trimmed)) {
+        stats.smartColFences++;
+        continue;
+      }
+      if (/^:::$/.test(trimmed)) {
+        stats.smartColFences++;
+        continue;
+      }
     }
     kept.push(line);
   }
@@ -173,8 +281,14 @@ function collectSourceFiles() {
     files.push({ absPath: abs, relPath: rel, basename: e.name });
   }
   // Deterministic order so idempotent runs produce identical outputs / collision
-  // resolutions.
-  files.sort((a, b) => a.relPath.localeCompare(b.relPath));
+  // resolutions. Shallower paths come first so the canonical index.md for a
+  // category claims `<category>-index.md` before deeper nested index files.
+  files.sort((a, b) => {
+    const depthA = a.relPath.split(path.sep).length;
+    const depthB = b.relPath.split(path.sep).length;
+    if (depthA !== depthB) return depthA - depthB;
+    return a.relPath.localeCompare(b.relPath);
+  });
   return files;
 }
 
