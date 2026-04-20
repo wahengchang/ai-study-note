@@ -1,0 +1,17 @@
+---
+import { getCollection } from "astro:content";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import PostList from "../../components/PostList.astro";
+
+const posts = await getCollection("blog", ({ data }) => !data.draft);
+const sorted = posts.sort(
+  (a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime(),
+);
+---
+<BaseLayout title="Blog — ai-study-note" description="All published notes.">
+  <section>
+    <h1 class="font-mono text-2xl text-text-primary mb-6">All notes</h1>
+    <p class="text-text-muted font-mono text-xs mb-6">{sorted.length} posts</p>
+    <PostList posts={sorted} />
+  </section>
+</BaseLayout>
