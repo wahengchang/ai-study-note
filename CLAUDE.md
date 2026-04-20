@@ -86,3 +86,62 @@ Reference agents by name when delegating tasks:
 - `quartz.layout.ts` — Page layout and sidebar components.
 - `docs/visual-guideline.md` — Full design token reference.
 - `docs/custom-syntax.md` — Smart Columns and extended syntax.
+
+<!-- GSD:project-start source:PROJECT.md -->
+## Project
+
+**AI Study Note — Astro Migration**
+
+A personal digital garden of AI study notes, published at https://wahengchang.github.io/ai-study-note/. Content is authored in Markdown, built to a static site, and deployed to GitHub Pages. This milestone replaces the current Quartz v4 engine with Astro 6.x while preserving all existing content.
+
+**Core Value:** Every existing note remains readable at its equivalent URL on the live site after the framework swap. The site builds, deploys, and renders correctly on GitHub Pages — if that fails, nothing else matters.
+
+### Constraints
+
+- **Framework**: Astro 6.x — dropped Node 18/20; requires Node 22.12+ or 24 LTS.
+- **Styling**: Tailwind 4 via `@tailwindcss/vite` — `@astrojs/tailwind` is deprecated; do not use.
+- **Typography**: `@tailwindcss/typography` for `prose` on rendered Markdown bodies.
+- **Content schema**: Zod-validated; `category`/`tags` normalized with `.toLowerCase().trim()` to prevent route collisions.
+- **URL shape**: `trailingSlash: "always"` + `build.format: "directory"` to match GitHub Pages static serving.
+- **Base path**: `/ai-study-note` — every internal link routes through `import.meta.env.BASE_URL`.
+- **Draft filter**: Every `getCollection("blog", ...)` call must pass `({ data }) => !data.draft`. No exceptions.
+- **Deploy**: `withastro/action@v6` → `actions/deploy-pages@v5` via GitHub Actions; manual one-time step: Settings → Pages → Source = GitHub Actions.
+<!-- GSD:project-end -->
+
+<!-- GSD:stack-start source:STACK.md -->
+## Technology Stack
+
+Technology stack not yet documented. Will populate after codebase mapping or first phase.
+<!-- GSD:stack-end -->
+
+<!-- GSD:conventions-start source:CONVENTIONS.md -->
+## Conventions
+
+Conventions not yet established. Will populate as patterns emerge during development.
+<!-- GSD:conventions-end -->
+
+<!-- GSD:architecture-start source:ARCHITECTURE.md -->
+## Architecture
+
+Architecture not yet mapped. Follow existing patterns found in the codebase.
+<!-- GSD:architecture-end -->
+
+<!-- GSD:workflow-start source:GSD defaults -->
+## GSD Workflow Enforcement
+
+Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
+
+Use these entry points:
+- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
+- `/gsd:debug` for investigation and bug fixing
+- `/gsd:execute-phase` for planned phase work
+
+Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
+<!-- GSD:workflow-end -->
+
+<!-- GSD:profile-start -->
+## Developer Profile
+
+> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
+> This section is managed by `generate-claude-profile` -- do not edit manually.
+<!-- GSD:profile-end -->

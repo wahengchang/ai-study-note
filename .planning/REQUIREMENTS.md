@@ -81,3 +81,44 @@
 ## Traceability
 
 <!-- Populated by roadmapper: maps every REQ-ID to exactly one phase. -->
+
+| Requirement | Phase | Status |
+|-------------|-------|--------|
+| SCAF-01 | Phase 1 | Pending |
+| SCAF-02 | Phase 1 | Pending |
+| SCAF-03 | Phase 1 | Pending |
+| SCAF-04 | Phase 1 | Pending |
+| SCHE-01 | Phase 1 | Pending |
+| SCHE-02 | Phase 1 | Pending |
+| SCHE-03 | Phase 1 | Pending |
+| MIGR-01 | Phase 2 | Pending |
+| MIGR-02 | Phase 2 | Pending |
+| MIGR-03 | Phase 2 | Pending |
+| MIGR-04 | Phase 2 | Pending |
+| MIGR-05 | Phase 2 | Pending |
+| LAYO-01 | Phase 3 | Pending |
+| LAYO-02 | Phase 3 | Pending |
+| LAYO-03 | Phase 3 | Pending |
+| LAYO-04 | Phase 3 | Pending |
+| LAYO-05 | Phase 3 | Pending |
+| ROUT-01 | Phase 3 | Pending |
+| ROUT-02 | Phase 3 | Pending |
+| ROUT-03 | Phase 3 | Pending |
+| ROUT-04 | Phase 3 | Pending |
+| ROUT-05 | Phase 3 | Pending |
+| ROUT-06 | Phase 3 | Pending |
+| ROUT-07 | Phase 3 | Pending |
+| BASE-01 | Phase 3 | Pending |
+| BASE-02 | Phase 3 | Pending |
+| BASE-03 | Phase 3 | Pending |
+| DEPL-01 | Phase 4 | Pending |
+| DEPL-02 | Phase 4 | Pending |
+| DEPL-03 | Phase 4 | Pending |
+| DEPL-04 | Phase 4 | Pending |
+| DEPL-05 | Phase 5 | Pending |
+| VERI-01 | Phase 5 | Pending |
+| VERI-02 | Phase 5 | Pending |
+| VERI-03 | Phase 5 | Pending |
+| VERI-04 | Phase 5 | Pending |
+
+**Coverage:** 36/36 v1 requirements mapped to exactly one phase.
