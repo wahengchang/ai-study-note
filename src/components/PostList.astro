@@ -1,0 +1,33 @@
+---
+import type { CollectionEntry } from "astro:content";
+interface Props {
+  posts: CollectionEntry<"blog">[];
+  title?: string;
+}
+const { posts, title } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const fmt = (d: Date) =>
+  d.toISOString().slice(0, 10);
+---
+{title && <h2 class="font-mono text-lg mb-4 text-text-primary">{title}</h2>}
+<ul class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 list-none p-0">
+  {posts.map((post) => (
+    <li class="border border-border-default rounded-lg p-4 hover:border-brand-orange hover:bg-[#111111] transition-colors">
+      <a href={`${base}blog/${post.id}/`} class="block">
+        <h3 class="font-mono text-base text-text-primary mb-2">{post.data.title}</h3>
+        <p class="text-sm text-text-primary mb-3 line-clamp-3">{post.data.description}</p>
+        <div class="flex flex-wrap items-center gap-2 font-mono text-xs text-text-muted">
+          <time datetime={post.data.pubDate.toISOString()}>{fmt(post.data.pubDate)}</time>
+          <span>·</span>
+          <span>{post.data.category}</span>
+          {post.data.tags.length > 0 && (
+            <>
+              <span>·</span>
+              <span>{post.data.tags.slice(0, 3).map((t) => `#${t}`).join(" ")}</span>
+            </>
+          )}
+        </div>
+      </a>
+    </li>
+  ))}
+</ul>
