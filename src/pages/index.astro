@@ -1,13 +1,29 @@
 ---
-import "../styles/global.css";
+import { getCollection } from "astro:content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import PostList from "../components/PostList.astro";
+
+const base = import.meta.env.BASE_URL;
+const posts = await getCollection("blog", ({ data }) => !data.draft);
+const recent = posts
+  .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime())
+  .slice(0, 6);
 ---
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <title>AI Study Note — scaffold</title>
-  </head>
-  <body>
-    <h1>Scaffold placeholder — Phase 3 will replace this</h1>
-  </body>
-</html>
+<BaseLayout title="ai-study-note" description="A personal digital garden of AI study notes.">
+  <section class="mb-12">
+    <h1 class="font-mono text-3xl text-text-primary mb-4">ai-study-note</h1>
+    <p class="text-text-primary max-w-2xl mb-6">
+      A personal digital garden. Lean notes on agents, context engineering, and shipping AI systems.
+    </p>
+    <a
+      href={`${base}blog/`}
+      class="inline-block font-mono text-sm border border-border-default rounded-lg px-4 py-2 text-text-primary hover:border-brand-orange hover:text-brand-orange"
+    >
+      Browse all notes →
+    </a>
+  </section>
+
+  <section>
+    <PostList posts={recent} title="Recent" />
+  </section>
+</BaseLayout>
