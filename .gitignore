@@ -2,8 +2,7 @@
 node_modules/
 
 # Build outputs
-public/
-.quartz/
+dist/
 *.tsbuildinfo
 
 # OS/editor
@@ -21,9 +20,8 @@ yarn-error.log*
 .env
 .env.*
 
-# Quartz caches
-.quartz-cache/
+# Astro
+.astro/
 
 # Automation
 .automation/
-
