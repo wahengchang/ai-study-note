@@ -28,7 +28,10 @@ Replace the Quartz v4 engine with Astro 6.x while preserving all 84 existing not
   3. `src/content.config.ts` defines a `blog` collection whose Zod schema requires `{ title, description, pubDate, category, tags, draft }` and normalizes category/tags with `.toLowerCase().trim()`
   4. Running `astro build` against a deliberately malformed frontmatter file fails loudly with a schema error (no silent defaults)
   5. `quartz/`, `quartz.config.ts`, `quartz.layout.ts`, Quartz scripts in `package.json`, and Quartz-specific `.gitignore` entries no longer exist in the branch
-**Plans**: TBD
+**Plans**: 3 plans
+  - [ ] 01-PLAN.md — Remove Quartz engine (SCAF-04)
+  - [ ] 02-PLAN.md — Astro 6 + Tailwind 4 scaffold (SCAF-01, SCAF-02, SCAF-03)
+  - [ ] 03-PLAN.md — Content collection schema with Zod (SCHE-01, SCHE-02, SCHE-03)
 
 ### Phase 2: Content Migration
 **Goal**: Every existing note lives under `src/content/blog/` with frontmatter that the Phase 1 schema accepts, and no Obsidian-flavored syntax remains.
@@ -87,7 +90,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Scaffold and Content Schema | 0/TBD | Not started | - |
+| 1. Scaffold and Content Schema | 0/3 | Planned | - |
 | 2. Content Migration | 0/TBD | Not started | - |
 | 3. Layouts, Routes, and Base-Path Discipline | 0/TBD | Not started | - |
 | 4. Deploy Pipeline | 0/TBD | Not started | - |
