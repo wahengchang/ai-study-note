@@ -29,7 +29,7 @@ Replace the Quartz v4 engine with Astro 6.x while preserving all 84 existing not
   4. Running `astro build` against a deliberately malformed frontmatter file fails loudly with a schema error (no silent defaults)
   5. `quartz/`, `quartz.config.ts`, `quartz.layout.ts`, Quartz scripts in `package.json`, and Quartz-specific `.gitignore` entries no longer exist in the branch
 **Plans**: 3 plans
-  - [ ] 01-PLAN.md — Remove Quartz engine (SCAF-04)
+  - [x] 01-PLAN.md — Remove Quartz engine (SCAF-04)
   - [ ] 02-PLAN.md — Astro 6 + Tailwind 4 scaffold (SCAF-01, SCAF-02, SCAF-03)
   - [ ] 03-PLAN.md — Content collection schema with Zod (SCHE-01, SCHE-02, SCHE-03)
 
