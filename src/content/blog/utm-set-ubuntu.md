@@ -60,7 +60,7 @@ A UTM virtual machine is essentially a single `.utm` bundle, so you can move it 
 - Use SSD, not HDD
 - HDD latency is high and causes noticeable lag in Ubuntu and dev tools
 
-![UTM VM file moved to external SSD](../assets/ssd-utm-file.png)
+![UTM VM file moved to external SSD](/ai-study-note/assets/ssd-utm-file.png)
 
 ### 1.2 Use Shared Network Mode (Critical)
 
@@ -80,7 +80,7 @@ Setting path:
 
 `UTM Settings -> Network -> Mode -> Shared Network (Emulated VLAN)`
 
-![UTM network mode set to Shared Network](../assets/utm-network-shared-mode.png)
+![UTM network mode set to Shared Network](/ai-study-note/assets/utm-network-shared-mode.png)
 
 ## 2. Ubuntu Environment Setup
 
@@ -135,7 +135,7 @@ Verification points:
 - Check foreground logs for messages like `Missing config` or `Address already in use`
 - Confirm the error maps directly to config or port issues
 
-![OpenClaw gateway running successfully](../assets/openclaw-success-running.png)
+![OpenClaw gateway running successfully](/ai-study-note/assets/openclaw-success-running.png)
 
 ### 3.2 Config Corruption: Full Reset Is Faster
 
@@ -205,7 +205,7 @@ Mount steps:
 - In `Connect to Server`, enter `dav://127.0.0.1:9843`
 - Click `Connect`
 
-![Ubuntu shared folder mounted via WebDAV](../assets/shared-folder-working.png)
+![Ubuntu shared folder mounted via WebDAV](/ai-study-note/assets/shared-folder-working.png)
 
 ## 5. Quick Checklist
 
