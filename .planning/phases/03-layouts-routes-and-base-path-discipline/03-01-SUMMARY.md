@@ -88,7 +88,7 @@ Each task was committed atomically:
 2. **Task 2: Create Header, Footer, and PostList shared components** — `12c69d0` (feat)
 3. **Task 3: Create BaseLayout and PostLayout** — `9bfe3e0` (feat)
 
-**Plan metadata:** (to be added after SUMMARY + state update)
+**Plan metadata:** `a982fc9` (docs: complete plan — SUMMARY + STATE + ROADMAP + REQUIREMENTS)
 
 ## Files Created/Modified
 
