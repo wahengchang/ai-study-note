@@ -1,2 +1,25 @@
 @import "tailwindcss";
 @plugin "@tailwindcss/typography";
+
+@theme {
+  --color-bg-global: #050505;
+  --color-bg-card: #000000;
+  --color-border-default: #333333;
+  --color-border-active: #FF4F00;
+  --color-brand-orange: #FF4F00;
+  --color-text-primary: #E5E5E5;
+  --color-text-muted: #737373;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --font-sans: Inter, Geist, system-ui, sans-serif;
+}
+
+html {
+  background-color: var(--color-bg-global);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+}
+
+body {
+  min-height: 100vh;
+}
