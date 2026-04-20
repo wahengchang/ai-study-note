@@ -43,7 +43,8 @@ Replace the Quartz v4 engine with Astro 6.x while preserving all 84 existing not
   3. No file in `src/content/blog/` contains Obsidian wikilinks (`[[...]]`) or Smart Columns fences (`:::col`) — all converted to standard Markdown or removed
   4. `npm run build` completes with zero schema validation errors against the full migrated content set
   5. The old top-level `content/` directory has been deleted from the branch
-**Plans**: TBD
+**Plans**: 1 plan
+  - [ ] 02-01-PLAN.md — Migrate 84 notes to src/content/blog with normalized frontmatter, strip Obsidian syntax, delete legacy content/ (MIGR-01..05)
 
 ### Phase 3: Layouts, Routes, and Base-Path Discipline
 **Goal**: A reader can browse the full site locally — home, blog index, individual post, category page, tag page, and 404 — with the lean brutalist look and all internal links routed through `import.meta.env.BASE_URL`.
