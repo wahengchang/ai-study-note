@@ -57,7 +57,10 @@ Replace the Quartz v4 engine with Astro 6.x while preserving all 84 existing not
   4. `/404` renders the custom not-found page; the visual design (black background, orange accent, monospace-tolerant body) matches `docs/visual-guideline.md`
   5. A grep across `src/` finds zero hardcoded `/blog/`, `/categories/`, `/tags/`, or asset paths — every internal link and static asset URL is constructed from `${import.meta.env.BASE_URL}`
   6. Every `getCollection("blog", ...)` call in the codebase passes `({ data }) => !data.draft`
-**Plans**: TBD
+**Plans**: 3 plans
+  - [ ] 03-01-PLAN.md — Foundation: brutalist theme tokens + BaseLayout/PostLayout + Header/Footer/PostList (LAYO-01..05)
+  - [ ] 03-02-PLAN.md — Home + blog index + dynamic post detail route (ROUT-01, ROUT-03, ROUT-04, ROUT-07 partial)
+  - [ ] 03-03-PLAN.md — Taxonomy routes + 404 + base-path audit gate (ROUT-02, ROUT-05, ROUT-06, ROUT-07 full, BASE-01..03)
 **UI hint**: yes
 
 ### Phase 4: Deploy Pipeline
@@ -93,6 +96,6 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 |-------|----------------|--------|-----------|
 | 1. Scaffold and Content Schema | 0/3 | Complete    | 2026-04-20 |
 | 2. Content Migration | 0/TBD | Complete    | 2026-04-20 |
-| 3. Layouts, Routes, and Base-Path Discipline | 0/TBD | Not started | - |
+| 3. Layouts, Routes, and Base-Path Discipline | 0/3 | Not started | - |
 | 4. Deploy Pipeline | 0/TBD | Not started | - |
 | 5. Live Verification and Docs Update | 0/TBD | Not started | - |
