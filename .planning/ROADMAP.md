@@ -10,7 +10,7 @@ Replace the Quartz v4 engine with Astro 6.x while preserving all 84 existing not
 - Integer phases (1, 2, 3): Planned milestone work
 - Decimal phases (2.1, 2.2): Urgent insertions (marked with INSERTED)
 
-- [ ] **Phase 1: Scaffold and Content Schema** - Astro 6 + Tailwind 4 project boots with a Zod-validated `blog` collection and Quartz files removed
+- [x] **Phase 1: Scaffold and Content Schema** - Astro 6 + Tailwind 4 project boots with a Zod-validated `blog` collection and Quartz files removed (completed 2026-04-20)
 - [ ] **Phase 2: Content Migration** - All 84 notes moved to `src/content/blog/` with schema-compliant frontmatter and legacy Obsidian syntax removed
 - [ ] **Phase 3: Layouts, Routes, and Base-Path Discipline** - Full page set (home, blog index, post detail, category, tag, 404) renders locally with shared layouts and base-prefixed links
 - [ ] **Phase 4: Deploy Pipeline** - GitHub Actions workflow builds and deploys the Astro site to Pages on push to `main`
@@ -90,7 +90,7 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 
 | Phase | Plans Complete | Status | Completed |
 |-------|----------------|--------|-----------|
-| 1. Scaffold and Content Schema | 0/3 | Planned | - |
+| 1. Scaffold and Content Schema | 0/3 | Complete    | 2026-04-20 |
 | 2. Content Migration | 0/TBD | Not started | - |
 | 3. Layouts, Routes, and Base-Path Discipline | 0/TBD | Not started | - |
 | 4. Deploy Pipeline | 0/TBD | Not started | - |
