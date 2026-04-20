@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 02-01-PLAN.md (Content migration — 72 notes to src/content/blog)
-last_updated: "2026-04-20T17:28:27.350Z"
+status: Ready to execute
+stopped_at: Completed 03-01-PLAN.md (BaseLayout/PostLayout + Header/Footer/PostList + theme tokens)
+last_updated: "2026-04-20T17:40:05.392Z"
 progress:
   total_phases: 5
   completed_phases: 2
-  total_plans: 4
-  completed_plans: 4
+  total_plans: 7
+  completed_plans: 6
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** Every existing note remains readable at its equivalent URL after swapping Quartz v4 for Astro 6 — if the live GitHub Pages site fails, nothing else matters.
-**Current focus:** Phase 02 — Content Migration
+**Current focus:** Phase 03 — Layouts, Routes, and Base-Path Discipline
 
 ## Current Position
 
-Phase: 3
-Plan: Not started
+Phase: 03 (Layouts, Routes, and Base-Path Discipline) — EXECUTING
+Plan: 2 of 3
 
 ## Performance Metrics
 
@@ -50,6 +50,7 @@ Plan: Not started
 | Phase 01-scaffold-and-content-schema P02 | 5min | 2 tasks | 7 files |
 | Phase 01-scaffold-and-content-schema P03 | 2min | 2 tasks | 2 files |
 | Phase 02-content-migration P01 | 8min | 3 tasks | 91 files |
+| Phase 03-layouts-routes-and-base-path-discipline P01 | 2min | 3 tasks | 6 files |
 
 ## Accumulated Context
 
@@ -74,6 +75,10 @@ Recent decisions affecting current work:
 - [Phase 02-content-migration]: Plan 01: Truthful note count is 72, not plan's 84 — macOS ._* resource-fork siblings inflated the count. Documented in migration commit message.
 - [Phase 02-content-migration]: Plan 01: Wikilink transforms must be code-aware (prose-only, with inline code spans protected by placeholder swap). Prevents corruption of JSON/shell examples like [["x","y","z"]].
 - [Phase 02-content-migration]: Plan 01: Depth-first source file ordering so shallower paths claim canonical <category>-index.md names before deeper nested index files.
+- [Phase 03-layouts-routes-and-base-path-discipline]: Tailwind 4 CSS-first config via @theme block in global.css — one source of truth for brutalist tokens, no tailwind.config.js
+- [Phase 03-layouts-routes-and-base-path-discipline]: Header nav limited to Home + Blog; no top-level categories/tags index pages in this phase
+- [Phase 03-layouts-routes-and-base-path-discipline]: prose prose-invert scoped to PostLayout article slot only; card/index surfaces use Tailwind utilities directly
+- [Phase 03-layouts-routes-and-base-path-discipline]: Single shared PostList component consumed by home, blog index, category, and tag pages — no duplicated card markup
 
 ### Pending Todos
 
@@ -89,6 +94,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-20T17:25:11.576Z
-Stopped at: Completed 02-01-PLAN.md (Content migration — 72 notes to src/content/blog)
+Last session: 2026-04-20T17:40:05.388Z
+Stopped at: Completed 03-01-PLAN.md (BaseLayout/PostLayout + Header/Footer/PostList + theme tokens)
 Resume file: None

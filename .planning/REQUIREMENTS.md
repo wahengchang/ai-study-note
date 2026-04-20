@@ -25,11 +25,11 @@
 
 ### Layouts & Components (LAYO)
 
-- [ ] **LAYO-01**: `BaseLayout.astro` renders `<head>`, `Header`, `Footer`, and `<slot />`
-- [ ] **LAYO-02**: `PostLayout.astro` wraps `BaseLayout`, renders post metadata and a `prose` slot for the Markdown body
-- [ ] **LAYO-03**: `Header.astro` and `Footer.astro` exist, use `import.meta.env.BASE_URL` for every link
-- [ ] **LAYO-04**: `PostList.astro` is a shared card component consumed by blog index, category pages, and tag pages
-- [ ] **LAYO-05**: Visual design matches the lean brutalist direction from `docs/visual-guideline.md` (black bg, orange accent, monospace-tolerant body)
+- [x] **LAYO-01**: `BaseLayout.astro` renders `<head>`, `Header`, `Footer`, and `<slot />`
+- [x] **LAYO-02**: `PostLayout.astro` wraps `BaseLayout`, renders post metadata and a `prose` slot for the Markdown body
+- [x] **LAYO-03**: `Header.astro` and `Footer.astro` exist, use `import.meta.env.BASE_URL` for every link
+- [x] **LAYO-04**: `PostList.astro` is a shared card component consumed by blog index, category pages, and tag pages
+- [x] **LAYO-05**: Visual design matches the lean brutalist direction from `docs/visual-guideline.md` (black bg, orange accent, monospace-tolerant body)
 
 ### Routes (ROUT)
 
@@ -96,11 +96,11 @@
 | MIGR-03 | Phase 2 | Complete |
 | MIGR-04 | Phase 2 | Complete |
 | MIGR-05 | Phase 2 | Complete |
-| LAYO-01 | Phase 3 | Pending |
-| LAYO-02 | Phase 3 | Pending |
-| LAYO-03 | Phase 3 | Pending |
-| LAYO-04 | Phase 3 | Pending |
-| LAYO-05 | Phase 3 | Pending |
+| LAYO-01 | Phase 3 | Complete |
+| LAYO-02 | Phase 3 | Complete |
+| LAYO-03 | Phase 3 | Complete |
+| LAYO-04 | Phase 3 | Complete |
+| LAYO-05 | Phase 3 | Complete |
 | ROUT-01 | Phase 3 | Pending |
 | ROUT-02 | Phase 3 | Pending |
 | ROUT-03 | Phase 3 | Pending |
