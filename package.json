@@ -33,6 +33,7 @@
   "devDependencies": {
     "@tailwindcss/typography": "^0.5.19",
     "@tailwindcss/vite": "^4.2.2",
+    "gray-matter": "^4.0.3",
     "tailwindcss": "^4.2.2"
   }
 }
