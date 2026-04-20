@@ -11,9 +11,9 @@
 
 ### Content Schema (SCHE)
 
-- [ ] **SCHE-01**: `src/content.config.ts` at `src/` root defines `blog` collection via `glob()` loader
-- [ ] **SCHE-02**: Zod schema validates `{ title, description, pubDate, category, tags, draft }` with `.toLowerCase().trim()` normalization on category/tags
-- [ ] **SCHE-03**: Schema fails the build on malformed frontmatter (no silent defaults for required fields)
+- [x] **SCHE-01**: `src/content.config.ts` at `src/` root defines `blog` collection via `glob()` loader
+- [x] **SCHE-02**: Zod schema validates `{ title, description, pubDate, category, tags, draft }` with `.toLowerCase().trim()` normalization on category/tags
+- [x] **SCHE-03**: Schema fails the build on malformed frontmatter (no silent defaults for required fields)
 
 ### Content Migration (MIGR)
 
@@ -88,9 +88,9 @@
 | SCAF-02 | Phase 1 | Complete |
 | SCAF-03 | Phase 1 | Complete |
 | SCAF-04 | Phase 1 | Complete |
-| SCHE-01 | Phase 1 | Pending |
-| SCHE-02 | Phase 1 | Pending |
-| SCHE-03 | Phase 1 | Pending |
+| SCHE-01 | Phase 1 | Complete |
+| SCHE-02 | Phase 1 | Complete |
+| SCHE-03 | Phase 1 | Complete |
 | MIGR-01 | Phase 2 | Pending |
 | MIGR-02 | Phase 2 | Pending |
 | MIGR-03 | Phase 2 | Pending |

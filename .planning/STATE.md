@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to execute
-stopped_at: Completed 01-02-PLAN.md (Astro + Tailwind 4 scaffold)
-last_updated: "2026-04-20T16:57:55.447Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 01-03-PLAN.md (Content collection schema)
+last_updated: "2026-04-20T17:02:54.734Z"
 progress:
   total_phases: 5
   completed_phases: 1
   total_plans: 3
-  completed_plans: 4
+  completed_plans: 6
 ---
 
 # Project State
@@ -48,6 +48,7 @@ Plan: 3 of 3
 *Updated after each plan completion*
 | Phase 01-scaffold-and-content-schema P01 | 2min | 2 tasks | 1 files |
 | Phase 01-scaffold-and-content-schema P02 | 5min | 2 tasks | 7 files |
+| Phase 01-scaffold-and-content-schema P03 | 2min | 2 tasks | 2 files |
 
 ## Accumulated Context
 
@@ -66,6 +67,9 @@ Recent decisions affecting current work:
 - [Phase 01-scaffold-and-content-schema]: Plan 02: Bumped engines.node to >=22.12.0 (Astro 6 floor); pinned Node 22 via .nvmrc
 - [Phase 01-scaffold-and-content-schema]: Plan 02: Deleted stale public/ directory (Quartz build output) — Astro treats public/ as static source, leftover index.html was shadowing src/pages/index.astro
 - [Phase 01-scaffold-and-content-schema]: Plan 02: Astro dist/ output is flat (not nested under base) — base only prefixes URLs in emitted HTML. GH Pages deployment routes /ai-study-note/ correctly
+- [Phase 01-scaffold-and-content-schema]: Plan 03: Placed content.config.ts at src/ root (Astro 6 convention) — legacy src/content/config.ts is no longer resolved
+- [Phase 01-scaffold-and-content-schema]: Plan 03: Required-field-no-default discipline — awk/grep audit gate enforces that title/description/pubDate/category never carry .default(); only tags ([]) and draft (false) are defaulted
+- [Phase 01-scaffold-and-content-schema]: Plan 03: SCHE-03 proof pattern established — temporarily break seed frontmatter, confirm astro build exits non-zero with InvalidContentEntryDataError mentioning the missing field, then byte-identically restore the seed. Reusable for future schema changes.
 
 ### Pending Todos
 
@@ -81,6 +85,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-20T16:57:42.369Z
-Stopped at: Completed 01-02-PLAN.md (Astro + Tailwind 4 scaffold)
+Last session: 2026-04-20T17:02:54.731Z
+Stopped at: Completed 01-03-PLAN.md (Content collection schema)
 Resume file: None
