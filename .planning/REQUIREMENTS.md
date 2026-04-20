@@ -17,11 +17,11 @@
 
 ### Content Migration (MIGR)
 
-- [ ] **MIGR-01**: All 84 existing notes moved from `content/` → `src/content/blog/` preserving slug-equivalent filenames
-- [ ] **MIGR-02**: Every migrated note has complete frontmatter matching the Zod schema (title, description, pubDate, category, tags, draft)
-- [ ] **MIGR-03**: Obsidian wikilinks and Smart Columns (`:::col`) converted to standard Markdown or removed; no legacy syntax left
-- [ ] **MIGR-04**: `astro build` succeeds with zero schema validation errors against migrated content
-- [ ] **MIGR-05**: Old `content/` directory removed after migration verified
+- [x] **MIGR-01**: All 84 existing notes moved from `content/` → `src/content/blog/` preserving slug-equivalent filenames
+- [x] **MIGR-02**: Every migrated note has complete frontmatter matching the Zod schema (title, description, pubDate, category, tags, draft)
+- [x] **MIGR-03**: Obsidian wikilinks and Smart Columns (`:::col`) converted to standard Markdown or removed; no legacy syntax left
+- [x] **MIGR-04**: `astro build` succeeds with zero schema validation errors against migrated content
+- [x] **MIGR-05**: Old `content/` directory removed after migration verified
 
 ### Layouts & Components (LAYO)
 
@@ -91,11 +91,11 @@
 | SCHE-01 | Phase 1 | Complete |
 | SCHE-02 | Phase 1 | Complete |
 | SCHE-03 | Phase 1 | Complete |
-| MIGR-01 | Phase 2 | Pending |
-| MIGR-02 | Phase 2 | Pending |
-| MIGR-03 | Phase 2 | Pending |
-| MIGR-04 | Phase 2 | Pending |
-| MIGR-05 | Phase 2 | Pending |
+| MIGR-01 | Phase 2 | Complete |
+| MIGR-02 | Phase 2 | Complete |
+| MIGR-03 | Phase 2 | Complete |
+| MIGR-04 | Phase 2 | Complete |
+| MIGR-05 | Phase 2 | Complete |
 | LAYO-01 | Phase 3 | Pending |
 | LAYO-02 | Phase 3 | Pending |
 | LAYO-03 | Phase 3 | Pending |

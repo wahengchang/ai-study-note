@@ -2,14 +2,14 @@
 gsd_state_version: 1.0
 milestone: v1.0
 milestone_name: milestone
-status: Ready to plan
-stopped_at: Completed 01-03-PLAN.md (Content collection schema)
-last_updated: "2026-04-20T17:06:18.023Z"
+status: Phase complete — ready for verification
+stopped_at: Completed 02-01-PLAN.md (Content migration — 72 notes to src/content/blog)
+last_updated: "2026-04-20T17:25:11.580Z"
 progress:
   total_phases: 5
-  completed_phases: 1
-  total_plans: 3
-  completed_plans: 3
+  completed_phases: 2
+  total_plans: 4
+  completed_plans: 5
 ---
 
 # Project State
@@ -19,12 +19,12 @@ progress:
 See: .planning/PROJECT.md (updated 2026-04-21)
 
 **Core value:** Every existing note remains readable at its equivalent URL after swapping Quartz v4 for Astro 6 — if the live GitHub Pages site fails, nothing else matters.
-**Current focus:** Phase 01 — Scaffold and Content Schema
+**Current focus:** Phase 02 — Content Migration
 
 ## Current Position
 
-Phase: 2
-Plan: Not started
+Phase: 02 (Content Migration) — EXECUTING
+Plan: 1 of 1
 
 ## Performance Metrics
 
@@ -49,6 +49,7 @@ Plan: Not started
 | Phase 01-scaffold-and-content-schema P01 | 2min | 2 tasks | 1 files |
 | Phase 01-scaffold-and-content-schema P02 | 5min | 2 tasks | 7 files |
 | Phase 01-scaffold-and-content-schema P03 | 2min | 2 tasks | 2 files |
+| Phase 02-content-migration P01 | 8min | 3 tasks | 91 files |
 
 ## Accumulated Context
 
@@ -70,6 +71,9 @@ Recent decisions affecting current work:
 - [Phase 01-scaffold-and-content-schema]: Plan 03: Placed content.config.ts at src/ root (Astro 6 convention) — legacy src/content/config.ts is no longer resolved
 - [Phase 01-scaffold-and-content-schema]: Plan 03: Required-field-no-default discipline — awk/grep audit gate enforces that title/description/pubDate/category never carry .default(); only tags ([]) and draft (false) are defaulted
 - [Phase 01-scaffold-and-content-schema]: Plan 03: SCHE-03 proof pattern established — temporarily break seed frontmatter, confirm astro build exits non-zero with InvalidContentEntryDataError mentioning the missing field, then byte-identically restore the seed. Reusable for future schema changes.
+- [Phase 02-content-migration]: Plan 01: Truthful note count is 72, not plan's 84 — macOS ._* resource-fork siblings inflated the count. Documented in migration commit message.
+- [Phase 02-content-migration]: Plan 01: Wikilink transforms must be code-aware (prose-only, with inline code spans protected by placeholder swap). Prevents corruption of JSON/shell examples like [["x","y","z"]].
+- [Phase 02-content-migration]: Plan 01: Depth-first source file ordering so shallower paths claim canonical <category>-index.md names before deeper nested index files.
 
 ### Pending Todos
 
@@ -85,6 +89,6 @@ None yet.
 
 ## Session Continuity
 
-Last session: 2026-04-20T17:02:54.731Z
-Stopped at: Completed 01-03-PLAN.md (Content collection schema)
+Last session: 2026-04-20T17:25:11.576Z
+Stopped at: Completed 02-01-PLAN.md (Content migration — 72 notes to src/content/blog)
 Resume file: None
