@@ -4,9 +4,9 @@
 
 ### Scaffold (SCAF)
 
-- [ ] **SCAF-01**: Astro 6.x project initialized with Node 22.12+/24 LTS pinned via `.nvmrc`
-- [ ] **SCAF-02**: Tailwind 4 wired via `@tailwindcss/vite` in `astro.config.mjs`; `global.css` imports tailwindcss and the typography plugin
-- [ ] **SCAF-03**: `astro.config.mjs` sets `site: "https://wahengchang.github.io"`, `base: "/ai-study-note"`, `trailingSlash: "always"`, `build.format: "directory"`
+- [x] **SCAF-01**: Astro 6.x project initialized with Node 22.12+/24 LTS pinned via `.nvmrc`
+- [x] **SCAF-02**: Tailwind 4 wired via `@tailwindcss/vite` in `astro.config.mjs`; `global.css` imports tailwindcss and the typography plugin
+- [x] **SCAF-03**: `astro.config.mjs` sets `site: "https://wahengchang.github.io"`, `base: "/ai-study-note"`, `trailingSlash: "always"`, `build.format: "directory"`
 - [x] **SCAF-04**: Old Quartz files removed (`quartz/`, `quartz.config.ts`, `quartz.layout.ts`, Quartz scripts in `package.json`, Quartz-specific gitignore entries)
 
 ### Content Schema (SCHE)
@@ -84,9 +84,9 @@
 
 | Requirement | Phase | Status |
 |-------------|-------|--------|
-| SCAF-01 | Phase 1 | Pending |
-| SCAF-02 | Phase 1 | Pending |
-| SCAF-03 | Phase 1 | Pending |
+| SCAF-01 | Phase 1 | Complete |
+| SCAF-02 | Phase 1 | Complete |
+| SCAF-03 | Phase 1 | Complete |
 | SCAF-04 | Phase 1 | Complete |
 | SCHE-01 | Phase 1 | Pending |
 | SCHE-02 | Phase 1 | Pending |
