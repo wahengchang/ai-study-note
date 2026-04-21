@@ -22,28 +22,23 @@ Definitive rules for Markdown formatting, frontmatter schema, tagging taxonomy, 
 
 ## 2. Frontmatter Schema
 
-Every `.md` file in `content/` **must** have YAML frontmatter fenced by `---`.
+Every `.md` file in `src/content/blog/` **must** have YAML frontmatter matching the Zod schema in `src/content.config.ts`. Builds fail on missing required fields.
 
 ### Required Fields
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `title` | `string` | Display title. Use quotes if it contains colons or special chars. |
+| `description` | `string` | One-line summary (≤160 chars). Used for SEO meta and card lists. |
+| `pubDate` | `YYYY-MM-DD` | Publication date. Parsed via `z.coerce.date()`. |
+| `category` | `string` | Single category. Normalized to lowercase at load. |
 
-### Recommended Fields
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `description` | `string` | One-line summary (≤160 chars). Used for SEO meta and Quartz search. |
-| `tags` | `string[]` | Lateral associations from the controlled taxonomy (see §3). |
-| `aliases` | `string[]` | Alternative URL paths for Quartz `AliasRedirects`. Use new `kebab-case` paths. |
-
-### Optional Fields
+### Optional Fields (with defaults)
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `date` | `YYYY-MM-DD` | Publication date. Falls back to git/filesystem if omitted. |
-| `draft` | `boolean` | Set `true` to exclude from build via `RemoveDrafts` plugin. |
+| `tags` | `string[]` | Lateral associations from the controlled taxonomy (see §3). Defaults to `[]`. Normalized to lowercase. |
+| `draft` | `boolean` | Set `true` to exclude from build — every `getCollection("blog", …)` call filters `!data.draft`. Defaults to `false`. |
 
 ### Frontmatter Template
 
@@ -141,62 +136,55 @@ Tags are **lateral associations** that cross-cut the folder hierarchy. Use only 
 2. Add **1–3 topic tags** that describe the note's subject matter.
 3. Use **lowercase-kebab-case** for all tags. No capitals, no spaces.
 4. Do not invent new tags without adding them to this taxonomy first.
-5. Tags drive Quartz `TagPage` generation — each tag gets its own page at `/tags/<tag>`.
+5. Tags drive `/tags/<tag>/` page generation — each tag gets its own page via `src/pages/tags/[tag].astro`.
 
 ---
 
-## 4. Content Hierarchy (Categories via Folders)
+## 4. Categories (Flat Layout)
 
-Hierarchical structure is expressed through the folder tree, not through tags.
+After the Astro migration, `src/content/blog/` uses a **flat directory**: every note lives at `src/content/blog/<slug>.md`. Categorization is expressed via the `category` frontmatter field, not the folder tree.
 
-```
-content/
-├── claude-code/              # Claude Code ecosystem
-│   └── tools-and-skills/     # Plugins, hooks, channels, frameworks
-├── openclaw/                 # OpenClaw agent framework
-│   ├── common-questions/     # FAQ-style deep dives
-│   ├── instruction-notes/    # SOPs and operational guides
-│   └── skill-notes/          # Skill definitions with references
-│       ├── airtable-api/
-│       ├── gog/
-│       ├── minimax/
-│       └── minimax-tts/
-├── prompt-notes/             # Prompt engineering notes and reusable templates
-│   └── gemini-prompts/       # Gemini prompt templates by role
-├── seo-and-geo/              # SEO & GEO strategy
-├── setup-env/                # Development environment setup
-└── index.md                  # Landing page
-```
+### Approved categories
+
+| Category | Scope |
+|----------|-------|
+| `claude-code` | Claude Code ecosystem — CLI, plugins, hooks, agent teams, frameworks |
+| `openclaw` | OpenClaw agent framework — architecture, FAQs, SOPs, skills |
+| `prompt-notes` | Prompt engineering research and reusable templates |
+| `seo-and-geo` | SEO & GEO strategy |
+| `setup-env` | Development environment and tooling setup |
 
 ### Rules
 
-1. Each top-level folder represents a **content category**.
-2. Each category with 2+ notes should have an `index.md` linking to its children.
-3. New categories require approval — do not create top-level folders arbitrarily.
-4. Sub-folders group related notes within a category (e.g., `common-questions/`).
+1. Every note sets exactly one `category` in frontmatter. Value matches the slug-style strings above (lowercase-kebab-case).
+2. New categories require approval — do not introduce new values without discussion.
+3. Category pages are generated automatically at `/categories/<name>/` by `src/pages/categories/[category].astro`.
 
 ---
 
 ## 5. Linking Protocols
 
-### Wikilinks (Primary)
+Obsidian wikilinks (`[[...]]`, `![[...]]`) and Smart Columns (`:::col`) were stripped during the Astro migration. Use **standard Markdown only**.
 
-Use Obsidian-style wikilinks for internal references:
+### Internal links
+
+Use relative Markdown links that mirror the built URL shape. Since every note builds to `/ai-study-note/blog/<slug>/`, link by slug:
 
 ```markdown
-[[note-filename]]                          # Basic link
-[[note-filename|Display Text]]             # With alias
-[[folder/note-filename|Display Text]]      # With path (use for disambiguation)
-![[image-name.png]]                        # Image embed
+[Display text](/ai-study-note/blog/other-note-slug/)
 ```
 
-### Rules
+### Images
 
-1. **Prefer shortest path**: Quartz `CrawlLinks` uses `markdownLinkResolution: "shortest"`. Use filename only when unique.
-2. **Add path prefix** only when filenames collide (e.g., multiple `index.md` files → `[[openclaw/index|OpenClaw Index]]`).
-3. **Always provide display text** for path-prefixed links.
-4. **Image embeds** use `![[filename.png]]` — assets live in `content/assets/`.
-5. **External links** use standard Markdown: `[text](https://example.com)`.
+Assets live in `public/assets/`. Reference them with absolute base-prefixed URLs:
+
+```markdown
+![Alt text](/ai-study-note/assets/diagram.png)
+```
+
+### External links
+
+Standard Markdown: `[text](https://example.com)`.
 
 ### Backlinks (Related Section)
 
@@ -205,15 +193,14 @@ Every note with clear semantic connections should include a `## Related` section
 ```markdown
 ## Related
 
-- [[related-note-1|Display Text]]
-- [[related-note-2|Display Text]]
+- [Display Text](/ai-study-note/blog/related-note-1/)
+- [Display Text](/ai-study-note/blog/related-note-2/)
 ```
 
 Rules:
 1. Place `## Related` as the **last heading** in the file.
 2. Include **2–4 links** to semantically related notes.
 3. Prefer bidirectional links (if A links to B, B should link to A).
-4. Do not link to the note's own parent `index.md` — Quartz handles breadcrumbs.
 
 ---
 
@@ -238,15 +225,13 @@ Rules:
 Before merging any content changes:
 
 ```bash
-npm run quartz -- build    # Must exit 0
-npm run check              # TypeScript + Prettier must pass
+npm run build    # Must exit 0
 ```
 
 | Check | Command | Pass Criteria |
 |-------|---------|---------------|
-| Build | `npm run quartz -- build` | Exit code 0, no broken wikilinks in output |
-| Typecheck | `npm run check` | No TypeScript errors |
-| Frontmatter | Manual / `@content-ops` | Every `.md` has `title` field |
+| Build | `npm run build` | Exit code 0; Zod schema validates every frontmatter |
+| Frontmatter | `npm run build` | Schema rejects missing `title`, `description`, `pubDate`, or `category` |
 | Tags | Manual / `@reviewer` | All tags from controlled vocabulary |
 | Links | Manual / `@content-ops` | No broken `[[wikilinks]]` |
 

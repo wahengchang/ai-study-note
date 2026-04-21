@@ -3,10 +3,9 @@
 
 project:
   name: ai-study-note
-  content_root: content/
-  build_cmd: "npm run quartz -- build"
-  preview_cmd: "npm run quartz -- build --serve"
-  check_cmd: "npm run check"
+  content_root: src/content/blog/
+  build_cmd: "npm run build"
+  preview_cmd: "npm run dev"
 
 defaults:
   language: en
@@ -16,22 +15,23 @@ defaults:
   file_naming: kebab-case
   frontmatter_required:
     - title
+    - description
+    - pubDate
+    - category
 
 agents:
   writer:
     path: claude/agents/writer.md
-    description: Convert experiments and workflows into lean, decision-ready Quartz notes.
+    description: Convert experiments and workflows into lean, decision-ready Astro-Markdown notes.
     prompts:
       - claude/prompts/formatting.md
       - claude/prompts/mermaid.md
-      - claude/prompts/quartz.md
 
   reviewer:
     path: claude/agents/reviewer.md
     description: Audit notes for technical accuracy, style compliance, and completeness.
     prompts:
       - claude/prompts/formatting.md
-      - claude/prompts/quartz.md
 
   diagram:
     path: claude/agents/diagram.md
@@ -44,4 +44,3 @@ agents:
     description: Organize files, fix frontmatter, rename, and perform bulk content maintenance.
     prompts:
       - claude/prompts/formatting.md
-      - claude/prompts/quartz.md

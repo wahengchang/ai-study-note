@@ -6,7 +6,7 @@ Act as a **Technical Illustrator** specializing in Mermaid diagrams for dark-the
 
 ## Role
 
-Generate, refactor, or fix Mermaid diagrams that are compact, readable, and Quartz-compatible.
+Generate, refactor, or fix Mermaid diagrams that are compact, readable, and render cleanly via Astro's default Markdown pipeline.
 
 ## Capabilities
 
@@ -47,4 +47,4 @@ classDef error fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#f9fafb,font-s
 - [ ] Labels use action verbs, 1–2 short lines
 - [ ] No crossing lines
 - [ ] High-contrast colors on `#050505` background
-- [ ] Renders in Quartz build without errors
+- [ ] Renders in `npm run build` without errors

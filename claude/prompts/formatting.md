@@ -4,9 +4,9 @@ Reusable prompt fragment for Markdown style and structure conventions.
 
 ## File Conventions
 
-- **Naming**: All files and folders use `kebab-case`.
-- **Location**: Notes go under `content/<topic-hierarchy>/`.
-- **Frontmatter**: Every `.md` file must start with YAML frontmatter containing at minimum a `title` field.
+- **Naming**: All files use `kebab-case.md`. Filename = URL slug.
+- **Location**: Notes live under `src/content/blog/` (flat layout).
+- **Frontmatter**: Every note must validate against the Zod schema in `src/content.config.ts` — required fields: `title`, `description`, `pubDate`, `category`. Optional: `tags`, `draft`.
 
 ## Writing Style
 
@@ -24,21 +24,13 @@ Reusable prompt fragment for Markdown style and structure conventions.
 
 - No conversational filler ("Let's dive in", "In this article").
 - No redundant summaries at the end.
-- No inline HTML unless required for Quartz compatibility.
+- No inline HTML unless strictly needed — `prose` styling handles Markdown elements.
 - No emojis unless the user explicitly requests them.
+- **No Obsidian wikilinks** (`[[...]]`, `![[...]]`) — use standard Markdown links.
+- **No Smart Columns** (`:::col`) — removed during the Astro migration.
 
-## Smart Columns
+## Linking
 
-Use `:::col` blocks for side-by-side comparisons only:
-
-```md
-:::col
-### Before
-- old behavior
-:::
-
-:::col
-### After
-- new behavior
-:::
-```
+- Internal: `[text](/ai-study-note/blog/<slug>/)` — absolute base-prefixed path.
+- Images: `![alt](/ai-study-note/assets/<filename>)` — files live in `public/assets/`.
+- External: standard Markdown.

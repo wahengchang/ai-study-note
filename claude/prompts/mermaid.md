@@ -32,7 +32,7 @@ If the flow is linear and obvious, use a bullet list instead.
 - No crossing lines or dense branching.
 - If still hard to read: remove nodes before adding style.
 
-## Quartz-Safe Template
+## Base Template
 
 ```mermaid
 flowchart LR
