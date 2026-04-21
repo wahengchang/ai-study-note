@@ -14,7 +14,7 @@ Replace the Quartz v4 engine with Astro 6.x while preserving all 84 existing not
 - [x] **Phase 2: Content Migration** - All 84 notes moved to `src/content/blog/` with schema-compliant frontmatter and legacy Obsidian syntax removed (completed 2026-04-20)
 - [x] **Phase 3: Layouts, Routes, and Base-Path Discipline** - Full page set (home, blog index, post detail, category, tag, 404) renders locally with shared layouts and base-prefixed links (completed 2026-04-21)
 - [x] **Phase 4: Deploy Pipeline** - GitHub Actions workflow builds and deploys the Astro site to Pages on push to `main` (completed 2026-04-21)
-- [ ] **Phase 5: Live Verification and Docs Update** - Local build is green, live site serves migrated content with no base-path 404s, and project docs point at the Astro workflow
+- [x] **Phase 5: Live Verification and Docs Update** - Local build is green, live site serves migrated content with no base-path 404s, and project docs point at the Astro workflow (completed 2026-04-21)
 
 ## Phase Details
 
@@ -98,4 +98,4 @@ Phases execute in numeric order: 1 → 2 → 3 → 4 → 5
 | 2. Content Migration | 0/TBD | Complete    | 2026-04-20 |
 | 3. Layouts, Routes, and Base-Path Discipline | 0/3 | Complete    | 2026-04-21 |
 | 4. Deploy Pipeline | 0/TBD | Complete    | 2026-04-21 |
-| 5. Live Verification and Docs Update | 0/TBD | Not started | - |
+| 5. Live Verification and Docs Update | 0/TBD | Complete    | 2026-04-21 |
