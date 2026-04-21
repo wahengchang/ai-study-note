@@ -92,8 +92,14 @@ None yet.
 
 - Phase 3 readiness: enforce a grep-based check for hardcoded paths before shipping — the most common Pages deploy failure.
 
+### Quick Tasks Completed
+
+| # | Description | Date | Commit | Directory |
+|---|-------------|------|--------|-----------|
+| 260422-0vl | Align .claude/ agents and prompts with new doc base | 2026-04-21 | 5256b6d | [260422-0vl-align-claude-agents-and-prompts-with-new](./quick/260422-0vl-align-claude-agents-and-prompts-with-new/) |
+
 ## Session Continuity
 
-Last session: 2026-04-20T17:40:05.388Z
+Last session: 2026-04-21 - Completed quick task 260422-0vl: Align .claude/ agents and prompts with new doc base
 Stopped at: Completed 03-01-PLAN.md (BaseLayout/PostLayout + Header/Footer/PostList + theme tokens)
 Resume file: None
