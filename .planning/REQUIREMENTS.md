@@ -33,19 +33,19 @@
 
 ### Routes (ROUT)
 
-- [ ] **ROUT-01**: `/` home page (`src/pages/index.astro`) renders, links into the blog
-- [ ] **ROUT-02**: `/404` page (`src/pages/404.astro`) renders
-- [ ] **ROUT-03**: `/blog/` index page lists all published posts (drafts filtered)
-- [ ] **ROUT-04**: `/blog/<slug>/` post detail via `[...slug].astro` using `getStaticPaths` + `render(post)`
-- [ ] **ROUT-05**: `/categories/<category>/` dynamic route generated from unique categories
-- [ ] **ROUT-06**: `/tags/<tag>/` dynamic route generated from deduped flat tag list
-- [ ] **ROUT-07**: Every `getCollection("blog", ...)` call filters `({ data }) => !data.draft` — no exceptions
+- [x] **ROUT-01**: `/` home page (`src/pages/index.astro`) renders, links into the blog
+- [x] **ROUT-02**: `/404` page (`src/pages/404.astro`) renders
+- [x] **ROUT-03**: `/blog/` index page lists all published posts (drafts filtered)
+- [x] **ROUT-04**: `/blog/<slug>/` post detail via `[...slug].astro` using `getStaticPaths` + `render(post)`
+- [x] **ROUT-05**: `/categories/<category>/` dynamic route generated from unique categories
+- [x] **ROUT-06**: `/tags/<tag>/` dynamic route generated from deduped flat tag list
+- [x] **ROUT-07**: Every `getCollection("blog", ...)` call filters `({ data }) => !data.draft` — no exceptions
 
 ### Base-Path Discipline (BASE)
 
-- [ ] **BASE-01**: No hardcoded `/blog/`, `/categories/`, `/tags/`, or asset paths anywhere in source
-- [ ] **BASE-02**: Internal links constructed via `${import.meta.env.BASE_URL}...` idiom
-- [ ] **BASE-03**: Static assets (favicon, og-image, etc.) loaded through the base-prefixed URL
+- [x] **BASE-01**: No hardcoded `/blog/`, `/categories/`, `/tags/`, or asset paths anywhere in source
+- [x] **BASE-02**: Internal links constructed via `${import.meta.env.BASE_URL}...` idiom
+- [x] **BASE-03**: Static assets (favicon, og-image, etc.) loaded through the base-prefixed URL
 
 ### Deploy (DEPL)
 
@@ -101,16 +101,16 @@
 | LAYO-03 | Phase 3 | Complete |
 | LAYO-04 | Phase 3 | Complete |
 | LAYO-05 | Phase 3 | Complete |
-| ROUT-01 | Phase 3 | Pending |
-| ROUT-02 | Phase 3 | Pending |
-| ROUT-03 | Phase 3 | Pending |
-| ROUT-04 | Phase 3 | Pending |
-| ROUT-05 | Phase 3 | Pending |
-| ROUT-06 | Phase 3 | Pending |
-| ROUT-07 | Phase 3 | Pending |
-| BASE-01 | Phase 3 | Pending |
-| BASE-02 | Phase 3 | Pending |
-| BASE-03 | Phase 3 | Pending |
+| ROUT-01 | Phase 3 | Complete |
+| ROUT-02 | Phase 3 | Complete |
+| ROUT-03 | Phase 3 | Complete |
+| ROUT-04 | Phase 3 | Complete |
+| ROUT-05 | Phase 3 | Complete |
+| ROUT-06 | Phase 3 | Complete |
+| ROUT-07 | Phase 3 | Complete |
+| BASE-01 | Phase 3 | Complete |
+| BASE-02 | Phase 3 | Complete |
+| BASE-03 | Phase 3 | Complete |
 | DEPL-01 | Phase 4 | Pending |
 | DEPL-02 | Phase 4 | Pending |
 | DEPL-03 | Phase 4 | Pending |
