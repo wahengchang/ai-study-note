@@ -57,10 +57,10 @@
 
 ### Verification (VERI)
 
-- [ ] **VERI-01**: `npm run build` completes locally with zero errors
-- [ ] **VERI-02**: `npm run dev` serves the site locally; spot-check home, blog index, a post, a category, a tag
-- [ ] **VERI-03**: Live site at https://wahengchang.github.io/ai-study-note/ renders the same content set as Quartz did, with CSS loading correctly (no base-path 404s)
-- [ ] **VERI-04**: `CLAUDE.md` updated so Quartz references point to the Astro workflow instead
+- [x] **VERI-01**: `npm run build` completes locally with zero errors
+- [ ] **VERI-02**: `npm run dev` serves the site locally; spot-check home, blog index, a post, a category, a tag _(manual, post-merge)_
+- [ ] **VERI-03**: Live site at https://wahengchang.github.io/ai-study-note/ renders the same content set as Quartz did, with CSS loading correctly (no base-path 404s) _(manual, post-merge)_
+- [x] **VERI-04**: `CLAUDE.md` updated so Quartz references point to the Astro workflow instead
 
 ## v2 Requirements (deferred)
 
@@ -115,10 +115,10 @@
 | DEPL-02 | Phase 4 | Complete |
 | DEPL-03 | Phase 4 | Complete |
 | DEPL-04 | Phase 4 | Complete |
-| DEPL-05 | Phase 5 | Pending |
-| VERI-01 | Phase 5 | Pending |
-| VERI-02 | Phase 5 | Pending |
-| VERI-03 | Phase 5 | Pending |
-| VERI-04 | Phase 5 | Pending |
+| DEPL-05 | Phase 5 | Manual |
+| VERI-01 | Phase 5 | Complete |
+| VERI-02 | Phase 5 | Manual |
+| VERI-03 | Phase 5 | Manual |
+| VERI-04 | Phase 5 | Complete |
 
 **Coverage:** 36/36 v1 requirements mapped to exactly one phase.

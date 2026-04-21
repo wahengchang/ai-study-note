@@ -2,40 +2,53 @@
 
 ## Project Overview
 
-A Quartz-powered digital garden for AI learning notes. Content is authored in Obsidian-flavored Markdown, built with Quartz v4, and deployed to GitHub Pages.
+An Astro-powered digital garden for AI learning notes. Content is authored in standard Markdown with frontmatter, built with Astro 6, and deployed to GitHub Pages.
 
 - **Live site**: https://wahengchang.github.io/ai-study-note/
-- **Engine**: Quartz (Preact + esbuild)
-- **Node**: >=22, npm >=10.9.2
+- **Engine**: Astro 6 + Tailwind 4 (via `@tailwindcss/vite`) + `@tailwindcss/typography`
+- **Node**: 22.12+ or 24 LTS (pinned via `.nvmrc`)
 
 ## Scope
 
 | Directory | Purpose |
 |-----------|---------|
-| `content/` | Main notes — primary authoring area |
-| `docs/` | Project docs (style guide, syntax reference) |
-| `quartz/` | Quartz engine, components, plugins |
-| `skills/` | OpenAI-compatible skill definitions |
+| `src/content/blog/` | Main notes — primary authoring area (flat layout, kebab-case filenames) |
+| `src/content.config.ts` | Zod schema for the `blog` collection |
+| `src/layouts/` | `BaseLayout.astro`, `PostLayout.astro` |
+| `src/components/` | `Header.astro`, `Footer.astro`, `PostList.astro` |
+| `src/pages/` | Routes: `index`, `404`, `blog/`, `categories/`, `tags/` |
+| `src/styles/global.css` | Tailwind imports + `@theme` design tokens |
+| `public/assets/` | Images referenced from notes |
+| `docs/` | Project docs (`visual-guideline.md`) |
+| `scripts/` | `migrate-content.mjs` — historical migration script |
 | `claude/` | Modular prompt system (agents, prompts, config) |
 
 ## Core Commands
 
 ```bash
-npm run quartz -- build          # Build site
-npm run quartz -- build --serve  # Build + local preview (port 8080)
-npm run check                    # Typecheck + formatting
-npm run format                   # Prettier formatting
-npm run clean                    # Remove macOS ._* files
+npm run dev       # Local dev server at http://localhost:4321/ai-study-note/
+npm run build     # Static build to dist/
+npm run preview   # Preview the built site
 ```
 
 ## Writing Rules
 
-1. **File naming**: `kebab-case` for all notes and folders.
-2. **Frontmatter**: Every note requires a `title` field.
-3. **Syntax**: Standard Markdown + Obsidian wikilinks + Smart Columns (`:::col`).
-4. **Style**: Bullet points, copy-pasteable code blocks, direct headings. No fluff.
-5. **Mermaid**: Use `direction LR` only. Never `TD`. Include only when visualization adds clarity.
-6. **Terminology**: Use precise domain terms (e.g., "p99 latency" not "slow").
+1. **File naming**: `kebab-case` for all notes (filename = URL slug).
+2. **Frontmatter (required)**: `title`, `description`, `pubDate`, `category`, `tags`, `draft`.
+   - `category` / `tags` are normalized to lowercase at schema load — don't worry about casing in files.
+   - `draft: true` excludes a note from the live site.
+3. **Syntax**: Standard Markdown only. **No Obsidian wikilinks** (`[[...]]`) or Smart Columns (`:::col`) — they were stripped during the Astro migration.
+4. **Images**: Put files under `public/assets/` and reference with absolute base-prefixed paths, e.g. `![](/ai-study-note/assets/foo.png)`.
+5. **Internal links in code/components**: Always use `${import.meta.env.BASE_URL}...`. Never hardcode `/blog/`, `/categories/`, `/tags/`, or asset paths.
+6. **Draft filter**: Every `getCollection("blog", ...)` call must pass `({ data }) => !data.draft`. No exceptions.
+7. **Style**: Bullet points, copy-pasteable code blocks, direct headings. No fluff.
+8. **Mermaid**: Use `direction LR` only. Never `TD`. Include only when visualization adds clarity.
+9. **Terminology**: Use precise domain terms (e.g., "p99 latency" not "slow").
+
+## Adding a Note
+
+1. Create `src/content/blog/<slug>.md` with the 6 required frontmatter fields.
+2. Save. Dev server hot-reloads. It appears on home (if recent), blog index, its category page, and its tag pages.
 
 ## Prompt System
 
@@ -50,18 +63,9 @@ claude/
 │   └── content-ops.md   — File organization and maintenance
 ├── prompts/         # Reusable prompt fragments
 │   ├── formatting.md    — Markdown and style conventions
-│   ├── mermaid.md       — Diagram rules and templates
-│   └── quartz.md        — Quartz-specific syntax and config
+│   └── mermaid.md       — Diagram rules and templates
 └── config.yaml      # Agent registry and defaults
 ```
-
-### How It Works
-
-- **Agents** are self-contained roles that compose one or more **prompt fragments**.
-- **Prompt fragments** encapsulate a single concern (formatting, diagrams, Quartz conventions) and are referenced by agents that need them.
-- **config.yaml** registers all agents and sets project-wide defaults.
-
-### Usage
 
 Reference agents by name when delegating tasks:
 
@@ -75,17 +79,27 @@ Reference agents by name when delegating tasks:
 | Token | Value | Usage |
 |-------|-------|-------|
 | bg-global | `#050505` | Page background |
-| brand-orange | `#FF4F00` | Accent, links, alerts |
+| bg-card | `#000000` | Card/container fill |
+| brand-orange | `#FF4F00` | Accent, links, hover, focus |
 | text-primary | `#E5E5E5` | Body text |
 | text-muted | `#737373` | Metadata, footnotes |
-| border-default | `#333333` | Dividers, outlines |
+| border-default | `#333333` | 1px dividers, card outlines |
+| border-active | `#FF4F00` | Active/focus states |
+
+Exposed as Tailwind classes via `@theme` in `src/styles/global.css`. Full spec: `docs/visual-guideline.md`.
 
 ## Config Files
 
-- `quartz.config.ts` — Site config, plugins, theme.
-- `quartz.layout.ts` — Page layout and sidebar components.
+- `astro.config.mjs` — Site + base path (`/ai-study-note`), trailing slash, Tailwind Vite plugin.
+- `src/content.config.ts` — Zod schema for the `blog` collection.
+- `tsconfig.json` — Extends `astro/tsconfigs/strict`.
 - `docs/visual-guideline.md` — Full design token reference.
-- `docs/custom-syntax.md` — Smart Columns and extended syntax.
+
+## Deployment
+
+CI auto-deploys on push to `main` via `.github/workflows/deploy.yml` (`withastro/action@v6` → `actions/deploy-pages@v5`).
+
+**One-time manual step:** GitHub → Settings → Pages → Source = **GitHub Actions**.
 
 <!-- GSD:project-start source:PROJECT.md -->
 ## Project
@@ -111,19 +125,42 @@ A personal digital garden of AI study notes, published at https://wahengchang.gi
 <!-- GSD:stack-start source:STACK.md -->
 ## Technology Stack
 
-Technology stack not yet documented. Will populate after codebase mapping or first phase.
+- **Framework:** Astro 6.x (static-first, zero JS by default, Content Collections)
+- **Styling:** Tailwind 4 via `@tailwindcss/vite` (CSS-first `@theme` config)
+- **Typography:** `@tailwindcss/typography` (`prose` class on rendered Markdown)
+- **Content:** Content Layer API — `glob()` loader + Zod schema
+- **Runtime:** Node 22.12+ / 24 LTS
+- **Deploy:** `withastro/action@v6` → `actions/deploy-pages@v5` (GitHub Pages)
 <!-- GSD:stack-end -->
 
 <!-- GSD:conventions-start source:CONVENTIONS.md -->
 ## Conventions
 
-Conventions not yet established. Will populate as patterns emerge during development.
+- Filename = URL slug (kebab-case).
+- Every `getCollection("blog", ...)` filters drafts.
+- All internal links use `${import.meta.env.BASE_URL}...`; no hardcoded paths.
+- Images live in `public/assets/`; reference with absolute base-prefixed URLs.
+- Shared card rendering is in `PostList.astro` — don't duplicate across pages.
 <!-- GSD:conventions-end -->
 
 <!-- GSD:architecture-start source:ARCHITECTURE.md -->
 ## Architecture
 
-Architecture not yet mapped. Follow existing patterns found in the codebase.
+```
+BaseLayout (head + Header + Footer + slot)
+  └── PostLayout (post meta + prose slot)
+        └── rendered Markdown
+
+src/pages/
+├── index.astro              → /
+├── 404.astro                → /404
+├── blog/index.astro         → /blog/
+├── blog/[...slug].astro     → /blog/<post>/
+├── categories/[category].astro  → /categories/<name>/
+└── tags/[tag].astro         → /tags/<tag>/
+```
+
+Dynamic routes use `getStaticPaths()` + `render(post)` from `astro:content`. Taxonomy routes dedupe with `new Set(posts.flatMap(...))`.
 <!-- GSD:architecture-end -->
 
 <!-- GSD:workflow-start source:GSD defaults -->
