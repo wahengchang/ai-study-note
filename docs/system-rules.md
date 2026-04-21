@@ -79,64 +79,16 @@ metadata:
 
 ## 3. Tag Taxonomy (Controlled Vocabulary)
 
-Tags are **lateral associations** that cross-cut the folder hierarchy. Use only tags from this controlled vocabulary.
+Tags are **lateral associations** that cross-cut the folder hierarchy and drive `/tags/<tag>/` page generation via `src/pages/tags/[tag].astro`.
 
-### Platform Tags
-
-| Tag | Scope |
-|-----|-------|
-| `claude-code` | Claude Code CLI, extensions, plugins, hooks |
-| `openclaw` | OpenClaw agent framework |
-| `gemini` | Google Gemini / Gemini API |
-| `google-workspace` | Google Docs, Sheets, Slides, Gmail, Meet |
-
-### Topic Tags
-
-| Tag | Scope |
-|-----|-------|
-| `agent-architecture` | Agent loops, runtime, system design |
-| `context-window` | Context budgets, prompt assembly, compaction |
-| `memory` | Persistence, retrieval, indexing |
-| `workspace` | Agent home directories, file structures |
-| `multi-agent` | Multi-agent coordination, routing, presence |
-| `routing` | Binding rules, agent selection, skill discovery |
-| `automation` | Cron, workflows, scripted pipelines |
-| `prompt-engineering` | Prompt design, templates, reusable patterns |
-| `plugin` | MCP plugins, channels, extensions |
-| `telegram` | Telegram bot integration, bridging |
-| `n8n` | n8n workflow automation |
-| `devops` | Environment setup, deployment, infrastructure |
-| `seo` | Search engine optimization, entity strategy |
-| `tts` | Text-to-speech synthesis |
-| `tmux` | Terminal multiplexer operations |
-| `research` | Notes derived from external sources (YouTube, articles, GitHub repos, official docs) |
-| `skill-definition` | OpenAI-compatible SKILL.md definitions |
-| `marketing` | Marketing strategy, campaigns |
-| `hr` | Human resources, hiring, onboarding |
-| `sales` | Sales process, prospecting |
-| `customer-service` | Support, complaint handling |
-| `communications` | PR, internal comms |
-| `project-management` | Planning, tracking, retrospectives |
-| `admin` | Administrative operations |
-
-### Type Tags
-
-| Tag | Scope |
-|-----|-------|
-| `guide` | Structured walkthrough of a concept or system |
-| `reference` | Quick-lookup table, cheat sheet, or index |
-| `tutorial` | Step-by-step hands-on instructions |
-| `playbook` | Decision-ready scenarios and real-world patterns |
-| `sop` | Standard operating procedure for repeatable tasks |
-| `template` | Reusable prompt or document skeleton |
+**The authoritative tag vocabulary lives in [`docs/content-taxonomy.md`](content-taxonomy.md) §2.** Every tag must come from that closed vocabulary; agents that encounter an unlisted tag must stop and ask, or update the taxonomy first in its own commit.
 
 ### Tagging Rules
 
-1. Every note must have **at least one platform tag** and **one type tag**.
-2. Add **1–3 topic tags** that describe the note's subject matter.
-3. Use **lowercase-kebab-case** for all tags. No capitals, no spaces.
-4. Do not invent new tags without adding them to this taxonomy first.
-5. Tags drive `/tags/<tag>/` page generation — each tag gets its own page via `src/pages/tags/[tag].astro`.
+1. Every note has **exactly one Type tag** (taxonomy §2 Dimension A) and **at least one Subject tag** (Dimension B). Tech tags (Dimension C) are optional.
+2. Use **lowercase-kebab-case** for all tags. No capitals, no spaces.
+3. Do not invent new tags without updating `docs/content-taxonomy.md` first in a separate commit.
+4. Tags drive `/tags/<tag>/` page generation — each tag gets its own page via `src/pages/tags/[tag].astro`.
 
 ---
 
@@ -144,21 +96,13 @@ Tags are **lateral associations** that cross-cut the folder hierarchy. Use only 
 
 After the Astro migration, `src/content/blog/` uses a **flat directory**: every note lives at `src/content/blog/<slug>.md`. Categorization is expressed via the `category` frontmatter field, not the folder tree.
 
-### Approved categories
-
-| Category | Scope |
-|----------|-------|
-| `claude-code` | Claude Code ecosystem — CLI, plugins, hooks, agent teams, frameworks |
-| `openclaw` | OpenClaw agent framework — architecture, FAQs, SOPs, skills |
-| `prompt-notes` | Prompt engineering research and reusable templates |
-| `seo-and-geo` | SEO & GEO strategy |
-| `setup-env` | Development environment and tooling setup |
+**The authoritative category list lives in [`docs/content-taxonomy.md`](content-taxonomy.md) §1.**
 
 ### Rules
 
-1. Every note sets exactly one `category` in frontmatter. Value matches the slug-style strings above (lowercase-kebab-case).
-2. New categories require approval — do not introduce new values without discussion.
-3. Category pages are generated automatically at `/categories/<name>/` by `src/pages/categories/[category].astro`.
+1. Every note sets exactly one `category` in frontmatter. The value must match one of the approved slugs in `docs/content-taxonomy.md` §1 (lowercase-kebab-case).
+2. Category pages are generated automatically at `/categories/<name>/` by `src/pages/categories/[category].astro`.
+3. New categories require approval — do not introduce new values without discussion, and update `docs/content-taxonomy.md` §1 first in a separate commit.
 
 ---
 
