@@ -1,6 +1,5 @@
 ---
 import type { CollectionEntry } from "astro:content";
-import Placeholder from "./Placeholder.astro";
 
 interface Props {
   posts: CollectionEntry<"blog">[];
@@ -14,35 +13,36 @@ const fmt = (d: Date) =>
 {title && (
   <h2 class="font-display text-[28px] leading-tight tracking-tightest mb-10">{title}</h2>
 )}
-<ul class="grid grid-cols-3 max-md:grid-cols-1 gap-x-10 gap-y-16 list-none p-0">
+<ul class="grid grid-cols-3 max-md:grid-cols-1 gap-x-10 gap-y-14 list-none p-0">
   {posts.map((post) => (
-    <li class="flex flex-col">
+    <li class="flex flex-col border-t border-rule pt-6 transition-colors hover:border-accent">
       <a
         href={`${base}blog/${post.id}/`}
-        class="group flex flex-col no-underline"
+        class="group flex flex-col h-full no-underline"
         data-category={post.data.category}
       >
-        <div class="font-mono text-[11px] text-fg-3 tracking-wide mb-3.5 flex gap-3.5 items-center">
+        <div class="font-mono text-[11px] text-fg-3 tracking-wide mb-4 flex gap-3.5 items-center">
           <time datetime={post.data.pubDate.toISOString()}>{fmt(post.data.pubDate)}</time>
           <span class="text-rule">·</span>
-          <span>Waheng</span>
+          <span class="uppercase tracking-[0.1em] text-[10px]">{post.data.category}</span>
         </div>
 
-        <div class="relative aspect-[16/10] mb-5 overflow-hidden border border-rule group-hover:border-fg-3 transition-colors">
-          <Placeholder label={`note / ${post.data.category}`} variant="dark" />
-        </div>
-
-        <span class="inline-block self-start font-mono text-[10px] tracking-[0.1em] uppercase text-accent border border-accent-dim px-2 py-[3px]">
-          {post.data.category}
-        </span>
-
-        <h3 class="font-display text-[20px] leading-tight tracking-tightest mt-3 mb-2.5 text-fg group-hover:text-accent transition-colors">
+        <h3 class="font-display text-[26px] leading-[1.1] tracking-tightest mb-3 text-fg group-hover:text-accent transition-colors">
           {post.data.title}
         </h3>
-        <p class="text-fg-2 text-sm leading-relaxed mb-4 line-clamp-3">
+        <p class="text-fg-2 text-[14px] leading-relaxed mb-5 line-clamp-3">
           {post.data.description}
         </p>
-        <span class="mt-auto font-serif italic text-[13px] font-semibold border-b border-fg pb-0.5 self-start">
+
+        {post.data.tags.length > 0 && (
+          <div class="flex flex-wrap gap-1.5 mb-5 font-mono text-[10px] text-fg-3">
+            {post.data.tags.slice(0, 3).map((t) => (
+              <span>#{t}</span>
+            ))}
+          </div>
+        )}
+
+        <span class="mt-auto font-serif italic text-[13px] font-semibold border-b border-fg pb-0.5 self-start group-hover:border-accent group-hover:text-accent transition-colors">
           Read full note
         </span>
       </a>

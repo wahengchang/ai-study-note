@@ -15,9 +15,9 @@
   /* Rule */
   --color-rule: #222222;
 
-  /* Accent — warm yellow, used sparingly */
-  --color-accent: oklch(0.78 0.12 85);
-  --color-accent-dim: oklch(0.78 0.12 85 / 0.2);
+  /* Accent — cool pale, used sparingly */
+  --color-accent: oklch(0.85 0.02 240);
+  --color-accent-dim: oklch(0.85 0.02 240 / 0.2);
 
   /* Fonts */
   --font-display: "Archivo Black", sans-serif;
