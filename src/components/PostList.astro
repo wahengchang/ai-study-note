@@ -1,5 +1,7 @@
 ---
 import type { CollectionEntry } from "astro:content";
+import Placeholder from "./Placeholder.astro";
+
 interface Props {
   posts: CollectionEntry<"blog">[];
   title?: string;
@@ -7,26 +9,42 @@ interface Props {
 const { posts, title } = Astro.props;
 const base = import.meta.env.BASE_URL;
 const fmt = (d: Date) =>
-  d.toISOString().slice(0, 10);
+  d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
 ---
-{title && <h2 class="font-mono text-lg mb-4 text-text-primary">{title}</h2>}
-<ul class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 list-none p-0">
+{title && (
+  <h2 class="font-display text-[28px] leading-tight tracking-tightest mb-10">{title}</h2>
+)}
+<ul class="grid grid-cols-3 max-md:grid-cols-1 gap-x-10 gap-y-16 list-none p-0">
   {posts.map((post) => (
-    <li class="border border-border-default rounded-lg p-4 hover:border-brand-orange hover:bg-[#111111] transition-colors">
-      <a href={`${base}blog/${post.id}/`} class="block">
-        <h3 class="font-mono text-base text-text-primary mb-2">{post.data.title}</h3>
-        <p class="text-sm text-text-primary mb-3 line-clamp-3">{post.data.description}</p>
-        <div class="flex flex-wrap items-center gap-2 font-mono text-xs text-text-muted">
+    <li class="flex flex-col">
+      <a
+        href={`${base}blog/${post.id}/`}
+        class="group flex flex-col no-underline"
+        data-category={post.data.category}
+      >
+        <div class="font-mono text-[11px] text-fg-3 tracking-wide mb-3.5 flex gap-3.5 items-center">
           <time datetime={post.data.pubDate.toISOString()}>{fmt(post.data.pubDate)}</time>
-          <span>·</span>
-          <span>{post.data.category}</span>
-          {post.data.tags.length > 0 && (
-            <>
-              <span>·</span>
-              <span>{post.data.tags.slice(0, 3).map((t) => `#${t}`).join(" ")}</span>
-            </>
-          )}
+          <span class="text-rule">·</span>
+          <span>Waheng</span>
         </div>
+
+        <div class="relative aspect-[16/10] mb-5 overflow-hidden border border-rule group-hover:border-fg-3 transition-colors">
+          <Placeholder label={`note / ${post.data.category}`} variant="dark" />
+        </div>
+
+        <span class="inline-block self-start font-mono text-[10px] tracking-[0.1em] uppercase text-accent border border-accent-dim px-2 py-[3px]">
+          {post.data.category}
+        </span>
+
+        <h3 class="font-display text-[20px] leading-tight tracking-tightest mt-3 mb-2.5 text-fg group-hover:text-accent transition-colors">
+          {post.data.title}
+        </h3>
+        <p class="text-fg-2 text-sm leading-relaxed mb-4 line-clamp-3">
+          {post.data.description}
+        </p>
+        <span class="mt-auto font-serif italic text-[13px] font-semibold border-b border-fg pb-0.5 self-start">
+          Read full note
+        </span>
       </a>
     </li>
   ))}

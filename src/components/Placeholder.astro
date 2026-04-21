@@ -1,0 +1,18 @@
+---
+interface Props {
+  label: string;
+  variant?: "dark" | "light";
+}
+const { label, variant = "dark" } = Astro.props;
+const stripe =
+  variant === "light"
+    ? "bg-[repeating-linear-gradient(45deg,#eee_0_2px,#ddd_2px_8px)]"
+    : "bg-[repeating-linear-gradient(45deg,#1a1a1a_0_2px,#0f0f0f_2px_8px)]";
+const labelCls =
+  variant === "light"
+    ? "bg-white text-neutral-600 border-neutral-300"
+    : "bg-bg text-fg-3 border-rule";
+---
+<div class={`absolute inset-0 flex items-center justify-center ${stripe}`}>
+  <span class={`font-mono text-[10px] px-2.5 py-1.5 border ${labelCls}`}>{label}</span>
+</div>

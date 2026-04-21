@@ -3,15 +3,56 @@ import { getCollection } from "astro:content";
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import PostList from "../../components/PostList.astro";
 
+const base = import.meta.env.BASE_URL;
 const posts = await getCollection("blog", ({ data }) => !data.draft);
 const sorted = posts.sort(
   (a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime(),
 );
+const categories = [...new Set(sorted.map((p) => p.data.category))].sort();
 ---
-<BaseLayout title="Blog — ai-study-note" description="All published notes.">
-  <section>
-    <h1 class="font-mono text-2xl text-text-primary mb-6">All notes</h1>
-    <p class="text-text-muted font-mono text-xs mb-6">{sorted.length} posts</p>
+<BaseLayout title="All notes — Waheng Note">
+  <section class="max-w-shell mx-auto px-14 max-md:px-6 pt-[120px] pb-[60px] max-md:pt-20">
+    <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
+      Archive · {sorted.length} notes
+    </div>
+    <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-none tracking-tightest max-w-[16ch]">
+      Everything, <span class="text-accent">indexed</span>.
+    </h1>
+  </section>
+
+  <section class="max-w-shell mx-auto px-14 max-md:px-6 pb-[120px] max-md:pb-[80px]">
+    <div id="filters" class="flex flex-wrap gap-2 mb-14 max-md:mb-10">
+      <button
+        data-filter="ALL"
+        data-active="true"
+        class="font-mono text-[11px] tracking-[0.1em] uppercase px-3.5 py-2 border border-rule rounded-sm text-fg-2 hover:text-fg hover:border-fg-3 data-[active=true]:text-bg data-[active=true]:bg-fg data-[active=true]:border-fg transition-colors"
+      >ALL</button>
+      {categories.map((c) => (
+        <button
+          data-filter={c}
+          class="font-mono text-[11px] tracking-[0.1em] uppercase px-3.5 py-2 border border-rule rounded-sm text-fg-2 hover:text-fg hover:border-fg-3 data-[active=true]:text-bg data-[active=true]:bg-fg data-[active=true]:border-fg transition-colors"
+        >{c}</button>
+      ))}
+    </div>
     <PostList posts={sorted} />
   </section>
 </BaseLayout>
+
+<script is:inline>
+  (() => {
+    const box = document.getElementById("filters");
+    if (!box) return;
+    box.addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-filter]");
+      if (!btn) return;
+      box.querySelectorAll("[data-filter]").forEach((b) => b.removeAttribute("data-active"));
+      btn.setAttribute("data-active", "true");
+      const f = btn.dataset.filter;
+      document.querySelectorAll("[data-category]").forEach((card) => {
+        const li = card.closest("li");
+        if (!li) return;
+        li.style.display = f === "ALL" || card.dataset.category === f ? "" : "none";
+      });
+    });
+  })();
+</script>

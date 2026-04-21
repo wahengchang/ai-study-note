@@ -23,10 +23,17 @@ interface Props {
 }
 const { tag, posts } = Astro.props;
 ---
-<BaseLayout title={`Tag: ${tag} — ai-study-note`} description={`Notes tagged #${tag}.`}>
-  <section>
-    <h1 class="font-mono text-2xl text-text-primary mb-2">Tag: <span class="text-brand-orange">#{tag}</span></h1>
-    <p class="text-text-muted font-mono text-xs mb-6">{posts.length} posts</p>
+<BaseLayout title={`#${tag} — Waheng Note`} description={`Notes tagged #${tag}.`}>
+  <section class="max-w-shell mx-auto px-14 max-md:px-6 pt-[120px] pb-[60px] max-md:pt-20">
+    <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
+      Tag · {posts.length} note{posts.length === 1 ? "" : "s"}
+    </div>
+    <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-none tracking-tightest">
+      <span class="text-accent">#{tag}</span>
+    </h1>
+  </section>
+
+  <section class="max-w-shell mx-auto px-14 max-md:px-6 pb-[120px] max-md:pb-[80px]">
     <PostList posts={posts} />
   </section>
 </BaseLayout>

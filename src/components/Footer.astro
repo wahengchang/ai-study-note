@@ -2,9 +2,35 @@
 const base = import.meta.env.BASE_URL;
 const year = new Date().getFullYear();
 ---
-<footer class="border-t border-border-default mt-16">
-  <div class="max-w-5xl mx-auto px-4 py-6 font-mono text-xs text-text-muted flex items-center justify-between">
-    <span>© {year} ai-study-note</span>
-    <a href={base} class="hover:text-brand-orange">home</a>
+<footer class="border-t border-rule mt-[120px] max-md:mt-[80px]">
+  <div class="max-w-shell mx-auto px-14 max-md:px-6 py-14">
+    <div class="grid grid-cols-2 max-md:grid-cols-1 gap-18 max-md:gap-12">
+      <div>
+        <div class="font-display text-[28px] leading-tight tracking-tightest">Waheng Note</div>
+        <p class="text-fg-2 text-sm leading-relaxed mt-3 max-w-[40ch]">
+          Hands-on notes on code, craft &amp; the machine — shipping work that lasts longer than a weekend.
+        </p>
+      </div>
+      <div class="grid grid-cols-2 gap-6 font-mono text-[11px] tracking-[0.1em] uppercase text-fg-3">
+        <div>
+          <div class="text-fg-2 mb-3">Navigate</div>
+          <ul class="space-y-2">
+            <li><a href={base} class="hover:text-accent">Home</a></li>
+            <li><a href={`${base}blog/`} class="hover:text-accent">Notes</a></li>
+          </ul>
+        </div>
+        <div>
+          <div class="text-fg-2 mb-3">Elsewhere</div>
+          <ul class="space-y-2">
+            <li><a href="https://github.com/wahengchang" class="hover:text-accent">GitHub</a></li>
+            <li><a href="https://wahengchang.github.io/ai-study-note/" class="hover:text-accent">Live site</a></li>
+          </ul>
+        </div>
+      </div>
+    </div>
+    <div class="mt-14 pt-6 border-t border-rule font-mono text-[11px] text-fg-3 flex items-center justify-between">
+      <span>© {year} Waheng</span>
+      <span>Built with Astro 6 · Tailwind 4</span>
+    </div>
   </div>
 </footer>

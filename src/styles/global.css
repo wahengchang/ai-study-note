@@ -2,24 +2,160 @@
 @plugin "@tailwindcss/typography";
 
 @theme {
-  --color-bg-global: #050505;
-  --color-bg-card: #000000;
-  --color-border-default: #333333;
-  --color-border-active: #FF4F00;
-  --color-brand-orange: #FF4F00;
-  --color-text-primary: #E5E5E5;
-  --color-text-muted: #737373;
-  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
-  --font-sans: Inter, Geist, system-ui, sans-serif;
+  /* Surface */
+  --color-bg: #0a0a0a;
+  --color-bg-2: #111111;
+  --color-bg-3: #161616;
+
+  /* Foreground */
+  --color-fg: #fafafa;
+  --color-fg-2: #b8b8b8;
+  --color-fg-3: #6a6a6a;
+
+  /* Rule */
+  --color-rule: #222222;
+
+  /* Accent — warm yellow, used sparingly */
+  --color-accent: oklch(0.78 0.12 85);
+  --color-accent-dim: oklch(0.78 0.12 85 / 0.2);
+
+  /* Fonts */
+  --font-display: "Archivo Black", sans-serif;
+  --font-sans: Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  --font-serif: Fraunces, Georgia, serif;
+
+  /* Tracking */
+  --tracking-tightest: -0.02em;
+
+  /* Max-width scale */
+  --container-prose: 720px;
+  --container-shell: 1200px;
 }
 
 html {
-  background-color: var(--color-bg-global);
-  color: var(--color-text-primary);
+  background-color: var(--color-bg);
+  color: var(--color-fg);
   font-family: var(--font-sans);
-  font-size: 14px;
+  font-size: 16px;
 }
 
 body {
   min-height: 100vh;
+}
+
+@keyframes blink {
+  to { opacity: 0; }
+}
+@keyframes fadein {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: none; }
+}
+
+@layer components {
+  .prose-waheng {
+    max-width: none;
+    color: var(--color-fg);
+  }
+  .prose-waheng > * {
+    font-size: 17px;
+    line-height: 1.7;
+  }
+  .prose-waheng h2 {
+    font-family: var(--font-display);
+    font-size: 28px;
+    line-height: 1.15;
+    letter-spacing: var(--tracking-tightest);
+    margin-top: 3rem;
+    margin-bottom: 1rem;
+    color: var(--color-fg);
+  }
+  .prose-waheng h3 {
+    font-family: var(--font-display);
+    font-size: 20px;
+    margin-top: 2rem;
+    margin-bottom: 0.75rem;
+    color: var(--color-fg);
+  }
+  .prose-waheng h4 {
+    font-family: var(--font-display);
+    font-size: 17px;
+    margin-top: 1.75rem;
+    margin-bottom: 0.5rem;
+    color: var(--color-fg);
+  }
+  .prose-waheng a {
+    color: var(--color-accent);
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-color: color-mix(in oklch, var(--color-accent) 40%, transparent);
+  }
+  .prose-waheng a:hover {
+    text-decoration-color: var(--color-accent);
+  }
+  .prose-waheng strong { color: var(--color-fg); }
+  .prose-waheng em { font-style: italic; }
+  .prose-waheng ul, .prose-waheng ol {
+    padding-left: 1.25rem;
+  }
+  .prose-waheng li { margin: 0.25rem 0; }
+  .prose-waheng ul > li::marker { color: var(--color-accent); }
+  .prose-waheng blockquote {
+    border-left: 2px solid var(--color-accent);
+    padding-left: 1.25rem;
+    margin: 1.75rem 0;
+    font-family: var(--font-serif);
+    font-style: italic;
+    color: var(--color-fg-2);
+  }
+  .prose-waheng hr {
+    border: none;
+    border-top: 1px solid var(--color-rule);
+    margin: 3rem 0;
+  }
+  .prose-waheng table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1.75rem 0;
+    font-size: 15px;
+  }
+  .prose-waheng th, .prose-waheng td {
+    border: 1px solid var(--color-rule);
+    padding: 0.6rem 0.85rem;
+    text-align: left;
+  }
+  .prose-waheng th {
+    background: var(--color-bg-2);
+    font-family: var(--font-mono);
+    font-size: 12px;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: var(--color-fg-2);
+  }
+  .prose-waheng pre {
+    background: var(--color-bg-2);
+    border: 1px solid var(--color-rule);
+    border-radius: 6px;
+    padding: 1.25rem 1.5rem;
+    margin: 1.75rem 0;
+    overflow-x: auto;
+    font-family: var(--font-mono);
+    font-size: 13px;
+    line-height: 1.7;
+    color: var(--color-fg-2);
+  }
+  .prose-waheng :not(pre) > code {
+    font-family: var(--font-mono);
+    font-size: 0.88em;
+    background: var(--color-bg-2);
+    padding: 0.12rem 0.4rem;
+    border: 1px solid var(--color-rule);
+    border-radius: 4px;
+    color: var(--color-accent);
+  }
+  .prose-waheng img {
+    border: 1px solid var(--color-rule);
+    border-radius: 6px;
+    margin: 1.75rem 0;
+  }
 }

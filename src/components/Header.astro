@@ -4,20 +4,63 @@ import { getCollection } from "astro:content";
 const base = import.meta.env.BASE_URL;
 const posts = await getCollection("blog", ({ data }) => !data.draft);
 const categories = [...new Set(posts.map((p) => p.data.category))].sort();
+const current = Astro.url.pathname;
+const isActive = (path: string) =>
+  path === base ? current === base || current === base.slice(0, -1) : current.startsWith(path);
 ---
-<header class="border-b border-border-default">
-  <nav class="max-w-5xl mx-auto px-4 py-4 font-mono text-sm">
-    <div class="flex items-center justify-between mb-3">
-      <a href={base} class="text-text-primary hover:text-brand-orange">ai-study-note</a>
-      <ul class="flex gap-4">
-        <li><a href={base} class="text-text-primary hover:text-brand-orange">Home</a></li>
-        <li><a href={`${base}blog/`} class="text-text-primary hover:text-brand-orange">Blog</a></li>
-      </ul>
+<nav
+  id="site-nav"
+  data-scrolled="false"
+  class="sticky top-0 z-50 bg-bg/85 backdrop-blur border-b border-transparent data-[scrolled=true]:border-rule transition-colors"
+>
+  <div class="max-w-shell mx-auto px-14 max-md:px-6">
+    <div class="grid grid-cols-[1fr_auto_1fr] items-center py-7 max-md:py-5">
+      <div class="flex gap-7 items-center max-md:hidden">
+        <a
+          href={base}
+          class={`text-[13px] transition-colors ${isActive(base) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
+        >Home</a>
+        <a
+          href={`${base}blog/`}
+          class={`text-[13px] transition-colors ${isActive(`${base}blog/`) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
+        >Notes</a>
+      </div>
+
+      <a href={base} aria-label="Waheng Note" class="justify-self-center text-fg hover:text-accent transition-colors">
+        <svg width="36" height="36" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M 8 14 L 14 50 L 22 22 L 30 50 L 38 18" />
+          <path d="M 42 42 L 42 18 L 56 42 L 56 18" />
+          <circle cx="58" cy="46" r="1.8" fill="currentColor" stroke="none" />
+        </svg>
+      </a>
+
+      <div class="justify-self-end">
+        <a
+          href={`${base}blog/`}
+          class="text-[13px] text-fg px-3.5 py-2 border border-rule rounded-sm hover:border-fg-2 hover:bg-bg-2 transition-colors"
+        >Subscribe →</a>
+      </div>
     </div>
-    <ul class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
+
+    <ul class="flex flex-wrap gap-x-4 gap-y-1 pb-4 font-mono text-[10px] tracking-[0.1em] uppercase text-fg-3">
       {categories.map((c) => (
-        <li><a href={`${base}categories/${c}/`} class="hover:text-brand-orange">{c}</a></li>
+        <li>
+          <a
+            href={`${base}categories/${c}/`}
+            class={`hover:text-accent transition-colors ${current === `${base}categories/${c}/` ? "text-accent" : ""}`}
+          >{c}</a>
+        </li>
       ))}
     </ul>
-  </nav>
-</header>
+  </div>
+</nav>
+
+<script is:inline>
+  (() => {
+    const n = document.getElementById("site-nav");
+    if (!n) return;
+    const on = () => n.setAttribute("data-scrolled", String(scrollY > 8));
+    addEventListener("scroll", on, { passive: true });
+    on();
+  })();
+</script>

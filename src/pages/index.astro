@@ -4,26 +4,71 @@ import BaseLayout from "../layouts/BaseLayout.astro";
 import PostList from "../components/PostList.astro";
 
 const base = import.meta.env.BASE_URL;
-const posts = await getCollection("blog", ({ data }) => !data.draft);
-const recent = posts
-  .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime())
-  .slice(0, 6);
+const posts = (await getCollection("blog", ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime(),
+);
+const recent = posts.slice(0, 6);
 ---
-<BaseLayout title="ai-study-note" description="A personal digital garden of AI study notes.">
-  <section class="mb-12">
-    <h1 class="font-mono text-3xl text-text-primary mb-4">ai-study-note</h1>
-    <p class="text-text-primary max-w-2xl mb-6">
-      A personal digital garden. Lean notes on agents, context engineering, and shipping AI systems.
+<BaseLayout title="Waheng Note — Notes on code, craft & the machine">
+  <section class="text-center px-6 pt-[120px] pb-[100px] max-md:pt-18 max-md:pb-16">
+    <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
+      Waheng Note · {posts.length} notes
+    </div>
+    <h1 class="font-display text-[clamp(52px,7vw,96px)] leading-[0.98] tracking-tightest max-w-[20ch] mx-auto">
+      Notes on <span class="text-accent">code</span>, craft<br />
+      &amp; the machine.
+    </h1>
+    <p class="text-[17px] text-fg-2 max-w-[56ch] mx-auto mt-8 leading-[1.55]">
+      Hands-on notes on AI agents, Claude Code, prompt engineering, and the infrastructure
+      that actually ships — distilled from experiments and real work.
     </p>
     <a
       href={`${base}blog/`}
-      class="inline-block font-mono text-sm border border-border-default rounded-lg px-4 py-2 text-text-primary hover:border-brand-orange hover:text-brand-orange"
+      class="inline-flex items-center gap-2.5 mt-10 px-6 py-3 border border-rule rounded-full text-[14px] font-medium hover:border-accent hover:bg-accent-dim hover:-translate-y-px transition-all"
     >
-      Browse all notes →
+      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <line x1="5" y1="12" x2="19" y2="12" />
+        <polyline points="12 5 19 12 12 19" />
+      </svg>
+      Read the latest notes
     </a>
+
+    <div class="max-w-prose mx-auto mt-20 bg-bg-2 border border-rule rounded-lg overflow-hidden text-left shadow-[0_20px_80px_rgba(0,0,0,.4)]">
+      <div class="flex items-center gap-2 px-4 py-3 border-b border-rule bg-bg-3">
+        <span class="w-2.5 h-2.5 rounded-full bg-[#333]"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-[#333]"></span>
+        <span class="w-2.5 h-2.5 rounded-full bg-[#333]"></span>
+        <span class="ml-2 font-mono text-[11px] text-fg-3">~/waheng-note — zsh</span>
+      </div>
+      <div class="p-6 font-mono text-[13px] leading-[1.75] text-fg-2 space-y-2">
+        <div><span class="text-accent mr-2">$</span><span class="text-fg">cat about.txt</span></div>
+        <div class="text-fg-3">// Waheng — building agents, writing about what works.</div>
+        <div class="text-fg-3">// Notes live in public because shared work gets better.</div>
+        <div><span class="text-accent mr-2">$</span><span class="text-fg">ls notes/ | head</span></div>
+        {recent.slice(0, 5).map((p) => (
+          <div class="text-fg-2">{p.id}.md</div>
+        ))}
+        <div>
+          <span class="text-accent mr-2">$</span>
+          <span class="text-fg">subscribe --rss</span>
+          <span class="inline-block w-2 h-[14px] align-text-bottom bg-accent ml-1" style="animation: blink 1s steps(2, start) infinite"></span>
+        </div>
+      </div>
+    </div>
   </section>
 
-  <section>
-    <PostList posts={recent} title="Recent" />
+  <section class="max-w-shell mx-auto px-14 max-md:px-6 pb-[120px] max-md:pb-[80px]">
+    <div class="flex items-baseline justify-between mb-10 max-md:flex-col max-md:items-start max-md:gap-3">
+      <h2 class="font-display text-[clamp(40px,5vw,64px)] leading-none tracking-tightest">
+        Recent notes
+      </h2>
+      <a
+        href={`${base}blog/`}
+        class="font-mono text-[11px] tracking-[0.15em] uppercase text-fg-2 hover:text-accent transition-colors"
+      >
+        All {posts.length} →
+      </a>
+    </div>
+    <PostList posts={recent} />
   </section>
 </BaseLayout>

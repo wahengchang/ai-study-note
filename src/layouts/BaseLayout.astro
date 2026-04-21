@@ -7,7 +7,7 @@ interface Props {
   title: string;
   description?: string;
 }
-const { title, description = "AI study notes — a personal digital garden." } = Astro.props;
+const { title, description = "Waheng Note — hands-on AI notes." } = Astro.props;
 const base = import.meta.env.BASE_URL;
 ---
 <!doctype html>
@@ -18,10 +18,17 @@ const base = import.meta.env.BASE_URL;
     <title>{title}</title>
     <meta name="description" content={description} />
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Fraunces:ital,wght@0,400;0,600;1,400;1,600&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+    />
   </head>
-  <body class="bg-bg-global text-text-primary font-sans min-h-screen flex flex-col">
+  <body class="bg-bg text-fg font-sans min-h-screen flex flex-col">
     <Header />
-    <main class="flex-1 max-w-5xl w-full mx-auto px-4 py-8">
+    <main class="flex-1 w-full">
       <slot />
     </main>
     <Footer />

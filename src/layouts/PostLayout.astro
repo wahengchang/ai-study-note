@@ -1,5 +1,6 @@
 ---
 import type { CollectionEntry } from "astro:content";
+import { getCollection } from "astro:content";
 import BaseLayout from "./BaseLayout.astro";
 
 interface Props {
@@ -7,27 +8,69 @@ interface Props {
 }
 const { post } = Astro.props;
 const base = import.meta.env.BASE_URL;
-const fmt = (d: Date) => d.toISOString().slice(0, 10);
+const fmt = (d: Date) =>
+  d.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric" });
+
+const all = (await getCollection("blog", ({ data }) => !data.draft)).sort(
+  (a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime(),
+);
+const i = all.findIndex((p) => p.id === post.id);
+const prev = all[i + 1];
+const next = all[i - 1];
 ---
-<BaseLayout title={post.data.title} description={post.data.description}>
-  <article class="max-w-none">
-    <header class="mb-8 pb-6 border-b border-border-default">
-      <h1 class="font-mono text-2xl text-text-primary mb-3">{post.data.title}</h1>
-      <p class="text-text-primary mb-4">{post.data.description}</p>
-      <div class="flex flex-wrap items-center gap-2 font-mono text-xs text-text-muted">
+<BaseLayout title={`${post.data.title} — Waheng Note`} description={post.data.description}>
+  <div class="max-w-prose mx-auto px-14 max-md:px-6">
+    <header class="pt-20 pb-12 max-md:pt-12 max-md:pb-8">
+      <div class="font-mono text-[11px] tracking-[0.15em] uppercase text-fg-3 flex flex-wrap gap-4 items-center mb-6">
         <time datetime={post.data.pubDate.toISOString()}>{fmt(post.data.pubDate)}</time>
-        <span>·</span>
-        <a href={`${base}categories/${post.data.category}/`} class="hover:text-brand-orange">
+        <span class="w-px h-3 bg-rule"></span>
+        <span>Waheng</span>
+        <span class="w-px h-3 bg-rule"></span>
+        <a href={`${base}categories/${post.data.category}/`} class="hover:text-accent transition-colors">
           {post.data.category}
         </a>
-        {post.data.tags.length > 0 && <span>·</span>}
-        {post.data.tags.map((tag) => (
-          <a href={`${base}tags/${tag}/`} class="hover:text-brand-orange">#{tag}</a>
-        ))}
       </div>
+      <h1 class="font-display text-[clamp(36px,4.5vw,56px)] leading-[1.05] tracking-tightest text-fg">
+        {post.data.title}
+      </h1>
+      {post.data.description && (
+        <blockquote class="border-l-2 border-accent pl-5 mt-10 text-fg-2 text-[17px] leading-relaxed font-serif italic">
+          {post.data.description}
+        </blockquote>
+      )}
+      {post.data.tags.length > 0 && (
+        <div class="flex flex-wrap gap-2 mt-8">
+          {post.data.tags.map((tag) => (
+            <a
+              href={`${base}tags/${tag}/`}
+              class="inline-block font-mono text-[10px] tracking-[0.1em] uppercase text-accent border border-accent-dim px-2 py-[3px] hover:bg-accent-dim transition-colors"
+            >{tag}</a>
+          ))}
+        </div>
+      )}
     </header>
-    <div class="prose prose-invert max-w-none">
+
+    <article class="prose-waheng">
       <slot />
-    </div>
-  </article>
+    </article>
+
+    <nav class="border-t border-rule mt-20 py-14 max-md:py-10 flex justify-between gap-6 max-md:flex-col">
+      {prev ? (
+        <a href={`${base}blog/${prev.id}/`} class="max-w-[45%] max-md:max-w-none group">
+          <span class="font-mono text-[10px] tracking-[0.2em] uppercase text-fg-3">← Previous</span>
+          <span class="block font-display text-[20px] leading-snug tracking-tightest mt-1.5 text-fg group-hover:text-accent transition-colors">
+            {prev.data.title}
+          </span>
+        </a>
+      ) : <span />}
+      {next ? (
+        <a href={`${base}blog/${next.id}/`} class="max-w-[45%] max-md:max-w-none text-right max-md:text-left group">
+          <span class="font-mono text-[10px] tracking-[0.2em] uppercase text-fg-3">Next →</span>
+          <span class="block font-display text-[20px] leading-snug tracking-tightest mt-1.5 text-fg group-hover:text-accent transition-colors">
+            {next.data.title}
+          </span>
+        </a>
+      ) : <span />}
+    </nav>
+  </div>
 </BaseLayout>
