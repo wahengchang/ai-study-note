@@ -1,33 +1,40 @@
 # Mr.Chang AI Practice Notebook
 
-Practical AI notes built on Quartz.
+Practical AI notes built on Astro 6.
 
 Site: https://wahengchang.github.io/ai-study-note/
 
 ## Project Structure
 
-- `content/`: main AI notes.
+- `src/content/blog/`: main AI notes (Markdown with frontmatter).
+- `src/content.config.ts`: Zod schema for the `blog` collection.
+- `src/layouts/`, `src/components/`, `src/pages/`: layouts, components, routes.
+- `src/styles/global.css`: Tailwind 4 imports + `@theme` tokens.
+- `public/assets/`: images referenced from notes.
 - `docs/`: project docs (`custom-syntax.md`, `visual-guideline.md`).
-- `quartz/`: Quartz engine and components.
-- `public/`: generated build output.
 
 ## Commands
 
-- `npm run quartz -- build`: build site.
-- `npm run dev`: build + local preview with GitHub Pages base path.
-- `npm run dev:root`: build + local preview at root path (no base path).
-- `npm run docs`: preview docs folder as site.
-- `npm run clean`: remove macOS `._*` files.
+- `npm run dev`: local dev server at `http://localhost:4321/ai-study-note/`.
+- `npm run build`: static build to `dist/`.
+- `npm run preview`: preview the built site.
 
-Local preview URL (recommended): `http://localhost:8080/ai-study-note/`
+Requires Node 22.12+ or 24 LTS (pinned via `.nvmrc`).
 
 ## Writing Conventions
 
-- Use `kebab-case` for note and folder names.
-- Add `title` in frontmatter for each note.
-- Custom syntax support: Smart Columns (`:::col ... :::`) plus standard Markdown/Obsidian syntax.
+- Use `kebab-case` for note filenames.
+- Required frontmatter: `title`, `description`, `pubDate`, `category`, `tags`, `draft`.
+- `category` and `tags` are normalized to lowercase at schema load.
+- Standard Markdown. No Obsidian wikilinks or Smart Columns — use absolute base-prefixed paths for images (`/ai-study-note/assets/foo.png`).
+
+## Deployment
+
+CI auto-deploys on push to `main` via `.github/workflows/deploy.yml` (`withastro/action@v6` → `actions/deploy-pages@v5`).
+
+**One-time manual step:** In GitHub → Settings → Pages, set **Source** to **GitHub Actions**. This cannot be automated.
 
 ## References
 
 - Live site: https://wahengchang.github.io/ai-study-note/
-- Quartz docs: https://quartz.jzhao.xyz/
+- Astro docs: https://docs.astro.build/

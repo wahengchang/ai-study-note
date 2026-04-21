@@ -49,10 +49,10 @@
 
 ### Deploy (DEPL)
 
-- [ ] **DEPL-01**: `.github/workflows/deploy.yml` uses `withastro/action@v6` (build) and `actions/deploy-pages@v5` (deploy)
-- [ ] **DEPL-02**: Workflow triggers on push to `main` and `workflow_dispatch`
-- [ ] **DEPL-03**: Workflow has `pages: write` and `id-token: write` permissions plus `pages` concurrency group
-- [ ] **DEPL-04**: README or docs note the one-time manual step: Settings → Pages → Source = GitHub Actions
+- [x] **DEPL-01**: `.github/workflows/deploy.yml` uses `withastro/action@v6` (build) and `actions/deploy-pages@v5` (deploy)
+- [x] **DEPL-02**: Workflow triggers on push to `main` and `workflow_dispatch`
+- [x] **DEPL-03**: Workflow has `pages: write` and `id-token: write` permissions plus `pages` concurrency group
+- [x] **DEPL-04**: README or docs note the one-time manual step: Settings → Pages → Source = GitHub Actions
 - [ ] **DEPL-05**: After merge to main, CI builds and deploys green, and the live URL serves the migrated content
 
 ### Verification (VERI)
@@ -111,10 +111,10 @@
 | BASE-01 | Phase 3 | Complete |
 | BASE-02 | Phase 3 | Complete |
 | BASE-03 | Phase 3 | Complete |
-| DEPL-01 | Phase 4 | Pending |
-| DEPL-02 | Phase 4 | Pending |
-| DEPL-03 | Phase 4 | Pending |
-| DEPL-04 | Phase 4 | Pending |
+| DEPL-01 | Phase 4 | Complete |
+| DEPL-02 | Phase 4 | Complete |
+| DEPL-03 | Phase 4 | Complete |
+| DEPL-04 | Phase 4 | Complete |
 | DEPL-05 | Phase 5 | Pending |
 | VERI-01 | Phase 5 | Pending |
 | VERI-02 | Phase 5 | Pending |
