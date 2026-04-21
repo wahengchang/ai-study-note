@@ -23,10 +23,10 @@ interface Props {
 }
 const { tag, posts } = Astro.props;
 ---
-<BaseLayout title={`#${tag} — Waheng Note`} description={`Notes tagged #${tag}.`}>
+<BaseLayout title={`#${tag} — Waheng Note`} description={`標籤 #${tag} 的筆記。`}>
   <section class="max-w-shell mx-auto px-14 max-md:px-6 pt-[120px] pb-[60px] max-md:pt-20">
     <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
-      Tag · {posts.length} note{posts.length === 1 ? "" : "s"}
+      標籤 · {posts.length} 則筆記
     </div>
     <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-none tracking-tightest">
       <span class="text-accent">#{tag}</span>

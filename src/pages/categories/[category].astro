@@ -23,10 +23,10 @@ interface Props {
 }
 const { category, posts } = Astro.props;
 ---
-<BaseLayout title={`${category} — Waheng Note`} description={`Notes filed under ${category}.`}>
+<BaseLayout title={`${category} — Waheng Note`} description={`分類 ${category} 的筆記。`}>
   <section class="max-w-shell mx-auto px-14 max-md:px-6 pt-[120px] pb-[60px] max-md:pt-20">
     <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
-      Category · {posts.length} note{posts.length === 1 ? "" : "s"}
+      分類 · {posts.length} 則筆記
     </div>
     <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-none tracking-tightest">
       <span class="text-accent">{category}</span>

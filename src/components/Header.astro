@@ -14,32 +14,28 @@ const isActive = (path: string) =>
   class="sticky top-0 z-50 bg-bg/85 backdrop-blur border-b border-transparent data-[scrolled=true]:border-rule transition-colors"
 >
   <div class="max-w-shell mx-auto px-14 max-md:px-6">
-    <div class="grid grid-cols-[1fr_auto_1fr] items-center py-7 max-md:py-5">
-      <div class="flex gap-7 items-center max-md:hidden">
-        <a
-          href={base}
-          class={`text-[13px] transition-colors ${isActive(base) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
-        >Home</a>
-        <a
-          href={`${base}blog/`}
-          class={`text-[13px] transition-colors ${isActive(`${base}blog/`) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
-        >Notes</a>
-      </div>
-
-      <a href={base} aria-label="Waheng Note" class="justify-self-center text-fg hover:text-accent transition-colors">
-        <svg width="36" height="36" viewBox="0 0 64 64" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M 8 14 L 14 50 L 22 22 L 30 50 L 38 18" />
-          <path d="M 42 42 L 42 18 L 56 42 L 56 18" />
-          <circle cx="58" cy="46" r="1.8" fill="currentColor" stroke="none" />
-        </svg>
+    <div class="flex items-center justify-between py-7 max-md:py-5">
+      <a
+        href={base}
+        class="font-display text-[20px] leading-none tracking-tightest text-fg hover:text-accent transition-colors"
+      >
+        Waheng Note
       </a>
 
-      <div class="justify-self-end">
-        <a
-          href={`${base}blog/`}
-          class="text-[13px] text-fg px-3.5 py-2 border border-rule rounded-sm hover:border-fg-2 hover:bg-bg-2 transition-colors"
-        >Subscribe →</a>
-      </div>
+      <ul class="flex gap-7 items-center font-mono text-[12px] tracking-[0.1em] uppercase">
+        <li>
+          <a
+            href={base}
+            class={`transition-colors ${isActive(base) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
+          >首頁</a>
+        </li>
+        <li>
+          <a
+            href={`${base}blog/`}
+            class={`transition-colors ${isActive(`${base}blog/`) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
+          >筆記</a>
+        </li>
+      </ul>
     </div>
 
     <ul class="flex flex-wrap gap-x-4 gap-y-1 pb-4 font-mono text-[10px] tracking-[0.1em] uppercase text-fg-3">

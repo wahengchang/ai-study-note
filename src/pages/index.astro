@@ -9,18 +9,17 @@ const posts = (await getCollection("blog", ({ data }) => !data.draft)).sort(
 );
 const recent = posts.slice(0, 6);
 ---
-<BaseLayout title="Waheng Note — Notes on code, craft & the machine">
+<BaseLayout title="Waheng Note — 關於程式、工藝與機器的筆記">
   <section class="text-center px-6 pt-[120px] pb-[100px] max-md:pt-18 max-md:pb-16">
     <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
-      Waheng Note · {posts.length} notes
+      Waheng Note · {posts.length} 則筆記
     </div>
     <h1 class="font-display text-[clamp(52px,7vw,96px)] leading-[0.98] tracking-tightest max-w-[20ch] mx-auto">
-      Notes on <span class="text-accent">code</span>, craft<br />
-      &amp; the machine.
+      關於<span class="text-accent">程式</span>、工藝<br />
+      與機器的筆記。
     </h1>
     <p class="text-[17px] text-fg-2 max-w-[56ch] mx-auto mt-8 leading-[1.55]">
-      Hands-on notes on AI agents, Claude Code, prompt engineering, and the infrastructure
-      that actually ships — distilled from experiments and real work.
+      AI agent、Claude Code、prompt 工程，以及真正能 ship 的基礎建設 —— 從實驗與實作裡整理出來的筆記。
     </p>
     <a
       href={`${base}blog/`}
@@ -30,7 +29,7 @@ const recent = posts.slice(0, 6);
         <line x1="5" y1="12" x2="19" y2="12" />
         <polyline points="12 5 19 12 12 19" />
       </svg>
-      Read the latest notes
+      閱讀最新筆記
     </a>
 
     <div class="max-w-prose mx-auto mt-20 bg-bg-2 border border-rule rounded-lg overflow-hidden text-left shadow-[0_20px_80px_rgba(0,0,0,.4)]">
@@ -42,8 +41,8 @@ const recent = posts.slice(0, 6);
       </div>
       <div class="p-6 font-mono text-[13px] leading-[1.75] text-fg-2 space-y-2">
         <div><span class="text-accent mr-2">$</span><span class="text-fg">cat about.txt</span></div>
-        <div class="text-fg-3">// Waheng — building agents, writing about what works.</div>
-        <div class="text-fg-3">// Notes live in public because shared work gets better.</div>
+        <div class="text-fg-3">// Waheng — 做 agent 的人，寫真正用得上的筆記。</div>
+        <div class="text-fg-3">// 公開寫筆記，因為分享讓作品變更好。</div>
         <div><span class="text-accent mr-2">$</span><span class="text-fg">ls notes/ | head</span></div>
         {recent.slice(0, 5).map((p) => (
           <div class="text-fg-2">{p.id}.md</div>
@@ -60,13 +59,13 @@ const recent = posts.slice(0, 6);
   <section class="max-w-shell mx-auto px-14 max-md:px-6 pb-[120px] max-md:pb-[80px]">
     <div class="flex items-baseline justify-between mb-10 max-md:flex-col max-md:items-start max-md:gap-3">
       <h2 class="font-display text-[clamp(40px,5vw,64px)] leading-none tracking-tightest">
-        Recent notes
+        最新筆記
       </h2>
       <a
         href={`${base}blog/`}
         class="font-mono text-[11px] tracking-[0.15em] uppercase text-fg-2 hover:text-accent transition-colors"
       >
-        All {posts.length} →
+        全部 {posts.length} 則 →
       </a>
     </div>
     <PostList posts={recent} />

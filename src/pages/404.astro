@@ -2,22 +2,22 @@
 import BaseLayout from "../layouts/BaseLayout.astro";
 const base = import.meta.env.BASE_URL;
 ---
-<BaseLayout title="404 — Waheng Note" description="Page not found.">
+<BaseLayout title="404 — Waheng Note" description="找不到頁面。">
   <section class="max-w-prose mx-auto px-14 max-md:px-6 pt-[140px] pb-[120px] max-md:pt-20 text-center">
     <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-3 mb-7">
       Error · 404
     </div>
     <h1 class="font-display text-[clamp(52px,7vw,96px)] leading-[0.98] tracking-tightest">
-      <span class="text-accent">Not</span> found.
+      <span class="text-accent">找不到</span>頁面。
     </h1>
     <p class="text-[17px] text-fg-2 max-w-[48ch] mx-auto mt-8 leading-[1.55]">
-      That page does not exist. It may have been moved, renamed, or never written.
+      這個頁面不存在 —— 可能被搬走、改名，或從來沒被寫下。
     </p>
     <a
       href={base}
       class="inline-flex items-center gap-2.5 mt-10 px-6 py-3 border border-rule rounded-full text-[14px] font-medium hover:border-accent hover:bg-accent-dim hover:-translate-y-px transition-all"
     >
-      ← Back home
+      ← 回首頁
     </a>
   </section>
 </BaseLayout>

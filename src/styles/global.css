@@ -19,11 +19,15 @@
   --color-accent: oklch(0.85 0.02 240);
   --color-accent-dim: oklch(0.85 0.02 240 / 0.2);
 
-  /* Fonts */
-  --font-display: "Archivo Black", sans-serif;
-  --font-sans: Inter, system-ui, sans-serif;
-  --font-mono: "JetBrains Mono", ui-monospace, monospace;
-  --font-serif: Fraunces, Georgia, serif;
+  /* Fonts — zh-Hant fallbacks appended after Latin primaries.
+     Per-glyph fallback handles mixed Chinese/Latin content in titles. */
+  --font-display: "Archivo Black", "PingFang TC", "Noto Sans TC",
+    "Microsoft JhengHei", "Heiti TC", sans-serif;
+  --font-sans: Inter, "PingFang TC", "Noto Sans TC",
+    "Microsoft JhengHei", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "PingFang TC",
+    "Microsoft JhengHei", monospace;
+  --font-serif: Fraunces, "Songti TC", "Songti SC", "PMingLiU", Georgia, serif;
 
   /* Tracking */
   --tracking-tightest: -0.02em;
