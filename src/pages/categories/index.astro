@@ -1,0 +1,47 @@
+---
+import { getCollection } from "astro:content";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+
+const base = import.meta.env.BASE_URL;
+const posts = await getCollection("blog", ({ data }) => !data.draft);
+const counts = new Map<string, number>();
+for (const p of posts) {
+  counts.set(p.data.category, (counts.get(p.data.category) ?? 0) + 1);
+}
+const categories = [...counts.entries()]
+  .map(([name, count]) => ({ name, count }))
+  .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+---
+<BaseLayout title="所有分類 — Waheng Note" description="依分類瀏覽所有筆記。">
+  <section class="max-w-prose mx-auto px-6 pt-[140px] pb-[70px] text-center max-md:pt-20">
+    <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-10">
+      Categories
+    </div>
+    <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-[1.02] tracking-tightest">
+      依分類瀏覽。
+    </h1>
+    <p class="text-[16px] text-fg-2 mt-8">
+      共 {categories.length} 個分類 · {posts.length} 則筆記
+    </p>
+  </section>
+
+  <section class="max-w-prose mx-auto px-6 pb-[140px] max-md:pb-[90px]">
+    <ul class="list-none p-0 border-t border-rule">
+      {categories.map(({ name, count }) => (
+        <li class="border-b border-rule">
+          <a
+            href={`${base}categories/${name}/`}
+            class="group flex items-baseline justify-between gap-6 py-5 no-underline"
+          >
+            <span class="font-sans font-semibold text-[17px] text-fg group-hover:text-accent transition-colors">
+              {name}
+            </span>
+            <span class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-3">
+              {count} 則
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+  </section>
+</BaseLayout>

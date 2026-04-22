@@ -10,26 +10,29 @@ const sorted = posts.sort(
 const categories = [...new Set(sorted.map((p) => p.data.category))].sort();
 ---
 <BaseLayout title="所有筆記 — Waheng Note">
-  <section class="max-w-shell mx-auto px-14 max-md:px-6 pt-[120px] pb-[60px] max-md:pt-20">
-    <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
-      Archive · {sorted.length} 則筆記
+  <section class="max-w-prose mx-auto px-6 pt-[140px] pb-[70px] text-center max-md:pt-20">
+    <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-10">
+      Archive
     </div>
-    <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-none tracking-tightest max-w-[16ch]">
-      所有筆記，<span class="text-accent">完整索引</span>。
+    <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-[1.02] tracking-tightest">
+      所有筆記，<br />完整索引。
     </h1>
+    <p class="text-[16px] text-fg-2 mt-8">
+      共 {sorted.length} 則筆記，分布於 {categories.length} 個分類。
+    </p>
   </section>
 
-  <section class="max-w-shell mx-auto px-14 max-md:px-6 pb-[120px] max-md:pb-[80px]">
-    <div id="filters" class="flex flex-wrap gap-2 mb-14 max-md:mb-10">
+  <section class="max-w-prose mx-auto px-6 pb-[140px] max-md:pb-[90px]">
+    <div id="filters" class="flex flex-wrap justify-center gap-2 mb-14">
       <button
         data-filter="ALL"
         data-active="true"
-        class="font-mono text-[11px] tracking-[0.1em] uppercase px-3.5 py-2 border border-rule rounded-sm text-fg-2 hover:text-fg hover:border-fg-3 data-[active=true]:text-bg data-[active=true]:bg-fg data-[active=true]:border-fg transition-colors"
+        class="font-mono text-[10px] tracking-[0.15em] uppercase px-3.5 py-2 border border-rule rounded-sm text-fg-2 hover:text-fg hover:border-fg-3 data-[active=true]:text-bg data-[active=true]:bg-fg data-[active=true]:border-fg transition-colors"
       >全部</button>
       {categories.map((c) => (
         <button
           data-filter={c}
-          class="font-mono text-[11px] tracking-[0.1em] uppercase px-3.5 py-2 border border-rule rounded-sm text-fg-2 hover:text-fg hover:border-fg-3 data-[active=true]:text-bg data-[active=true]:bg-fg data-[active=true]:border-fg transition-colors"
+          class="font-mono text-[10px] tracking-[0.15em] uppercase px-3.5 py-2 border border-rule rounded-sm text-fg-2 hover:text-fg hover:border-fg-3 data-[active=true]:text-bg data-[active=true]:bg-fg data-[active=true]:border-fg transition-colors"
         >{c}</button>
       ))}
     </div>
@@ -47,10 +50,8 @@ const categories = [...new Set(sorted.map((p) => p.data.category))].sort();
       box.querySelectorAll("[data-filter]").forEach((b) => b.removeAttribute("data-active"));
       btn.setAttribute("data-active", "true");
       const f = btn.dataset.filter;
-      document.querySelectorAll("[data-category]").forEach((card) => {
-        const li = card.closest("li");
-        if (!li) return;
-        li.style.display = f === "ALL" || card.dataset.category === f ? "" : "none";
+      document.querySelectorAll("[data-category]").forEach((li) => {
+        li.style.display = f === "ALL" || li.dataset.category === f ? "" : "none";
       });
     });
   })();

@@ -11,40 +11,27 @@ const fmt = (d: Date) =>
   d.toLocaleDateString("zh-Hant-TW", { year: "numeric", month: "long", day: "numeric" });
 ---
 {title && (
-  <h2 class="font-display text-[28px] leading-tight tracking-tightest mb-10">{title}</h2>
+  <h2 class="font-display text-[22px] leading-tight tracking-tightest mb-8 text-center">{title}</h2>
 )}
-<ul class="grid grid-cols-3 max-md:grid-cols-1 gap-x-10 gap-y-14 list-none p-0">
+<ul class="max-w-prose mx-auto list-none p-0 border-t border-rule">
   {posts.map((post) => (
-    <li class="flex flex-col border-t border-rule pt-6 transition-colors hover:border-accent">
+    <li data-category={post.data.category} class="border-b border-rule">
       <a
         href={`${base}blog/${post.id}/`}
-        class="group flex flex-col h-full no-underline"
-        data-category={post.data.category}
+        class="group block py-8 no-underline"
       >
-        <div class="font-mono text-[11px] text-fg-3 tracking-wide mb-4 flex gap-3.5 items-center">
+        <div class="font-mono text-[10px] text-fg-3 tracking-[0.2em] uppercase mb-3 flex gap-3 items-center">
           <time datetime={post.data.pubDate.toISOString()}>{fmt(post.data.pubDate)}</time>
           <span class="text-rule">·</span>
-          <span class="tracking-[0.1em] text-[10px]">{post.data.category}</span>
+          <span>{post.data.category}</span>
         </div>
 
-        <h3 class="font-display text-[26px] leading-[1.1] tracking-tightest mb-3 text-fg group-hover:text-accent transition-colors">
+        <h3 class="font-display text-[26px] leading-[1.15] tracking-tightest mb-3 text-fg group-hover:text-accent transition-colors">
           {post.data.title}
         </h3>
-        <p class="text-fg-2 text-[14px] leading-relaxed mb-5 line-clamp-3">
+        <p class="text-fg-2 text-[15px] leading-relaxed line-clamp-2">
           {post.data.description}
         </p>
-
-        {post.data.tags.length > 0 && (
-          <div class="flex flex-wrap gap-1.5 mb-5 font-mono text-[10px] text-fg-3">
-            {post.data.tags.slice(0, 3).map((t) => (
-              <span>#{t}</span>
-            ))}
-          </div>
-        )}
-
-        <span class="mt-auto font-serif italic text-[13px] font-semibold border-b border-fg pb-0.5 self-start group-hover:border-accent group-hover:text-accent transition-colors">
-          閱讀全文
-        </span>
       </a>
     </li>
   ))}

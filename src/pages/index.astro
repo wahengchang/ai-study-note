@@ -8,66 +8,131 @@ const posts = (await getCollection("blog", ({ data }) => !data.draft)).sort(
   (a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime(),
 );
 const recent = posts.slice(0, 6);
+
+const catCounts = new Map<string, number>();
+for (const p of posts) {
+  catCounts.set(p.data.category, (catCounts.get(p.data.category) ?? 0) + 1);
+}
+const categories = [...catCounts.entries()]
+  .map(([name, count]) => ({ name, count }))
+  .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
+const tagCounts = new Map<string, number>();
+for (const p of posts) {
+  for (const t of p.data.tags) tagCounts.set(t, (tagCounts.get(t) ?? 0) + 1);
+}
+const topTags = [...tagCounts.entries()]
+  .map(([name, count]) => ({ name, count }))
+  .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name))
+  .slice(0, 20);
 ---
 <BaseLayout title="Waheng Note — 關於程式、工藝與機器的筆記">
-  <section class="text-center px-6 pt-[120px] pb-[100px] max-md:pt-18 max-md:pb-16">
-    <div class="font-mono text-[11px] tracking-[0.3em] uppercase text-fg-2 mb-7">
-      Waheng Note · {posts.length} 則筆記
+  <section class="max-w-prose mx-auto px-6 pt-[140px] pb-[100px] text-center max-md:pt-20 max-md:pb-16">
+    <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-10">
+      Waheng Note
     </div>
-    <h1 class="font-display text-[clamp(52px,7vw,96px)] leading-[0.98] tracking-tightest max-w-[20ch] mx-auto">
-      關於<span class="text-accent">程式</span>、工藝<br />
+    <h1 class="font-display text-[clamp(52px,7vw,96px)] leading-[1.02] tracking-tightest">
+      關於程式、工藝<br />
       與機器的筆記。
     </h1>
-    <p class="text-[17px] text-fg-2 max-w-[56ch] mx-auto mt-8 leading-[1.55]">
+    <p class="text-[17px] text-fg-2 max-w-[46ch] mx-auto mt-10 leading-[1.6]">
       AI agent、Claude Code、prompt 工程，以及真正能 ship 的基礎建設 —— 從實驗與實作裡整理出來的筆記。
     </p>
     <a
       href={`${base}blog/`}
-      class="inline-flex items-center gap-2.5 mt-10 px-6 py-3 border border-rule rounded-full text-[14px] font-medium hover:border-accent hover:bg-accent-dim hover:-translate-y-px transition-all"
+      class="inline-flex items-center gap-2.5 mt-12 text-fg-2 hover:text-accent transition-colors text-[15px]"
     >
-      <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <line x1="5" y1="12" x2="19" y2="12" />
-        <polyline points="12 5 19 12 12 19" />
+      <svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
       </svg>
-      閱讀最新筆記
+      閱讀 {posts.length} 則筆記
     </a>
+  </section>
 
-    <div class="max-w-prose mx-auto mt-20 bg-bg-2 border border-rule rounded-lg overflow-hidden text-left shadow-[0_20px_80px_rgba(0,0,0,.4)]">
-      <div class="flex items-center gap-2 px-4 py-3 border-b border-rule bg-bg-3">
-        <span class="w-2.5 h-2.5 rounded-full bg-[#333]"></span>
-        <span class="w-2.5 h-2.5 rounded-full bg-[#333]"></span>
-        <span class="w-2.5 h-2.5 rounded-full bg-[#333]"></span>
-        <span class="ml-2 font-mono text-[11px] text-fg-3">~/waheng-note — zsh</span>
+  <section class="max-w-prose mx-auto px-6 pb-[120px] max-md:pb-[80px]">
+    <div class="text-center mb-14">
+      <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-5">
+        Recent
       </div>
-      <div class="p-6 font-mono text-[13px] leading-[1.75] text-fg-2 space-y-2">
-        <div><span class="text-accent mr-2">$</span><span class="text-fg">cat about.txt</span></div>
-        <div class="text-fg-3">// Waheng — 做 agent 的人，寫真正用得上的筆記。</div>
-        <div class="text-fg-3">// 公開寫筆記，因為分享讓作品變更好。</div>
-        <div><span class="text-accent mr-2">$</span><span class="text-fg">ls notes/ | head</span></div>
-        {recent.slice(0, 5).map((p) => (
-          <div class="text-fg-2">{p.id}.md</div>
-        ))}
-        <div>
-          <span class="text-accent mr-2">$</span>
-          <span class="text-fg">subscribe --rss</span>
-          <span class="inline-block w-2 h-[14px] align-text-bottom bg-accent ml-1" style="animation: blink 1s steps(2, start) infinite"></span>
-        </div>
-      </div>
+      <h2 class="font-display text-[clamp(40px,5vw,64px)] leading-[1.05] tracking-tightest">
+        最新筆記
+      </h2>
+    </div>
+    <PostList posts={recent} />
+    <div class="text-center mt-14">
+      <a
+        href={`${base}blog/`}
+        class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-2 hover:text-accent transition-colors"
+      >全部 {posts.length} 則 →</a>
     </div>
   </section>
 
-  <section class="max-w-shell mx-auto px-14 max-md:px-6 pb-[120px] max-md:pb-[80px]">
-    <div class="flex items-baseline justify-between mb-10 max-md:flex-col max-md:items-start max-md:gap-3">
-      <h2 class="font-display text-[clamp(40px,5vw,64px)] leading-none tracking-tightest">
-        最新筆記
+  <section class="max-w-prose mx-auto px-6 pb-[100px] max-md:pb-[70px]">
+    <div class="text-center mb-10">
+      <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-4">
+        Categories
+      </div>
+      <h2 class="font-display text-[22px] leading-tight tracking-tightest">
+        依分類瀏覽
       </h2>
-      <a
-        href={`${base}blog/`}
-        class="font-mono text-[11px] tracking-[0.15em] uppercase text-fg-2 hover:text-accent transition-colors"
-      >
-        全部 {posts.length} 則 →
-      </a>
     </div>
-    <PostList posts={recent} />
+    <ul class="list-none p-0 border-t border-rule">
+      {categories.map(({ name, count }) => (
+        <li class="border-b border-rule">
+          <a
+            href={`${base}categories/${name}/`}
+            class="group flex items-baseline justify-between gap-6 py-4 no-underline"
+          >
+            <span class="font-sans font-semibold text-[16px] text-fg group-hover:text-accent transition-colors">
+              {name}
+            </span>
+            <span class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-3">
+              {count} 則
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+    <div class="text-center mt-8">
+      <a
+        href={`${base}categories/`}
+        class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-2 hover:text-accent transition-colors"
+      >全部分類 →</a>
+    </div>
+  </section>
+
+  <section class="max-w-prose mx-auto px-6 pb-[140px] max-md:pb-[90px]">
+    <div class="text-center mb-10">
+      <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-4">
+        Tags
+      </div>
+      <h2 class="font-display text-[22px] leading-tight tracking-tightest">
+        熱門標籤
+      </h2>
+    </div>
+    <ul class="flex flex-wrap justify-center gap-x-4 gap-y-2.5 list-none p-0">
+      {topTags.map(({ name, count }) => (
+        <li>
+          <a
+            href={`${base}tags/${name}/`}
+            class="group inline-flex items-baseline gap-1.5 no-underline"
+          >
+            <span class="font-sans font-medium text-[14px] text-fg group-hover:text-accent transition-colors">
+              #{name}
+            </span>
+            <span class="font-mono text-[10px] tracking-[0.15em] uppercase text-fg-3">
+              {count}
+            </span>
+          </a>
+        </li>
+      ))}
+    </ul>
+    <div class="text-center mt-10">
+      <a
+        href={`${base}tags/`}
+        class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-2 hover:text-accent transition-colors"
+      >全部標籤 →</a>
+    </div>
   </section>
 </BaseLayout>
