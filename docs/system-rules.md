@@ -28,8 +28,8 @@ Every `.md` file in `src/content/blog/` **must** have YAML frontmatter matching 
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `title` | `string` | Display title. Use quotes if it contains colons or special chars. |
-| `description` | `string` | One-line summary (≤160 chars). Used for SEO meta and card lists. |
+| `title` | `string` | Display title — zh-tw / English / mixed all OK. Use quotes if it contains colons or special chars. |
+| `description` | `string` | One-line summary in zh-tw (≤160 chars; ~80 zh-tw chars fits since Chinese is denser). Used for SEO meta and card lists. |
 | `pubDate` | `YYYY-MM-DD` | Publication date. Parsed via `z.coerce.date()`. |
 | `category` | `string` | Single category. Normalized to lowercase at load. |
 
@@ -152,6 +152,7 @@ Rules:
 
 | Rule | Detail |
 |------|--------|
+| **Language** | 繁體中文 (zh-tw) for body and `description`. Technical terminology (`webhook`, `prompt`, `getStaticPaths`, `p99 latency`) stays English. Bilingual form `代理 (agent)` / `延遲 (latency)` is acceptable. See `CLAUDE.md` §Language. |
 | **Lead with the insight** | First sentence = the actionable takeaway. No preamble. |
 | **Bullet points** | For lists of facts, steps, or options. |
 | **Tables** | For comparative data, parameter refs, or quick lookups. |
@@ -187,9 +188,9 @@ This document is consumed by the Claude Code prompt system:
 
 | Agent | How It Uses System Rules |
 |-------|------------------------|
-| `@writer` | Applies frontmatter schema, tag taxonomy, and writing style when creating notes |
-| `@reviewer` | Audits notes against all rules — flags violations as BLOCK/WARN/INFO |
-| `@content-ops` | Enforces file naming, validates frontmatter, detects broken links |
-| `@diagram` | Follows Mermaid constraints (LR orientation, project classDefs) |
+| `@aihero-writer` | Applies frontmatter schema, taxonomy, and writing style across the research → draft → polish → graduate pipeline. Built-in 9-item quality checklist enforces §6 (Writing Style) and §7 (Build Verification). |
+| `@categorizer` | Heuristic-only resolution of `category` from the Subject-tag priority list defined in `docs/content-taxonomy.md`. Author-wins: only fills empty fields. |
+| `@content-ops` | Enforces §1 (file naming), validates §2 (frontmatter), detects broken §5 (links). Handles renames via `git mv` and post-rename link sweeps. |
+| `@diagram` | Follows §6 Mermaid constraints (LR orientation, project classDefs). |
 
 Reference this document in agent prompts via: `docs/system-rules.md`

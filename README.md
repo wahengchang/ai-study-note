@@ -6,12 +6,13 @@ Site: https://wahengchang.github.io/ai-study-note/
 
 ## Project Structure
 
-- `src/content/blog/`: main AI notes (Markdown with frontmatter).
-- `src/content.config.ts`: Zod schema for the `blog` collection.
+- `src/content/blog/`: published AI notes (Markdown with frontmatter). Use `draft: true` in frontmatter to keep a post out of the build while iterating.
+- `src/content.config.ts`: Zod schema for the `blog` collection; exports `CATEGORIES` enum.
 - `src/layouts/`, `src/components/`, `src/pages/`: layouts, components, routes.
 - `src/styles/global.css`: Tailwind 4 imports + `@theme` tokens.
 - `public/assets/`: images referenced from notes.
-- `docs/`: project docs (`custom-syntax.md`, `visual-guideline.md`).
+- `docs/`: canonical guidelines — `content-taxonomy.md`, `system-rules.md`, `dev.md`, `visual-guideline.md`.
+- `.claude/`: Claude Code project — agents (`@aihero-writer`, `@categorizer`, `@diagram`, `@content-ops`), skills, prompts.
 
 ## Commands
 
@@ -38,3 +39,6 @@ CI auto-deploys on push to `main` via `.github/workflows/deploy.yml` (`withastro
 
 - Live site: https://wahengchang.github.io/ai-study-note/
 - Astro docs: https://docs.astro.build/
+- Writing workflow + safety invariants: `CLAUDE.md`
+- Full content rules: `docs/system-rules.md`
+- Closed-vocabulary taxonomy: `docs/content-taxonomy.md`

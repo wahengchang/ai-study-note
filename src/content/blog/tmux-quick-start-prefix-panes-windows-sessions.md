@@ -4,7 +4,7 @@ description: >-
   Minimal tmux cheat sheet for OpenClaw — prefix key, pane splitting, window
   management, and session detach/reattach
 pubDate: '2026-02-28'
-category: openclaw
+category: setup-env
 tags:
   - reference
   - openclaw

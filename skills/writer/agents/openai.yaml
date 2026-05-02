@@ -1,4 +1,0 @@
-interface:
-  display_name: "Writer"
-  short_description: "Write decision-ready notes for fast debugging"
-  default_prompt: "Use $writer to convert my tested AI/tooling workflow into a lean note under content/ with precise terminology and Mermaid only when it improves decisions or troubleshooting."

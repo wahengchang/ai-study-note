@@ -1,184 +1,72 @@
 # AI Study Note — Claude Code Configuration
 
-## Project Overview
+An Astro-powered digital garden of AI learning notes, deployed to GitHub Pages at https://wahengchang.github.io/ai-study-note/.
 
-An Astro-powered digital garden for AI learning notes. Content is authored in standard Markdown with frontmatter, built with Astro 6, and deployed to GitHub Pages.
+This file focuses on the **writing workflow** and **safety invariants** Claude must respect on every action. Detailed guidelines live in `docs/`; see the bottom of this file.
 
-- **Live site**: https://wahengchang.github.io/ai-study-note/
-- **Engine**: Astro 6 + Tailwind 4 (via `@tailwindcss/vite`) + `@tailwindcss/typography`
-- **Node**: 22.12+ or 24 LTS (pinned via `.nvmrc`)
+> **Project portability rule.** All project context lives in this repo — `CLAUDE.md`, `docs/`, `.claude/`. **Do not use Claude Code's per-machine memory system** (`~/.claude/projects/.../memory/`). Other team members and other machines must have the same context, so anything worth remembering goes into a tracked file here.
 
 ## Scope
 
 | Directory | Purpose |
 |-----------|---------|
-| `src/content/blog/` | Main notes — primary authoring area (flat layout, kebab-case filenames) |
+| `src/content/blog/` | Published notes (flat layout, kebab-case = URL slug). The writing workflow writes here directly. |
 | `src/content.config.ts` | Zod schema for the `blog` collection |
-| `src/layouts/` | `BaseLayout.astro`, `PostLayout.astro` |
-| `src/components/` | `Header.astro`, `Footer.astro`, `PostList.astro` |
 | `src/pages/` | Routes: `index`, `404`, `blog/`, `categories/`, `tags/` |
-| `src/styles/global.css` | Tailwind imports + `@theme` design tokens |
 | `public/assets/` | Images referenced from notes |
-| `docs/` | Project docs (`visual-guideline.md`) |
-| `scripts/` | `migrate-content.mjs` — historical migration script |
-| `claude/` | Modular prompt system (agents, prompts, config) |
+| `docs/` | Canonical guidelines (taxonomy, system rules, dev, design) |
+| `.claude/` | Standard Claude Code project — agents, skills, prompts, config |
 
-## Core Commands
+## Writing Workflow
 
-```bash
-npm run dev       # Local dev server at http://localhost:4321/ai-study-note/
-npm run build     # Static build to dist/
-npm run preview   # Preview the built site
-```
-
-## Writing Rules
-
-1. **File naming**: `kebab-case` for all notes (filename = URL slug).
-2. **Frontmatter (required)**: `title`, `description`, `pubDate`, `category`, `tags`, `draft`.
-   - `category` / `tags` are normalized to lowercase at schema load — don't worry about casing in files.
-   - `draft: true` excludes a note from the live site.
-3. **Syntax**: Standard Markdown only. **No Obsidian wikilinks** (`[[...]]`) or Smart Columns (`:::col`) — they were stripped during the Astro migration.
-4. **Images**: Put files under `public/assets/` and reference with absolute base-prefixed paths, e.g. `![](/ai-study-note/assets/foo.png)`.
-5. **Internal links in code/components**: Always use `${import.meta.env.BASE_URL}...`. Never hardcode `/blog/`, `/categories/`, `/tags/`, or asset paths.
-6. **Draft filter**: Every `getCollection("blog", ...)` call must pass `({ data }) => !data.draft`. No exceptions.
-7. **Style**: Bullet points, copy-pasteable code blocks, direct headings. No fluff.
-8. **Mermaid**: Use `direction LR` only. Never `TD`. Include only when visualization adds clarity.
-9. **Terminology**: Use precise domain terms (e.g., "p99 latency" not "slow").
-
-## Adding a Note
-
-1. Create `src/content/blog/<slug>.md` with the 6 required frontmatter fields.
-2. Save. Dev server hot-reloads. It appears on home (if recent), blog index, its category page, and its tag pages.
-
-## Prompt System
-
-This project uses a modular prompt system under `claude/`:
+The pipeline is **single-pass auto-pilot** — no sign-off gates. The agent researches, writes directly to `src/content/blog/`, polishes in place, builds, and reports. The user can interrupt at any time.
 
 ```
-claude/
-├── agents/          # Task-specific agent configs
-│   ├── writer.md        — Technical note authoring
-│   ├── reviewer.md      — Content quality review
-│   ├── diagram.md       — Mermaid diagram generation
-│   └── content-ops.md   — File organization and maintenance
-├── prompts/         # Reusable prompt fragments
-│   ├── formatting.md    — Markdown and style conventions
-│   └── mermaid.md       — Diagram rules and templates
-└── config.yaml      # Agent registry and defaults
+seed → [research, smart-skip, silent .research/<slug>.md] → write src/content/blog/<slug>.md → polish → build → done
 ```
 
-Reference agents by name when delegating tasks:
+The agent only halts on four conditions: no artifact possible, ambiguous category, no honest iteration moment in source material, or build fails. Everything else is decided and shipped.
 
-- `@writer` — Convert experiments into lean, decision-ready notes.
-- `@reviewer` — Audit a note for accuracy, style, and completeness.
-- `@diagram` — Generate or refactor Mermaid diagrams.
-- `@content-ops` — Reorganize files, fix frontmatter, bulk updates.
+### Agents
 
-## Design Tokens (Quick Reference)
+- **`@aihero-writer`** — Canonical writer. Single-pass auto-pilot: research → write directly to `blog/` → polish → build. AI-Hero-style (one named concept, one copy-pasteable artifact, opinionated, honest about failure). Default length `short` (400–800w); `medium` and `chapter` available. Auto-invokes `@categorizer` in polish phase.
+- **`@categorizer`** — Fill `category:`/`tags:` from the closed vocabulary; regen `*-index.md` auto blocks. Heuristic-only, author wins, never overwrites set values.
+- **`@diagram`** — Generate or refactor Mermaid diagrams (LR only).
+- **`@content-ops`** — File renames, taxonomy migrations, bulk content maintenance.
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| bg-global | `#050505` | Page background |
-| bg-card | `#000000` | Card/container fill |
-| brand-orange | `#FF4F00` | Accent, links, hover, focus |
-| text-primary | `#E5E5E5` | Body text |
-| text-muted | `#737373` | Metadata, footnotes |
-| border-default | `#333333` | 1px dividers, card outlines |
-| border-active | `#FF4F00` | Active/focus states |
+Full pipeline spec: `.claude/agents/aihero-writer.md`. Skill rules: `.claude/skills/research-and-write/SKILL.md`.
 
-Exposed as Tailwind classes via `@theme` in `src/styles/global.css`. Full spec: `docs/visual-guideline.md`.
+## Language
 
-## Config Files
+This site is for **繁體中文 (zh-tw / Traditional Chinese, Taiwan)** readers. **All content is written in zh-tw by default.** Non-negotiable.
 
-- `astro.config.mjs` — Site + base path (`/ai-study-note`), trailing slash, Tailwind Vite plugin.
-- `src/content.config.ts` — Zod schema for the `blog` collection.
-- `tsconfig.json` — Extends `astro/tsconfigs/strict`.
-- `docs/visual-guideline.md` — Full design token reference.
+- **Body**: zh-tw prose. Write for a Taiwanese reader, not an English-speaking one.
+- **Technical terminology** (library names, API names, code identifiers, command flags, error codes): stay in English. Don't translate `webhook`, `prompt`, `commit`, `getStaticPaths`, `p99 latency`.
+- **Hard-to-translate concepts**: English is acceptable. Don't force a clumsy translation.
+- **Bilingual form** is encouraged when a Chinese rendering exists but isn't widely recognized: `代理 (agent)`, `延遲 (latency)`, `脈絡 (context)`. Pattern: `<zh-tw> (<english>)`.
+- **Title**: zh-tw, English, or mixed — all acceptable, matching the existing corpus (`Ch1: OpenClaw 架構：四大支柱`, `Telegram Bot 橋接 Claude Code 運作原理`).
+- **Description**: zh-tw. The schema allows ≤160 chars; Chinese is denser, so ~80 zh-tw chars fits. (Replaces the prior English-only convention.)
+- **Code blocks, frontmatter values, file/directory names, URL slugs**: always English/ASCII. `kebab-case` for filenames.
 
-## Deployment
+If a post comes back English-only, that's a polish-phase block — same severity as a missing artifact.
 
-CI auto-deploys on push to `main` via `.github/workflows/deploy.yml` (`withastro/action@v6` → `actions/deploy-pages@v5`).
+## Safety Invariants
 
-**One-time manual step:** GitHub → Settings → Pages → Source = **GitHub Actions**.
+These rules Claude must respect every action. Violating them breaks the build or the live site.
 
-<!-- GSD:project-start source:PROJECT.md -->
-## Project
+1. **Closed category vocabulary.** `category:` must be one of the values in `CATEGORIES` (`src/content.config.ts`). Build fails on typos via `z.enum`. Adding a new category requires editing the enum *and* `docs/content-taxonomy.md` in the same commit.
+2. **Tag-as-truth.** Category is *derived* from the post's Subject tag via the priority list in `.claude/skills/categorize/SKILL.md` §3. Edit tags to change category — never edit the category field alone.
+3. **Draft filter.** Every `getCollection("blog", ...)` call must pass `({ data }) => !data.draft`. No exceptions.
+4. **`BASE_URL` for internal links.** Use `${import.meta.env.BASE_URL}...` in components/code; absolute base-prefixed paths in markdown (`/ai-study-note/...`). Never hardcode `/blog/`, `/categories/`, `/tags/`, or asset paths.
+5. **No Obsidian syntax in posts.** No `[[wikilinks]]`, no `![[embeds]]`, no `:::col` Smart Columns. They were stripped during the Astro migration; the build will not parse them.
+6. **kebab-case filenames.** Filename = URL slug. No spaces, PascalCase, camelCase, or special characters.
 
-**AI Study Note — Astro Migration**
+## See also
 
-A personal digital garden of AI study notes, published at https://wahengchang.github.io/ai-study-note/. Content is authored in Markdown, built to a static site, and deployed to GitHub Pages. This milestone replaces the current Quartz v4 engine with Astro 6.x while preserving all existing content.
-
-**Core Value:** Every existing note remains readable at its equivalent URL on the live site after the framework swap. The site builds, deploys, and renders correctly on GitHub Pages — if that fails, nothing else matters.
-
-### Constraints
-
-- **Framework**: Astro 6.x — dropped Node 18/20; requires Node 22.12+ or 24 LTS.
-- **Styling**: Tailwind 4 via `@tailwindcss/vite` — `@astrojs/tailwind` is deprecated; do not use.
-- **Typography**: `@tailwindcss/typography` for `prose` on rendered Markdown bodies.
-- **Content schema**: Zod-validated; `category`/`tags` normalized with `.toLowerCase().trim()` to prevent route collisions.
-- **URL shape**: `trailingSlash: "always"` + `build.format: "directory"` to match GitHub Pages static serving.
-- **Base path**: `/ai-study-note` — every internal link routes through `import.meta.env.BASE_URL`.
-- **Draft filter**: Every `getCollection("blog", ...)` call must pass `({ data }) => !data.draft`. No exceptions.
-- **Deploy**: `withastro/action@v6` → `actions/deploy-pages@v5` via GitHub Actions; manual one-time step: Settings → Pages → Source = GitHub Actions.
-<!-- GSD:project-end -->
-
-<!-- GSD:stack-start source:STACK.md -->
-## Technology Stack
-
-- **Framework:** Astro 6.x (static-first, zero JS by default, Content Collections)
-- **Styling:** Tailwind 4 via `@tailwindcss/vite` (CSS-first `@theme` config)
-- **Typography:** `@tailwindcss/typography` (`prose` class on rendered Markdown)
-- **Content:** Content Layer API — `glob()` loader + Zod schema
-- **Runtime:** Node 22.12+ / 24 LTS
-- **Deploy:** `withastro/action@v6` → `actions/deploy-pages@v5` (GitHub Pages)
-<!-- GSD:stack-end -->
-
-<!-- GSD:conventions-start source:CONVENTIONS.md -->
-## Conventions
-
-- Filename = URL slug (kebab-case).
-- Every `getCollection("blog", ...)` filters drafts.
-- All internal links use `${import.meta.env.BASE_URL}...`; no hardcoded paths.
-- Images live in `public/assets/`; reference with absolute base-prefixed URLs.
-- Shared card rendering is in `PostList.astro` — don't duplicate across pages.
-<!-- GSD:conventions-end -->
-
-<!-- GSD:architecture-start source:ARCHITECTURE.md -->
-## Architecture
-
-```
-BaseLayout (head + Header + Footer + slot)
-  └── PostLayout (post meta + prose slot)
-        └── rendered Markdown
-
-src/pages/
-├── index.astro              → /
-├── 404.astro                → /404
-├── blog/index.astro         → /blog/
-├── blog/[...slug].astro     → /blog/<post>/
-├── categories/[category].astro  → /categories/<name>/
-└── tags/[tag].astro         → /tags/<tag>/
-```
-
-Dynamic routes use `getStaticPaths()` + `render(post)` from `astro:content`. Taxonomy routes dedupe with `new Set(posts.flatMap(...))`.
-<!-- GSD:architecture-end -->
-
-<!-- GSD:workflow-start source:GSD defaults -->
-## GSD Workflow Enforcement
-
-Before using Edit, Write, or other file-changing tools, start work through a GSD command so planning artifacts and execution context stay in sync.
-
-Use these entry points:
-- `/gsd:quick` for small fixes, doc updates, and ad-hoc tasks
-- `/gsd:debug` for investigation and bug fixing
-- `/gsd:execute-phase` for planned phase work
-
-Do not make direct repo edits outside a GSD workflow unless the user explicitly asks to bypass it.
-<!-- GSD:workflow-end -->
-
-<!-- GSD:profile-start -->
-## Developer Profile
-
-> Profile not yet configured. Run `/gsd:profile-user` to generate your developer profile.
-> This section is managed by `generate-claude-profile` -- do not edit manually.
-<!-- GSD:profile-end -->
+- **`docs/content-taxonomy.md`** — Closed vocabulary for `category` (5 values) and tags (3 dimensions: Type / Subject / Tech) plus the banned-tag normalization table. Read before adding a new category or tag.
+- **`docs/system-rules.md`** — Full content governance: file/folder naming, frontmatter schema, tag rules, linking protocols, writing style, build verification. Canonical superset of the safety invariants above.
+- **`docs/dev.md`** — Architecture (page tree, `getStaticPaths` pattern), commands, deployment, config files, build invariants. Read when working on layouts, components, or build infra.
+- **`docs/visual-guideline.md`** — Design tokens, typography, layout. Read when changing styles.
+- **`.claude/agents/aihero-writer.md`** — Full pipeline spec for the writing workflow.
+- **`.claude/skills/research-and-write/SKILL.md`** — Single-pass rules, halt conditions, and the quality checklist.
+- **`README.md`** — Public-facing project overview, repo structure, and external references.

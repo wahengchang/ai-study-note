@@ -2,8 +2,6 @@
 
 Reusable prompt fragment for Markdown style and structure conventions.
 
-> **Taxonomy**: `docs/content-taxonomy.md` is the source of truth for categories and tags. This file covers general style only.
-
 ## File Conventions
 
 - **Naming**: All files use `kebab-case.md`. Filename = URL slug.

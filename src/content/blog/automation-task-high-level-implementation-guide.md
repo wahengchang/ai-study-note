@@ -4,7 +4,7 @@ description: >-
   Design principles for automation workflow scripts — discovery, AI analysis,
   and structured output
 pubDate: '2026-03-16'
-category: openclaw
+category: setup-env
 tags:
   - guide
   - openclaw

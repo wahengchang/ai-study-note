@@ -28,3 +28,6 @@ yarn-error.log*
 
 # GSD planning artifacts
 .planning/
+
+# Research sidecars (per-slug research files for the writing workflow)
+.research/

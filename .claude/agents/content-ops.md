@@ -83,7 +83,7 @@ Steps:
 ```yaml
 ---
 title: "<title>"
-description: "<one-line English, ≤160 chars>"
+description: "<一行 zh-tw 摘要, ≤160 chars>"
 pubDate: 2026-04-21
 category: <category>
 tags:

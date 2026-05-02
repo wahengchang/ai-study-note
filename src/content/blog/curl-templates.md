@@ -4,7 +4,7 @@ description: >-
   Copy-pasteable curl commands for Airtable API — list bases, CRUD records, and
   upload attachments
 pubDate: '2026-02-26'
-category: openclaw
+category: setup-env
 tags:
   - reference
   - openclaw

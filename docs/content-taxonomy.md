@@ -90,8 +90,8 @@ Every note in `src/content/blog/` requires this frontmatter (validated by `src/c
 
 ```yaml
 ---
-title: "Note Title"                     # required, human-readable, may contain non-ASCII
-description: "One-line description"     # required, English, ≤160 chars
+title: "Note Title"                     # required, zh-tw / English / mixed all OK
+description: "一行摘要"                  # required, zh-tw, ≤160 chars (~80 zh-tw chars)
 pubDate: 2026-04-21                     # required, YYYY-MM-DD
 category: claude-code                   # required, one of the values in §1
 tags:                                   # optional, YAML list format (not inline)
@@ -107,7 +107,7 @@ draft: false                            # optional, default false
 - Use YAML list format (`- item`), not inline (`[a, b]`).
 - Indent with exactly 2 spaces.
 - Tags are lowercase kebab-case, no quotes — schema normalizes automatically.
-- `title` may be Chinese or English; `description` should be English for searchability.
+- **Audience: 繁體中文 (zh-tw) readers.** Body and `description` are written in zh-tw. Technical terminology (library names, API names, command flags, code identifiers) stays in English. Bilingual form `代理 (agent)` is acceptable. `title` can be zh-tw / English / mixed. See `CLAUDE.md` §Language.
 - `skill.md` files under `skills/` are **not** blog content and do not follow this schema.
 
 ## 4. Naming rules

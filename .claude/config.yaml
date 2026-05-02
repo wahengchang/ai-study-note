@@ -20,18 +20,15 @@ defaults:
     - category
 
 agents:
-  writer:
-    path: .claude/agents/writer.md
-    description: Convert experiments and workflows into lean, decision-ready Astro-Markdown notes.
+  aihero-writer:
+    path: .claude/agents/aihero-writer.md
+    description: Phased AI-Hero-style writing workflow. Research → draft → polish → graduate. One named concept, one artifact, opinionated, honest about failure. Canonical writer.
     prompts:
       - .claude/prompts/formatting.md
-      - .claude/prompts/mermaid.md
-
-  reviewer:
-    path: .claude/agents/reviewer.md
-    description: Audit notes for technical accuracy, style compliance, and completeness.
-    prompts:
-      - .claude/prompts/formatting.md
+    skills:
+      - .claude/skills/research-and-write/SKILL.md
+      - .claude/skills/categorize/SKILL.md
+      - .claude/skills/index-sync/SKILL.md
 
   diagram:
     path: .claude/agents/diagram.md
@@ -44,3 +41,23 @@ agents:
     description: Organize files, fix frontmatter, rename, and perform bulk content maintenance.
     prompts:
       - .claude/prompts/formatting.md
+
+  categorizer:
+    path: .claude/agents/categorizer.md
+    description: Deterministic, heuristic-only categorize + tag + index-sync pipeline. Tag-as-truth, author wins, no LLM calls.
+    prompts:
+      - .claude/prompts/formatting.md
+    skills:
+      - .claude/skills/categorize/SKILL.md
+      - .claude/skills/index-sync/SKILL.md
+
+skills:
+  research-and-write:
+    path: .claude/skills/research-and-write/SKILL.md
+    description: Single-pass auto-pilot (research → write → polish) for AI-Hero-style developer posts. Adaptive length, smart-skip research, writes directly to src/content/blog/ with full publishable frontmatter. No sign-off gates.
+  categorize:
+    path: .claude/skills/categorize/SKILL.md
+    description: Resolve category and tags via the closed taxonomy vocabulary. Subject-tag priority list determines category deterministically.
+  index-sync:
+    path: .claude/skills/index-sync/SKILL.md
+    description: Regenerate auto-managed entry blocks in <category>-index.md while preserving editorial sections via HTML-comment markers.

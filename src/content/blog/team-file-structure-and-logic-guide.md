@@ -4,7 +4,7 @@ description: >-
   Four file structure types by project complexity — daily logs, indexed series,
   multi-source, and cross-team collaboration
 pubDate: '2026-03-08'
-category: openclaw
+category: setup-env
 tags:
   - guide
   - openclaw
