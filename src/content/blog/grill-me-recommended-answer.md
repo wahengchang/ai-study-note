@@ -7,6 +7,8 @@ tags:
   - research
   - claude-code
   - prompt-engineering
+people:
+  - matt-pocock
 ---
 
 Pocock 的 grill-me skill 在 GitHub 衝到 45k 星，但被轉發的截圖裡幾乎沒人指出來——這個五行的 skill 其實只有一行在做事。

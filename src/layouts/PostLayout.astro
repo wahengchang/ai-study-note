@@ -2,6 +2,7 @@
 import type { CollectionEntry } from "astro:content";
 import { getCollection } from "astro:content";
 import BaseLayout from "./BaseLayout.astro";
+import { getPerson } from "../data/people";
 
 interface Props {
   post: CollectionEntry<"blog">;
@@ -17,6 +18,10 @@ const all = (await getCollection("blog", ({ data }) => !data.draft)).sort(
 const i = all.findIndex((p) => p.id === post.id);
 const prev = all[i + 1];
 const next = all[i - 1];
+
+const people = (post.data.people ?? [])
+  .map((slug) => getPerson(slug))
+  .filter((p): p is NonNullable<typeof p> => p !== undefined);
 ---
 <BaseLayout title={`${post.data.title} — Waheng Note`} description={post.data.description}>
   <div class="max-w-prose mx-auto px-14 max-md:px-6">
@@ -53,6 +58,22 @@ const next = all[i - 1];
     <article class="prose-waheng">
       <slot />
     </article>
+
+    {people.length > 0 && (
+      <footer class="border-t border-rule mt-20 pt-10 max-md:mt-12 max-md:pt-8">
+        <div class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-3 mb-3">
+          via
+        </div>
+        <div class="flex flex-wrap gap-2">
+          {people.map((person) => (
+            <a
+              href={`${base}people/${person.slug}/`}
+              class="inline-block font-mono text-[10px] tracking-[0.1em] uppercase text-accent border border-accent-dim px-2 py-[3px] hover:bg-accent-dim transition-colors"
+            >{person.displayName}</a>
+          ))}
+        </div>
+      </footer>
+    )}
 
     <nav class="border-t border-rule mt-20 py-14 max-md:py-10 flex justify-between gap-6 max-md:flex-col">
       {prev ? (

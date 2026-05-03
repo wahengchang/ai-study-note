@@ -1,5 +1,6 @@
 import { defineCollection, z } from "astro:content";
 import { glob } from "astro/loaders";
+import { PEOPLE_SLUGS } from "./data/people";
 
 export const CATEGORIES = [
   "openclaw",
@@ -20,6 +21,9 @@ const blog = defineCollection({
       .transform((v) => v.toLowerCase().trim())
       .pipe(z.enum(CATEGORIES)),
     tags: z.array(z.string().toLowerCase().trim()).default([]),
+    people: z
+      .array(z.enum(PEOPLE_SLUGS as [string, ...string[]]))
+      .default([]),
     draft: z.boolean().default(false),
   }),
 });

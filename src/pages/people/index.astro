@@ -1,0 +1,45 @@
+---
+import { getCollection } from "astro:content";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import { PEOPLE } from "../../data/people";
+
+const base = import.meta.env.BASE_URL;
+const posts = await getCollection("blog", ({ data }) => !data.draft);
+const countFor = (slug: string) =>
+  posts.filter((p) => (p.data.people ?? []).includes(slug)).length;
+
+const peopleWithCounts = PEOPLE.map((p) => ({ ...p, count: countFor(p.slug) }))
+  .sort((a, b) => a.displayName.localeCompare(b.displayName));
+---
+<BaseLayout title="名人 — Waheng Note" description="筆記裡引用的作者與創作者：每個人附上一段介紹、原始連結，以及這個 wiki 收錄的相關文章。">
+  <section class="max-w-prose mx-auto px-6 pt-[140px] pb-[70px] text-center max-md:pt-20">
+    <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-10">
+      People
+    </div>
+    <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-[1.02] tracking-tightest">
+      名人
+    </h1>
+    <p class="text-[16px] text-fg-2 mt-8">
+      筆記裡引用的作者與創作者，共 {peopleWithCounts.length} 位
+    </p>
+  </section>
+
+  <section class="max-w-prose mx-auto px-6 pb-[140px] max-md:pb-[90px]">
+    <ul class="space-y-12">
+      {peopleWithCounts.map((person) => (
+        <li class="border-t border-rule pt-8 first:border-t-0 first:pt-0">
+          <div class="flex items-baseline justify-between gap-4 mb-3">
+            <a
+              href={`${base}people/${person.slug}/`}
+              class="font-display text-[28px] leading-tight tracking-tightest text-fg hover:text-accent transition-colors"
+            >{person.displayName}</a>
+            <span class="font-mono text-[11px] tracking-[0.15em] uppercase text-fg-3 shrink-0">
+              {person.count} 則筆記
+            </span>
+          </div>
+          <p class="text-[15px] leading-relaxed text-fg-2">{person.bio}</p>
+        </li>
+      ))}
+    </ul>
+  </section>
+</BaseLayout>

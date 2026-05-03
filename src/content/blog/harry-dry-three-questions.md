@@ -6,6 +6,8 @@ category: prompt-notes
 tags:
   - template
   - prompt-engineering
+people:
+  - harry-dry
 ---
 
 Harry Dry 用三題判斷一句廣告文案值不值得留下，多數人寫的 tagline、headline、第一段第一句三題都過不了——而且通常是同樣那三題崩盤。

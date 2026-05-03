@@ -1,0 +1,70 @@
+---
+import { getCollection, type CollectionEntry } from "astro:content";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import PostList from "../../components/PostList.astro";
+import { PEOPLE, type Person } from "../../data/people";
+
+export async function getStaticPaths() {
+  const posts = await getCollection("blog", ({ data }) => !data.draft);
+  return PEOPLE.map((person) => ({
+    params: { slug: person.slug },
+    props: {
+      person,
+      posts: posts
+        .filter((p) => (p.data.people ?? []).includes(person.slug))
+        .sort((a, b) => b.data.pubDate.getTime() - a.data.pubDate.getTime()),
+    },
+  }));
+}
+
+interface Props {
+  person: Person;
+  posts: CollectionEntry<"blog">[];
+}
+const { person, posts } = Astro.props;
+---
+<BaseLayout
+  title={`${person.displayName} — Waheng Note`}
+  description={person.bio}
+>
+  <section class="max-w-prose mx-auto px-6 pt-[140px] pb-[70px] text-center max-md:pt-20">
+    <div class="font-mono text-[11px] tracking-[0.35em] uppercase text-fg-2 mb-10">
+      Person
+    </div>
+    <h1 class="font-display text-[clamp(48px,6vw,80px)] leading-[1.02] tracking-tightest">
+      {person.displayName}
+    </h1>
+    <p class="text-[16px] text-fg-2 mt-8 max-w-[42ch] mx-auto leading-relaxed text-left">
+      {person.bio}
+    </p>
+  </section>
+
+  <section class="max-w-prose mx-auto px-6 pb-12">
+    <div class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-3 mb-3">
+      Links
+    </div>
+    <ul class="flex flex-wrap gap-2">
+      {person.links.map((link) => (
+        <li>
+          <a
+            href={link.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            class="inline-block font-mono text-[10px] tracking-[0.1em] uppercase text-accent border border-accent-dim px-2 py-[3px] hover:bg-accent-dim transition-colors"
+          >{link.label} ↗</a>
+        </li>
+      ))}
+    </ul>
+  </section>
+
+  <section class="max-w-prose mx-auto px-6 pb-[140px] max-md:pb-[90px]">
+    <div class="font-mono text-[11px] tracking-[0.2em] uppercase text-fg-3 mb-6">
+      相關筆記（{posts.length}）
+    </div>
+    {posts.length > 0 ? (
+      <PostList posts={posts} />
+    ) : (
+      <p class="text-[15px] text-fg-2 italic">尚未有引用此人的筆記。</p>
+    )}
+  </section>
+</BaseLayout>

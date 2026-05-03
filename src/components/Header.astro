@@ -35,6 +35,12 @@ const isActive = (path: string) =>
             class={`transition-colors ${isActive(`${base}blog/`) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
           >筆記</a>
         </li>
+        <li>
+          <a
+            href={`${base}people/`}
+            class={`transition-colors ${isActive(`${base}people/`) ? "text-fg" : "text-fg-2 hover:text-fg"}`}
+          >名人</a>
+        </li>
       </ul>
     </div>
 

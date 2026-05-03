@@ -98,6 +98,8 @@ tags:                                   # optional, YAML list format (not inline
   - <type>                              # exactly one from Dimension A
   - <subject>                           # one or more from Dimension B
   - <tech>                              # optional, zero or more from Dimension C
+people:                                 # optional, slugs from src/data/people.ts
+  - <person-slug>                       # zero or more; build fails on unknown slug
 draft: false                            # optional, default false
 ---
 ```
@@ -109,6 +111,16 @@ draft: false                            # optional, default false
 - Tags are lowercase kebab-case, no quotes — schema normalizes automatically.
 - **Audience: 繁體中文 (zh-tw) readers.** Body and `description` are written in zh-tw. Technical terminology (library names, API names, command flags, code identifiers) stays in English. Bilingual form `代理 (agent)` is acceptable. `title` can be zh-tw / English / mixed. See `CLAUDE.md` §Language.
 - `skill.md` files under `skills/` are **not** blog content and do not follow this schema.
+
+### `people:` is a separate top-level concept (not a 4th tag dimension)
+
+The `people:` field attributes a note to one or more **notable figures** whose ideas the note builds on (Pocock, Harry Dry, Dan Koe, etc.). It is **not** a tag dimension — keep the Type / Subject / Tech taxonomy clean.
+
+- Slugs are full-name kebab-case (`matt-pocock`, `harry-dry`).
+- The closed registry lives at `src/data/people.ts` (display name, zh-tw bio, canonical links). Build fails on unknown slugs via `z.enum`.
+- Each person gets an auto-generated `/people/<slug>/` page with bio, links, and the list of notes that reference them.
+- Notes display attributed people as a "via" chip footer.
+- Add a new person by appending a record to the registry; do not invent slugs in note frontmatter.
 
 ## 4. Naming rules
 
