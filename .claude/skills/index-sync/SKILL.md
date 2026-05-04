@@ -1,103 +1,115 @@
 ---
 name: index-sync
-description: Regenerate the auto-managed entry block inside src/content/blog/<category>-index.md while preserving every byte outside the markers. HTML-comment delimiters separate machine-managed entries from hand-curated editorial structure.
+description: Documents the build-time auto-regeneration of <!-- auto:start -->...<!-- auto:end --> blocks inside src/content/blog/*-index.md. The actual regen runs as `npm run prebuild` via scripts/sync-indexes.mjs — Claude does not invoke this skill at runtime. Use this doc when adding a new index file, changing marker filters, or bootstrapping markers in a freshly-created index.
 ---
 
-# Index Sync Skill
+# Index Sync — build-time auto-regeneration
 
-Keep `<category>-index.md` files current without erasing the editorial sections the author wrote between the markers.
+Index pages under `src/content/blog/<category>-index.md` keep their list of entries auto-synced. **The mechanism is a Node script wired into `prebuild`** — `scripts/sync-indexes.mjs`. Every `npm run build` regenerates the marker regions before Astro reads them; no hand maintenance, no Claude polish step required.
 
-## 1. Marker syntax
+This skill is **documentation**, not an action surface. Claude does not "invoke" it during writing. The build does the work.
 
-Each index page contains one or more **auto-managed regions** delimited by HTML comments. Anything outside these markers is editorial — the skill must not touch it.
+## 1. Marker grammar
 
-```md
-## Environment setup
-
-<!-- auto:start category=setup-env section=environment-setup -->
-- [Setup Node.js on MacBook](setup-nodejs-macbook/)
-- [Setup Chrome DevTools for MCP](setup-chrome-devtools-on-chrome/)
-- [Run Ubuntu in UTM on Apple Silicon](utm-set-ubuntu/)
-<!-- auto:end -->
-```
-
-- `auto:start` carries attributes that scope what entries belong inside.
-- `auto:end` has no attributes.
-- An index file may have **multiple** auto blocks — one per editorial section.
-- Attributes recognized:
-  - `category=<name>` — required, must be one of the 5 enum values
-  - `section=<slug>` — optional, narrows entries to those whose filename matches a section filter (see §3)
-  - `sort=<pubDate-desc|pubDate-asc|title>` — optional, defaults to `pubDate-desc`
-
-## 2. Scope
-
-Only regenerate index pages whose category was touched in the current session. Determine "touched" via:
-
-```bash
-git diff --name-only HEAD -- 'src/content/blog/*.md'
-```
-
-Group changed files by their resolved category. For each unique category, regenerate `src/content/blog/<category>-index.md` if it exists. If no index file exists for a category, do nothing — never create one automatically.
-
-## 3. Section filtering
-
-When `section=` is set, only entries whose filename matches the section's filter are emitted. Filter rules live next to each marker as a comment for readability:
+Each auto-managed region is delimited by HTML comments. Bytes outside the markers are immutable.
 
 ```md
-<!-- auto:start category=setup-env section=environment-setup -->
-<!-- filter: filename starts with `setup-` or `utm-` -->
+<!-- auto:start category=<cat> [type=<tag>] [tech=<tag>] [filename-prefix=<p>[,<p>...]] [sort=<order>] -->
+- [Title](slug/)
 - ...
 <!-- auto:end -->
 ```
 
-If no `section=` attribute, the block emits **every post** in the category that doesn't match a section filter elsewhere in the same file. This makes the unsectioned block a catch-all.
+### Required attribute
 
-## 4. Entry format
+- `category=<cat>` — one of `CATEGORIES` from `src/content.config.ts`. Posts not matching are excluded.
 
-Each entry is one line:
+### Optional filters (AND-combined)
+
+- `type=<tag>` — entry's `tags:` array must include this Type-dimension tag (e.g. `faq`, `sop`, `skill-definition`, `template`).
+- `tech=<tag>` — entry's `tags:` array must include this Tech-dimension tag (e.g. `gemini`, `n8n`, `mcp`).
+- `filename-prefix=<p>[,<p>...]` — entry's slug must start with one of the comma-separated prefixes. Used for chapter ports (`filename-prefix=ch`) or grouped guides.
+
+### Sort
+
+- `sort=pubDate-desc` (default) — newest first.
+- `sort=pubDate-asc` — oldest first.
+- `sort=title` — alphabetical, locale-insensitive.
+
+### Always excluded
+
+- `draft: true` posts.
+- The index file itself (any file ending in `-index.md`).
+- `._*` macOS metadata files.
+
+## 2. Adding a new index file
+
+1. Create `src/content/blog/<category-or-subcategory>-index.md` with the standard frontmatter (tags include `reference`, category matches the listing).
+2. Place exactly one (or more) `<!-- auto:start ... --> ... <!-- auto:end -->` block where the entry list belongs.
+3. Run `npm run sync:indexes` to populate, or just `npm run build` (prebuild does it).
+
+**Example — flat category index:**
 
 ```md
-- [<title>](<slug>/)
+---
+title: SEO & GEO
+description: Index of SEO and GEO strategy notes
+pubDate: 2026-04-14
+category: seo-and-geo
+tags: [reference, seo]
+---
+
+SEO 與 Generative Engine Optimization 策略筆記。
+
+<!-- auto:start category=seo-and-geo -->
+<!-- auto:end -->
 ```
 
-Where:
-- `<title>` is the `title:` from frontmatter, with leading/trailing quotes stripped
-- `<slug>` is the filename without `.md`
-- The trailing `/` matches the project's `trailingSlash: "always"` config
+**Example — multi-block with editorial structure (see `openclaw-index.md`):**
 
-Drafts (`draft: true`) are skipped — they are not built and not listed.
+```md
+## 架構章節
 
-## 5. Sort
+<!-- auto:start category=openclaw filename-prefix=ch sort=title -->
+<!-- auto:end -->
 
-Default `pubDate-desc` (newest first). When `sort=title`, sort by `title` ascending (locale-insensitive).
+## 子分類
 
-## 6. Preservation rules
-
-- **Bytes outside `<!-- auto:start -->` … `<!-- auto:end -->` are immutable.** Headings, prose, blockquotes, alternative blocks — all left exactly as found.
-- Frontmatter on the index file itself is untouched.
-- If a marker pair is malformed (start without matching end, or vice versa), abort with an error — do not "fix" it silently.
-- If the regenerated content is byte-identical to the existing block, write nothing — keeps git diffs clean.
-
-## 7. Bootstrap (no markers yet)
-
-If an index file exists but contains no `auto:start` markers, do not regenerate. Emit a notification:
-
-```
-[index-sync] NO MARKERS: src/content/blog/<category>-index.md
-  Insert <!-- auto:start category=<category> --> ... <!-- auto:end -->
-  somewhere in the file to enable auto-regen for this category.
+- [Common Questions](openclaw-common-questions-index/)
+- [Instruction Notes](openclaw-instruction-notes-index/)
+- [Skill Notes](openclaw-skill-notes-index/)
 ```
 
-## 8. Output
+The hand-written "子分類" list lives outside the markers — immutable.
 
-For each regenerated file, emit one line:
+## 3. Behavior on build
 
-```
-[index-sync] <category>-index.md  blocks=<n>  entries=<n>  (changed|unchanged)
-```
+`prebuild` runs `node scripts/sync-indexes.mjs`, which:
 
-End with a summary:
+1. Scans `src/content/blog/*.md`, parses frontmatter via `gray-matter`.
+2. For each `*-index.md`, finds every `auto:start`/`auto:end` pair.
+3. Regenerates the contents based on the attributes.
+4. Writes back if changed (logs `(changed)`); leaves alone if byte-identical (logs `(unchanged)`).
+5. Throws if a marker is missing `category=`.
 
-```
-[index-sync] regenerated A/B index files (C unchanged, D missing markers)
-```
+Output appears at the head of `npm run build`. Stale state is impossible: the build always regenerates before reading.
+
+## 4. Local commands
+
+- `npm run sync:indexes` — regenerate without building.
+- `npm run build` — full build, prebuild runs first.
+
+## 5. What this skill is NOT
+
+- **Not invoked by Claude during writing.** The writer pipeline used to call this skill in polish; that step is now redundant. Build covers it.
+- **Not a runtime tool.** The script lives in `scripts/sync-indexes.mjs`. To change behavior, edit the script.
+- **Not responsible for creating new index files.** Bootstrapping is manual (see §2). The script only regenerates *existing* marker regions.
+
+## 6. Failure modes to be aware of
+
+| Failure | Cause | Fix |
+|---|---|---|
+| Build fails: `marker missing category=` | An `auto:start` without `category=` attribute | Add `category=<cat>` to the marker |
+| Index page renders empty list | No posts match the filter combination | Loosen filters; check post tags |
+| Duplicate-titled entries | Two posts share `title:` in frontmatter | Fix one of the post titles — script doesn't dedupe |
+| New post not appearing | Post is `draft: true`, or filename ends in `-index` | Set `draft: false`; rename if not actually an index |

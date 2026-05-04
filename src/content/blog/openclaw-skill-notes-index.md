@@ -11,8 +11,10 @@ draft: false
 
 OpenClaw 技能定義套件。
 
-- Airtable API Skill
-- gog — Google Workspace CLI Skill
-- MiniMax Skill
-- MiniMax TTS Skill
-- n8n Workflow Skill
+<!-- auto:start category=openclaw type=skill-definition -->
+- [MiniMax TTS Skill](openclaw-minimax-skill/)
+- [MiniMax TTS Skill](openclaw-minimax-tts-skill/)
+- [n8n Workflow Skill](openclaw-n8n-workflow-skill-skill/)
+- [gog — Google Workspace CLI Skill](openclaw-skill/)
+- [Airtable API Skill](skill/)
+<!-- auto:end -->

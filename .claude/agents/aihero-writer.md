@@ -85,10 +85,9 @@ Body follows the 6-beat structure (or chapter outline for chapter band).
 Run in order on `src/content/blog/<slug>.md`:
 
 1. **Mechanical auto-fixes** (word-count trim, hype-word strip, hedge-mush strip, banned-opening/closing replacement). Apply silently.
-2. **Editorial blockers** — agent-fix-first per skill §3.2. Only halts on missing iteration moment (cannot be invented).
+2. **Editorial blockers** — agent-fix-first per skill §3.2. For `short` / `medium` bands, halts on missing iteration moment (cannot be invented). **`chapter` band is exempt from the iteration check** — research syntheses don't manufacture failures.
 3. **Invoke `@categorizer`** as a fill-the-gaps sweep. Usually a no-op since Phase 2 wrote full frontmatter; only fires substantively for banned-tag normalization or fields the agent deferred.
-4. **Run `npm run build`**. If it fails, **delete** `src/content/blog/<slug>.md` and report.
-5. **Invoke `index-sync` skill** for the resolved category — regenerates the auto-block in `<category>-index.md` (if markers are present; otherwise emits a notification).
+4. **Run `npm run build`**. If it fails, **delete** `src/content/blog/<slug>.md` and report. The `prebuild` hook auto-regenerates `<category>-index.md` blocks — no separate sync step needed.
 
 ## Final output (in chat)
 

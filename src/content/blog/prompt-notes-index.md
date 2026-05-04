@@ -11,15 +11,19 @@ draft: false
 
 Prompt engineering 研究筆記與可複用範本集。
 
-## 研究筆記
-
-| 筆記 | 來源類型 | 原始來源 |
-|------|---------|---------|
-| Google Workspace Gemini Prompt Guide | PDF 研究 | [Google Workspace Prompting Guide (PDF)](https://services.google.com/fh/files/misc/workspace_with_gemini_prompting_guide.pdf) |
-| Karpathy LLM Wiki Pattern | 研究筆記 | Karpathy LLM-maintained wiki 研究 |
-| System Prompt Patterns Research | 研究筆記 | System prompt patterns 研究 |
-| Awesome Nanobanana Pro | 資源筆記 | awesome-nanobanana-pro 資源 |
-
-## Prompt 範本集
-
-- Gemini 可複用 Prompt 範本集 — 依業務職能分類的實用 prompt
+<!-- auto:start category=prompt-notes -->
+- [Harry Dry 三問：寫一句說服人的話之前先檢查](harry-dry-three-questions/)
+- [awesome-nanobanana-pro 資源筆記](awesome-nanobanana-pro/)
+- [Karpathy 的 LLM-Maintained Wiki 模式研究](karpathy-llm-wiki-pattern/)
+- [系統提示詞模式研究：從外洩的生產級 Prompt 萃取可複用規則](system-prompt-patterns-research/)
+- [Gemini Prompt：行政支援](admin/)
+- [Gemini Prompt：溝通公關](communications/)
+- [Gemini Prompt：客戶服務](customer-service/)
+- [Gemini Prompt：高階主管](executives/)
+- [Gemini Prompt：通用範本與工作流](general/)
+- [Google Workspace with Gemini Prompt Guide 研究筆記](google-workspace-gemini-prompt-guide/)
+- [Gemini Prompt：人力資源](hr/)
+- [Gemini Prompt：行銷](marketing/)
+- [Gemini Prompt：專案管理](project-management/)
+- [Gemini Prompt：業務銷售](sales/)
+<!-- auto:end -->

@@ -27,7 +27,7 @@ These never bend, regardless of length or topic:
 - **Language: 繁體中文 (zh-tw)** for body prose and `description`. Technical terminology, library/framework names, command flags, and code identifiers stay in English. Bilingual form `代理 (agent)` / `延遲 (latency)` is encouraged for less-familiar concepts. Title can be zh-tw / English / mixed.
 - **One named concept** per post. Used 3+ times so it sticks.
 - **One copy-pasteable artifact** per post — snippet, prompt, checklist, config — placed in the **first half** of the post.
-- **At least one paragraph showing iteration** ("I tried X, it broke, so I changed it to Y"). Authenticity through specificity.
+- **At least one paragraph showing iteration** ("I tried X, it broke, so I changed it to Y") — required for `short` and `medium` bands. Authenticity through specificity. **`chapter` band is exempt:** architecture chapters and research syntheses don't manufacture failure moments. Forcing one produces the inauthenticity the rule was meant to prevent.
 - **No hype words**: revolutionary, game-changing, 10x, mind-blowing, supercharge, unleash. Banned.
 - **No hedge mush**: "it depends", "your mileage may vary", "this is just my opinion". Pick a position.
 - **No "in this post we'll explore..."** openings. Hook the reader on sentence one.
@@ -210,16 +210,16 @@ For each blocker, the agent attempts the fix in place. Only halt if it genuinely
 | No named concept used 3+ times | Edit body to strengthen the naming (add 1–2 explicit references) |
 | No copy-pasteable artifact in the first half | Move the artifact up |
 | First sentence is generic | Rewrite using one of `[claim / reframe / scene]` |
-| Zero iteration paragraphs | **Halt** — ask the author for the "I tried X, it broke" moment. The agent cannot invent failures. |
+| Zero iteration paragraphs (`short` / `medium` only) | **Halt** — ask the author for the "I tried X, it broke" moment. The agent cannot invent failures. **Chapter band is exempt** — skip this check. |
 
 ### Step 3.3 — Categorize sweep (fill-the-gaps)
 
 Invoke `@categorizer` on the published file. Since Phase 2 wrote full frontmatter, this is usually a no-op or a banned-tag normalization pass. It only fires substantively if the agent left a field empty (e.g. ambiguous category that was deferred to the user).
 
-### Step 3.4 — Build and index-sync
+### Step 3.4 — Build (auto-syncs indexes via prebuild hook)
 
 - Run `npm run build`. If it fails, **delete** `src/content/blog/<slug>.md` and report the schema error.
-- Invoke `index-sync` skill for the resolved category — regenerates `<category>-index.md` auto-blocks if markers are present; otherwise emits a notification (does not auto-create markers).
+- The `prebuild` hook (`scripts/sync-indexes.mjs`) regenerates every `<category>-index.md` auto-block automatically. No separate invocation needed. See `.claude/skills/index-sync/SKILL.md` for marker grammar if a new index file needs bootstrapping.
 
 ---
 

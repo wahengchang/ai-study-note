@@ -12,7 +12,10 @@
     "url": "https://github.com/wahengchang/ai-study-note.git"
   },
   "scripts": {
+    "clean": "find . -name '._*' -type f -delete",
+    "sync:indexes": "node scripts/sync-indexes.mjs",
     "dev": "astro dev",
+    "prebuild": "node scripts/sync-indexes.mjs",
     "build": "astro build",
     "preview": "astro preview",
     "astro": "astro"

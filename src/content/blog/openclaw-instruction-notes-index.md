@@ -11,10 +11,8 @@ draft: false
 
 OpenClaw 操作 SOP 與 Runbooks。
 
-- Analyse & Visualise
-- Automation Task High-Level Implementation Guide
-- n8n OpenClaw Update Workflow
-- OpenClaw Master-Worker SOP
-- Sync SSH Remote-Local Instructions
-- Team File Structure and Logic Guide
-- Workspace Modification Guideline
+<!-- auto:start category=openclaw type=sop -->
+- [OpenClaw 主從架構建置標準作業程序（SOP）](openclaw-master-worker-sop/)
+- [OpenClaw 同步設定說明（以編輯為中心）](sync-ssh-remote-local-instructions/)
+- [Workspace 修改指南（OpenClaw）](workspace-modification-guideline/)
+<!-- auto:end -->

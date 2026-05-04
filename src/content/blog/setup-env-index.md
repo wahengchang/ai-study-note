@@ -11,15 +11,12 @@ draft: false
 
 本機開發、工具與工作流程的環境建置筆記。
 
-**Environment setup**
-- Setup Node.js on MacBook (Xcode -> nvm -> npm -> Node.js)
-- Setup Chrome DevTools for MCP on Chrome (macOS)
-- Run Ubuntu in UTM on Apple Silicon (for OpenClaw)
-
-**Tooling & references**
-- tmux Quick Start (prefix, panes, windows, sessions)
-- Airtable curl Templates
-
-**Practice & process**
-- Automation Task — High-level Implementation Guide
-- Team File Structure and Logic Guide
+<!-- auto:start category=setup-env -->
+- [Setup OpenClaw in Ubuntu](utm-set-ubuntu/)
+- [在 Chrome 上設定 Chrome DevTools 以搭配 MCP 使用（macOS）](setup-chrome-devtools-on-chrome/)
+- [在 MacBook 上安裝 Node.js（Xcode -> nvm -> npm -> Node.js）](setup-nodejs-macbook/)
+- [Automation Task — High-level Implementation Guide](automation-task-high-level-implementation-guide/)
+- [團隊檔案結構與邏輯指南](team-file-structure-and-logic-guide/)
+- [tmux 快速入門：搭配 OpenClaw 的 Prefix、Pane、Window、Session](tmux-quick-start-prefix-panes-windows-sessions/)
+- [Airtable curl Templates](curl-templates/)
+<!-- auto:end -->
