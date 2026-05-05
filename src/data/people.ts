@@ -45,6 +45,17 @@ export const PEOPLE = [
       },
     ],
   },
+  {
+    slug: "dan-koe",
+    displayName: "Dan Koe",
+    bio: "創作者經濟教育者，經營 The Koe Letter newsletter（訂閱者超過 50 萬）與 Kortex 知識管理工具。寫作主軸是把人生意義、創作實踐與 AI 結合，倡導「先建專案再學」的 project-first 學習方式。",
+    links: [
+      { label: "The Koe Letter", url: "https://letters.thedankoe.com/" },
+      { label: "Personal site", url: "https://thedankoe.com/" },
+      { label: "Kortex", url: "https://kortex.co/" },
+      { label: "Twitter / X", url: "https://x.com/thedankoe" },
+    ],
+  },
 ] as const satisfies readonly Person[];
 
 export type PersonSlug = (typeof PEOPLE)[number]["slug"];

@@ -12,6 +12,8 @@ draft: false
 Prompt engineering 研究筆記與可複用範本集。
 
 <!-- auto:start category=prompt-notes -->
+- [Dan Koe 的 Project-First Learning：先動手撞牆，再去搜尋](dan-koe-project-first-learning/)
+- [Dan Koe 的 Two-Layer Reading：別用 AI 摘要、用它當閱讀夥伴](dan-koe-two-layer-reading/)
 - [Harry Dry 三問：寫一句說服人的話之前先檢查](harry-dry-three-questions/)
 - [awesome-nanobanana-pro 資源筆記](awesome-nanobanana-pro/)
 - [Karpathy 的 LLM-Maintained Wiki 模式研究](karpathy-llm-wiki-pattern/)
