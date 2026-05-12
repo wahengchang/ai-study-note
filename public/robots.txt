@@ -1,0 +1,23 @@
+User-agent: *
+Allow: /
+
+# AI crawlers — opt-in by default. Remove or change to `Disallow: /` to opt out.
+User-agent: GPTBot
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-Web
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://wahengchang.github.io/ai-study-note/sitemap-index.xml
