@@ -6,18 +6,79 @@ import Footer from "../components/Footer.astro";
 interface Props {
   title: string;
   description?: string;
+  image?: string;
+  type?: "website" | "article";
+  pubDate?: Date;
+  updatedDate?: Date;
+  tags?: string[];
+  noindex?: boolean;
 }
-const { title, description = "Waheng Note — AI 實戰筆記，關於 agent、Claude Code 與 prompt 工程。" } = Astro.props;
+
+const {
+  title,
+  description = "Waheng Note — AI 實戰筆記，關於 agent、Claude Code 與 prompt 工程。",
+  image = "og-default.png",
+  type = "website",
+  pubDate,
+  updatedDate,
+  tags = [],
+  noindex = false,
+} = Astro.props;
+
 const base = import.meta.env.BASE_URL;
+const siteOrigin = Astro.site ?? new URL("https://wahengchang.github.io/");
+const canonicalURL = new URL(Astro.url.pathname, siteOrigin).toString();
+const imageURL = new URL(image.startsWith("http") ? image : `${base}${image.replace(/^\//, "")}`, siteOrigin).toString();
+const rssURL = `${base}rss.xml`;
+
+const siteName = "Waheng Note";
+
+const websiteLd = {
+  "@context": "https://schema.org",
+  "@type": "WebSite",
+  name: siteName,
+  url: new URL(base, siteOrigin).toString(),
+  inLanguage: "zh-Hant-TW",
+  description,
+};
 ---
 <!doctype html>
-<html lang="zh-Hant">
+<html lang="zh-Hant-TW">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>{title}</title>
     <meta name="description" content={description} />
+    <link rel="canonical" href={canonicalURL} />
+    {noindex && <meta name="robots" content="noindex, nofollow" />}
+    {!noindex && <meta name="robots" content="index, follow, max-image-preview:large, max-snippet:-1" />}
     <link rel="icon" type="image/svg+xml" href={`${base}favicon.svg`} />
+    <link rel="alternate" type="application/rss+xml" title={`${siteName} RSS`} href={rssURL} />
+
+    <meta property="og:type" content={type} />
+    <meta property="og:site_name" content={siteName} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:url" content={canonicalURL} />
+    <meta property="og:image" content={imageURL} />
+    <meta property="og:locale" content="zh_TW" />
+    {type === "article" && pubDate && (
+      <meta property="article:published_time" content={pubDate.toISOString()} />
+    )}
+    {type === "article" && updatedDate && (
+      <meta property="article:modified_time" content={updatedDate.toISOString()} />
+    )}
+    {type === "article" && tags.map((tag) => (
+      <meta property="article:tag" content={tag} />
+    ))}
+
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content={title} />
+    <meta name="twitter:description" content={description} />
+    <meta name="twitter:image" content={imageURL} />
+
+    <script type="application/ld+json" set:html={JSON.stringify(websiteLd)} />
+    <slot name="head" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
