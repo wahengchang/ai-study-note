@@ -14,6 +14,7 @@ draft: false
 Claude Code 產品筆記 — CLI、設定、外掛、hooks 與 agent 框架。
 
 <!-- auto:start category=claude-code -->
+- [gstack 兩週實戰：用「階段配方」解決技能選擇困難](gstack-phase-recipe/)
 - [Diataxis：把文件拆成四種，而不是寫一份大雜燴](diataxis-documentation-framework/)
 - [gstack：YC 總裁 Garry Tan 把整個工程團隊塞進 23 個 slash command](garry-tan-gstack-claude-code-engineering-team/)
 - [HTML 作為 Agent 輸出格式：Thariq × Karpathy 觀點與四個可複用 prompt](html-as-agent-output-format/)
