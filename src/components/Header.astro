@@ -4,6 +4,13 @@ import { getCollection } from "astro:content";
 const base = import.meta.env.BASE_URL;
 const posts = await getCollection("blog", ({ data }) => !data.draft);
 const categories = [...new Set(posts.map((p) => p.data.category))].sort();
+const categoryLabels: Record<string, string> = {
+  "claude-code": "Claude Code",
+  openclaw: "OpenClaw",
+  "prompt-notes": "提示詞筆記",
+  "seo-and-geo": "SEO 與 GEO",
+  "setup-env": "環境設定",
+};
 const current = Astro.url.pathname;
 const isActive = (path: string) =>
   path === base ? current === base || current === base.slice(0, -1) : current.startsWith(path);
@@ -50,7 +57,7 @@ const isActive = (path: string) =>
           <a
             href={`${base}categories/${c}/`}
             class={`hover:text-accent transition-colors ${current === `${base}categories/${c}/` ? "text-accent" : ""}`}
-          >{c}</a>
+          >{categoryLabels[c] ?? c}</a>
         </li>
       ))}
     </ul>
