@@ -56,6 +56,16 @@ export const PEOPLE = [
       { label: "Twitter / X", url: "https://x.com/thedankoe" },
     ],
   },
+  {
+    slug: "garry-tan",
+    displayName: "Garry Tan",
+    bio: "Y Combinator 總裁暨執行長，前 Initialized Capital 共同創辦人，Coinbase、Instacart 等公司的早期投資人。經營 YouTube 頻道分享創業與新創建造心法，以實作導向的創業建議著稱。",
+    links: [
+      { label: "Y Combinator", url: "https://www.ycombinator.com/" },
+      { label: "Twitter / X", url: "https://x.com/garrytan" },
+      { label: "YouTube", url: "https://www.youtube.com/@garrytan" },
+    ],
+  },
 ] as const satisfies readonly Person[];
 
 export type PersonSlug = (typeof PEOPLE)[number]["slug"];
