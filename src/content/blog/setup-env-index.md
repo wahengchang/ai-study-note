@@ -12,6 +12,7 @@ draft: false
 本機開發、工具與工作流程的環境建置筆記。
 
 <!-- auto:start category=setup-env -->
+- [Git worktree 起步四場景：平行跑多個 Claude Code session 的工作法](git-worktree-parallel-claude-sessions/)
 - [Setup OpenClaw in Ubuntu](utm-set-ubuntu/)
 - [在 Chrome 上設定 Chrome DevTools 以搭配 MCP 使用（macOS）](setup-chrome-devtools-on-chrome/)
 - [在 MacBook 上安裝 Node.js（Xcode -> nvm -> npm -> Node.js）](setup-nodejs-macbook/)
