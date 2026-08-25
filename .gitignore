@@ -29,5 +29,10 @@ yarn-error.log*
 # Planning artifacts
 .planning/
 
+# Handoff artifacts
+dev-hub-*/
+project-*/
+draft*/
+
 # AI research sidecars
 .research/

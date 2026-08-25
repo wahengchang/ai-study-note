@@ -1,0 +1,10 @@
+# 專案本地 OMP 路由。Role alias 透過使用者的 modelRoles 解析。
+task:
+  agentModelOverrides:
+    scout: "@smol"
+    librarian: "@smol"
+    sonic: "@smol"
+    task: "@default"
+    designer: "@plan"
+    reviewer: "@slow"
+    security-reviewer: "@slow"

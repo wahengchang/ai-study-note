@@ -12,3 +12,5 @@
 ## 已確認的專案脈絡
 
 - **2026-08-25｜專案定位**：此 repository 用於翻新既有的 AI 學習筆記網站，包含 CMS 前端，供重新整理內容呈現與管理流程。
+- **2026-08-25｜CMS 架構**：新的 authoring canonical source 採關聯式 SQL database，建立完整 CMS；Post Type 是一級模型，用來定義各內容類型的欄位、關係、驗證與公開版型，保留後續客製化空間。先前 `project-*` 內的 Keystatic、Git-tracked Markdoc/YAML canonical source 結論不再是實作方向。
+- **2026-08-25｜長期工作位置**：後續數週至一個月持續在 `site-reset` 分支與 `/Volumes/UGREEN 2TB /projects/ai-study-note-reset` worktree 開發；目前不得合併至 `main`，也不得因 housekeeping 切換或移除此 worktree。
