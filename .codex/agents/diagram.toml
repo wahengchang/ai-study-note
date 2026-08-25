@@ -1,8 +1,6 @@
----
-name: diagram
-description: Technical illustration agent that generates and refactors compact, readable Mermaid diagrams for the documentation site.
----
-
+name = "diagram"
+description = "Technical illustration agent that generates and refactors compact, readable Mermaid diagrams for the documentation site."
+developer_instructions = '''
 # Diagram Agent
 
 > Compose: `mermaid.md`
@@ -53,3 +51,4 @@ classDef error fill:#450a0a,stroke:#ef4444,stroke-width:2px,color:#f9fafb,font-s
 - [ ] No crossing lines
 - [ ] High-contrast colors on `#050505` background
 - [ ] Renders in `npm run build` without errors
+'''

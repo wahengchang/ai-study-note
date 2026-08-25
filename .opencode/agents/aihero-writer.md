@@ -1,8 +1,10 @@
 ---
+description: >-
+  Phased AI-Hero-style writing workflow that researches, drafts, polishes, and
+  publishes developer education posts.
+mode: subagent
 name: aihero-writer
-description: Phased AI-Hero-style writing workflow that researches, drafts, polishes, and publishes developer education posts.
 ---
-
 # AI-Hero Writer Agent
 
 > Compose: `formatting.md`

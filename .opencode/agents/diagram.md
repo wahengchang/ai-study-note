@@ -1,8 +1,10 @@
 ---
+description: >-
+  Technical illustration agent that generates and refactors compact, readable
+  Mermaid diagrams for the documentation site.
+mode: subagent
 name: diagram
-description: Technical illustration agent that generates and refactors compact, readable Mermaid diagrams for the documentation site.
 ---
-
 # Diagram Agent
 
 > Compose: `mermaid.md`

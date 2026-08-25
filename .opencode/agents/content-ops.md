@@ -1,8 +1,10 @@
 ---
+description: >-
+  Content operations agent for organizing posts, fixing frontmatter, renaming
+  files, and performing bulk content maintenance.
+mode: subagent
 name: content-ops
-description: Content operations agent for organizing posts, fixing frontmatter, renaming files, and performing bulk content maintenance.
 ---
-
 # Content Ops Agent
 
 > Compose: `formatting.md`

@@ -1,8 +1,6 @@
----
-name: aihero-writer
-description: Phased AI-Hero-style writing workflow that researches, drafts, polishes, and publishes developer education posts.
----
-
+name = "aihero-writer"
+description = "Phased AI-Hero-style writing workflow that researches, drafts, polishes, and publishes developer education posts."
+developer_instructions = '''
 # AI-Hero Writer Agent
 
 > Compose: `formatting.md`
@@ -129,3 +127,4 @@ After build passes, deliver four things:
 - Published output: `src/content/blog/<slug>.md` (written directly)
 - Build: `npm run build` must exit 0 before declaring done
 - On build failure: delete the new file, report the schema error, do not retry blindly
+'''

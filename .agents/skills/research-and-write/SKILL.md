@@ -1,9 +1,17 @@
 ---
 name: research-and-write
 description: >-
-  Research a topic and turn it into a publishable AI-Hero-style developer post for src/content/blog/ — one named concept, one copy-pasteable artifact, opinionated, honest about failure. Use when the user wants to write a new post, draft a tutorial, capture an insight as a publishable note, or asks for "AI Hero style" / "Pocock style" output. Trigger on phrases like "write a post", "draft a tutorial", "make this a note", "research this", "AI Hero style", "Matt Pocock style", "publish what I figured out". Single-pass auto-pilot: writes directly to src/content/blog/ with full publishable frontmatter, runs build, syncs index — no sign-off gates. User interrupts at any time.
+  Research a topic and turn it into a publishable AI-Hero-style developer post
+  for src/content/blog/ — one named concept, one copy-pasteable artifact,
+  opinionated, honest about failure. Use when the user wants to write a new
+  post, draft a tutorial, capture an insight as a publishable note, or asks for
+  "AI Hero style" / "Pocock style" output. Trigger on phrases like "write a
+  post", "draft a tutorial", "make this a note", "research this", "AI Hero
+  style", "Matt Pocock style", "publish what I figured out". Single-pass
+  auto-pilot: writes directly to src/content/blog/ with full publishable
+  frontmatter, runs build, syncs index — no sign-off gates. User interrupts at
+  any time.
 ---
-
 # Research and Write — AI-Hero-style developer posts for AI Study Note
 
 **Single-pass auto-pilot:** **research** → **write** → **polish**, publishing directly to `src/content/blog/<slug>.md`. No sign-off gates by default; the user can interrupt at any time. Adapted from Matt Pocock's `aihero.dev` content patterns, scoped to this repo's taxonomy and Astro structure.

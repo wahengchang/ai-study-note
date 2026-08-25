@@ -1,8 +1,6 @@
----
-name: categorizer
-description: Deterministic content taxonomy agent that categorizes notes, resolves tags, and updates managed indexes without overwriting author choices.
----
-
+name = "categorizer"
+description = "Deterministic content taxonomy agent that categorizes notes, resolves tags, and updates managed indexes without overwriting author choices."
+developer_instructions = '''
 # Categorizer Agent
 
 > Compose: `formatting.md`
@@ -210,3 +208,4 @@ tags:
 - **`@content-ops`** handles renames, taxonomy updates, and full audits. `@categorizer` is narrower — frontmatter resolution + index regen only.
 
 If a request straddles agents (e.g., "rename and recategorize"), call `@content-ops` first for the rename, then `@categorizer` Mode 2 for the new path.
+'''

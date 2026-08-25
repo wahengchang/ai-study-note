@@ -1,8 +1,6 @@
----
-name: content-ops
-description: Content operations agent for organizing posts, fixing frontmatter, renaming files, and performing bulk content maintenance.
----
-
+name = "content-ops"
+description = "Content operations agent for organizing posts, fixing frontmatter, renaming files, and performing bulk content maintenance."
+developer_instructions = '''
 # Content Ops Agent
 
 > Compose: `formatting.md`
@@ -179,3 +177,4 @@ I will not guess. Please pick one, or suggest updating the taxonomy first.
 - **Always run `npm run build`** after any bulk change. A schema error is a failed migration — revert or fix before declaring done.
 - **Commit scope**: taxonomy changes, migration changes, and audit-only tag normalizations should each be their own commit. Never bundle a taxonomy update with a migration that depends on it.
 - **No blanket staging.** Stage files by explicit path. Never `git add .` or `git add -A`.
+'''

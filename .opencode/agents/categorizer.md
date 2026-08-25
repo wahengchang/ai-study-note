@@ -1,8 +1,10 @@
 ---
+description: >-
+  Deterministic content taxonomy agent that categorizes notes, resolves tags,
+  and updates managed indexes without overwriting author choices.
+mode: subagent
 name: categorizer
-description: Deterministic content taxonomy agent that categorizes notes, resolves tags, and updates managed indexes without overwriting author choices.
 ---
-
 # Categorizer Agent
 
 > Compose: `formatting.md`
