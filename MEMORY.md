@@ -22,3 +22,7 @@
 - **內容完整性**：schema、Entry、Term 歷史不可變；V1 沒有 hard delete 或 history purge。所有內容路徑位於單一 global route domain。
 - **發布邊界**：Publish 只改本機 canonical current/published state；不做 Git、build 或 deploy。公開 static output、Theme 與 release artifact 只能消費 published projection，另立規劃。
 - **安全與儲存邊界**：V1 是 OS-trusted loopback single owner；repository 確認 private 前，不得提交 canonical DB 或 original media。
+
+## Codex 子代理
+
+- **2026-08-25｜四角色協作設定**：Rulesync source 位於 `.rulesync/subagents/`，產生官方 Codex project-scoped `.codex/agents/` output。固定 custom subagent 為 `architecture_engineer`（application service、API design 與實作）、`cms_engineer`（React/Vite CMS）、`database_engineer`（SQLite/Drizzle/migration），以及待 architecture-engineer 草擬、專案擁有者核定獨立 published projection 架構文件後才可啟動的 `public_page_engineer`。`.codex/config.toml` 的並行上限為 4。OMP 維持 `.omp/config.yml` 的既有標準 agent mapping，沒有自訂 runtime agent type。
