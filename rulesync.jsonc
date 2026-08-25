@@ -6,9 +6,7 @@
     "codexcli": ["rules", "subagents", "skills"],
     "opencode": ["rules", "subagents", "skills"]
   },
-  "outputRoots": [
-    "."
-  ],
+  "outputRoots": ["."],
   "delete": true,
   "verbose": false,
   "silent": false,

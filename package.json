@@ -1,47 +1,15 @@
 {
-  "name": "ai-study-note",
-  "description": "Mr.Chang AI practice notebook — Astro edition",
+  "name": "ai-study-note-reset",
+  "description": "Static GitHub Pages rebuild of the AI study notebook",
   "private": true,
-  "version": "5.0.0",
+  "version": "0.1.0",
   "type": "module",
-  "author": "wahengchang",
-  "license": "MIT",
-  "homepage": "https://wahengchang.github.io/ai-study-note/",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/wahengchang/ai-study-note.git"
-  },
   "scripts": {
     "clean": "find . -name '._*' -type f -delete",
     "sync:ai": "npm run clean && rulesync generate",
-    "check:ai-sync": "npm run clean && rulesync generate --check",
-    "sync:indexes": "node scripts/sync-indexes.mjs",
-    "dev": "astro dev",
-    "prebuild": "node scripts/sync-indexes.mjs",
-    "build": "astro build",
-    "preview": "astro preview",
-    "astro": "astro"
-  },
-  "engines": {
-    "node": ">=22.12.0",
-    "npm": ">=10.9.2"
-  },
-  "keywords": [
-    "digital-garden",
-    "markdown",
-    "blog",
-    "astro"
-  ],
-  "dependencies": {
-    "@astrojs/rss": "^4.0.18",
-    "@astrojs/sitemap": "^3.7.2",
-    "astro": "^6.1.8"
+    "check:ai-sync": "npm run clean && rulesync generate --check"
   },
   "devDependencies": {
-    "@tailwindcss/typography": "^0.5.19",
-    "@tailwindcss/vite": "^4.2.2",
-    "gray-matter": "^4.0.3",
-    "rulesync": "^16.15.0",
-    "tailwindcss": "^4.2.2"
+    "rulesync": "^16.15.0"
   }
 }
