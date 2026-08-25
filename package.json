@@ -13,8 +13,8 @@
   },
   "scripts": {
     "clean": "find . -name '._*' -type f -delete",
-    "sync:ai": "rulesync generate",
-    "check:ai-sync": "rulesync generate --check",
+    "sync:ai": "npm run clean && rulesync generate",
+    "check:ai-sync": "npm run clean && rulesync generate --check",
     "sync:indexes": "node scripts/sync-indexes.mjs",
     "dev": "astro dev",
     "prebuild": "node scripts/sync-indexes.mjs",
