@@ -1,9 +1,21 @@
-# AI Study Note Reset — Project Configuration
+# AI Study Note Reset — 專案設定
 
-- Keep durable project context in tracked repository files; do not rely on machine-local agent memory.
-- Treat `draft/` handoff artifacts as read-only reference material. Do not edit, delete, or publish them as site content.
-- Keep new implementation separate from the handoff material and make changes only when their purpose is clear from the current project requirements.
+此專案用於翻新既有的 AI 學習筆記網站，包含 CMS 前端，供重新整理內容呈現與管理流程。
+
+- 將 `draft/`、`dev-hub-*/` 與 `project-*/` handoff artifact 視為唯讀參考資料。不得編輯、刪除，或將其發布為網站內容。
+
+## 專案持久紀錄
+
+- `MEMORY.md` 保存跨工作階段仍有效的專案脈絡。開始涉及既有決策、架構或工作方式的工作前先閱讀；僅記錄已確認且具長期價值的資訊。
+- 每個大型工作使用獨立的 `logs/YYYY-MM-DD-HHmm-{slug}.md` 檔案，`date-time` 採本地完成時間、`slug` 採描述工作的英文 kebab-case。完成、準備結束前，檢視是否有長期資訊應更新至 `MEMORY.md`，或有交付、驗證、限制、風險應新增工作紀錄；若皆無，無須新增形式化紀錄。
+- 「大型工作」指跨多個檔案或元件、改變使用者可見行為／專案架構，或需要非直觀交接資訊的工作。每份紀錄列出交付、關鍵決策（如有）、實際驗證、已知限制／後續（如有）與相關變更。
 
 ## 開發溝通語言
 
 - 開發溝通一律使用臺灣繁體中文（`zh-TW`），包括 AI 回覆、計畫、程式碼註解、提交訊息與文件；程式碼識別字與既有外部 API／產品名稱除外。
+
+## OMP 任務路由
+
+- 當平台 delegation policy 允許且確有必要委派時，依工作類型選擇最精確的 agent：唯讀研究使用 `scout` 或 `librarian`、UI/UX 使用 `designer`、程式碼審查使用 `reviewer`、安全審查使用 `security-reviewer`、機械性工作使用 `sonic`、實作使用 `task`。
+- 專案本地模型路由定義於 `.omp/config.yml`；當已設定的 role 適合工作時，不得臨時覆寫 agent 的模型。
+- 主 session 不會依任務語意自行切換模型；工作需要不同模型能力時，使用綁定 role 的 subagent。
