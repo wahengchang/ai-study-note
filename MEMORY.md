@@ -14,3 +14,11 @@
 - **2026-08-25｜專案定位**：此 repository 用於翻新既有的 AI 學習筆記網站，包含 CMS 前端，供重新整理內容呈現與管理流程。
 - **2026-08-25｜CMS 架構**：新的 authoring canonical source 採關聯式 SQL database，建立完整 CMS；Post Type 是一級模型，用來定義各內容類型的欄位、關係、驗證與公開版型，保留後續客製化空間。先前的 Keystatic、Git-tracked Markdoc/YAML canonical source 結論不再是實作方向。
 - **2026-08-25｜長期工作位置**：後續數週至一個月持續在 `site-reset` 分支與 `ai-study-note-reset` worktree 開發；目前不得合併至 `main`，也不得因 housekeeping 切換或移除此 worktree。
+
+## SQL CMS 長期原則
+
+- **完整架構契約**：系統細節、schema、API 與驗證規則的唯一入口是 [`docs/architecture/2026-08-25-1758-sql-cms/README.md`](docs/architecture/2026-08-25-1758-sql-cms/README.md)；本檔不重複這些細節。
+- **canonical source**：authoring state 是本機關聯式 SQL CMS 與 local media，不是 Keystatic、Git-tracked Markdown/YAML 或 remote database；沒有舊 corpus migration。
+- **內容完整性**：schema、Entry、Term 歷史不可變；V1 沒有 hard delete 或 history purge。所有內容路徑位於單一 global route domain。
+- **發布邊界**：Publish 只改本機 canonical current/published state；不做 Git、build 或 deploy。公開 static output、Theme 與 release artifact 只能消費 published projection，另立規劃。
+- **安全與儲存邊界**：V1 是 OS-trusted loopback single owner；repository 確認 private 前，不得提交 canonical DB 或 original media。
