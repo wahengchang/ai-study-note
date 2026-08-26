@@ -1,5 +1,7 @@
 # SQLite 資料庫契約
 
+本文件是資料庫討論結果與審核輸入，**不是** source of truth；不得單獨建立、推翻或裁定資料庫決策。
+
 ## Runtime 與 durability
 
 canonical DB 固定為 `data/cms.sqlite`。每個 connection 啟動必須執行：
@@ -30,7 +32,9 @@ PRAGMA busy_timeout = 5000;
 | media | `media_assets`、`media_objects` | revision references are permanent |
 | commands | `idempotency_keys` | `operation_log` durable outcome audit |
 
-All owner rows carry monotonic positive `resource_version`, archive marker and timestamps where applicable. `entry_revisions` includes every projected core field: title/description/excerpt/slug/body/parent/cover/schema version/revision number. Schema version, field version, term revision, entry revision, field value and revision-term rows have BEFORE UPDATE/DELETE abort triggers. V1 has no hard delete or runtime history purge.
+`post_types`、`taxonomies`、`terms`、`entries` 與 `media_assets` 每次 UPDATE 都必須將 `resource_version` **剛好加一**；漏加或跳號一律由資料庫拒絕。Post Type／Taxonomy／Term／Entry 的 current/published pointer 只能指向同一 owner 的 immutable row，且 `terms.taxonomy_id`、`entries.post_type_id` 等 identity ownership 不可重指。`entry_revisions` includes every projected core field: title/description/excerpt/slug/body/parent/cover/schema version/revision number. Schema version, field version, taxonomy-version/Post-Type relationship, term revision, entry revision, field value and revision-term rows have BEFORE UPDATE/DELETE abort triggers. V1 has no hard delete or runtime history purge.
+
+Completed idempotency 必須保存可原樣 replay 的 `response_status`、JSON headers、JSON body，以及 outcome kind/id 和 `operation_log_id`。合法寫入順序為同一 transaction 內建立 pending key、append operation log、再完成 key；completion trigger 驗證 key/log 的雙向 id、operation scope 與 outcome 完全一致。Completed key 與 operation log 都不可更新或刪除。
 
 ## Field-value constraints and queries
 
@@ -45,10 +49,18 @@ Partial indexes exist for integer, real, date, datetime, text/select, media and 
 - entry ↔ same Entry `entry_revisions`
 - post type archive ↔ same Post Type `post_type_schema_versions`
 - taxonomy archive ↔ same Taxonomy `taxonomy_versions`
+
 - term archive ↔ same Term `term_revisions`
 - reserved ↔ all owner/source fields NULL and a non-null reserved key
+每個 non-reserved route source 除了同 owner 外，還必須等於該 owner aggregate 的對應 current 或 published pointer；不得以同 owner 的其他 immutable history 維持 live canonical route。
+
+每個非 reserved claim 還必須至少保有 `current_source_id` 或 `published_source_id`，不可建立或更新成無來源的 live route。
 
 Canonical path is globally UNIQUE. It is a service responsibility to canonicalize before insert; the database is the final constraint boundary.
+
+## Media deletion boundary
+
+`media_assets` 禁止 hard delete，只能以 archive marker 保留歷史引用。`media_objects` 只有在完全沒有 asset 指向，且 state 為 `error` 或 `deleting` 時才可刪除；ready/staging object 或仍有 asset 的 object 均由資料庫拒絕。
 
 ## Checkpoint, Git and backup
 

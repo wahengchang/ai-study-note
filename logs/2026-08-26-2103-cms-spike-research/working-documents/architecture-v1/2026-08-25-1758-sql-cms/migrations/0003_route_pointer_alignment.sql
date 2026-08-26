@@ -1,0 +1,24 @@
+PRAGMA foreign_keys = ON;
+
+-- route claim 的 source 必須恰為 owner aggregate 的 current/published pointer；
+-- 同 owner 的舊 immutable history 不可繼續佔用現行 canonical route。
+CREATE TRIGGER route_claims_pointer_alignment_insert BEFORE INSERT ON route_claims BEGIN
+  SELECT CASE WHEN NEW.owner_kind = 'entry' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM entries WHERE id = NEW.owner_id AND current_revision_id = NEW.current_source_id) THEN RAISE(ABORT, 'entry current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'entry' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM entries WHERE id = NEW.owner_id AND published_revision_id = NEW.published_source_id) THEN RAISE(ABORT, 'entry published route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'post_type_archive' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM post_types WHERE id = NEW.owner_id AND current_schema_version_id = NEW.current_source_id) THEN RAISE(ABORT, 'post type current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'post_type_archive' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM post_types WHERE id = NEW.owner_id AND published_schema_version_id = NEW.published_source_id) THEN RAISE(ABORT, 'post type published route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'taxonomy_archive' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM taxonomies WHERE id = NEW.owner_id AND current_version_id = NEW.current_source_id) THEN RAISE(ABORT, 'taxonomy current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'taxonomy_archive' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM taxonomies WHERE id = NEW.owner_id AND published_version_id = NEW.published_source_id) THEN RAISE(ABORT, 'taxonomy published route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'term_archive' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM terms WHERE id = NEW.owner_id AND current_revision_id = NEW.current_source_id) THEN RAISE(ABORT, 'term current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'term_archive' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM terms WHERE id = NEW.owner_id AND published_revision_id = NEW.published_source_id) THEN RAISE(ABORT, 'term published route source must equal owner pointer') END;
+END;
+CREATE TRIGGER route_claims_pointer_alignment_update BEFORE UPDATE ON route_claims BEGIN
+  SELECT CASE WHEN NEW.owner_kind = 'entry' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM entries WHERE id = NEW.owner_id AND current_revision_id = NEW.current_source_id) THEN RAISE(ABORT, 'entry current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'entry' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM entries WHERE id = NEW.owner_id AND published_revision_id = NEW.published_source_id) THEN RAISE(ABORT, 'entry published route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'post_type_archive' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM post_types WHERE id = NEW.owner_id AND current_schema_version_id = NEW.current_source_id) THEN RAISE(ABORT, 'post type current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'post_type_archive' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM post_types WHERE id = NEW.owner_id AND published_schema_version_id = NEW.published_source_id) THEN RAISE(ABORT, 'post type published route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'taxonomy_archive' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM taxonomies WHERE id = NEW.owner_id AND current_version_id = NEW.current_source_id) THEN RAISE(ABORT, 'taxonomy current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'taxonomy_archive' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM taxonomies WHERE id = NEW.owner_id AND published_version_id = NEW.published_source_id) THEN RAISE(ABORT, 'taxonomy published route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'term_archive' AND NEW.current_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM terms WHERE id = NEW.owner_id AND current_revision_id = NEW.current_source_id) THEN RAISE(ABORT, 'term current route source must equal owner pointer') END;
+  SELECT CASE WHEN NEW.owner_kind = 'term_archive' AND NEW.published_source_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM terms WHERE id = NEW.owner_id AND published_revision_id = NEW.published_source_id) THEN RAISE(ABORT, 'term published route source must equal owner pointer') END;
+END;

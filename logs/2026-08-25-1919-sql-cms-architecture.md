@@ -1,7 +1,7 @@
-# SQL CMS architecture contract
+# SQL CMS 架構討論紀錄
 
-- **交付**：新增 `docs/architecture/2026-08-25-1758-sql-cms/`，包含 CMS、database、media、localhost API、OpenAPI 3.1、canonical SQL migration、generated schema snapshot、SQLite fixtures、Node machine verifier 與 decision sources。
+- **交付**：歷史討論文件已歸檔至 `logs/2026-08-26-2103-cms-spike-research/working-documents/architecture-v1/2026-08-25-1758-sql-cms/`，包含 CMS、database、media、localhost API、OpenAPI 3.1、canonical SQL migration、generated schema snapshot、SQLite fixtures、Node machine verifier 與 decision sources。
 - **關鍵決策**：V1 canonical state 是 local SQLite + content-addressed media；Post Type/Taxonomy/Term/Entry 使用 immutable history + current/published pointers；Media 不是 Post Type；global routes 由 route claims/transactional migration 管理；API 是 OS-trusted loopback automation surface，command 有 idempotency 與 aggregate ETag。
-- **實際驗證**：Node `v22.22.0`；`node docs/architecture/2026-08-25-1758-sql-cms/verify-contract.mjs --write-snapshot` 生成 readonly schema snapshot；正常模式 verifier 通過 migration/ledger/snapshot、SQLite negative fixtures、OpenAPI matrix 與四個 temporary mutation tests（required header、FK、membership trigger、typed index）；`npm run check:ai-sync` 通過。
-- **已知限制／後續**：本次只交付契約，未建立 application、未安裝 dependency、未執行 file-backed migration。Theme、GitHub Pages build/deploy、Navigation、Settings、published projection renderer 與各 media phase 的 process-kill integration test 必須另立規劃。repository 未確認 private 前，future tooling 必須阻擋 DB/media commit。
-- **相關變更**：`MEMORY.md` 已更新為可跨 session 使用的架構原則與完整契約入口；實作細節僅保留在 `docs/architecture/2026-08-25-1758-sql-cms/`。
+- **實際驗證**：Node `v22.22.0`；`node logs/2026-08-26-2103-cms-spike-research/working-documents/architecture-v1/2026-08-25-1758-sql-cms/verify-contract.mjs --write-snapshot` 生成 readonly schema snapshot；正常模式 verifier 通過 migration/ledger/snapshot、SQLite negative fixtures、OpenAPI matrix 與四個 temporary mutation tests（required header、FK、membership trigger、typed index）；`npm run check:ai-sync` 通過。
+- **已知限制／後續**：本次文件是討論結論，仍在轉化為可實作規格；不是任何層級的 source of truth。本次未建立 application、未安裝 dependency、未執行 file-backed migration。Theme、GitHub Pages build/deploy、Navigation、Settings、published projection renderer 與各 media phase 的 process-kill integration test 必須另立規劃。repository 未確認 private 前，future tooling 必須阻擋 DB/media commit。
+- **相關變更**：`MEMORY.md` 已更新為可跨 session 使用的架構原則；文件為非權威的歷史討論輸入，完整定位與映射見 `logs/2026-08-26-2103-cms-spike-research.md`。

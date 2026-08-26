@@ -1,0 +1,7 @@
+{
+  "id": "interactive-demo",
+  "version": "0.1.0",
+  "hookContract": "plugin-hooks/v1",
+  "capabilities": ["editor-block", "validator", "renderer", "assets"],
+  "trustedLocalPackage": true
+}

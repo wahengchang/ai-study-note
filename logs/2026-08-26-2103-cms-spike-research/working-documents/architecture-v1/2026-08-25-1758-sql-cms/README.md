@@ -1,8 +1,8 @@
-# SQL CMS 架構契約
+# SQL CMS 架構討論紀錄
 
-## 範圍與權威
+## 範圍與定位
 
-本目錄定義 V1 本機 authoring state 的 CMS、SQLite、媒體與 localhost automation API 契約。權威順序為 `MEMORY.md`、`logs/2026-08-25-1617-sql-cms-direction.md`、本目錄；`draft/` 與任何 `project-*` 僅是唯讀歷史參考，絕非規格或發布內容。
+本目錄記錄 V1 本機 authoring state 的 CMS、SQLite、媒體與 localhost automation API 討論結果，正持續整理為可實作規格，可供審核與實作參考，但**不是**系統、產品或架構的 source of truth。文件本身不得單獨建立、推翻或裁定決策；每個工作只可依使用者明確指定的 canonical source 執行。`draft/` 與任何 `project-*` 同樣僅是唯讀歷史參考，絕非規格或發布內容。
 
 本次不建立應用程式、不安裝 dependency、不執行 migration。GitHub Pages deploy、static Theme、Navigation、Settings 與 release artifact 都不在範圍；未來只能消費已發布 projection 與媒體 reference。
 
