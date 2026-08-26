@@ -2,7 +2,24 @@
 
 - **Contract ID**: `CMS-BASIC-CONTRACTS-V1`
 - **核准日期**：2026-08-26
-- **核准邊界**：Owner 已要求完成所有已定義 Spike 並以五角色審查收斂。本檔是 SP-001–SP-005 與 SP-A06 的唯一 canonical contract；決策來源、歷史紀錄與可重跑 evidence 已歸檔至 `logs/2026-08-26-2103-cms-spike-research/`，不自行升格為 contract。
+- **核准邊界**：Owner 已要求完成所有已定義 Spike 並以五角色審查收斂。本檔是 SP-001–SP-005 與 SP-A06 的唯一現行 SSOT／implementation contract；決策來源、歷史紀錄與可重跑 evidence 已歸檔至 `logs/2026-08-26-2103-cms-spike-research/`，不自行升格為 contract。
+
+## 從這裡開始
+
+**唯一現行 SSOT**：本檔是 `CMS-BASIC-CONTRACTS-V1` 唯一有權定義後續 CMS／renderer implementation 的檔案。發生衝突時，必須以本檔為準。
+
+- `MEMORY.md` 只保存長期工程原則與本檔指標，不複製或覆蓋本檔契約。
+- `logs/`、`source-drafts/`、`project-*` 歸檔、isolated Spike 與 working documents 只供 provenance 或可重跑 evidence；其中內容不得覆蓋本檔。
+- `source-drafts/` 中的檔案是 byte-preserved historical input，絕不發布為網站內容；其內部自稱的「source of truth」不具權威，未經新的 Owner 決策不得從中抽取需求。
+- 後續 SSOT 變更只改本檔；provenance 只追加至 `logs/`，不回寫 historical input。
+
+## 已核准系統範圍
+
+- 系統由單一內容管理者使用；本機關聯式 SQL 是 canonical state，媒體保存於本機。公開端只讀 published projection 所產生的 GitHub Pages 靜態輸出，不依賴 production API、DB 或 auth。Publish 不執行 Git、build 或 deploy。
+- CMS Workspace、Content Core、Media Library、Site Definition、Projection & Preview、Static Rendering & Public UI、Build, Validation & Release 只作責任 taxonomy，不預先鎖定 package 或 code boundary。Content Type／schema 留在 Content Core；Site Definition 與 Projection & Preview 保持獨立 owner。
+- JavaScript／TypeScript 是專案方向。Node 22、React+Vite、Hono、Zod、Drizzle、SQLite 的完整組合僅是既有 Spike baseline，未被核准為正式 stack。
+- Authoring 採結構化 block。raw article code 與 Interactive Demo Plugin 分別遵守下列既有 sandbox／公開 privilege 邊界與 static fallback 義務。
+- Theme 與 Plugin 是長期範圍；Controlled Command 與 SP-A01–SP-A05 維持 deferred／scope-gated。不得以歷史 Draft 的 production backend/API、object storage、多角色 auth、SQLite-in-Git、Publish push、Markdown／MDX editor 或 Astro 路由表擴張本檔範圍。
 
 ## 1. Domain lifecycle
 
