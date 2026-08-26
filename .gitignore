@@ -36,3 +36,6 @@ draft*/
 
 # AI research sidecars
 .research/
+
+# Active q-plan work hubs
+.dev-hub/active/
