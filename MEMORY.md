@@ -1,31 +1,66 @@
-# 專案長期記憶
+# CMS 專案宣言（JS/TS 全新打造版）
 
-這份檔案保存跨工作階段仍應成立、且會影響後續決策的專案脈絡。它是精選索引，不是工作日誌、待辦清單或聊天紀錄。
+> 我們要從零打造一個全新的 CMS 平台，用 JavaScript／TypeScript 全端實作。
+> 精神上參考 WordPress「核心穩定、擴充在邊緣」的哲學，但這是我們自己的程式碼、自己的 Hook 系統、自己的 Plugin/Theme 機制——不是架在別人的 WordPress PHP 之上。
+> 核心保持穩定、簡單、可預期；能力透過清楚、受控、可相容的擴充點增加。
 
-## 使用規則
+面向從零開始這個平台的架構師與開發同事：定義怎麼切 core / plugin / theme、怎麼設計 hook、怎麼處理資料與相容性、怎麼交付變更的共同準則。
 
-- 開始涉及既有決策、架構或工作方式的工作前，先閱讀本檔。
-- 只在資訊具有長期價值時更新：已確認的產品或技術決策、不可違反的約束、穩定的架構事實，以及反覆出現且已驗證的教訓。
-- 單次工作的過程、驗證輸出與未定案討論，記在 `logs/YYYY-MM-DD-HHmm-{slug}.md`，不要放在本檔。
-- 大型工作完成、準備結束前，檢視是否有長期資訊應更新至本檔，或有交付、驗證、限制、風險應新增一份工作紀錄；兩者皆無時，不建立空白紀錄。
+> **先釐清一個容易誤會的地方**：這份文件裡「核心穩定」「核心不可碰」不是說你們不能開發或修改核心——核心正是這個專案最主要的開發標的，從第一行程式碼到後續每個版本都是你們自己寫、自己演進的。真正被限制的是：**一旦核心對外公開的東西（API、hook、資料結構）被 plugin 或其他模組開始依賴，就不能說改就改、沒版本化就直接打破。** 開發核心、擴充核心、重構核心，都是分內工作；破壞已經被依賴的契約而不打招呼，才是這份宣言要擋下的事。
 
-## 已確認的專案脈絡
+## 真理
 
-- **2026-08-25｜專案定位**：此 repository 用於翻新既有的 AI 學習筆記網站，包含 CMS 前端，供重新整理內容呈現與管理流程。
-- **2026-08-25｜CMS 架構**：新的 authoring canonical source 採關聯式 SQL database，建立完整 CMS；Post Type 是一級模型，用來定義各內容類型的欄位、關係、驗證與公開版型，保留後續客製化空間。先前的 Keystatic、Git-tracked Markdoc/YAML canonical source 結論不再是實作方向。
-- **2026-08-25｜長期工作位置**：後續數週至一個月持續在 `site-reset` 分支與 `ai-study-note-reset` worktree 開發；目前不得合併至 `main`，也不得因 housekeeping 切換或移除此 worktree。
+1. **核心是我們自己寫的最小可信任內核，沒有人替我們維護它。** 它必須無聊、穩定、被充分測試，不為每個需求長特例。
+2. **選擇性或特定場域的能力走 Plugin / Theme + Hook API。** 所有安裝環境共通且長期必要的 domain logic 可以進 core；特定產品／產業邏輯不寫死進核心。
+3. **公開的 API schema、hook 名稱、公開資料格式與 plugin manifest 格式，一旦有人依賴，就是要維護相容性的契約。** Core 的內部資料表結構不是 Plugin contract。
+4. **內容資料庫比任何一次程式重寫都活得久。** 換掉整個後端框架，也不能讓內容變得無法讀取。
+5. **慣例優先於設定。** 提供合理的預設 content model 與預設權限，複雜設定只在真正需要差異化時開放。
+6. **明確邊界才有可組合性。** 每個 plugin 有自己的 namespace，不能互相碰對方的資料表，不能互相 monkey-patch。
+7. **簡單是對未來工程師的責任。** 不為「未來可能要支援的功能」預先蓋一堆抽象框架。
+8. **安全、可觀測、可回退是平台功能本身。** 認證授權、驗證、必要的審計紀錄、DB migration 與 plugin 版本檢查必須隨相關能力設計與交付，不能事後補強。
 
-## SQL CMS 長期原則
+## 原則
 
-- **完整架構契約**：系統細節、schema、API 與驗證規則的唯一入口是 [`docs/architecture/2026-08-25-1758-sql-cms/README.md`](docs/architecture/2026-08-25-1758-sql-cms/README.md)；本檔不重複這些細節。
-- **canonical source**：authoring state 是本機關聯式 SQL CMS 與 local media，不是 Keystatic、Git-tracked Markdown/YAML 或 remote database；沒有舊 corpus migration。
-- **內容完整性**：schema、Entry、Term 歷史不可變；V1 沒有 hard delete 或 history purge。所有內容路徑位於單一 global route domain。
-- **發布邊界**：Publish 只改本機 canonical current/published state；不做 Git、build 或 deploy。公開 static output、Theme 與 release artifact 只能消費 published projection，另立規劃。
-- **安全與儲存邊界**：V1 是 OS-trusted loopback single owner；repository 確認 private 前，不得提交 canonical DB 或 original media。
+**1. Core 提供什麼、不提供什麼**
+Core 負責：content model 基礎（entity/內容型別系統）、auth & capability、hook/event bus、plugin loader、DB migration 引擎，以及需求成立後的版本化對外 API boundary。Core 不做：特定產業欄位、特定版面渲染、任何一個 plugin 該做的商業邏輯。新增 core 能力前，先確認它是「所有 plugin 都需要的地基」，不是「某個 plugin 想要的功能」。
 
-## Codex 子代理
+**2. Hook / Event 系統是自己的契約，要設計成第一等公民**
+用統一的 hook registry：action 廣播事件、不回傳值；filter 接收 immutable input、回傳 replacement、不可有副作用。每個 hook 要有 TypeScript type 定義 payload，並文件化觸發時機與順序；執行順序依 priority 再 Plugin ID 決定。Hook 一旦釋出給 plugin 開發者使用，改參數或拿掉前要走 deprecation 週期（至少一個 major version）。
 
-- **2026-08-26｜Basic 五角色協作設定**：`.rulesync/subagents/` 是唯一 Rulesync source SSOT；`.codex/agents/` 僅是由 `npm run sync:ai` 產生的 Codex runtime view，禁止反向維護。固定 Basic implementation/accountability role 為 `domain_application_engineer`（Content Core、Site Definition、application service、local transport/API 與跨 repository transaction）、`data_media_engineer`（relational persistence、constraint 與 Media Library bytes/metadata/reference/published selection）、`cms_workspace_engineer`（CMS Workspace 與 accessibility）、`projection_preview_engineer`（versioned projection/producer、current/published selection、reference resolution 與無副作用 Preview），以及 `public_delivery_engineer`（static rendering/public UI、build validation、artifact provenance、release 與 GitHub Pages delivery）。Owner 與主 session Technical Lead 是治理層，不建立 `technical_lead` custom role；五個 role identity 不表示五個同時 worker，`.codex/config.toml` 的並行上限維持 4。
-- **2026-08-26｜Basic 責任流與未決 gate**：責任流固定為 CMS Workspace → Domain & Application → Data & Media；Domain/Data 的已核准 snapshots → Projection & Preview；versioned renderer input → Public Delivery → GitHub Pages。Q-003 未決時，Domain 只提供 route/hierarchy 與 gated site command，CMS 不實作 navigation/settings；Q-004 未決不改變 Projection & Preview owner；Q-005／Q-006 未決時角色保持 stack/editor-format neutral；Q-007 未核准前不得建立 Theme、Plugin 或 Controlled Command API role。i18n 納入時由 Domain 擁有 locale/content contract，CMS 與 Public Delivery 各自擁有 authoring/public surface，待 Owner 定義 locale、fallback 與 route 範圍前不啟動。
-- **2026-08-26｜契約審核矩陣**：Domain/application/local API 由 `domain_application_engineer` 擁有，`cms_workspace_engineer`、`data_media_engineer` 必要審查，涉及 snapshot/projection input 時加 `projection_preview_engineer`；persistence/media integrity 由 `data_media_engineer` 擁有，`domain_application_engineer`、`projection_preview_engineer` 必要審查，涉及 user-visible operation 時加 `cms_workspace_engineer`；versioned projection/preview 由 `projection_preview_engineer` 擁有，`domain_application_engineer`、`public_delivery_engineer` 必要審查，涉及 media reference 時加 `data_media_engineer`；CMS interaction 由 `cms_workspace_engineer` 擁有、`domain_application_engineer` 必要審查並使用平台 `designer`；static artifact/public delivery 由 `public_delivery_engineer` 擁有，`projection_preview_engineer`、`data_media_engineer` 必要審查並使用平台 `reviewer`，涉及 trust boundary 時使用 `security-reviewer`。owner 不得自我核准；所有指定 reviewer 必須 `ACCEPT`，`NEEDS_REVISION` 修正後以同一 candidate 重審，任何 `DISAGREE` 阻止發行。
-- **2026-08-26｜角色 context 與生成規則**：角色只先讀 `MEMORY.md` 中明列且 Owner 已核准的 canonical path／contract；再以派工提供的 `WK-*`／`SP-*`、contract ID 或 exact path 動態解析證據。零個或互相衝突的 candidate，或沒有 approved pointer 時一律 fail closed，不得將 `docs/`、`draft/`、`dev-hub-*`、`project-*`、`logs/` 或 generated output 升格。Owner 核准 contract/scope 後，Technical Lead 必須先在本檔記錄決策日期、exact canonical path 或 contract/work-item ID 與核准邊界，再派工。frontmatter `name` 是 snake_case identity；Rulesync source 與 generated filename 使用對應 kebab-case discovery slug，consumer/reviewer 必須讀取內容 `name`，不得用 basename identity 或手寫 manifest。`rulesync import --targets codexcli --features subagents` 只可由 Owner／Technical Lead 明確授權做一次性 bootstrap/recovery，平時禁止，以避免 import→generate 雙向循環。
+**3. Plugin 是獨立套件，有清楚的 API 邊界**
+Plugin 以本機 folder + manifest discovery、manual activation 的方式載入；其 source 可位於 monorepo 或獨立套件，但不得因位置而耦合進 core package。Plugin 只能透過 core 暴露的 API/hook 或 injected application service 存取資料，不能 import core 內部模組或直接連 DB。每個 plugin 有自己的資料表/collection namespace（前綴區隔），不能寫別的 plugin 的表。若要實際執行隔離，必須另行提供明確的 process/runtime sandbox；npm package 本身不是 sandbox。
+
+**4. Schema / DB 變更走版本化 migration**
+用 migration 工具管理 schema 版本；有持久化 state 的 plugin 各自擁有 migration 歷史。Plugin 停用/移除時，明確定義資料保留、匯出或清除策略；清除不可預設執行，必須經明確確認。Breaking schema change 一定先提供轉換腳本或相容層，不能讓資料在升級後憑空壞掉。
+
+**5. 預設值與漸進複雜度**
+全新安裝要有一組「開箱即用」的預設 content type 與預設角色權限，不用先讀文件才能開始用。進階功能（自訂 schema、外部整合）走顯性設定，不因為想要特殊行為就在 core 塞一堆 if-else。設定名稱對應使用者理解的概念（例如「誰可以發佈內容」），不暴露內部實作旗標。
+
+**6. 邊界處清楚失敗**
+權限不足、資料驗證失敗、plugin 版本不相容，直接擋下並回傳結構化錯誤（code + message + 可行動建議），不吞錯誤、不悄悄用預設值頂替。API 錯誤格式全站統一，前端與 plugin 都能穩定處理。Log 要能定位問題，但絕不紀錄密碼、token、使用者個資明碼。
+
+**7. 小步上線，完整收尾**
+用最小垂直切片交付：一個功能的 API、hook、migration、測試、文件同時完成，不留半成品。新舊 API 版本並存只在有期限的過渡期內，過期後移除舊版本。部署走 CI/CD：測試與 migration validation 通過才允許上線；應用程式必須可回退。資料庫 migration 不預設有安全的 down，應採 expand/contract 或 forward repair；破壞性變更執行前必須完成可驗證的備份或 impact report。
+
+## 規則
+
+1. 不把 plugin 才需要的功能塞進 core。
+2. Plugin 不得 import core 內部模組、不得直接連 DB、不得存取其他 plugin 的資料表。
+3. 不改動已發布的 API schema、hook payload、公開資料格式或 plugin manifest，除非同時提供版本化與遷移路徑；Core 內部資料表不可被當成公開 contract。
+4. 一張表/collection 只有一個 owner（core 或某個 plugin），別人只能經 API 存取。
+5. Cache、索引、衍生資料永遠可重建，不可成為唯一資料來源。
+6. Migration 執行前先跑驗證與 dry-run/impact check，不確定就不執行。
+7. 不用 try/catch 吞掉錯誤裝作成功；失敗要往外拋出結構化錯誤。
+8. 新增 hook、API、plugin 設定前，必須先定義 owner、payload type、權限邊界、測試案例。
+9. 不用一堆布林 config 疊加控制行為分支；需要分支就用具名 strategy/mode 表達。
+10. 適用的安全檢查（auth、驗證、對外入口的 rate limit）、migration、監控不能排在功能完成之後才做。
+11. Build/deploy 腳本不能有沒寫進文件的副作用（例如偷偷改 production 資料）。
+12. 沒有淘汰期限的相容層（舊 API alias、雙寫欄位）不能無限期留著。
+
+## 工作方法
+
+1. **先定義 contract**：這個功能要暴露什麼 API/hook/資料結構，寫成 TypeScript type 或 OpenAPI/GraphQL schema。
+2. **設計最小垂直切片**：API + migration + 測試 + 文件一次做完，不分批留尾巴。
+3. **用真實情境測試**：正常路徑、權限不足、資料衝突、plugin 停用時的行為都要測；測試盯著對外契約，不測內部實作細節。
+4. **完整 cutover**：舊版本 API/hook 移除前，先確認所有內部呼叫端都換完。
+5. **保持可回退或可修復。** 每次上線前能講清楚改了什麼、誰負責、怎麼監控、怎麼緊急關閉；應用程式可回退，資料庫則依 migration 策略安全地前移修復或回復資料。
