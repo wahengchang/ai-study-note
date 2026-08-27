@@ -4,12 +4,27 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "engines": {
+    "node": "24.20.0",
+    "npm": "11.19.0"
+  },
+  "packageManager": "npm@11.19.0",
   "scripts": {
     "clean": "find . -name '._*' -type f -delete",
     "sync:ai": "npm run clean && rulesync generate",
-    "check:ai-sync": "npm run clean && rulesync generate --check"
+    "check:ai-sync": "npm run clean && rulesync generate --check",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test \"tests/**/*.test.ts\"",
+    "check:architecture": "node --import tsx scripts/check-architecture.ts",
+    "check": "npm run typecheck && npm run check:architecture && npm test"
+  },
+  "dependencies": {
+    "json-canonicalize": "3.0.0"
   },
   "devDependencies": {
-    "rulesync": "^16.15.0"
+    "@types/node": "24.13.3",
+    "rulesync": "^16.15.0",
+    "tsx": "4.23.12",
+    "typescript": "5.9.3"
   }
 }
