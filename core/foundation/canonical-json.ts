@@ -69,7 +69,9 @@ function snapshot(value: unknown, active: WeakSet<object>): JsonValue | undefine
     if (prototype !== Object.prototype && prototype !== null) return undefined;
     const output = Object.create(null) as Record<string, JsonValue>;
     for (const [key, rawDescriptor] of descriptors) {
-      if (typeof key !== "string" || !hasOnlyUnicodeScalars(key) || key === "toJSON") return undefined;
+      // `toJSON` 是合法 I-JSON key：序列化全程自行處理 object／array，不會把 object 交給 library，
+      // 因此不需要、也不得因此拒絕輸入。
+      if (typeof key !== "string" || !hasOnlyUnicodeScalars(key)) return undefined;
       const descriptor = dataDescriptorValue(rawDescriptor);
       if (!descriptor.valid || rawDescriptor?.enumerable !== true) return undefined;
       const nested = snapshot(descriptor.value, active);
