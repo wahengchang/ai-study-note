@@ -37,5 +37,6 @@ draft*/
 # AI research sidecars
 .research/
 
-# Active q-plan work hubs
-.dev-hub/active/
+# Dev Hub local state; see docs/dev-hub-workflow.md
+.dev-hub/worktrees/
+.dev-hub/runtime/
