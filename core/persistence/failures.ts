@@ -1,0 +1,32 @@
+import type { PersistenceFailure, PersistenceFailureCode } from "./contracts.js";
+
+const messages: Readonly<Record<PersistenceFailureCode, string>> = {
+  INVALID_DATABASE_PATH: "請提供有效的 database path。",
+  UNKNOWN_DATABASE: "指定的資料庫不屬於此 CMS。",
+  MIGRATION_HISTORY_MISMATCH: "Storage migration 歷史與目前程式不一致。",
+  MIGRATION_FAILED: "Storage migration 未完成。",
+  INVALID_PERSISTENCE_INPUT: "請提供有效的 Persistence 輸入。",
+  NON_CANONICAL_BYTES: "請提供 canonical JSON bytes。",
+  DIGEST_MISMATCH: "Canonical bytes 與 digest 不一致。",
+  SCHEMA_VERSION_CONFLICT: "請使用同一 schema 的下一個版本。",
+  SCHEMA_VERSION_NOT_FOUND: "請先登錄 Revision 引用的 schema version。",
+  REVISION_CONFLICT: "請使用新的 Revision identity。",
+  REVISION_NOT_FOUND: "找不到指定的 Revision。",
+  IMMUTABLE_SCHEMA_VERSION: "Schema version 不可修改或刪除。",
+  IMMUTABLE_REVISION: "Revision 不可修改或刪除。",
+  CONSTRAINT_VIOLATION: "Persistence constraint 拒絕這次操作。",
+  STORAGE_FAILURE: "Persistence 操作未完成。",
+};
+
+export function persistenceFailure(code: PersistenceFailureCode): PersistenceFailure {
+  return {
+    code,
+    owner: "Persistence",
+    subjectIds: [],
+    remediation: { kind: "message", message: messages[code] },
+  };
+}
+
+export function persistenceResultFailure(code: PersistenceFailureCode): Readonly<{ ok: false; error: PersistenceFailure }> {
+  return { ok: false, error: persistenceFailure(code) };
+}
