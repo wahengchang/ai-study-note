@@ -9,9 +9,6 @@
 > **先釐清一個容易誤會的地方**：這份文件裡「核心穩定」「核心不可碰」不是說你們不能開發或修改核心——核心正是這個專案最主要的開發標的，從第一行程式碼到後續每個版本都是你們自己寫、自己演進的。真正被限制的是：**一旦核心對外公開的東西（API、hook、資料結構）被 plugin 或其他模組開始依賴，就不能說改就 改、沒版本化就直接打破。** 開發核心、擴充核心、重構核心，都是分內工作；破壞已經被依賴的契約而不打招呼，才是這份宣言要擋下的事。
 
 
-## 目前 SSOT
-
-`CMS-BASIC-CONTRACTS-V1` 的唯一現行 SSOT 是 [`contracts/README.md`](contracts/README.md)。本檔只保存長期工程原則與該指標；`logs/`、historical input 與 Spike evidence 僅供 provenance／驗證，不能覆蓋此契約。
 
 ## 真理
 
@@ -26,6 +23,7 @@
 1. 不把 plugin 才需要的功能塞進 core。
 2. 不用 try/catch 吞掉錯誤裝作成功；失敗要往外拋出結構化錯誤。
 3. 腳本為每角色人員準備好，讓團隊快速進入狀態，Such As DB、Build/deploy、Dev 。
+
 ## 工作方法
 
 1. **先定義 contract**：這個功能要暴露什麼 API/hook/資料結構，寫成 TypeScript type 或 OpenAPI/GraphQL schema。
