@@ -10,8 +10,12 @@ import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
 
 const root = path.resolve(import.meta.dirname, "../../..");
 
+// 必須與 package.json 的 `db:migrate` 使用同一組旗標：node:sqlite 在 Node 24 會把
+// ExperimentalWarning 寫進 stderr，CLI 的 exact-output contract 必須把 driver 噪音隔離掉。
+const cliFlags = ["--disable-warning=ExperimentalWarning", "--import", "tsx"] as const;
+
 function invoke(args: readonly string[]) {
-  return spawnSync(process.execPath, ["--import", "tsx", "apps/cli/db-migrate.ts", ...args], {
+  return spawnSync(process.execPath, [...cliFlags, "apps/cli/db-migrate.ts", ...args], {
     cwd: root,
     encoding: "utf8",
   });
@@ -25,10 +29,16 @@ test("CLI validates arguments before opening a database", () => {
   const directory = temporaryDirectory();
   try {
     const databasePath = path.join(directory, "not-created.sqlite");
-    const result = invoke([]);
-    assert.equal(result.status, 2);
-    assert.equal(result.stdout, "");
-    assert.equal(result.stderr, "DB_MIGRATE_FAILED code=INVALID_ARGUMENTS\n");
+    const missing = invoke([]);
+    assert.equal(missing.status, 2);
+    assert.equal(missing.stdout, "");
+    assert.equal(missing.stderr, "DB_MIGRATE_FAILED code=INVALID_ARGUMENTS\n");
+
+    // 帶了合法 database path 但夾雜未知選項：必須在開啟資料庫前就失敗，不得建立檔案。
+    const unknownOption = invoke(["--database", databasePath, "--unknown", "value"]);
+    assert.equal(unknownOption.status, 2);
+    assert.equal(unknownOption.stdout, "");
+    assert.equal(unknownOption.stderr, "DB_MIGRATE_FAILED code=INVALID_ARGUMENTS\n");
     assert.equal(existsSync(databasePath), false);
   } finally {
     rmSync(directory, { recursive: true, force: true });

@@ -66,6 +66,9 @@ test("canonical and digest failures are fixed and sanitized", () => {
     });
     assert.equal(digest.ok, false);
     if (!digest.ok) assert.equal(digest.error.code, "DIGEST_MISMATCH");
+    const absent = store.getRevision({ entryId: "entry", revisionId: "r1" });
+    assert.equal(absent.ok, false);
+    if (!absent.ok) assert.equal(absent.error.code, "REVISION_NOT_FOUND");
     store.close();
   } finally {
     rmSync(value.directory, { recursive: true, force: true });

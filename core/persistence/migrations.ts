@@ -152,7 +152,8 @@ function prepareMigrations(sources: readonly MigrationSource[]): readonly Prepar
 function readState(database: SqliteAdapter): DatabaseState {
   const application = database.get("PRAGMA application_id");
   const userVersion = database.get("PRAGMA user_version");
-  const objects = database.get("SELECT count(*) AS count FROM sqlite_master WHERE type IN ('table', 'trigger', 'index') AND name NOT LIKE 'sqlite_%'");
+  // 不限定 type：只含 view（或其他非 table 物件）的外部資料庫仍是 unknown database，不得被判為空並寫入。
+  const objects = database.get("SELECT count(*) AS count FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'");
   let ledger: readonly SqliteRow[] = [];
   try {
     ledger = database.all("SELECT sequence, migration_id, filename, digest FROM storage_migrations ORDER BY sequence");

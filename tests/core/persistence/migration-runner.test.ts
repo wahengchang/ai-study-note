@@ -86,6 +86,20 @@ test("unknown and failed migrations do not alter database evidence", () => {
     assert.equal(digestFile(unknown.databasePath), unknownBefore);
     assert.equal(JSON.stringify(unknownResult).includes("token-do-not-leak"), false);
 
+    const viewOnly = temporaryDatabase();
+    try {
+      const foreign = openSqliteAdapter(viewOnly.databasePath);
+      foreign.exec("CREATE VIEW foreign_view AS SELECT 1 AS x");
+      foreign.close();
+      const viewOnlyBefore = digestFile(viewOnly.databasePath);
+      const viewOnlyResult = migrateDatabase({ databasePath: viewOnly.databasePath });
+      assert.equal(viewOnlyResult.ok, false);
+      if (!viewOnlyResult.ok) assert.equal(viewOnlyResult.error.code, "UNKNOWN_DATABASE");
+      assert.equal(digestFile(viewOnly.databasePath), viewOnlyBefore);
+    } finally {
+      rmSync(viewOnly.directory, { recursive: true, force: true });
+    }
+
     const broken = new TextEncoder().encode("CREATE TABLE rollback_canary (value TEXT) STRICT; INVALID SQL;");
     const failedResult = migrateDatabaseWithSources(
       { databasePath: failed.databasePath },

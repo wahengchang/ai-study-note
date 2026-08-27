@@ -11,7 +11,10 @@ export class SqliteAdapter {
   constructor(databasePath: string) {
     this.#database = new DatabaseSync(databasePath);
     this.#database.enableLoadExtension(false);
-    this.#database.exec("PRAGMA foreign_keys = ON; PRAGMA defensive = ON; PRAGMA trusted_schema = OFF; PRAGMA dqs_dml = OFF; PRAGMA dqs_ddl = OFF;");
+    // `defensive` 與 `dqs_dml`／`dqs_ddl` 只是 sqlite3_db_config() flag，不是 PRAGMA；
+    // SQLite 會靜默忽略未知 PRAGMA，寫在這裡只會製造安全假象。node:sqlite 尚未暴露 db_config，
+    // 目前無法開啟 defensive；double-quoted string misfeature 在 Node 內建 build 已預設關閉。
+    this.#database.exec("PRAGMA foreign_keys = ON; PRAGMA trusted_schema = OFF;");
   }
 
   exec(sql: string): void {
