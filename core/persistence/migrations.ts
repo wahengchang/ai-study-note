@@ -26,10 +26,23 @@ type DatabaseState = Readonly<{
   ledger: readonly SqliteRow[];
 }>;
 
-export const shippedMigrationSources: readonly MigrationSource[] = [
-  { filename: "0001-create-persistence-storage.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0001-create-persistence-storage.sql", import.meta.url)) },
-  { filename: "0002-add-persistence-query-indexes.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0002-add-persistence-query-indexes.sql", import.meta.url)) },
+const shippedMigrationFilenames: readonly string[] = [
+  "0001-create-persistence-storage.sql",
+  "0002-add-persistence-query-indexes.sql",
 ];
+
+// 刻意不在 module top-level 讀檔：讀取失敗必須成為 structured failure，
+// 而不是在 import 期丟出未包裝的例外、繞過整套 failure contract。
+export function shippedMigrationSources(): readonly MigrationSource[] | null {
+  try {
+    return shippedMigrationFilenames.map((filename) => ({
+      filename,
+      sqlBytes: readFileSync(new URL(`../../db/migrations/${filename}`, import.meta.url)),
+    }));
+  } catch {
+    return null;
+  }
+}
 
 export function migrateDatabaseWithSources(
   input: Readonly<{ databasePath: string }>,
@@ -41,7 +54,8 @@ export function migrateDatabaseWithSources(
   try {
     database = openSqliteAdapter(input.databasePath);
   } catch {
-    return persistenceResultFailure("INVALID_DATABASE_PATH");
+    // path 語法已通過檢查，開不起來就是目錄不存在／權限／磁碟／檔案毀損，不是「path 給錯格式」。
+    return persistenceResultFailure("DATABASE_UNAVAILABLE");
   }
 
   try {
@@ -93,16 +107,17 @@ export function migrateDatabaseWithSources(
 
 export function openCurrentDatabase(input: Readonly<{ databasePath: string }>):
   | Readonly<{ ok: true; database: SqliteAdapter }>
-  | Readonly<{ ok: false; code: "INVALID_DATABASE_PATH" | "UNKNOWN_DATABASE" | "MIGRATION_HISTORY_MISMATCH" }> {
+  | Readonly<{ ok: false; code: "INVALID_DATABASE_PATH" | "DATABASE_UNAVAILABLE" | "UNKNOWN_DATABASE" | "MIGRATION_HISTORY_MISMATCH" }> {
   if (!validDatabasePath(input.databasePath)) return { ok: false, code: "INVALID_DATABASE_PATH" };
   let database: SqliteAdapter;
   try {
     database = openSqliteAdapter(input.databasePath);
   } catch {
-    return { ok: false, code: "INVALID_DATABASE_PATH" };
+    return { ok: false, code: "DATABASE_UNAVAILABLE" };
   }
   try {
-    const migrations = prepareMigrations(shippedMigrationSources);
+    const sources = shippedMigrationSources();
+    const migrations = sources === null ? null : prepareMigrations(sources);
     if (migrations === null) {
       database.close();
       return { ok: false, code: "MIGRATION_HISTORY_MISMATCH" };

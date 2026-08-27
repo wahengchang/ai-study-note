@@ -25,7 +25,7 @@
 
 `DomainApplication` 擁有 `SaveRevision`、`PublishRevision`、`RestoreRevision`、`ChangeRoute` application commands。每個 command 在寫入前完成 schema validation、media availability、route conflict/impact preflight；單一 transaction 的 write-set 包含 immutable revision、current/published pointer、對應 graph route claims 與 operation lineage。任一 preflight、constraint 或 fault 失敗時，所有 write-set digest 不變，回傳 `{code, owner, subjectIds, remediation}`。
 
-`Revision` 是 immutable `{entryId, revisionId, schemaVersion, contentBytes, contentDigest, restoredFromRevisionId?}`。`schema_versions` 與 `revisions` 均 append-only；update/delete 必須被 persistence 拒絕。`entry_pointers(entryId, currentRevisionId, publishedRevisionId?)` 的兩個 revision ID 均以 `(entryId, revisionId)` composite foreign key 指向 Revision。
+`Revision` 是 immutable `{entryId, revisionId, schemaIdentity{schemaId, version}, contentBytes, contentDigest, restoredFromRevisionId?, lineage{operationId, operationKind}}`；schema version 以 `(schemaId, version)` composite identity 表示，單一 `schemaVersion` 無法定位跨 schema 的歷史。`schema_versions` 與 `revisions` 均 append-only；update/delete 必須被 persistence 拒絕。`entry_pointers(entryId, currentRevisionId, publishedRevisionId?)` 的兩個 revision ID 均以 `(entryId, revisionId)` composite foreign key 指向 Revision。
 
 Schema migration 先回傳 impact report `{affectedPointers, historicalRevisions, mapping, blockedRows}`。不相容 migration 僅在 mapping 覆蓋所有受影響 current/published pointers、每個 transformed payload 通過新 schema validation 時提交；它建立新 immutable revisions、按 command 指定 policy 切換 pointers，或明確保留舊 pin。空/部分 mapping、缺 required field 或無效 select mapping 一律 rollback。
 

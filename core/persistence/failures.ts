@@ -2,6 +2,7 @@ import type { PersistenceFailure, PersistenceFailureCode } from "./contracts.js"
 
 const messages: Readonly<Record<PersistenceFailureCode, string>> = {
   INVALID_DATABASE_PATH: "請提供有效的 database path。",
+  DATABASE_UNAVAILABLE: "無法開啟指定的資料庫檔案；請確認目錄存在且具備讀寫權限。",
   UNKNOWN_DATABASE: "指定的資料庫不屬於此 CMS。",
   MIGRATION_HISTORY_MISMATCH: "Storage migration 歷史與目前程式不一致。",
   MIGRATION_FAILED: "Storage migration 未完成。",

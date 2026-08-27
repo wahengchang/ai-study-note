@@ -19,7 +19,9 @@ export type {
 } from "./contracts.js";
 
 export function migrateDatabase(input: Readonly<{ databasePath: string }>): PersistenceResult<MigrationSummary> {
-  return migrateDatabaseWithSources(input, shippedMigrationSources);
+  const sources = shippedMigrationSources();
+  if (sources === null) return persistenceResultFailure("MIGRATION_FAILED");
+  return migrateDatabaseWithSources(input, sources);
 }
 
 export function openPersistence(input: Readonly<{ databasePath: string }>): PersistenceResult<PersistenceStore> {

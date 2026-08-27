@@ -2,6 +2,7 @@ import { copyBytes, isDigest, type Digest } from "../foundation/index.js";
 
 import type {
   CreateRevisionInput,
+  PersistenceFailureCode,
   PersistenceStore,
   RevisionIdentity,
   RevisionRecord,
@@ -10,7 +11,23 @@ import type {
 } from "./contracts.js";
 import { validateCanonicalBytes } from "./canonical-bytes.js";
 import { persistenceResultFailure } from "./failures.js";
-import { sqliteFailureCode, type SqliteAdapter, type SqliteRow } from "./sqlite-adapter.js";
+import { sqliteConstraintKind, sqliteFailureCode, type SqliteAdapter, type SqliteRow } from "./sqlite-adapter.js";
+
+// transaction callback 內以 throw 早退，讓 adapter 走 ROLLBACK；若用 return 回傳 failure，
+// 交易會照常 COMMIT，日後只要有人把 write 移到早退之前就會靜默留下半成品。
+class TransactionAbort extends Error {
+  readonly failureCode: PersistenceFailureCode;
+
+  constructor(failureCode: PersistenceFailureCode) {
+    super(failureCode);
+    this.name = "TransactionAbort";
+    this.failureCode = failureCode;
+  }
+}
+
+function abort(code: PersistenceFailureCode): never {
+  throw new TransactionAbort(code);
+}
 
 export function createPersistenceStore(database: SqliteAdapter): PersistenceStore {
   return {
@@ -24,7 +41,7 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
           const current = database.get("SELECT max(version) AS version FROM schema_versions WHERE schema_id = ?", input.identity.schemaId);
           const latest = nullablePositiveInteger(current?.version);
           const expected = latest === null ? 1 : latest + 1;
-          if (input.identity.version !== expected) return persistenceResultFailure("SCHEMA_VERSION_CONFLICT");
+          if (input.identity.version !== expected) abort("SCHEMA_VERSION_CONFLICT");
           database.run(
             "INSERT INTO schema_versions (schema_id, version, schema_bytes, schema_digest) VALUES (?, ?, ?, ?)",
             input.identity.schemaId,
@@ -35,8 +52,10 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
           return { ok: true, value: schemaRecord(input.identity, bytes, canonical.digest) };
         });
       } catch (error) {
-        const code = sqliteFailureCode(error);
-        return persistenceResultFailure(code === "CONSTRAINT_VIOLATION" ? "SCHEMA_VERSION_CONFLICT" : code);
+        if (error instanceof TransactionAbort) return persistenceResultFailure(error.failureCode);
+        // 只有唯一性衝突才是 version conflict；CHECK／FK 失敗必須照實回報。
+        if (sqliteConstraintKind(error) === "unique") return persistenceResultFailure("SCHEMA_VERSION_CONFLICT");
+        return persistenceResultFailure(sqliteFailureCode(error));
       }
     },
 
@@ -70,20 +89,20 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
             input.schemaIdentity.schemaId,
             input.schemaIdentity.version,
           );
-          if (schema === undefined) return persistenceResultFailure("SCHEMA_VERSION_NOT_FOUND");
+          if (schema === undefined) abort("SCHEMA_VERSION_NOT_FOUND");
           const existing = database.get(
             "SELECT 1 AS found FROM revisions WHERE entry_id = ? AND revision_id = ?",
             input.identity.entryId,
             input.identity.revisionId,
           );
-          if (existing !== undefined) return persistenceResultFailure("REVISION_CONFLICT");
+          if (existing !== undefined) abort("REVISION_CONFLICT");
           if (input.restoredFromRevisionId !== undefined) {
             const origin = database.get(
               "SELECT 1 AS found FROM revisions WHERE entry_id = ? AND revision_id = ?",
               input.identity.entryId,
               input.restoredFromRevisionId,
             );
-            if (origin === undefined) return persistenceResultFailure("REVISION_NOT_FOUND");
+            if (origin === undefined) abort("REVISION_NOT_FOUND");
           }
           database.run(
             "INSERT INTO revisions (entry_id, revision_id, schema_id, schema_version, content_bytes, content_digest, restored_from_revision_id) VALUES (?, ?, ?, ?, ?, ?, ?)",
@@ -105,8 +124,9 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
           return { ok: true, value: revisionRecord(input, bytes, canonical.digest) };
         });
       } catch (error) {
-        const code = sqliteFailureCode(error);
-        return persistenceResultFailure(code === "CONSTRAINT_VIOLATION" ? "REVISION_CONFLICT" : code);
+        if (error instanceof TransactionAbort) return persistenceResultFailure(error.failureCode);
+        if (sqliteConstraintKind(error) === "unique") return persistenceResultFailure("REVISION_CONFLICT");
+        return persistenceResultFailure(sqliteFailureCode(error));
       }
     },
 
