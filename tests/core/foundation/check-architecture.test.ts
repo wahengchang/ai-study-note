@@ -219,6 +219,17 @@ test("rejects unresolved and non-literal module specifiers", async () => {
   );
 });
 
+test("allows Plugin Host's verified runtime module URL only", async () => {
+  assert.deepEqual(
+    await rules({
+      "core/plugin-host/index.ts": "export {};\n",
+      "core/plugin-host/module-loader.ts": "const entryUrl = new URL('file:///plugin.mjs');\nexport const module = import(entryUrl.href);\n",
+      ...contentEntry,
+    }),
+    [],
+  );
+});
+
 test("rejects parse errors instead of silently skipping the file", async () => {
   assert.deepEqual(await rules({ "core/content/index.ts": "export const = ;\n" }), ["PARSE_ERROR"]);
 });
