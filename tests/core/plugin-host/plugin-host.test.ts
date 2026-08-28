@@ -330,6 +330,45 @@ test("snapshot revalidates identity and deactivation enables exact replacement",
   }
 });
 
+test("in-place identity drift stops the active snapshot and validator preparation before any module load", async () => {
+  resetLoads();
+  const value = fixture();
+  try {
+    const pluginHost = await host(value);
+    const activated = await activate(pluginHost, "activation-probe");
+    assert.equal(activated.ok, true, activated.ok ? "" : activated.error.code);
+    if (!activated.ok) return;
+    const loadedAfterActivation = loads();
+
+    // installed evidence 就地升級成新 identity；activation state 仍記錄舊 exact identity。
+    writeManifest(value.pluginDirectory, { version: "1.0.1" });
+
+    const snapshot = await pluginHost.getActiveSnapshot();
+    assert.equal(snapshot.ok, false);
+    if (!snapshot.ok) assert.equal(snapshot.error.code, "ACTIVE_PLUGIN_IDENTITY_MISMATCH");
+
+    const prepared = await pluginHost.prepareSaveRevisionValidators({ entryId: "entry-a" });
+    assert.equal(prepared.ok, false);
+    if (!prepared.ok) assert.equal(prepared.error.code, "ACTIVE_PLUGIN_IDENTITY_MISMATCH");
+    // 漂移後的 entry bytes 不得被載入執行。
+    assert.equal(loads(), loadedAfterActivation);
+    assert.equal(value.port.digest(), activated.value.digest);
+
+    const block = await pluginHost.resolveCmsEditorBlock({ contract: "cms-editor-block-source/v1", entryId: "entry-a", revisionId: "draft-1", pluginIdentity: activated.value.identities[0]!, source: { kind: "probe" } });
+    assert.equal(block.ok, true);
+    if (block.ok) assert.equal(block.value.status, "identity-changed");
+    assert.equal(loads(), loadedAfterActivation);
+
+    // 還原 installed evidence 後，同一個 exact identity 重新可用。
+    writeManifest(value.pluginDirectory);
+    const restored = await pluginHost.getActiveSnapshot();
+    assert.equal(restored.ok, true);
+    if (restored.ok) assert.equal(restored.value.digest, activated.value.digest);
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
 test("trusted root rejects repository-local source", async () => {
   const port = new MemoryActivationStatePort();
   const result = await createPluginHost({ repositoryRoot, installedPluginsRoot: path.join(repositoryRoot, "extensions", "plugins"), activationState: port });
