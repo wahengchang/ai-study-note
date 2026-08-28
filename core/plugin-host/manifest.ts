@@ -14,6 +14,7 @@ import {
   type PluginManifestV1,
 } from "./contracts.js";
 import { isCanonicalPluginId, pluginHostFailure, type PluginHostFailure } from "./failures.js";
+import { compareCodeUnits } from "./ordering.js";
 import { isSafeRelativeFile } from "./trusted-root.js";
 
 const manifestKeys = ["manifestVersion", "id", "version", "trustedLocal", "hookContract", "capabilities", "entry", "callbacks", "resources"];
@@ -76,9 +77,9 @@ function invalid(subjectId?: unknown): ManifestReadResult {
 }
 
 function normalizeManifest(manifest: PluginManifestV1): PluginManifestV1 {
-  const normalizedCapabilities = [...manifest.capabilities].sort();
-  const normalizedCallbacks = [...manifest.callbacks].sort((left, right) => left.hook.localeCompare(right.hook));
-  const normalizedResources = [...manifest.resources].sort((left, right) => left.file.localeCompare(right.file));
+  const normalizedCapabilities = [...manifest.capabilities].sort(compareCodeUnits);
+  const normalizedCallbacks = [...manifest.callbacks].sort((left, right) => compareCodeUnits(left.hook, right.hook));
+  const normalizedResources = [...manifest.resources].sort((left, right) => compareCodeUnits(left.file, right.file));
   return Object.freeze({
     manifestVersion: "plugin-manifest/v1",
     id: manifest.id,
@@ -108,7 +109,7 @@ export function parseManifestBytes(bytes: Uint8Array, directoryId: string): Mani
   if (value.hookContract !== PluginHookContract) return { ok: false, error: pluginHostFailure("UNSUPPORTED_HOOK_CONTRACT", directoryId) };
   if (!isCanonicalPluginId(value.id) || value.id !== directoryId || typeof value.version !== "string") return invalid(directoryId);
 
-  const semver = requireSemver(value.version);
+  const semver = isExactSemver(value.version);
   if (!semver) return invalid(directoryId);
   if (!Array.isArray(value.capabilities) || value.capabilities.length === 0 || !value.capabilities.every((item) => typeof item === "string")) return invalid(directoryId);
   const declaredCapabilities = value.capabilities as string[];
@@ -147,7 +148,7 @@ export function parseManifestBytes(bytes: Uint8Array, directoryId: string): Mani
   return Object.freeze({ ok: true, value: Object.freeze({ manifest, manifestHash: sha256Digest(normalized.value) }) });
 }
 
-function requireSemver(value: string): boolean {
+export function isExactSemver(value: string): boolean {
   // `semver.valid(value) === value` 拒絕 range、v prefix 與 surrounding whitespace。
   return semverValid(value) === value;
 }

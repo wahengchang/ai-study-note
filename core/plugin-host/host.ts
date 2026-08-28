@@ -1,5 +1,4 @@
 import { readFile } from "node:fs/promises";
-import { valid as semverValid } from "semver";
 
 import { canonicalJsonBytes, isDigest, sha256Digest, type Digest } from "../foundation/index.js";
 
@@ -15,8 +14,9 @@ import type {
   PluginManifestV1,
 } from "./contracts.js";
 import { isCanonicalPluginId, pluginHostError, pluginHostFailure, type PluginHostFailure } from "./failures.js";
-import { readManifest } from "./manifest.js";
+import { isExactSemver, readManifest } from "./manifest.js";
 import { loadVerifiedPluginModule } from "./module-loader.js";
+import { compareCodeUnits } from "./ordering.js";
 import {
   installedPluginDirectories,
   resolvePluginDirectory,
@@ -60,7 +60,7 @@ function exactIdentity(value: unknown): PluginActivationIdentity | null {
   const version = descriptors.version?.value;
   const hookContract = descriptors.hookContract?.value;
   const manifestHash = descriptors.manifestHash?.value;
-  if (!isCanonicalPluginId(id) || typeof version !== "string" || semverValid(version) !== version || hookContract !== "plugin-hooks/v1" || typeof manifestHash !== "string" || !isDigest(manifestHash)) return null;
+  if (!isCanonicalPluginId(id) || typeof version !== "string" || !isExactSemver(version) || hookContract !== "plugin-hooks/v1" || typeof manifestHash !== "string" || !isDigest(manifestHash)) return null;
   return frozenIdentity({ id, version, hookContract, manifestHash });
 }
 
@@ -73,7 +73,7 @@ function activationState(value: unknown): PluginActivationState | null {
   if (identities.some((identity) => identity === null)) return null;
   const copied = identities as PluginActivationIdentity[];
   if (new Set(copied.map((identity) => identity.id)).size !== copied.length) return null;
-  if (copied.some((identity, index) => index > 0 && copied[index - 1]!.id >= identity.id)) return null;
+  if (copied.some((identity, index) => index > 0 && compareCodeUnits(copied[index - 1]!.id, identity.id) >= 0)) return null;
   return Object.freeze({ contract: "plugin-activation-state/v1", identities: Object.freeze(copied) });
 }
 
@@ -145,7 +145,7 @@ async function discovery(roots: TrustedRoots): Promise<PluginHostResult<PluginDi
   }
   const counts = new Map<string, number>();
   for (const candidate of valid) counts.set(candidate.id, (counts.get(candidate.id) ?? 0) + 1);
-  const candidates = valid.filter((candidate) => counts.get(candidate.id) === 1).sort((left, right) => left.id.localeCompare(right.id));
+  const candidates = valid.filter((candidate) => counts.get(candidate.id) === 1).sort((left, right) => compareCodeUnits(left.id, right.id));
   for (const [id, count] of counts) if (count > 1) rejections.push(pluginHostFailure("PLUGIN_IDENTITY_CONFLICT", id));
   return Object.freeze({ ok: true, value: Object.freeze({ candidates: Object.freeze(candidates), rejections: Object.freeze(rejections) }) });
 }
@@ -220,7 +220,7 @@ class PluginHostImplementation implements PluginHost {
     });
     if (!loaded.ok) return loaded;
     if (sameId !== undefined) return Object.freeze({ ok: true, value: snapshot(current.state, current.digest) });
-    const nextIdentities = Object.freeze([...current.state.identities, identity].sort((left, right) => left.id.localeCompare(right.id)));
+    const nextIdentities = Object.freeze([...current.state.identities, identity].sort((left, right) => compareCodeUnits(left.id, right.id)));
     const nextState: PluginActivationState = Object.freeze({ contract: "plugin-activation-state/v1", identities: nextIdentities });
     try {
       if (!(await this.activationState.compareAndReplace({ expectedDigest: current.digest, nextState }))) return pluginHostError("ACTIVATION_STATE_CONFLICT");

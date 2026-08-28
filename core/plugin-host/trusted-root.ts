@@ -1,6 +1,7 @@
 import { realpath, readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
+import { compareCodeUnits } from "./ordering.js";
 
 export type TrustedRoots = Readonly<{
   repositoryRoot: string;
@@ -37,20 +38,10 @@ export function isSafeRelativeFile(value: unknown): value is string {
 
 export async function installedPluginDirectories(root: TrustedRoots): Promise<readonly string[]> {
   const entries = await readdir(root.installedPluginsRoot, { withFileTypes: true });
-  const directories: string[] = [];
-  for (const entry of entries) {
-    if (!entry.isDirectory() && !entry.isSymbolicLink()) continue;
-    const candidate = path.join(root.installedPluginsRoot, entry.name);
-    try {
-      const resolved = await realpath(candidate);
-      if (isInside(root.installedPluginsRoot, resolved) && (await stat(resolved)).isDirectory()) directories.push(entry.name);
-      else directories.push(entry.name);
-    } catch {
-      // 由 discovery 為存在但不可用的目錄回傳固定 rejection。
-      directories.push(entry.name);
-    }
-  }
-  return Object.freeze(directories.sort());
+  // 存在但逃逸、損壞或不可用的目錄一律保留。containment 由 `resolvePluginDirectory` 在
+  // 讀取 manifest 前強制，discovery 才能為它們回傳固定 rejection 而非靜默省略。
+  const directories = entries.filter((entry) => entry.isDirectory() || entry.isSymbolicLink()).map((entry) => entry.name);
+  return Object.freeze(directories.sort(compareCodeUnits));
 }
 
 export async function resolvePluginDirectory(root: TrustedRoots, pluginId: string): Promise<string | null> {
