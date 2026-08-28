@@ -223,7 +223,7 @@ test("allows Plugin Host's verified runtime module URL only", async () => {
   assert.deepEqual(
     await rules({
       "core/plugin-host/index.ts": "export {};\n",
-      "core/plugin-host/module-loader.ts": "const entryUrl = new URL('file:///plugin.mjs');\nexport const module = import(entryUrl.href);\n",
+      "core/plugin-host/module-loader.ts": "const url = 'data:text/javascript;base64,ZXhwb3J0IHt9';\nexport const module = import(url);\n",
       ...contentEntry,
     }),
     [],

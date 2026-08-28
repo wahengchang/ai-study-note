@@ -20,6 +20,7 @@
     "db:migrate": "node --disable-warning=ExperimentalWarning --import tsx apps/cli/db-migrate.ts"
   },
   "dependencies": {
+    "es-module-lexer": "2.3.2",
     "json-canonicalize": "3.0.0",
     "semver": "7.8.5",
     "unicode-case-folding": "1.1.1"

@@ -33,6 +33,7 @@ export const shippedMigrationSources: readonly MigrationSource[] = [
   { filename: "0004-add-route-claims.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0004-add-route-claims.sql", import.meta.url)) },
   { filename: "0005-add-media-storage.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0005-add-media-storage.sql", import.meta.url)) },
   { filename: "0006-add-revision-references.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0006-add-revision-references.sql", import.meta.url)) },
+  { filename: "0007-add-plugin-activation-state.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0007-add-plugin-activation-state.sql", import.meta.url)) },
 ];
 
 export function migrateDatabaseWithSources(
