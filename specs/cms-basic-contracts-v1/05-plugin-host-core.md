@@ -4,6 +4,7 @@
 - **狀態**：已通過架構與安全複審
 - **依據**：`CMS-BASIC-CONTRACTS-V1` §4，以及 `MEMORY.md` 的長期 Plugin boundary 原則。前者定義已核准範圍與設計約束；程式碼與對應測試是已實作行為的 SSOT。
 - **前置規格**：`CMS-CORE-02`、`CMS-CORE-04`；published renderer 介面等待 projection work package。
+- **目前實作 surface**：程式與測試僅涵蓋 manifest discovery、evidence validation、exact-identity activation／deactivation／snapshot。callback invocation、hook ordering、capability mediation，以及 editor／validator／renderer／assets 能力仍未實作。
 
 ## Problem Statement
 
