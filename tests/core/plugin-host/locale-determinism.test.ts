@@ -32,17 +32,18 @@ function bytes(value: unknown): Uint8Array {
 
 function copyState(value: PluginActivationState): PluginActivationState {
   return Object.freeze({
-    contract: "plugin-activation-state/v1",
-    identities: Object.freeze(value.identities.map((identity) => Object.freeze({ ...identity }))),
+    contract: "plugin-activation-state/v2",
+    active: Object.freeze(value.active.map((identity) => Object.freeze({ ...identity }))),
+    reactivationRequired: Object.freeze(value.reactivationRequired.map((identity) => Object.freeze({ ...identity }))),
   });
 }
 
 function activationDigest(value: PluginActivationState): Digest {
-  return sha256Digest(bytes({ contract: value.contract, identities: value.identities }));
+  return sha256Digest(bytes({ contract: value.contract, active: value.active, reactivationRequired: value.reactivationRequired }));
 }
 
 class MemoryActivationStatePort implements PluginActivationStatePort {
-  public state: PluginActivationState = copyState({ contract: "plugin-activation-state/v1", identities: [] });
+  public state: PluginActivationState = copyState({ contract: "plugin-activation-state/v2", active: [], reactivationRequired: [] });
 
   public async read(): Promise<PluginActivationState> {
     return copyState(this.state);
@@ -98,12 +99,18 @@ test("identity and manifest hash follow code-unit order, not the host locale", a
     assert.equal(created.ok, true);
     if (!created.ok) return;
 
+    const report = await created.value.discover();
+    assert.equal(report.ok, true);
+    if (!report.ok) return;
     for (const pluginId of pluginIds) {
-      const activated = await created.value.activate({ pluginId });
+      const candidate = report.value.candidates.find((item) => item.id === pluginId);
+      assert.notEqual(candidate, undefined);
+      if (candidate === undefined) return;
+      const activated = await created.value.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash } });
       assert.equal(activated.ok, true, activated.ok ? "" : activated.error.code);
     }
-    assert.deepEqual(port.state.identities.map((identity) => identity.id), [...pluginIds].sort());
-    assert.deepEqual(port.state.identities.map((identity) => identity.manifestHash), expected);
+    assert.deepEqual(port.state.active.map((identity) => identity.id), [...pluginIds].sort());
+    assert.deepEqual(port.state.active.map((identity) => identity.manifestHash), expected);
 
     // 寫入順序若不是 reader 接受的 canonical 順序，active state 會永久無法讀取。
     const restored = await created.value.getActiveSnapshot();

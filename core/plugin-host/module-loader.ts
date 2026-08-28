@@ -1,4 +1,4 @@
-import { pathToFileURL } from "node:url";
+import { init, parse } from "es-module-lexer";
 
 import type { PluginManifestCallback } from "./contracts.js";
 import { pluginHostFailure, type PluginHostFailure } from "./failures.js";
@@ -7,25 +7,22 @@ export type LoadedPluginModule = Readonly<{ namespace: Readonly<Record<string, u
 export type ModuleLoadResult = Readonly<{ ok: true; value: LoadedPluginModule }> | Readonly<{ ok: false; error: PluginHostFailure }>;
 
 export async function loadVerifiedPluginModule(input: Readonly<{
-  entryRealpath: string;
+  entryBytes: Uint8Array;
   manifestHash: string;
   callbacks: readonly PluginManifestCallback[];
   pluginId: string;
 }>): Promise<ModuleLoadResult> {
-  if (new Set(input.callbacks.map((callback) => callback.exportName)).size !== input.callbacks.length) {
-    return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
-  }
-  const entryUrl = pathToFileURL(input.entryRealpath);
-  entryUrl.searchParams.set("manifest", input.manifestHash);
-  let namespace: Readonly<Record<string, unknown>>;
+  if (new Set(input.callbacks.map((callback) => callback.exportName)).size !== input.callbacks.length) return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
   try {
-    // entry URL 是已完成 containment 與 digest 驗證的 runtime module；靜態 import 無法載入 operator 注入的檔案。
-    namespace = (await import(entryUrl.href)) as Readonly<Record<string, unknown>>;
-  } catch {
-    return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
-  }
-  if (input.callbacks.some((callback) => typeof namespace[callback.exportName] !== "function")) {
-    return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
-  }
-  return Object.freeze({ ok: true, value: Object.freeze({ namespace }) });
+    await init;
+    const source = new TextDecoder("utf-8", { fatal: true }).decode(input.entryBytes);
+    const [imports] = parse(source);
+    // `d === -2` 是不載入 module 的 import.meta；其餘 lexer record 都會建立 executable dependency graph。
+    if (imports.some((item) => item.d !== -2)) return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
+    const url = `data:text/javascript;base64,${Buffer.from(input.entryBytes).toString("base64")}#manifest=${encodeURIComponent(input.manifestHash)}`;
+    // Plugin entry bytes與 manifest hash只在 runtime 決定；靜態 import 無法保留這個 verified-byte boundary。
+    const namespace = (await import(url)) as Readonly<Record<string, unknown>>;
+    if (input.callbacks.some((callback) => typeof namespace[callback.exportName] !== "function")) return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
+    return Object.freeze({ ok: true, value: Object.freeze({ namespace }) });
+  } catch { return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) }; }
 }

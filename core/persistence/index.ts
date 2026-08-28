@@ -5,6 +5,7 @@ import { createPersistenceStore } from "./store.js";
 
 export type {
   AssetVersionIdentity,
+  CompareAndReplacePluginActivationStateInput,
   CreateRevisionInput,
   CreateRevisionWithReferencesInput,
   EntryPointerLineageRecord,
@@ -13,6 +14,7 @@ export type {
   MigrationSummary,
   OperationLineageIdentity,
   OperationLineageRecord,
+  PluginActivationStateRecord,
   PersistenceCanonicalState,
   PersistenceFailure,
   PersistenceFailureCode,

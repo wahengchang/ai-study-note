@@ -1,285 +1,40 @@
 import { readFile } from "node:fs/promises";
 
-import { canonicalJsonBytes, isDigest, sha256Digest, type Digest } from "../foundation/index.js";
-
-import type {
-  ActivePluginSnapshot,
-  CreatePluginHostInput,
-  PluginActivationIdentity,
-  PluginActivationState,
-  PluginCandidate,
-  PluginDiscoveryReport,
-  PluginHost,
-  PluginHostResult,
-  PluginManifestV1,
-} from "./contracts.js";
+import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
+import type { ActivePluginSnapshot, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CreatePluginHostInput, PluginActivationIdentity, PluginActivationState, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PreparedSaveRevisionValidators, SaveRevisionContentGuard, SaveRevisionValidatorInput, ValidatedSaveRevisionContent } from "./contracts.js";
 import { isCanonicalPluginId, pluginHostError, pluginHostFailure, type PluginHostFailure } from "./failures.js";
 import { isExactSemver, readManifest } from "./manifest.js";
 import { loadVerifiedPluginModule } from "./module-loader.js";
 import { compareCodeUnits } from "./ordering.js";
-import {
-  installedPluginDirectories,
-  resolvePluginDirectory,
-  resolvePluginFile,
-  type TrustedRoots,
-  validateTrustedRoots,
-} from "./trusted-root.js";
+import { installedPluginDirectories, resolvePluginDirectory, resolvePluginFile, revalidateTrustedRoots, type TrustedRoots, validateTrustedRoots } from "./trusted-root.js";
 
-type InstalledManifest = Readonly<{
-  directory: string;
-  manifest: PluginManifestV1;
-  manifestHash: Digest;
-}>;
+type Installed = Readonly<{ directory: string; manifest: PluginManifestV1; manifestHash: Digest; entryBytes: Uint8Array }>;
+type State = Readonly<{ state: PluginActivationState; digest: Digest }>;
+type Prepared = Readonly<{ entryId: string; digest: Digest; callbacks: readonly Readonly<{ identity: PluginActivationIdentity; priority: number; callback: (input: unknown, facade: unknown) => unknown }>[] }>;
 
-type VerifiedPlugin = InstalledManifest & Readonly<{ entryRealpath: string }>;
+function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> { try { if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return false; const descriptors = Object.getOwnPropertyDescriptors(value); return Object.keys(descriptors).length === keys.length && keys.every((key) => key in descriptors && "value" in descriptors[key]!); } catch { return false; } }
+function identity(value: unknown): PluginActivationIdentity | null { if (!exact(value, ["id", "version", "hookContract", "manifestHash"]) || !isCanonicalPluginId(value.id) || typeof value.version !== "string" || !isExactSemver(value.version) || value.hookContract !== "plugin-hooks/v1" || typeof value.manifestHash !== "string" || !isDigest(value.manifestHash)) return null; return Object.freeze({ id: value.id, version: value.version, hookContract: value.hookContract, manifestHash: value.manifestHash }); }
+function same(left: PluginActivationIdentity, right: PluginActivationIdentity): boolean { return left.id === right.id && left.version === right.version && left.hookContract === right.hookContract && left.manifestHash === right.manifestHash; }
+function ordered(values: readonly PluginActivationIdentity[]): readonly PluginActivationIdentity[] { return Object.freeze([...values].map((item) => Object.freeze({ ...item })).sort((a, b) => compareCodeUnits(a.id, b.id))); }
+function parseState(value: unknown): PluginActivationState | null { if (!exact(value, ["contract", "active", "reactivationRequired"]) || value.contract !== "plugin-activation-state/v2" || !Array.isArray(value.active) || !Array.isArray(value.reactivationRequired)) return null; const active = value.active.map(identity), reactivationRequired = value.reactivationRequired.map(identity); if (active.some((item) => item === null) || reactivationRequired.some((item) => item === null)) return null; const all = [...active, ...reactivationRequired] as PluginActivationIdentity[]; if (new Set(all.map((item) => item.id)).size !== all.length || ![active, reactivationRequired].every((items) => items.every((item, index) => index === 0 || compareCodeUnits(items[index - 1]!.id, item!.id) < 0))) return null; return Object.freeze({ contract: "plugin-activation-state/v2", active: Object.freeze(active as PluginActivationIdentity[]), reactivationRequired: Object.freeze(reactivationRequired as PluginActivationIdentity[]) }); }
+function digest(state: PluginActivationState): Digest | null { const bytes = canonicalJsonBytes(state); return bytes.ok ? sha256Digest(bytes.value) : null; }
+function snapshot(state: PluginActivationState, stateDigest: Digest): ActivePluginSnapshot { return Object.freeze({ identities: Object.freeze(state.active.map((item) => Object.freeze({ ...item }))), digest: stateDigest }); }
+function json(value: unknown): Readonly<{ value: JsonValue; bytes: Uint8Array; digest: Digest }> | null { const bytes = canonicalJsonBytes(value); if (!bytes.ok) return null; try { return Object.freeze({ value: Object.freeze(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes.value))) as JsonValue, bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value) }); } catch { return null; } }
 
-type StateRead = Readonly<{ ok: true; state: PluginActivationState; digest: Digest }> | Readonly<{ ok: false; error: PluginHostFailure }>;
-type InstalledRead = Readonly<{ ok: true; value: InstalledManifest }> | Readonly<{ ok: false; error: PluginHostFailure }>;
-type Verification = Readonly<{ ok: true; value: VerifiedPlugin }> | Readonly<{ ok: false; error: PluginHostFailure }>;
+async function installed(roots: TrustedRoots, id: string): Promise<Installed | null> { const directory = await resolvePluginDirectory(roots, id); if (directory === null) return null; const path = await resolvePluginFile(directory, "plugin-manifest.json"); if (path === null) return null; const parsed = await readManifest(path, id); if (!parsed.ok) return null; let entryBytes: Uint8Array | null = null; for (const item of [parsed.value.manifest.entry, ...parsed.value.manifest.resources]) { const file = await resolvePluginFile(directory, item.file); if (file === null) return null; try { const bytes = await readFile(file); if (sha256Digest(bytes) !== item.digest) return null; if (item.file === parsed.value.manifest.entry.file) entryBytes = copyBytes(bytes); } catch { return null; } } return entryBytes === null ? null : Object.freeze({ directory, manifest: parsed.value.manifest, manifestHash: parsed.value.manifestHash, entryBytes }); }
 
-function frozenIdentity(value: PluginActivationIdentity): PluginActivationIdentity {
-  return Object.freeze({ id: value.id, version: value.version, hookContract: value.hookContract, manifestHash: value.manifestHash });
+class Host implements PluginHost {
+  #queue = Promise.resolve(); #prepared = new Map<symbol, Prepared>();
+  constructor(private readonly roots: TrustedRoots, private readonly port: CreatePluginHostInput["activationState"]) {}
+  async discover(): Promise<PluginHostResult<PluginDiscoveryReport>> { if (!(await revalidateTrustedRoots(this.roots))) return pluginHostError("INVALID_TRUSTED_ROOT"); try { const candidates = []; const rejections: PluginHostFailure[] = []; for (const id of await installedPluginDirectories(this.roots)) { const item = isCanonicalPluginId(id) ? await installed(this.roots, id) : null; if (item === null) { rejections.push(pluginHostFailure("INVALID_PLUGIN_MANIFEST", id)); continue; } candidates.push(Object.freeze({ id: item.manifest.id, version: item.manifest.version, hookContract: item.manifest.hookContract, capabilities: item.manifest.capabilities, manifestHash: item.manifestHash })); } return { ok: true, value: Object.freeze({ candidates: Object.freeze(candidates.sort((a, b) => compareCodeUnits(a.id, b.id))), rejections: Object.freeze(rejections) }) }; } catch { return pluginHostError("PLUGIN_DISCOVERY_FAILED"); } }
+  activate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>> { return this.serial(async () => { const wanted = identity(input?.identity); if (wanted === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT"); const item = await installed(this.roots, wanted.id); if (item === null) return pluginHostError("PLUGIN_EVIDENCE_MISMATCH", wanted.id); const actual = identity({ id: item.manifest.id, version: item.manifest.version, hookContract: item.manifest.hookContract, manifestHash: item.manifestHash })!; if (!same(wanted, actual)) return pluginHostError("PLUGIN_IDENTITY_CONFLICT", wanted.id); const module = await loadVerifiedPluginModule({ entryBytes: item.entryBytes, manifestHash: item.manifestHash, callbacks: item.manifest.callbacks, pluginId: wanted.id }); if (!module.ok) return module; const current = await this.state(); if (!current.ok) return current; const existing = [...current.value.state.active, ...current.value.state.reactivationRequired].find((entry) => entry.id === wanted.id); if (existing !== undefined && !same(existing, wanted)) return pluginHostError("PLUGIN_IDENTITY_CONFLICT", wanted.id); if (current.value.state.active.some((entry) => same(entry, wanted))) return { ok: true, value: snapshot(current.value.state, current.value.digest) }; const next: PluginActivationState = Object.freeze({ contract: "plugin-activation-state/v2", active: ordered([...current.value.state.active, wanted]), reactivationRequired: ordered(current.value.state.reactivationRequired.filter((entry) => entry.id !== wanted.id)) }); return this.replace(current.value, next); }); }
+  deactivate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>> { return this.serial(async () => { const wanted = identity(input?.identity); const current = await this.state(); if (wanted === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT"); if (!current.ok) return current; if (![...current.value.state.active, ...current.value.state.reactivationRequired].some((entry) => same(entry, wanted))) return pluginHostError("PLUGIN_NOT_ACTIVE", wanted.id); const next: PluginActivationState = Object.freeze({ contract: "plugin-activation-state/v2", active: ordered(current.value.state.active.filter((entry) => entry.id !== wanted.id)), reactivationRequired: ordered(current.value.state.reactivationRequired.filter((entry) => entry.id !== wanted.id)) }); return this.replace(current.value, next); }); }
+  getActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>> { return this.serial(async () => { const current = await this.state(); if (!current.ok) return current; if (current.value.state.reactivationRequired.length > 0) return pluginHostError("ACTIVE_PLUGIN_REACTIVATION_REQUIRED", current.value.state.reactivationRequired[0]!.id); for (const entry of current.value.state.active) if (await installed(this.roots, entry.id) === null) return pluginHostError("ACTIVE_PLUGIN_SOURCE_MISSING", entry.id); return { ok: true, value: snapshot(current.value.state, current.value.digest) }; }); }
+  resolveCmsEditorBlock(input: CmsEditorBlockSource): Promise<PluginHostResult<CmsEditorBlockResolution>> { return this.serial(async () => { if (!exact(input, ["contract", "entryId", "revisionId", "pluginIdentity", "source"]) || input.contract !== "cms-editor-block-source/v1" || typeof input.entryId !== "string" || typeof input.revisionId !== "string") return pluginHostError("INVALID_PLUGIN_HOST_INPUT"); const wanted = identity(input.pluginIdentity), source = json(input.source); if (wanted === null || source === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT"); const evidence: CmsEditorBlockSourceEvidence = Object.freeze({ ...input, pluginIdentity: wanted, source: source.value, sourceBytes: source.bytes, sourceDigest: source.digest }); const current = await this.state(); if (!current.ok) return current; const item = await installed(this.roots, wanted.id); const status = item === null ? "missing" : !same(wanted, identity({ id: item.manifest.id, version: item.manifest.version, hookContract: item.manifest.hookContract, manifestHash: item.manifestHash })!) ? "identity-changed" : !current.value.state.active.some((entry) => same(entry, wanted)) ? "inactive" : null; if (status !== null) { const code = status === "missing" ? "PLUGIN_BLOCK_MISSING" : status === "inactive" ? "PLUGIN_BLOCK_INACTIVE" : "PLUGIN_BLOCK_IDENTITY_CHANGED"; return { ok: true, value: Object.freeze({ status, source: evidence, diagnostic: pluginHostFailure(code, wanted.id), activeStateDigest: current.value.digest }) }; } return pluginHostError("PLUGIN_CAPABILITY_DENIED", wanted.id); }); }
+  prepareSaveRevisionValidators(input: Readonly<{ entryId: string }>): Promise<PluginHostResult<PreparedSaveRevisionValidators>> { return this.serial(async () => { if (!exact(input, ["entryId"]) || typeof input.entryId !== "string") return pluginHostError("INVALID_PLUGIN_HOST_INPUT"); const current = await this.state(); if (!current.ok) return current; if (current.value.state.reactivationRequired.length > 0) return pluginHostError("ACTIVE_PLUGIN_REACTIVATION_REQUIRED"); const callbacks: Prepared["callbacks"][number][] = []; for (const entry of current.value.state.active) { const item = await installed(this.roots, entry.id); if (item === null) return pluginHostError("ACTIVE_PLUGIN_SOURCE_MISSING", entry.id); const loaded = await loadVerifiedPluginModule({ entryBytes: item.entryBytes, manifestHash: item.manifestHash, callbacks: item.manifest.callbacks, pluginId: entry.id }); if (!loaded.ok) return loaded; const declaration = item.manifest.callbacks.find((candidate) => candidate.hook === "save-revision/validate"); if (declaration !== undefined) callbacks.push(Object.freeze({ identity: entry, priority: declaration.priority, callback: loaded.value.namespace[declaration.exportName] as (input: unknown, facade: unknown) => unknown })); } callbacks.sort((left, right) => left.priority - right.priority || compareCodeUnits(left.identity.id, right.identity.id)); const token = Symbol("plugin-operation"); this.#prepared.set(token, Object.freeze({ entryId: input.entryId, digest: current.value.digest, callbacks: Object.freeze(callbacks) })); return { ok: true, value: Object.freeze({ activeStateDigest: current.value.digest, __pluginOperationToken: token }) as unknown as PreparedSaveRevisionValidators }; }); }
+  runPreparedSaveRevisionValidators(token: PreparedSaveRevisionValidators, input: SaveRevisionValidatorInput, guard: SaveRevisionContentGuard): PluginHostResult<ValidatedSaveRevisionContent> { const key = token?.__pluginOperationToken; const prepared = this.#prepared.get(key); if (prepared === undefined || prepared.entryId !== input.entryId) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT"); this.#prepared.delete(key); let content = json(input.content); if (content === null) return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID"); for (const item of prepared.callbacks) { let output: unknown; try { output = item.callback(Object.freeze({ ...input, content: content.value }), Object.freeze({ capability: "save-revision-validator" })); } catch { return pluginHostError("PLUGIN_CALLBACK_FAILED", item.identity.id); } if (output !== null && (typeof output === "object" || typeof output === "function") && typeof (output as { then?: unknown }).then === "function") return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", item.identity.id); if (!exact(output, ["contract", "decision"]) && !exact(output, ["contract", "decision", "replacement"])) return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", item.identity.id); if (output.contract !== "save-revision-validator-output/v1") return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", item.identity.id); if (output.decision === "reject") return pluginHostError("PLUGIN_VALIDATION_REJECTED", item.identity.id); if (output.decision !== "accept" || !exact(output.replacement, ["content"])) return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", item.identity.id); content = json(output.replacement.content); if (content === null || !guard({ contentBytes: copyBytes(content.bytes), contentDigest: content.digest }).ok) return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", item.identity.id); } return { ok: true, value: Object.freeze({ content: content.value, contentBytes: content.bytes, contentDigest: content.digest, activeStateDigest: prepared.digest }) }; }
+  private async state(): Promise<Readonly<{ ok: true; value: State }> | Readonly<{ ok: false; error: PluginHostFailure }>> { try { const state = parseState(await this.port.read()), stateDigest = state === null ? null : digest(state); return state === null || stateDigest === null ? pluginHostError("ACTIVATION_STATE_FAILURE") : { ok: true, value: { state, digest: stateDigest } }; } catch { return pluginHostError("ACTIVATION_STATE_FAILURE"); } }
+  private async replace(current: State, next: PluginActivationState): Promise<PluginHostResult<ActivePluginSnapshot>> { try { if (!(await this.port.compareAndReplace({ expectedDigest: current.digest, nextState: next }))) return pluginHostError("ACTIVATION_STATE_CONFLICT"); const nextDigest = digest(next); return nextDigest === null ? pluginHostError("ACTIVATION_STATE_FAILURE") : { ok: true, value: snapshot(next, nextDigest) }; } catch { return pluginHostError("ACTIVATION_STATE_FAILURE"); } }
+  private async serial<T>(operation: () => Promise<T>): Promise<T> { const previous = this.#queue; let release: () => void = () => {}; this.#queue = new Promise<void>((resolve) => { release = resolve; }); await previous; try { return await operation(); } finally { release(); } }
 }
-
-function stateDigest(identities: readonly PluginActivationIdentity[]): Digest | null {
-  const canonical = canonicalJsonBytes({ contract: "plugin-activation-state/v1", identities });
-  return canonical.ok ? sha256Digest(canonical.value) : null;
-}
-
-function identityEqual(left: PluginActivationIdentity, right: PluginActivationIdentity): boolean {
-  return left.id === right.id && left.version === right.version && left.hookContract === right.hookContract && left.manifestHash === right.manifestHash;
-}
-
-function exactIdentity(value: unknown): PluginActivationIdentity | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  const keys = Object.keys(descriptors);
-  if (keys.length !== 4 || !["id", "version", "hookContract", "manifestHash"].every((key) => keys.includes(key))) return null;
-  if (!keys.every((key) => "value" in (descriptors[key] ?? {}))) return null;
-  const id = descriptors.id?.value;
-  const version = descriptors.version?.value;
-  const hookContract = descriptors.hookContract?.value;
-  const manifestHash = descriptors.manifestHash?.value;
-  if (!isCanonicalPluginId(id) || typeof version !== "string" || !isExactSemver(version) || hookContract !== "plugin-hooks/v1" || typeof manifestHash !== "string" || !isDigest(manifestHash)) return null;
-  return frozenIdentity({ id, version, hookContract, manifestHash });
-}
-
-function activationState(value: unknown): PluginActivationState | null {
-  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return null;
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  if (Object.keys(descriptors).length !== 2 || !("contract" in descriptors) || !("identities" in descriptors)) return null;
-  if (!("value" in descriptors.contract) || !("value" in descriptors.identities) || descriptors.contract.value !== "plugin-activation-state/v1" || !Array.isArray(descriptors.identities.value)) return null;
-  const identities = descriptors.identities.value.map(exactIdentity);
-  if (identities.some((identity) => identity === null)) return null;
-  const copied = identities as PluginActivationIdentity[];
-  if (new Set(copied.map((identity) => identity.id)).size !== copied.length) return null;
-  if (copied.some((identity, index) => index > 0 && compareCodeUnits(copied[index - 1]!.id, identity.id) >= 0)) return null;
-  return Object.freeze({ contract: "plugin-activation-state/v1", identities: Object.freeze(copied) });
-}
-
-function snapshot(state: PluginActivationState, digest: Digest): ActivePluginSnapshot {
-  return Object.freeze({ identities: Object.freeze(state.identities.map(frozenIdentity)), digest });
-}
-
-function identityFor(installed: InstalledManifest): PluginActivationIdentity {
-  return frozenIdentity({
-    id: installed.manifest.id,
-    version: installed.manifest.version,
-    hookContract: installed.manifest.hookContract,
-    manifestHash: installed.manifestHash,
-  });
-}
-
-async function readInstalledManifest(roots: TrustedRoots, pluginId: string): Promise<InstalledRead> {
-  const directory = await resolvePluginDirectory(roots, pluginId);
-  if (directory === null) return { ok: false, error: pluginHostFailure("INVALID_PLUGIN_MANIFEST", pluginId) };
-  const manifestPath = await resolvePluginFile(directory, "plugin-manifest.json");
-  if (manifestPath === null) return { ok: false, error: pluginHostFailure("INVALID_PLUGIN_MANIFEST", pluginId) };
-  const parsed = await readManifest(manifestPath, pluginId);
-  if (!parsed.ok) return parsed;
-  return Object.freeze({ ok: true, value: Object.freeze({ directory, manifest: parsed.value.manifest, manifestHash: parsed.value.manifestHash }) });
-}
-
-async function verifyEvidence(installed: InstalledManifest): Promise<Verification> {
-  const entryRealpath = await resolvePluginFile(installed.directory, installed.manifest.entry.file);
-  if (entryRealpath === null) return { ok: false, error: pluginHostFailure("PLUGIN_EVIDENCE_MISMATCH", installed.manifest.id) };
-  const declared = [installed.manifest.entry, ...installed.manifest.resources];
-  for (const item of declared) {
-    const resolved = await resolvePluginFile(installed.directory, item.file);
-    if (resolved === null) return { ok: false, error: pluginHostFailure("PLUGIN_EVIDENCE_MISMATCH", installed.manifest.id) };
-    try {
-      if (sha256Digest(await readFile(resolved)) !== item.digest) return { ok: false, error: pluginHostFailure("PLUGIN_EVIDENCE_MISMATCH", installed.manifest.id) };
-    } catch {
-      return { ok: false, error: pluginHostFailure("PLUGIN_EVIDENCE_MISMATCH", installed.manifest.id) };
-    }
-  }
-  return Object.freeze({ ok: true, value: Object.freeze({ ...installed, entryRealpath }) });
-}
-
-async function discovery(roots: TrustedRoots): Promise<PluginHostResult<PluginDiscoveryReport>> {
-  let directories: readonly string[];
-  try {
-    directories = await installedPluginDirectories(roots);
-  } catch {
-    return pluginHostError("PLUGIN_DISCOVERY_FAILED");
-  }
-  const valid: PluginCandidate[] = [];
-  const rejections: PluginHostFailure[] = [];
-  for (const directory of directories) {
-    if (!isCanonicalPluginId(directory)) {
-      rejections.push(pluginHostFailure("INVALID_PLUGIN_MANIFEST"));
-      continue;
-    }
-    const parsed = await readInstalledManifest(roots, directory);
-    if (!parsed.ok) {
-      rejections.push(parsed.error);
-      continue;
-    }
-    valid.push(Object.freeze({
-      id: parsed.value.manifest.id,
-      version: parsed.value.manifest.version,
-      hookContract: parsed.value.manifest.hookContract,
-      capabilities: Object.freeze([...parsed.value.manifest.capabilities]),
-      manifestHash: parsed.value.manifestHash,
-    }));
-  }
-  const counts = new Map<string, number>();
-  for (const candidate of valid) counts.set(candidate.id, (counts.get(candidate.id) ?? 0) + 1);
-  const candidates = valid.filter((candidate) => counts.get(candidate.id) === 1).sort((left, right) => compareCodeUnits(left.id, right.id));
-  for (const [id, count] of counts) if (count > 1) rejections.push(pluginHostFailure("PLUGIN_IDENTITY_CONFLICT", id));
-  return Object.freeze({ ok: true, value: Object.freeze({ candidates: Object.freeze(candidates), rejections: Object.freeze(rejections) }) });
-}
-
-class PluginHostImplementation implements PluginHost {
-  #operation = Promise.resolve();
-
-  public constructor(
-    private readonly roots: TrustedRoots,
-    private readonly activationState: CreatePluginHostInput["activationState"],
-  ) {}
-
-  public async discover(): Promise<PluginHostResult<PluginDiscoveryReport>> {
-    return discovery(this.roots);
-  }
-
-  public activate(input: Readonly<{ pluginId: string }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
-    return this.serialize(() => this.activateOnce(input));
-  }
-
-  public deactivate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
-    return this.serialize(() => this.deactivateOnce(input));
-  }
-
-  public async getActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>> {
-    const current = await this.readState();
-    if (!current.ok) return current;
-    const verified: VerifiedPlugin[] = [];
-    for (const active of current.state.identities) {
-      const installed = await readInstalledManifest(this.roots, active.id);
-      if (!installed.ok || !identityEqual(identityFor(installed.value), active)) return pluginHostError("ACTIVE_PLUGIN_IDENTITY_MISMATCH", active.id);
-      const evidence = await verifyEvidence(installed.value);
-      if (!evidence.ok) return pluginHostError("ACTIVE_PLUGIN_IDENTITY_MISMATCH", active.id);
-      verified.push(evidence.value);
-    }
-    for (const plugin of verified) {
-      const loaded = await loadVerifiedPluginModule({
-        entryRealpath: plugin.entryRealpath,
-        manifestHash: plugin.manifestHash,
-        callbacks: plugin.manifest.callbacks,
-        pluginId: plugin.manifest.id,
-      });
-      if (!loaded.ok) return loaded;
-    }
-    return Object.freeze({ ok: true, value: snapshot(current.state, current.digest) });
-  }
-
-  private async activateOnce(input: Readonly<{ pluginId: string }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
-    if (!isCanonicalPluginId(input?.pluginId)) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
-    const report = await discovery(this.roots);
-    if (!report.ok) return report;
-    const rejected = report.value.rejections.find((rejection) => rejection.code === "PLUGIN_IDENTITY_CONFLICT" && rejection.subjectIds[0] === input.pluginId);
-    if (rejected !== undefined) return Object.freeze({ ok: false, error: rejected });
-    if (!report.value.candidates.some((candidate) => candidate.id === input.pluginId)) {
-      const invalid = report.value.rejections.find((rejection) => rejection.subjectIds[0] === input.pluginId);
-      return invalid === undefined ? pluginHostError("PLUGIN_NOT_FOUND", input.pluginId) : Object.freeze({ ok: false, error: invalid });
-    }
-    const installed = await readInstalledManifest(this.roots, input.pluginId);
-    if (!installed.ok) return installed;
-    const evidence = await verifyEvidence(installed.value);
-    if (!evidence.ok) return evidence;
-    const current = await this.readState();
-    if (!current.ok) return current;
-    const identity = identityFor(installed.value);
-    const sameId = current.state.identities.find((active) => active.id === identity.id);
-    if (sameId !== undefined && !identityEqual(sameId, identity)) return pluginHostError("PLUGIN_IDENTITY_CONFLICT", identity.id);
-    const loaded = await loadVerifiedPluginModule({
-      entryRealpath: evidence.value.entryRealpath,
-      manifestHash: installed.value.manifestHash,
-      callbacks: installed.value.manifest.callbacks,
-      pluginId: identity.id,
-    });
-    if (!loaded.ok) return loaded;
-    if (sameId !== undefined) return Object.freeze({ ok: true, value: snapshot(current.state, current.digest) });
-    const nextIdentities = Object.freeze([...current.state.identities, identity].sort((left, right) => compareCodeUnits(left.id, right.id)));
-    const nextState: PluginActivationState = Object.freeze({ contract: "plugin-activation-state/v1", identities: nextIdentities });
-    try {
-      if (!(await this.activationState.compareAndReplace({ expectedDigest: current.digest, nextState }))) return pluginHostError("ACTIVATION_STATE_CONFLICT");
-    } catch {
-      return pluginHostError("ACTIVATION_STATE_FAILURE");
-    }
-    const nextDigest = stateDigest(nextIdentities);
-    return nextDigest === null ? pluginHostError("ACTIVATION_STATE_FAILURE") : Object.freeze({ ok: true, value: snapshot(nextState, nextDigest) });
-  }
-
-  private async deactivateOnce(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
-    const identity = exactIdentity(input?.identity);
-    if (identity === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
-    const current = await this.readState();
-    if (!current.ok) return current;
-    const active = current.state.identities.find((item) => item.id === identity.id);
-    if (active === undefined || !identityEqual(active, identity)) return pluginHostError("PLUGIN_NOT_ACTIVE", identity.id);
-    const nextIdentities = Object.freeze(current.state.identities.filter((item) => item.id !== identity.id).map(frozenIdentity));
-    const nextState: PluginActivationState = Object.freeze({ contract: "plugin-activation-state/v1", identities: nextIdentities });
-    try {
-      if (!(await this.activationState.compareAndReplace({ expectedDigest: current.digest, nextState }))) return pluginHostError("ACTIVATION_STATE_CONFLICT");
-    } catch {
-      return pluginHostError("ACTIVATION_STATE_FAILURE");
-    }
-    const nextDigest = stateDigest(nextIdentities);
-    return nextDigest === null ? pluginHostError("ACTIVATION_STATE_FAILURE") : Object.freeze({ ok: true, value: snapshot(nextState, nextDigest) });
-  }
-
-  private async readState(): Promise<StateRead> {
-    let value: unknown;
-    try {
-      value = await this.activationState.read();
-    } catch {
-      return { ok: false, error: pluginHostFailure("ACTIVATION_STATE_FAILURE") };
-    }
-    const state = activationState(value);
-    if (state === null) return { ok: false, error: pluginHostFailure("ACTIVATION_STATE_FAILURE") };
-    const digest = stateDigest(state.identities);
-    return digest === null ? { ok: false, error: pluginHostFailure("ACTIVATION_STATE_FAILURE") } : Object.freeze({ ok: true, state, digest });
-  }
-
-  private async serialize<T>(operation: () => Promise<T>): Promise<T> {
-    const previous = this.#operation;
-    let release: () => void = () => undefined;
-    this.#operation = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    await previous;
-    try {
-      return await operation();
-    } finally {
-      release();
-    }
-  }
-}
-
-export async function createPluginHost(input: CreatePluginHostInput): Promise<PluginHostResult<PluginHost>> {
-  if (input === null || typeof input !== "object" || typeof input.activationState?.read !== "function" || typeof input.activationState?.compareAndReplace !== "function") return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
-  const roots = await validateTrustedRoots(input);
-  if (roots === null) return pluginHostError("INVALID_TRUSTED_ROOT");
-  return Object.freeze({ ok: true, value: new PluginHostImplementation(roots, input.activationState) });
-}
+export async function createPluginHost(input: CreatePluginHostInput): Promise<PluginHostResult<PluginHost>> { if (input === null || typeof input !== "object" || typeof input.activationState?.read !== "function" || typeof input.activationState?.compareAndReplace !== "function") return pluginHostError("INVALID_PLUGIN_HOST_INPUT"); const roots = await validateTrustedRoots(input); return roots === null ? pluginHostError("INVALID_TRUSTED_ROOT") : { ok: true, value: new Host(roots, input.activationState) }; }

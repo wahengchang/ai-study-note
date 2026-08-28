@@ -1,20 +1,12 @@
 export { PluginHookContract } from "./contracts.js";
 export { createPluginHost } from "./host.js";
 export type {
-  ActivePluginSnapshot,
-  CreatePluginHostInput,
-  PluginActivationIdentity,
-  PluginActivationState,
-  PluginActivationStatePort,
-  PluginCandidate,
-  PluginDiscoveryReport,
-  PluginHost,
-  PluginHostResult,
-  PluginManifestCallback,
-  PluginManifestEntry,
-  PluginManifestResource,
-  PluginManifestV1,
-  PluginCapability,
-  PluginHookId,
+  ActivePluginSnapshot, CmsEditorBlockResolution, CmsEditorBlockResolverCallback, CmsEditorBlockResolverFacade,
+  CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CmsEditorBlockSource, CmsEditorBlockSourceEvidence,
+  CreatePluginHostInput, PluginActivationIdentity, PluginActivationState, PluginActivationStatePort, PluginCandidate,
+  PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestCallback, PluginManifestEntry, PluginManifestResource,
+  PluginManifestV1, PluginCapability, PluginHookId, PreparedSaveRevisionValidators, SaveRevisionContentGuard,
+  SaveRevisionValidatorCallback, SaveRevisionValidatorFacade, SaveRevisionValidatorInput, SaveRevisionValidatorOutput,
+  ValidatedSaveRevisionContent,
 } from "./contracts.js";
-export type { PluginHostFailure, PluginHostFailureCode } from "./failures.js";
+export type { PluginDiagnosticDetail, PluginHostFailure, PluginHostFailureCode } from "./failures.js";

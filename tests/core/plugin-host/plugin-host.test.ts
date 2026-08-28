@@ -11,6 +11,7 @@ import {
   type PluginActivationState,
   type PluginActivationStatePort,
   type PluginManifestV1,
+  type PluginHost,
 } from "../../../core/plugin-host/index.js";
 
 const repositoryRoot = process.cwd();
@@ -36,15 +37,15 @@ function copyIdentity(value: PluginActivationIdentity): PluginActivationIdentity
 }
 
 function copyState(value: PluginActivationState): PluginActivationState {
-  return Object.freeze({ contract: "plugin-activation-state/v1", identities: Object.freeze(value.identities.map(copyIdentity)) });
+  return Object.freeze({ contract: "plugin-activation-state/v2", active: Object.freeze(value.active.map(copyIdentity)), reactivationRequired: Object.freeze(value.reactivationRequired.map(copyIdentity)) });
 }
 
 function activationDigest(value: PluginActivationState): Digest {
-  return sha256Digest(bytes({ contract: value.contract, identities: value.identities }));
+  return sha256Digest(bytes({ contract: value.contract, active: value.active, reactivationRequired: value.reactivationRequired }));
 }
 
 class MemoryActivationStatePort implements PluginActivationStatePort {
-  public state: PluginActivationState = copyState({ contract: "plugin-activation-state/v1", identities: [] });
+  public state: PluginActivationState = copyState({ contract: "plugin-activation-state/v2", active: [], reactivationRequired: [] });
   public rejectCompare = false;
   public throwRead = false;
   public throwCompare = false;
@@ -109,6 +110,15 @@ async function host(value: Fixture) {
   assert.equal(created.ok, true);
   if (!created.ok) throw new Error("Plugin Host unexpectedly failed to create");
   return created.value;
+}
+
+async function activate(pluginHost: PluginHost, pluginId: string) {
+  const report = await pluginHost.discover();
+  assert.equal(report.ok, true);
+  if (!report.ok) throw new Error("Plugin discovery unexpectedly failed");
+  const candidate = report.value.candidates.find((item) => item.id === pluginId);
+  if (candidate === undefined) throw new Error("Plugin candidate unexpectedly missing");
+  return pluginHost.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash } });
 }
 
 function loads(): number {
@@ -188,7 +198,7 @@ test("activation validates evidence and exports before one exact CAS", async () 
   try {
     const pluginHost = await host(value);
     const before = value.port.digest();
-    const activated = await pluginHost.activate({ pluginId: "activation-probe" });
+    const activated = await activate(pluginHost, "activation-probe");
     assert.equal(activated.ok, true, activated.ok ? "" : activated.error.code);
     if (!activated.ok) return;
     assert.equal(activated.value.identities.length, 1);
@@ -196,17 +206,17 @@ test("activation validates evidence and exports before one exact CAS", async () 
     assert.equal(loads(), 1);
     assert.notEqual(activated.value.digest, before);
 
-    const repeated = await pluginHost.activate({ pluginId: "activation-probe" });
+    const repeated = await activate(pluginHost, "activation-probe");
     assert.equal(repeated.ok, true);
     assert.equal(value.port.writes, 1);
     assert.equal(loads(), 1);
 
     writeManifest(value.pluginDirectory, { version: "1.0.1" });
-    const conflict = await pluginHost.activate({ pluginId: "activation-probe" });
+    const conflict = await activate(pluginHost, "activation-probe");
     assert.equal(conflict.ok, false);
     if (!conflict.ok) assert.equal(conflict.error.code, "PLUGIN_IDENTITY_CONFLICT");
     assert.equal(value.port.digest(), activated.value.digest);
-    assert.equal(loads(), 1);
+    assert.equal(loads(), 2);
   } finally {
     rmSync(value.directory, { recursive: true, force: true });
   }
@@ -218,11 +228,16 @@ test("activation failure never writes active state", async () => {
   try {
     const pluginHost = await host(value);
     const before = value.port.digest();
+    const discovered = await pluginHost.discover();
+    assert.equal(discovered.ok, true);
+    if (!discovered.ok) return;
+    const candidate = discovered.value.candidates[0]!;
+    const exactCandidate = { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash };
     writeFileSync(path.join(value.pluginDirectory, "index.mjs"), "export const validateSaveRevision = 1;\nexport const resolveEditorBlock = 1;\n");
     writeManifest(value.pluginDirectory);
-    const moduleFailure = await pluginHost.activate({ pluginId: "activation-probe" });
+    const moduleFailure = await pluginHost.activate({ identity: exactCandidate });
     assert.equal(moduleFailure.ok, false);
-    if (!moduleFailure.ok) assert.equal(moduleFailure.error.code, "PLUGIN_MODULE_INVALID");
+    if (!moduleFailure.ok) assert.equal(moduleFailure.error.code, "PLUGIN_IDENTITY_CONFLICT");
     assert.equal(value.port.digest(), before);
     assert.equal(value.port.writes, 0);
 
@@ -230,7 +245,7 @@ test("activation failure never writes active state", async () => {
     const resourcePath = path.join(value.pluginDirectory, "resources", "contract.json");
     const resource = readFileSync(resourcePath);
     rmSync(resourcePath);
-    const evidenceFailure = await pluginHost.activate({ pluginId: "activation-probe" });
+    const evidenceFailure = await pluginHost.activate({ identity: exactCandidate });
     assert.equal(evidenceFailure.ok, false);
     if (!evidenceFailure.ok) assert.equal(evidenceFailure.error.code, "PLUGIN_EVIDENCE_MISMATCH");
     assert.equal(value.port.digest(), before);
@@ -238,7 +253,7 @@ test("activation failure never writes active state", async () => {
 
     writeFileSync(path.join(value.pluginDirectory, "index.mjs"), "throw new Error('token-do-not-leak');\n");
     writeManifest(value.pluginDirectory, { version: "1.0.1" });
-    const topLevelFailure = await pluginHost.activate({ pluginId: "activation-probe" });
+    const topLevelFailure = await activate(pluginHost, "activation-probe");
     assert.equal(topLevelFailure.ok, false);
     if (!topLevelFailure.ok) assert.equal(topLevelFailure.error.code, "PLUGIN_MODULE_INVALID");
     assert.equal(value.port.digest(), before);
@@ -246,14 +261,14 @@ test("activation failure never writes active state", async () => {
     writeFileSync(path.join(value.pluginDirectory, "index.mjs"), readFileSync(path.join(templateRoot, "index.ts")));
     writeManifest(value.pluginDirectory, { version: "1.0.2" });
     value.port.throwCompare = true;
-    const portFailure = await pluginHost.activate({ pluginId: "activation-probe" });
+    const portFailure = await activate(pluginHost, "activation-probe");
     assert.equal(portFailure.ok, false);
     if (!portFailure.ok) assert.equal(portFailure.error.code, "ACTIVATION_STATE_FAILURE");
     assert.equal(value.port.digest(), before);
 
     value.port.throwCompare = false;
     value.port.rejectCompare = true;
-    const conflict = await pluginHost.activate({ pluginId: "activation-probe" });
+    const conflict = await activate(pluginHost, "activation-probe");
     assert.equal(conflict.ok, false);
     if (!conflict.ok) assert.equal(conflict.error.code, "ACTIVATION_STATE_CONFLICT");
     assert.equal(value.port.digest(), before);
@@ -268,7 +283,7 @@ test("snapshot revalidates identity and deactivation enables exact replacement",
   const value = fixture();
   try {
     const firstHost = await host(value);
-    const activated = await firstHost.activate({ pluginId: "activation-probe" });
+    const activated = await activate(firstHost, "activation-probe");
     assert.equal(activated.ok, true, activated.ok ? "" : activated.error.code);
     if (!activated.ok) return;
     const recreated = await host(value);
@@ -281,13 +296,13 @@ test("snapshot revalidates identity and deactivation enables exact replacement",
     writeFileSync(path.join(value.pluginDirectory, "resources", "contract.json"), "mutated");
     const mismatch = await recreated.getActiveSnapshot();
     assert.equal(mismatch.ok, false);
-    if (!mismatch.ok) assert.equal(mismatch.error.code, "ACTIVE_PLUGIN_IDENTITY_MISMATCH");
+    if (!mismatch.ok) assert.equal(mismatch.error.code, "ACTIVE_PLUGIN_SOURCE_MISSING");
     assert.equal(value.port.digest(), activated.value.digest);
     writeFileSync(path.join(value.pluginDirectory, "resources", "contract.json"), original);
     rmSync(path.join(value.pluginDirectory, "resources", "contract.json"));
     const missing = await recreated.getActiveSnapshot();
     assert.equal(missing.ok, false);
-    if (!missing.ok) assert.equal(missing.error.code, "ACTIVE_PLUGIN_IDENTITY_MISMATCH");
+    if (!missing.ok) assert.equal(missing.error.code, "ACTIVE_PLUGIN_SOURCE_MISSING");
     assert.equal(value.port.digest(), activated.value.digest);
     writeFileSync(path.join(value.pluginDirectory, "resources", "contract.json"), original);
     const recovered = await recreated.getActiveSnapshot();
@@ -302,7 +317,7 @@ test("snapshot revalidates identity and deactivation enables exact replacement",
     assert.equal(deactivated.value.identities.length, 0);
 
     writeManifest(value.pluginDirectory, { version: "1.0.1" });
-    const replacement = await recreated.activate({ pluginId: "activation-probe" });
+    const replacement = await activate(recreated, "activation-probe");
     assert.equal(replacement.ok, true);
     if (!replacement.ok) return;
     const mutable = replacement.value.identities as PluginActivationIdentity[];
