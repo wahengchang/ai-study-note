@@ -2,7 +2,7 @@
 
 - **規格 ID**：`CMS-DB-01`
 - **狀態**：已通過架構與安全複審
-- **依據**：`CMS-BASIC-CONTRACTS-V1` §1、§2；其為唯一現行 SSOT。
+- **依據**：`CMS-BASIC-CONTRACTS-V1` §1、§2；它定義已核准範圍與設計約束。程式碼與對應測試是已實作行為的 SSOT。
 
 ## Problem Statement
 

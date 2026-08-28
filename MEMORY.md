@@ -32,6 +32,11 @@
 
 5. **保持可回退或可修復。** 每次上線前能講清楚改了什麼、誰負責、怎麼監控、怎麼緊急關閉；應用程式可回退，資料庫則依 migration 策略安全地前移修復或回復資料。
 
+## 文件原則
+
+- 程式碼與對應測試是已實作行為的 SSOT；`contracts/README.md` 是已核准範圍與設計約束的 contract，不得把未實作規劃寫成現況。
+- 文件、決策背景、ASCII 圖與資料夾 `README.md` 的詳細規則以 `docs/INDEX.md` 為唯一入口；只在跨時間或跨 AI 交接需要時保留簡短決策背景。
+
 ## Dev Hub 大型工作流程
 
 - 大型工作開始前閱讀並遵循 `docs/dev-hub-workflow.md`；純問答、小型修正與唯讀查詢不建立 Cycle。該檔是 Dev Hub 操作規則的單一入口，並維持 `.dev-hub/`、`logs/`、唯讀 `dev-hub-*/` 與 `contracts/README.md` 的權威邊界。

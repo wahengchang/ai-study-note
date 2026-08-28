@@ -2,7 +2,7 @@
 
 - **規格 ID**：`CMS-CORE-05`
 - **狀態**：已通過架構與安全複審
-- **依據**：`CMS-BASIC-CONTRACTS-V1` §4，以及 `MEMORY.md` 的長期 Plugin boundary 原則；契約衝突時以前者為準。
+- **依據**：`CMS-BASIC-CONTRACTS-V1` §4，以及 `MEMORY.md` 的長期 Plugin boundary 原則。前者定義已核准範圍與設計約束；程式碼與對應測試是已實作行為的 SSOT。
 - **前置規格**：`CMS-CORE-02`、`CMS-CORE-04`；published renderer 介面等待 projection work package。
 
 ## Problem Statement
