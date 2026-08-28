@@ -34,7 +34,7 @@
     <header>
       <h1>Dev Hub 專案總覽</h1>
       <aside class="coverage" role="note">僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。</aside>
-      <ul class="summary-chips" aria-label="目前摘要"><li><strong>3</strong> active Issues</li><li><strong>7</strong> upstream dependencies</li><li><strong>1</strong> active Cycles</li></ul>
+      <ul class="summary-chips" aria-label="目前摘要"><li><strong>4</strong> active Issues</li><li><strong>7</strong> upstream dependencies</li><li><strong>2</strong> active Cycles</li></ul>
     </header>
     <div class="tablist" role="tablist" aria-label="總覽檢視">
       <button type="button" role="tab" id="tab-table" aria-controls="panel-table" aria-selected="true" tabindex="0" data-view="table">表格</button>
@@ -47,8 +47,8 @@
       <div class="controls-grid">
         <label>關鍵字<input id="filter-query" type="search" autocomplete="off"></label>
         <label>Issue state<select id="filter-issue-state"><option value="all">全部</option><option value="open">open</option></select></label>
-        <label>Local status<select id="filter-local-status"><option value="all">全部</option><option value="in_progress">in_progress</option><option value="pending">pending</option></select></label>
-        <label>Cycle<select id="filter-cycle"><option value="all">全部</option><option value="cycle-2026-08-28-1655-plugin-lifecycle-integration">cycle-2026-08-28-1655-plugin-lifecycle-integration</option></select></label>
+        <label>Local status<select id="filter-local-status"><option value="all">全部</option><option value="done">done</option><option value="in_progress">in_progress</option><option value="pending">pending</option></select></label>
+        <label>Cycle<select id="filter-cycle"><option value="all">全部</option><option value="cycle-2026-08-28-1655-plugin-lifecycle-integration">cycle-2026-08-28-1655-plugin-lifecycle-integration</option><option value="cycle-2026-08-28-2245-published-route-claim">cycle-2026-08-28-2245-published-route-claim</option></select></label>
         <label>範圍<select id="filter-scope"><option value="active">active</option><option value="all">active + dependencies</option></select></label>
         <label>Filter 名稱<input id="saved-filter-name" maxlength="40" aria-describedby="saved-filter-error"></label>
         <label>已存 Filter<select id="saved-filter-select"><option value="">選擇 Filter</option></select></label>
@@ -125,6 +125,19 @@
             <td data-column="workGroup" hidden>—</td>
             <td data-column="branch" hidden><code>—</code></td>
             <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="225">
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/225">#225 SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus"><span class="status status-done">done</span></td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/222">#222</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">Main</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#216</td>
+            <td data-column="cycle" hidden><code>cycle-2026-08-28-2245-published-route-claim</code></td>
+            <td data-column="workItem" hidden><code>WI-001</code><br>Published route claim 與雙圖隔離</td>
+            <td data-column="workGroup" hidden><code>WG-001-published-route-claim</code><br>Published route claim</td>
+            <td data-column="branch" hidden><code>cms/published-route-claim</code></td>
+            <td data-column="localPath" hidden><code>.dev-hub/active/cycle-2026-08-28-2245-published-route-claim/work-items/WI-001-published-route-claim.md</code></td>
           </tr>
           <tr data-issue-number="228" hidden>
             <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228 DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿</a><br><span class="status status-open">open</span></td>
@@ -231,7 +244,12 @@
                 <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
                 <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219</a><span class="source">Issue</span></span></p>
               </article></div></section></li>
-          <li class="stage" data-stage-level="4"><section><h3>第 4 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="228">
+          <li class="stage" data-stage-level="4"><section><h3>第 4 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="225">
+                <p class="card-kicker">cycle-2026-08-28-2245-published-route-claim</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/225">#225 SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離</a></h4>
+                <p><span class="status status-open">open</span> <span class="status status-done">done</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/222">#222</a><span class="source">Issue</span></span></p>
+              </article>              <article class="issue-card" data-dependency-card data-issue-number="228">
                 <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
                 <h4><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228 DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿</a></h4>
                 <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
@@ -258,7 +276,13 @@
       </ol></div>
       <section class="independent" id="independent-section"><h3>獨立工作</h3><div class="stage-cards"></div></section>
     </section>
-    <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle／Work Group</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1655-plugin-lifecycle-integration/WG-001-plugin-lifecycle-integration">
+    <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle／Work Group</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-2245-published-route-claim/WG-001-published-route-claim">
+          <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-2245-published-route-claim</code> · Work Group: <code>WG-001-published-route-claim</code></p>
+          <h3>Published route claim</h3>
+          <p>Owner：Main · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
+          <ul><li data-cycle-row data-issue-number="225"><a href="https://github.com/wahengchang/ai-study-note/issues/225">#225 SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離</a> <span class="status status-done">done</span></li></ul>
+        </article>
+        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1655-plugin-lifecycle-integration/WG-001-plugin-lifecycle-integration">
           <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-1655-plugin-lifecycle-integration</code> · Work Group: <code>WG-001-plugin-lifecycle-integration</code></p>
           <h3>Plugin lifecycle integration</h3>
           <p>Owner：Main · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
@@ -273,11 +297,14 @@
           <ul><li data-status-row data-issue-number="234"><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234 Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗</a> <span class="status status-pending">pending</span></li><li data-status-row data-issue-number="246"><a href="https://github.com/wahengchang/ai-study-note/issues/246">#246 Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝</a> <span class="status status-pending">pending</span></li></ul>
         </section>
 
-
+        <section class="status-lane" data-status-lane="done">
+          <h3>done</h3>
+          <ul><li data-status-row data-issue-number="225"><a href="https://github.com/wahengchang/ai-study-note/issues/225">#225 SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離</a> <span class="status status-done">done</span></li></ul>
+        </section>
 
 </div></section>
   </main>
-  <script id="dev-hub-overview-model" type="application/json">{"rows":[{"issueNumber":219,"title":"持久化｜從空資料庫完成可信 Revision 的 forward storage migration","issueState":"open","dependencies":[239],"local":null},{"issueNumber":220,"title":"Plugin Host｜從可信根 discovery 到固定 identity 的顯式 activation","issueState":"open","dependencies":[239],"local":null},{"issueNumber":221,"title":"持久化｜原子切換同 entry 的 current/published pointers 並保留 lineage","issueState":"open","dependencies":[219],"local":null},{"issueNumber":222,"title":"SiteDefinition｜建立 current route claim 並拒絕同圖等價 collision","issueState":"open","dependencies":[219],"local":null},{"issueNumber":223,"title":"DataMedia｜最終 bytes 驗證後才 ready 的安全本機媒體匯入","issueState":"open","dependencies":[219],"local":null},{"issueNumber":228,"title":"DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿","issueState":"open","dependencies":[221,222,223],"local":null},{"issueNumber":229,"title":"Plugin Host｜inactive/missing block 的來源保留與 exact re-enable","issueState":"open","dependencies":[220,228],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"Plugin exact re-enable lifecycle","localStatus":"in_progress","owner":"Main"}},{"issueNumber":234,"title":"Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗","issueState":"open","dependencies":[220,228,229],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"SaveRevision validator snapshots","localStatus":"pending","owner":"Main"}},{"issueNumber":239,"title":"CMS-FND-01｜建立全域 repository 架構與 TypeScript Foundation","issueState":"open","dependencies":[],"local":null},{"issueNumber":246,"title":"Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝","issueState":"open","dependencies":[220,228,229,234],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"Application Plugin composition","localStatus":"pending","owner":"Main"}}],"layout":{"stages":[{"level":1,"issueNumbers":[239]},{"level":2,"issueNumbers":[219,220]},{"level":3,"issueNumbers":[221,222,223]},{"level":4,"issueNumbers":[228]},{"level":5,"issueNumbers":[229]},{"level":6,"issueNumbers":[234]},{"level":7,"issueNumbers":[246]}],"independentIssueNumbers":[],"issues":[{"issueNumber":219,"dependencies":[{"issueNumber":239,"source":"issue"}]},{"issueNumber":220,"dependencies":[{"issueNumber":239,"source":"issue"}]},{"issueNumber":221,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":222,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":223,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":228,"dependencies":[{"issueNumber":221,"source":"issue"},{"issueNumber":222,"source":"issue"},{"issueNumber":223,"source":"issue"}]},{"issueNumber":229,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"}]},{"issueNumber":234,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"},{"issueNumber":229,"source":"work_item"}]},{"issueNumber":239,"dependencies":[]},{"issueNumber":246,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"},{"issueNumber":229,"source":"both"},{"issueNumber":234,"source":"both"}]}]}}</script>
+  <script id="dev-hub-overview-model" type="application/json">{"rows":[{"issueNumber":219,"title":"持久化｜從空資料庫完成可信 Revision 的 forward storage migration","issueState":"open","dependencies":[239],"local":null},{"issueNumber":220,"title":"Plugin Host｜從可信根 discovery 到固定 identity 的顯式 activation","issueState":"open","dependencies":[239],"local":null},{"issueNumber":221,"title":"持久化｜原子切換同 entry 的 current/published pointers 並保留 lineage","issueState":"open","dependencies":[219],"local":null},{"issueNumber":222,"title":"SiteDefinition｜建立 current route claim 並拒絕同圖等價 collision","issueState":"open","dependencies":[219],"local":null},{"issueNumber":223,"title":"DataMedia｜最終 bytes 驗證後才 ready 的安全本機媒體匯入","issueState":"open","dependencies":[219],"local":null},{"issueNumber":225,"title":"SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離","issueState":"open","dependencies":[222],"local":{"cycleId":"cycle-2026-08-28-2245-published-route-claim","workItemTitle":"Published route claim 與雙圖隔離","localStatus":"done","owner":"Main"}},{"issueNumber":228,"title":"DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿","issueState":"open","dependencies":[221,222,223],"local":null},{"issueNumber":229,"title":"Plugin Host｜inactive/missing block 的來源保留與 exact re-enable","issueState":"open","dependencies":[220,228],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"Plugin exact re-enable lifecycle","localStatus":"in_progress","owner":"Main"}},{"issueNumber":234,"title":"Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗","issueState":"open","dependencies":[220,228,229],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"SaveRevision validator snapshots","localStatus":"pending","owner":"Main"}},{"issueNumber":239,"title":"CMS-FND-01｜建立全域 repository 架構與 TypeScript Foundation","issueState":"open","dependencies":[],"local":null},{"issueNumber":246,"title":"Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝","issueState":"open","dependencies":[220,228,229,234],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"Application Plugin composition","localStatus":"pending","owner":"Main"}}],"layout":{"stages":[{"level":1,"issueNumbers":[239]},{"level":2,"issueNumbers":[219,220]},{"level":3,"issueNumbers":[221,222,223]},{"level":4,"issueNumbers":[225,228]},{"level":5,"issueNumbers":[229]},{"level":6,"issueNumbers":[234]},{"level":7,"issueNumbers":[246]}],"independentIssueNumbers":[],"issues":[{"issueNumber":219,"dependencies":[{"issueNumber":239,"source":"issue"}]},{"issueNumber":220,"dependencies":[{"issueNumber":239,"source":"issue"}]},{"issueNumber":221,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":222,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":223,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":225,"dependencies":[{"issueNumber":222,"source":"issue"}]},{"issueNumber":228,"dependencies":[{"issueNumber":221,"source":"issue"},{"issueNumber":222,"source":"issue"},{"issueNumber":223,"source":"issue"}]},{"issueNumber":229,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"}]},{"issueNumber":234,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"},{"issueNumber":229,"source":"work_item"}]},{"issueNumber":239,"dependencies":[]},{"issueNumber":246,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"},{"issueNumber":229,"source":"both"},{"issueNumber":234,"source":"both"}]}]}}</script>
   <script>
 (() => {
   'use strict';

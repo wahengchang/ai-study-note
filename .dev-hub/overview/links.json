@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-08-28T22:24:23+08:00",
+  "updated_at": "2026-08-28T22:56:47+08:00",
   "cycles": [
     {
       "id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
@@ -47,6 +47,36 @@
           "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-groups/WG-001-plugin-lifecycle-integration.md"
         }
       ]
+    },
+    {
+      "id": "cycle-2026-08-28-2245-published-route-claim",
+      "hub": {
+        "path": ".dev-hub/active/cycle-2026-08-28-2245-published-route-claim/hub.md",
+        "status": "active"
+      },
+      "work_items": [
+        {
+          "id": "WI-001",
+          "title": "Published route claim 與雙圖隔離",
+          "status": "done",
+          "depends_on": [],
+          "work_group": "WG-001-published-route-claim",
+          "path": ".dev-hub/active/cycle-2026-08-28-2245-published-route-claim/work-items/WI-001-published-route-claim.md"
+        }
+      ],
+      "work_groups": [
+        {
+          "id": "WG-001-published-route-claim",
+          "title": "Published route claim",
+          "status": "completed",
+          "work_items": ["WI-001"],
+          "owner": "Main",
+          "branch": "cms/published-route-claim",
+          "worktree": ".dev-hub/worktrees/published-route-claim",
+          "pr": null,
+          "path": ".dev-hub/active/cycle-2026-08-28-2245-published-route-claim/work-groups/WG-001-published-route-claim.md"
+        }
+      ]
     }
   ],
   "links": [
@@ -70,6 +100,13 @@
       "cycle_id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
       "work_item_id": "WI-003",
       "work_group_id": "WG-001-plugin-lifecycle-integration"
+    },
+    {
+      "issue_number": 225,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-28-2245-published-route-claim",
+      "work_item_id": "WI-001",
+      "work_group_id": "WG-001-published-route-claim"
     }
   ]
 }
