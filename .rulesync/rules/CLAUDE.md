@@ -8,7 +8,6 @@ globs:
 # AI Study Note Reset — 專案設定
 
 此專案從零打造 JavaScript／TypeScript CMS 平台，並由 published projection 產生 AI 學習筆記的公開靜態網站。
-
 - 將 `draft/`、`source-drafts/`、`dev-hub-*/` 與 `project-*/` handoff artifact 視為唯讀歷史參考資料。不得編輯、刪除、將其發布為網站內容，或在未經新的 Owner 決策下從中抽取需求。
 
 ## 專案持久紀錄
@@ -31,3 +30,4 @@ globs:
 - 當平台 delegation policy 允許且確有必要委派時，依工作類型選擇最精確的 agent：唯讀研究使用 `scout` 或 `librarian`、UI/UX 使用 `designer`、程式碼審查使用 `reviewer`、安全審查使用 `security-reviewer`、機械性工作使用 `sonic`、實作使用 `task`。
 - 專案本地模型路由定義於 `.omp/config.yml`；當已設定的 role 適合工作時，不得臨時覆寫 agent 的模型。
 - 主 session 不會依任務語意自行切換模型；工作需要不同模型能力時，使用綁定 role 的 subagent。
+- 涉及核心組件（core module）的工作，必須在實作前的計畫階段安排至少兩個不同角色的 agent 交叉審查，以取得第二意見；可多輪交換意見至達成共識，並將結論納入實作計畫。
