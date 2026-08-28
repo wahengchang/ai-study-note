@@ -1,6 +1,6 @@
 # CMS-BASIC-CONTRACTS-V1：資料庫與核心規格拆分
 
-本目錄將 `CMS-BASIC-CONTRACTS-V1` 拆為可獨立實作、依序交付的資料庫與核心工作包。`contracts/README.md` 仍是唯一現行 SSOT；本目錄不修改或擴張其已核准範圍。
+本目錄將 `CMS-BASIC-CONTRACTS-V1` 拆為可獨立實作、依序交付的資料庫與核心工作包。`contracts/README.md` 是已核准範圍與設計約束的唯一 contract；程式碼與對應測試是已實作行為的 SSOT。本目錄不修改或擴張其已核准範圍。
 
 ## 實作順序
 
