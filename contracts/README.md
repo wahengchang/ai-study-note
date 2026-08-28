@@ -2,16 +2,19 @@
 
 - **Contract ID**: `CMS-BASIC-CONTRACTS-V1`
 - **核准日期**：2026-08-26
-- **核准邊界**：Owner 已要求完成所有已定義 Spike 並以五角色審查收斂。本檔是 SP-001–SP-005 與 SP-A06 的唯一現行 SSOT／implementation contract；決策來源、歷史紀錄與可重跑 evidence 已歸檔至 `logs/2026-08-26-2103-cms-spike-research/`，不自行升格為 contract。
+- **核准邊界**：Owner 已要求完成所有已定義 Spike 並以五角色審查收斂。本檔記錄 SP-001–SP-005 與 SP-A06 的已核准範圍與設計約束；決策來源、歷史紀錄與可重跑 evidence 已歸檔至 `logs/2026-08-26-2103-cms-spike-research/`，不自行升格為 contract。
 
 ## 從這裡開始
 
-**唯一現行 SSOT**：本檔是 `CMS-BASIC-CONTRACTS-V1` 唯一有權定義後續 CMS／renderer implementation 的檔案。發生衝突時，必須以本檔為準。
+**已實作行為 SSOT**：程式碼與對應測試是目前可觀察行為的唯一事實來源。文件不得把尚未存在的行為寫成已實作；文件與程式衝突時，先以程式與測試判讀現況。
+
+**本檔責任**：本檔是 `CMS-BASIC-CONTRACTS-V1` 已核准範圍與設計約束的唯一 contract，供尚未實作或準備變更的 CMS／renderer 工作使用。已核准行為變更必須在同一變更更新程式、測試與本檔；已核准範圍或約束的變更只改本檔。
+
+**決策背景（2026-08-28）**：將可執行行為與未實作範圍分開，避免跨時間交接時把規劃誤當成現況，同時保留 contract 對未實作工作的一致邊界。
 
 - `MEMORY.md` 只保存長期工程原則與本檔指標，不複製或覆蓋本檔契約。
-- `logs/`、`source-drafts/`、`project-*` 歸檔、isolated Spike 與 working documents 只供 provenance 或可重跑 evidence；其中內容不得覆蓋本檔。
+- `logs/`、`source-drafts/`、`project-*` 歸檔、isolated Spike 與 working documents 只供 provenance 或可重跑 evidence；其中內容不得覆蓋已實作行為或本檔核准範圍。
 - `source-drafts/` 中的檔案是 byte-preserved historical input，絕不發布為網站內容；其內部自稱的「source of truth」不具權威，未經新的 Owner 決策不得從中抽取需求。
-- 後續 SSOT 變更只改本檔；provenance 只追加至 `logs/`，不回寫 historical input。
 
 ## 已核准系統範圍
 
