@@ -5,7 +5,7 @@
     "complete": false,
     "note": "僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。"
   },
-  "updated_at": "2026-08-28T21:56:10+08:00",
+  "updated_at": "2026-08-28T22:24:23+08:00",
   "issues": [
     {
       "number": 219,
@@ -86,14 +86,6 @@
       "state": "open",
       "parent_issue": 218,
       "depends_on": [220, 228, 229, 234]
-    },
-    {
-      "number": 252,
-      "title": "Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數",
-      "url": "https://github.com/wahengchang/ai-study-note/issues/252",
-      "state": "open",
-      "parent_issue": null,
-      "depends_on": []
     }
   ]
 }

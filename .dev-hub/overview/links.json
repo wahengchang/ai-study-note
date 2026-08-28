@@ -1,6 +1,6 @@
 {
   "schema_version": 2,
-  "updated_at": "2026-08-28T21:56:10+08:00",
+  "updated_at": "2026-08-28T22:24:23+08:00",
   "cycles": [
     {
       "id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
@@ -47,36 +47,6 @@
           "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-groups/WG-001-plugin-lifecycle-integration.md"
         }
       ]
-    },
-    {
-      "id": "cycle-2026-08-28-1801-project-progress-roadmap",
-      "hub": {
-        "path": ".dev-hub/active/cycle-2026-08-28-1801-project-progress-roadmap/hub.md",
-        "status": "active"
-      },
-      "work_items": [
-        {
-          "id": "WI-001",
-          "title": "Project progress roadmap governance",
-          "status": "in_progress",
-          "depends_on": [],
-          "work_group": "WG-001-project-progress-roadmap",
-          "path": ".dev-hub/active/cycle-2026-08-28-1801-project-progress-roadmap/work-items/WI-001-project-progress-roadmap.md"
-        }
-      ],
-      "work_groups": [
-        {
-          "id": "WG-001-project-progress-roadmap",
-          "title": "Project progress roadmap",
-          "status": "in_progress",
-          "work_items": ["WI-001"],
-          "owner": "domain_application_engineer",
-          "branch": "chore/project-progress-roadmap",
-          "worktree": ".dev-hub/worktrees/project-progress-roadmap",
-          "pr": "https://github.com/wahengchang/ai-study-note/pull/258",
-          "path": ".dev-hub/active/cycle-2026-08-28-1801-project-progress-roadmap/work-groups/WG-001-project-progress-roadmap.md"
-        }
-      ]
     }
   ],
   "links": [
@@ -100,13 +70,6 @@
       "cycle_id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
       "work_item_id": "WI-003",
       "work_group_id": "WG-001-plugin-lifecycle-integration"
-    },
-    {
-      "issue_number": 252,
-      "target_kind": "dev_hub_work_item",
-      "cycle_id": "cycle-2026-08-28-1801-project-progress-roadmap",
-      "work_item_id": "WI-001",
-      "work_group_id": "WG-001-project-progress-roadmap"
     }
   ]
 }
