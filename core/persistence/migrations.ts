@@ -33,6 +33,7 @@ const shippedMigrationFilenames: readonly string[] = [
   "0004-add-route-claims.sql",
   "0005-add-media-storage.sql",
   "0006-add-revision-references.sql",
+  "0007-add-plugin-activation-state.sql",
 ];
 
 // 刻意不在 module top-level 讀檔：讀取失敗必須成為 structured failure，

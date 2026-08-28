@@ -19,6 +19,8 @@ export type EntryPointerLineageRecord = Readonly<EntryPointerRecord & { lineageI
 export type RouteClaimRecord = Readonly<{ graph: "current" | "published"; normalizedRoute: string; owner: string; sourceRevisionId: string }>;
 export type MediaImportIntent = Readonly<{ importId: string; identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest }>;
 export type ReadyAssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: "ready" }>;
+export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
+export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
 
 export type PersistenceCanonicalState = Readonly<{
   contract: "persistence-canonical-state/v1";
@@ -87,6 +89,8 @@ export interface PersistenceTransaction {
 }
 
 export interface PersistenceStore extends PersistenceTransaction {
+  readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
+  compareAndReplacePluginActivationState(input: CompareAndReplacePluginActivationStateInput): PersistenceResult<boolean>;
   runTransaction<T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
   close(): void;
 }

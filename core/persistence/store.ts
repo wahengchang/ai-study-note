@@ -2,6 +2,7 @@ import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } fr
 
 import type {
   AssetVersionIdentity,
+  CompareAndReplacePluginActivationStateInput,
   CreateRevisionInput,
   EntryPointerRecord,
   MediaImportIntent,
@@ -12,6 +13,7 @@ import type {
   PersistenceResult,
   PersistenceStore,
   PersistenceTransaction,
+  PluginActivationStateRecord,
   ReadyAssetVersionRecord,
   RevisionIdentity,
   RevisionRecord,
@@ -67,6 +69,8 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     commitReadyAssetVersion(input) { return atomic((transaction) => transaction.commitReadyAssetVersion(input)); },
     createRevisionReferences(revision, assetVersions) { return atomic((transaction) => transaction.createRevisionReferences(revision, assetVersions)); },
     createRevisionWithReferences(input) { return atomic((transaction) => transaction.createRevisionWithReferences(input)); },
+    readPluginActivationState() { return readPluginActivationState(database); },
+    compareAndReplacePluginActivationState(input) { return compareAndReplacePluginActivationState(database, input); },
     runTransaction,
     close() { database.close(); },
   };
@@ -204,6 +208,48 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     createRevisionWithReferences(input) { return guarded(() => { const created=revision(input.revision); if(!created.ok)return created; const createdReferences=references(input.revision.identity,input.assetVersions); if(!createdReferences.ok)return createdReferences; return {ok:true,value:{revision:created.value,references:createdReferences.value}}; }); },
     canonicalState() { return reading(() => canonicalState(database, refused)); },
   };
+}
+
+function readPluginActivationState(database: SqliteAdapter): PersistenceResult<PluginActivationStateRecord> {
+  try {
+    const row = database.get("SELECT state_bytes, state_digest FROM plugin_activation_state WHERE singleton = 1");
+    const bytes = row === undefined ? null : byte(row, "state_bytes");
+    const digest = row === undefined ? null : digestField(row, "state_digest");
+    return bytes === null || digest === null
+      ? persistenceResultFailure("STORAGE_FAILURE")
+      : { ok: true, value: Object.freeze({ bytes: copyBytes(bytes), digest }) };
+  } catch (error) {
+    return persistenceResultFailure(sqliteFailureCode(error));
+  }
+}
+
+function compareAndReplacePluginActivationState(
+  database: SqliteAdapter,
+  input: CompareAndReplacePluginActivationStateInput,
+): PersistenceResult<boolean> {
+  if (
+    input === null || typeof input !== "object" || !isDigest(input.expectedDigest)
+    || input.next === null || typeof input.next !== "object"
+    || !(input.next.bytes instanceof Uint8Array) || !isDigest(input.next.digest)
+  ) return persistenceResultFailure("INVALID_PERSISTENCE_INPUT");
+  try {
+    return database.transaction(() => {
+      const row = database.get("SELECT state_digest FROM plugin_activation_state WHERE singleton = 1");
+      const currentDigest = row === undefined ? null : digestField(row, "state_digest");
+      if (currentDigest === null) return persistenceResultFailure("STORAGE_FAILURE");
+      if (currentDigest !== input.expectedDigest) return { ok: true, value: false };
+      const canonical = validateCanonicalBytes(input.next.bytes, input.next.digest);
+      if (!canonical.ok) return persistenceResultFailure(canonical.code);
+      database.run(
+        "UPDATE plugin_activation_state SET state_bytes = ?, state_digest = ? WHERE singleton = 1",
+        copyBytes(canonical.bytes),
+        canonical.digest,
+      );
+      return { ok: true, value: true };
+    });
+  } catch (error) {
+    return persistenceResultFailure(sqliteFailureCode(error));
+  }
 }
 
 function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResult<PersistenceCanonicalState> {
