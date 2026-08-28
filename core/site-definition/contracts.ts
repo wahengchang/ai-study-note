@@ -1,0 +1,14 @@
+import type { CoreResult, Digest, MessageRemediation } from "../foundation/index.js";
+
+export type RouteGraph = "current" | "published";
+export type RouteClaim = Readonly<{ graph: RouteGraph; normalizedRoute: string; owner: string; sourceRevisionId: string }>;
+export type RouteGraphSnapshot = Readonly<{ contract: "route-graph-snapshot/v1"; normalization: "route-normalization/v1"; graph: RouteGraph; claims: readonly RouteClaim[]; bytes: Uint8Array; digest: Digest }>;
+export type CurrentRouteClaimProposal = Readonly<{ contract: "current-route-claim-proposal/v1"; baselineDigests: Readonly<{ current: Digest; published: Digest }>; claim: RouteClaim; resultingDigests: Readonly<{ current: Digest; published: Digest }>; nextCurrentBytes: Uint8Array }>;
+export type SiteDefinitionFailureCode = "INVALID_SITE_DEFINITION_INPUT" | "INVALID_ROUTE" | "ROUTE_CONFLICT" | "ROUTE_CHANGE_REQUIRED" | "STALE_ROUTE_PROPOSAL" | "SITE_DEFINITION_STORAGE_FAILURE";
+export type SiteDefinitionFailure = Readonly<{ code: SiteDefinitionFailureCode; owner: "SiteDefinition"; subjectIds: readonly string[]; remediation: MessageRemediation }>;
+export type SiteDefinitionResult<T> = CoreResult<T> | Readonly<{ ok: false; error: SiteDefinitionFailure }>;
+export type SiteDefinitionPortResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: unknown }>;
+export interface SiteDefinitionTransaction { listRouteClaims(graph: RouteGraph): SiteDefinitionPortResult<readonly RouteClaim[]>; replaceRouteClaim(input: RouteClaim): SiteDefinitionPortResult<RouteClaim>; }
+export interface SiteDefinitionPersistence extends SiteDefinitionTransaction { runTransaction<T, E>(operation: (transaction: SiteDefinitionTransaction) => Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>): Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E | unknown }>; }
+export interface SiteDefinition { snapshot(graph: RouteGraph): SiteDefinitionResult<RouteGraphSnapshot>; prepareCurrentClaim(input: Readonly<{ owner: string; route: string; sourceRevisionId: string }>): SiteDefinitionResult<CurrentRouteClaimProposal>; validateCurrentClaimInTransaction(proposal: CurrentRouteClaimProposal, transaction: SiteDefinitionTransaction): SiteDefinitionResult<ValidatedCurrentRouteClaim>; applyValidatedCurrentClaimInTransaction(token: ValidatedCurrentRouteClaim, transaction: SiteDefinitionTransaction): SiteDefinitionResult<RouteClaim>; createCurrentClaim(input: Readonly<{ owner: string; route: string; sourceRevisionId: string }>): SiteDefinitionResult<RouteClaim>; }
+export type ValidatedCurrentRouteClaim = Readonly<{ readonly __siteDefinitionToken: unique symbol }>;
