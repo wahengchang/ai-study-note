@@ -5,7 +5,7 @@
     "complete": false,
     "note": "僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。"
   },
-  "updated_at": "2026-08-28T22:56:47+08:00",
+  "updated_at": "2026-08-28T22:58:35+08:00",
   "issues": [
     {
       "number": 219,
@@ -38,14 +38,6 @@
       "state": "open",
       "parent_issue": 216,
       "depends_on": [219]
-    },
-    {
-      "number": 225,
-      "title": "SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離",
-      "url": "https://github.com/wahengchang/ai-study-note/issues/225",
-      "state": "open",
-      "parent_issue": 216,
-      "depends_on": [222]
     },
     {
       "number": 223,
