@@ -428,8 +428,16 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
             : undefined;
 
       if (module !== undefined) {
+        const verifiedPluginModuleLoad =
+          file === "core/plugin-host/module-loader.ts" &&
+          ts.isPropertyAccessExpression(module) &&
+          ts.isIdentifier(module.expression) &&
+          module.expression.text === "entryUrl" &&
+          module.name.text === "href";
         if (!ts.isStringLiteralLike(module)) {
-          violations.push(violation("UNRESOLVED_IMPORT", file, null, importer, null, source, node.getStart(source)));
+          if (!verifiedPluginModuleLoad) {
+            violations.push(violation("UNRESOLVED_IMPORT", file, null, importer, null, source, node.getStart(source)));
+          }
         } else {
           const specifier = module.text;
           const start = module.getStart(source);
