@@ -4,18 +4,32 @@ import { migrateDatabaseWithSources, openCurrentDatabase, shippedMigrationSource
 import { createPersistenceStore } from "./store.js";
 
 export type {
+  AssetVersionIdentity,
   CreateRevisionInput,
+  CreateRevisionWithReferencesInput,
+  EntryPointerLineageRecord,
+  EntryPointerRecord,
+  MediaImportIntent,
   MigrationSummary,
+  OperationLineageIdentity,
+  OperationLineageRecord,
+  PersistenceCanonicalState,
   PersistenceFailure,
   PersistenceFailureCode,
   PersistenceResult,
   PersistenceStore,
+  PersistenceTransaction,
+  ReadyAssetVersionRecord,
   RegisterSchemaVersionInput,
   RevisionIdentity,
   RevisionLineage,
   RevisionRecord,
+  RevisionReferenceRecord,
+  RouteClaimRecord,
   SchemaVersionIdentity,
   SchemaVersionRecord,
+  SetEntryPointersInput,
+  TransactionDecision,
 } from "./contracts.js";
 
 export function migrateDatabase(input: Readonly<{ databasePath: string }>): PersistenceResult<MigrationSummary> {

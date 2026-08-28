@@ -29,6 +29,10 @@ type DatabaseState = Readonly<{
 const shippedMigrationFilenames: readonly string[] = [
   "0001-create-persistence-storage.sql",
   "0002-add-persistence-query-indexes.sql",
+  "0003-add-entry-pointers.sql",
+  "0004-add-route-claims.sql",
+  "0005-add-media-storage.sql",
+  "0006-add-revision-references.sql",
 ];
 
 // 刻意不在 module top-level 讀檔：讀取失敗必須成為 structured failure，
