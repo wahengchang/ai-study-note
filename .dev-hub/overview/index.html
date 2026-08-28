@@ -1,0 +1,426 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Dev Hub 專案總覽</title>
+  <style>
+    :root { color-scheme: light; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; --canvas:#f5f7fb; --surface:#fff; --surface-muted:#eef2f7; --text:#172033; --muted:#526075; --border:#cbd5e1; --link:#0759bd; --focus:#b45309; --success:#076241; --warning:#725000; --danger:#9f1239; --space-1:4px; --space-2:8px; --space-3:12px; --space-4:16px; --radius:10px; --shadow:0 1px 2px rgb(15 23 42 / .08); color:var(--text); background:var(--canvas); }
+    * { box-sizing:border-box; }
+    body { margin:0; }
+    main { max-inline-size:1440px; margin:0 auto; padding:28px 24px 48px; min-inline-size:0; }
+    h1 { margin:0 0 var(--space-2); font-size:2rem; } h2 { margin:28px 0 var(--space-3); font-size:1.25rem; } h3,h4 { margin:0; } p { line-height:1.55; }
+    .coverage { margin:var(--space-3) 0; border-inline-start:4px solid var(--warning); background:#fff6d8; padding:var(--space-2) var(--space-3); color:#503600; }
+    .summary-chips,.tablist,.toolbar-actions,.column-controls { display:flex; flex-wrap:wrap; gap:var(--space-2); padding:0; margin:var(--space-3) 0; list-style:none; }
+    .summary-chips li { border:1px solid var(--border); border-radius:999px; background:var(--surface); padding:6px 10px; box-shadow:var(--shadow); font-size:.92rem; } .summary-chips strong { font-size:1.05rem; }
+    button,input,select { font:inherit; } button { min-block-size:40px; border:1px solid var(--border); border-radius:8px; background:var(--surface); color:var(--text); padding:6px 10px; cursor:pointer; } button[aria-selected="true"] { background:#173b70; border-color:#173b70; color:#fff; } button:disabled { cursor:not-allowed; opacity:.55; }
+    a { color:var(--link); font-weight:700; } a,button,input,select,summary,[tabindex="0"] { outline-offset:3px; } a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,summary:focus-visible,[tabindex="0"]:focus-visible { outline:3px solid var(--focus); }
+    details { border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); padding:0 var(--space-3) var(--space-3); } summary { cursor:pointer; padding:var(--space-3) 0; font-weight:700; }
+    .controls-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:var(--space-3); } .controls-grid label,.controls-grid fieldset { min-inline-size:0; display:grid; gap:var(--space-1); } input,select { inline-size:100%; max-inline-size:100%; min-block-size:40px; border:1px solid var(--border); border-radius:6px; padding:6px 8px; background:var(--surface); }
+    fieldset { border:1px solid var(--border); border-radius:8px; } legend { font-weight:700; } .column-controls label { display:flex; align-items:center; gap:var(--space-1); } .column-controls input { inline-size:auto; min-block-size:auto; }
+    .storage-warning,.form-error,.empty-state { color:var(--danger); margin:var(--space-2) 0 0; } .empty-state { color:var(--muted); } [hidden] { display:none !important; }
+    .table-scroll,.stage-scroll { max-inline-size:100%; min-inline-size:0; overflow-x:auto; overscroll-behavior-inline:contain; border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); }
+    table { inline-size:100%; border-collapse:collapse; } caption { text-align:left; padding:var(--space-3); font-weight:700; } th,td { padding:10px 12px; border-top:1px solid #e2e8f0; text-align:left; vertical-align:top; line-height:1.45; } th { background:var(--surface-muted); white-space:nowrap; } .issue-cell { min-inline-size:310px; } code { overflow-wrap:anywhere; color:#334155; } .status { display:inline-block; border:1px solid currentColor; border-radius:999px; padding:1px 7px; font-size:.85rem; font-weight:700; white-space:nowrap; } .status-open,.status-in-progress { color:var(--success); background:#e8f7ee; } .status-pending { color:var(--warning); background:#fff6d8; } .status-blocked,.status-cancelled { color:var(--danger); background:#fff1f2; } .status-done { color:#1d4ed8; background:#eff6ff; } .status-other { color:var(--muted); background:var(--surface-muted); }
+    td[data-column="pr"] { white-space:nowrap; }
+    table { min-inline-size:1180px; }
+    .dependency-ref { display:inline-flex; align-items:center; gap:3px; margin:0 4px 4px 0; white-space:nowrap; } .source { border-radius:999px; background:var(--surface-muted); color:var(--muted); font-size:.75rem; padding:1px 5px; } .muted,.card-kicker { color:var(--muted); } .card-kicker { margin:0 0 var(--space-1); font-size:.82rem; }
+    .stage-board { display:grid; grid-auto-flow:column; grid-auto-columns:minmax(260px,320px); gap:var(--space-3); inline-size:max-content; min-inline-size:100%; padding:var(--space-3); margin:0; list-style:none; } .stage { min-inline-size:0; } .stage > section { block-size:100%; border-inline-start:3px solid #5b7db1; padding-inline-start:var(--space-2); } .stage-cards { display:grid; gap:var(--space-2); margin-top:var(--space-2); } .issue-card,.cycle-card,.status-lane { border:1px solid var(--border); border-radius:var(--radius); background:var(--surface); padding:var(--space-3); box-shadow:var(--shadow); } .issue-card.context { background:#f8fafc; border-color:#aebdcc; } .dependency-list { margin:var(--space-2) 0 0; } .independent { margin-top:var(--space-3); }
+    .cycle-grid,.status-board { display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:var(--space-3); } .cycle-card ul,.status-lane ul { margin:var(--space-2) 0 0; padding-inline-start:20px; } .status-lane h3 { text-transform:none; }
+    @media (max-width:720px) { main { padding:20px 14px 32px; } .controls-grid { grid-template-columns:1fr; } .toolbar-actions button { min-block-size:44px; } .issue-cell { min-inline-size:270px; } .stage-board { grid-auto-columns:minmax(250px,78vw); } }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1>Dev Hub 專案總覽</h1>
+      <aside class="coverage" role="note">僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。</aside>
+      <ul class="summary-chips" aria-label="目前摘要"><li><strong>4</strong> active Issues</li><li><strong>7</strong> upstream dependencies</li><li><strong>2</strong> active Cycles</li></ul>
+    </header>
+    <div class="tablist" role="tablist" aria-label="總覽檢視">
+      <button type="button" role="tab" id="tab-table" aria-controls="panel-table" aria-selected="true" tabindex="0" data-view="table">表格</button>
+      <button type="button" role="tab" id="tab-dependencies" aria-controls="panel-dependencies" aria-selected="false" tabindex="-1" data-view="dependencies">依賴階段</button>
+      <button type="button" role="tab" id="tab-cycles" aria-controls="panel-cycles" aria-selected="false" tabindex="-1" data-view="cycles">Cycle</button>
+      <button type="button" role="tab" id="tab-status" aria-controls="panel-status" aria-selected="false" tabindex="-1" data-view="status">狀態</button>
+    </div>
+    <details id="overview-controls">
+      <summary>顯示設定與篩選</summary>
+      <div class="controls-grid">
+        <label>關鍵字<input id="filter-query" type="search" autocomplete="off"></label>
+        <label>Issue state<select id="filter-issue-state"><option value="all">全部</option><option value="open">open</option></select></label>
+        <label>Local status<select id="filter-local-status"><option value="all">全部</option><option value="in_progress">in_progress</option><option value="pending">pending</option></select></label>
+        <label>Cycle<select id="filter-cycle"><option value="all">全部</option><option value="cycle-2026-08-28-1655-plugin-lifecycle-integration">cycle-2026-08-28-1655-plugin-lifecycle-integration</option><option value="cycle-2026-08-28-1801-project-progress-roadmap">cycle-2026-08-28-1801-project-progress-roadmap</option></select></label>
+        <label>範圍<select id="filter-scope"><option value="active">active</option><option value="all">active + dependencies</option></select></label>
+        <label>Filter 名稱<input id="saved-filter-name" maxlength="40" aria-describedby="saved-filter-error"></label>
+        <label>已存 Filter<select id="saved-filter-select"><option value="">選擇 Filter</option></select></label>
+      </div>
+      <fieldset><legend>欄位</legend><div class="column-controls"><label><input type="checkbox" checked disabled>Issue／Issue state</label><label><input type="checkbox" data-column-toggle="localStatus" checked>Local status</label><label><input type="checkbox" data-column-toggle="dependencies" checked>前置依賴</label><label><input type="checkbox" data-column-toggle="owner" checked>Owner</label><label><input type="checkbox" data-column-toggle="pr" checked>PR</label><label><input type="checkbox" data-column-toggle="parent">Parent</label><label><input type="checkbox" data-column-toggle="cycle">Cycle</label><label><input type="checkbox" data-column-toggle="workItem">Work Item</label><label><input type="checkbox" data-column-toggle="workGroup">Work Group</label><label><input type="checkbox" data-column-toggle="branch">Branch</label><label><input type="checkbox" data-column-toggle="localPath">Local path</label></div></fieldset>
+      <div class="toolbar-actions"><button type="button" id="clear-filters">清除 filter</button><button type="button" id="save-filter">儲存</button><button type="button" id="apply-filter" disabled>套用</button><button type="button" id="delete-filter" disabled>刪除</button></div>
+      <p id="saved-filter-error" class="form-error" role="status" aria-live="polite"></p>
+    </details>
+    <p id="storage-warning" class="storage-warning" role="status" aria-live="polite" hidden>設定無法保存</p>
+    <section id="panel-table" role="tabpanel" aria-labelledby="tab-table">
+      <h2>緊湊表格</h2>
+      <div class="table-scroll" tabindex="0" aria-label="Issue 總覽表，可橫向捲動"><table><caption>active Dev Hub 工作與遞迴前置 Issue 的手動 snapshot</caption><thead><tr><th scope="col" data-column="issue">Issue／Issue state</th><th scope="col" data-column="localStatus">Local status</th><th scope="col" data-column="dependencies">前置依賴</th><th scope="col" data-column="owner">Owner</th><th scope="col" data-column="pr">PR</th><th scope="col" data-column="parent" hidden>Parent</th><th scope="col" data-column="cycle" hidden>Cycle</th><th scope="col" data-column="workItem" hidden>Work Item</th><th scope="col" data-column="workGroup" hidden>Work Group</th><th scope="col" data-column="branch" hidden>Branch</th><th scope="col" data-column="localPath" hidden>Local path</th></tr></thead><tbody>
+          <tr data-issue-number="219" hidden>
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219 持久化｜從空資料庫完成可信 Revision 的 forward storage migration</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus">未登錄 Dev Hub</td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/239">#239</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">—</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#214</td>
+            <td data-column="cycle" hidden><code>—</code></td>
+            <td data-column="workItem" hidden>—</td>
+            <td data-column="workGroup" hidden>—</td>
+            <td data-column="branch" hidden><code>—</code></td>
+            <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="220" hidden>
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220 Plugin Host｜從可信根 discovery 到固定 identity 的顯式 activation</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus">未登錄 Dev Hub</td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/239">#239</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">—</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#218</td>
+            <td data-column="cycle" hidden><code>—</code></td>
+            <td data-column="workItem" hidden>—</td>
+            <td data-column="workGroup" hidden>—</td>
+            <td data-column="branch" hidden><code>—</code></td>
+            <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="221" hidden>
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/221">#221 持久化｜原子切換同 entry 的 current/published pointers 並保留 lineage</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus">未登錄 Dev Hub</td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">—</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#214</td>
+            <td data-column="cycle" hidden><code>—</code></td>
+            <td data-column="workItem" hidden>—</td>
+            <td data-column="workGroup" hidden>—</td>
+            <td data-column="branch" hidden><code>—</code></td>
+            <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="222" hidden>
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/222">#222 SiteDefinition｜建立 current route claim 並拒絕同圖等價 collision</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus">未登錄 Dev Hub</td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">—</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#216</td>
+            <td data-column="cycle" hidden><code>—</code></td>
+            <td data-column="workItem" hidden>—</td>
+            <td data-column="workGroup" hidden>—</td>
+            <td data-column="branch" hidden><code>—</code></td>
+            <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="223" hidden>
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/223">#223 DataMedia｜最終 bytes 驗證後才 ready 的安全本機媒體匯入</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus">未登錄 Dev Hub</td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">—</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#217</td>
+            <td data-column="cycle" hidden><code>—</code></td>
+            <td data-column="workItem" hidden>—</td>
+            <td data-column="workGroup" hidden>—</td>
+            <td data-column="branch" hidden><code>—</code></td>
+            <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="228" hidden>
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228 DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus">未登錄 Dev Hub</td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/221">#221</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/222">#222</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/223">#223</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">—</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#215</td>
+            <td data-column="cycle" hidden><code>—</code></td>
+            <td data-column="workItem" hidden>—</td>
+            <td data-column="workGroup" hidden>—</td>
+            <td data-column="branch" hidden><code>—</code></td>
+            <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="229">
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229 Plugin Host｜inactive/missing block 的來源保留與 exact re-enable</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus"><span class="status status-in-progress">in_progress</span></td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228</a><span class="source">Issue</span></span></td>
+            <td data-column="owner">Main</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#218</td>
+            <td data-column="cycle" hidden><code>cycle-2026-08-28-1655-plugin-lifecycle-integration</code></td>
+            <td data-column="workItem" hidden><code>WI-001</code><br>Plugin exact re-enable lifecycle</td>
+            <td data-column="workGroup" hidden><code>WG-001-plugin-lifecycle-integration</code><br>Plugin lifecycle integration</td>
+            <td data-column="branch" hidden><code>cms/plugin-lifecycle-integration</code></td>
+            <td data-column="localPath" hidden><code>.dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-001-plugin-exact-reenable.md</code></td>
+          </tr>
+          <tr data-issue-number="234">
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234 Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus"><span class="status status-pending">pending</span></td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229</a><span class="source">Work Item</span></span></td>
+            <td data-column="owner">Main</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#218</td>
+            <td data-column="cycle" hidden><code>cycle-2026-08-28-1655-plugin-lifecycle-integration</code></td>
+            <td data-column="workItem" hidden><code>WI-002</code><br>SaveRevision validator snapshots</td>
+            <td data-column="workGroup" hidden><code>WG-001-plugin-lifecycle-integration</code><br>Plugin lifecycle integration</td>
+            <td data-column="branch" hidden><code>cms/plugin-lifecycle-integration</code></td>
+            <td data-column="localPath" hidden><code>.dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-002-save-revision-validators.md</code></td>
+          </tr>
+          <tr data-issue-number="239" hidden>
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/239">#239 CMS-FND-01｜建立全域 repository 架構與 TypeScript Foundation</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus">未登錄 Dev Hub</td>
+            <td data-column="dependencies">無</td>
+            <td data-column="owner">—</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>—</td>
+            <td data-column="cycle" hidden><code>—</code></td>
+            <td data-column="workItem" hidden>—</td>
+            <td data-column="workGroup" hidden>—</td>
+            <td data-column="branch" hidden><code>—</code></td>
+            <td data-column="localPath" hidden><code>—</code></td>
+          </tr>
+          <tr data-issue-number="246">
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/246">#246 Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus"><span class="status status-pending">pending</span></td>
+            <td data-column="dependencies"><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229</a><span class="source">Issue＋Work Item</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234</a><span class="source">Issue＋Work Item</span></span></td>
+            <td data-column="owner">Main</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>#218</td>
+            <td data-column="cycle" hidden><code>cycle-2026-08-28-1655-plugin-lifecycle-integration</code></td>
+            <td data-column="workItem" hidden><code>WI-003</code><br>Application Plugin composition</td>
+            <td data-column="workGroup" hidden><code>WG-001-plugin-lifecycle-integration</code><br>Plugin lifecycle integration</td>
+            <td data-column="branch" hidden><code>cms/plugin-lifecycle-integration</code></td>
+            <td data-column="localPath" hidden><code>.dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-003-application-plugin-composition.md</code></td>
+          </tr>
+          <tr data-issue-number="252">
+            <td data-column="issue" class="issue-cell"><a href="https://github.com/wahengchang/ai-study-note/issues/252">#252 Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數</a><br><span class="status status-open">open</span></td>
+            <td data-column="localStatus"><span class="status status-in-progress">in_progress</span></td>
+            <td data-column="dependencies">無</td>
+            <td data-column="owner">domain_application_engineer</td>
+            <td data-column="pr">尚未建立</td>
+            <td data-column="parent" hidden>—</td>
+            <td data-column="cycle" hidden><code>cycle-2026-08-28-1801-project-progress-roadmap</code></td>
+            <td data-column="workItem" hidden><code>WI-001</code><br>Project progress roadmap governance</td>
+            <td data-column="workGroup" hidden><code>WG-001-project-progress-roadmap</code><br>Project progress roadmap</td>
+            <td data-column="branch" hidden><code>chore/project-progress-roadmap</code></td>
+            <td data-column="localPath" hidden><code>.dev-hub/active/cycle-2026-08-28-1801-project-progress-roadmap/work-items/WI-001-project-progress-roadmap.md</code></td>
+          </tr>
+          <tr id="table-empty" hidden><td colspan="5">目前 filter 沒有符合項目；請清除 filter。</td></tr>
+      </tbody></table></div>
+    </section>
+    <section id="panel-dependencies" role="tabpanel" aria-labelledby="tab-dependencies" hidden>
+      <h2 id="dependencies-title">依賴階段</h2>
+      <p id="dependency-empty" class="empty-state" hidden>目前 filter 沒有符合的 active Issue。</p>
+      <div class="stage-scroll" role="region" tabindex="0" aria-labelledby="dependencies-title"><ol class="stage-board">
+          <li class="stage" data-stage-level="1"><section><h3>第 1 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="239">
+                <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/239">#239 CMS-FND-01｜建立全域 repository 架構與 TypeScript Foundation</a></h4>
+                <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong>無</p>
+              </article></div></section></li>
+          <li class="stage" data-stage-level="2"><section><h3>第 2 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="219">
+                <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219 持久化｜從空資料庫完成可信 Revision 的 forward storage migration</a></h4>
+                <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/239">#239</a><span class="source">Issue</span></span></p>
+              </article>              <article class="issue-card" data-dependency-card data-issue-number="220">
+                <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220 Plugin Host｜從可信根 discovery 到固定 identity 的顯式 activation</a></h4>
+                <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/239">#239</a><span class="source">Issue</span></span></p>
+              </article></div></section></li>
+          <li class="stage" data-stage-level="3"><section><h3>第 3 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="221">
+                <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/221">#221 持久化｜原子切換同 entry 的 current/published pointers 並保留 lineage</a></h4>
+                <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219</a><span class="source">Issue</span></span></p>
+              </article>              <article class="issue-card" data-dependency-card data-issue-number="222">
+                <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/222">#222 SiteDefinition｜建立 current route claim 並拒絕同圖等價 collision</a></h4>
+                <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219</a><span class="source">Issue</span></span></p>
+              </article>              <article class="issue-card" data-dependency-card data-issue-number="223">
+                <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/223">#223 DataMedia｜最終 bytes 驗證後才 ready 的安全本機媒體匯入</a></h4>
+                <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/219">#219</a><span class="source">Issue</span></span></p>
+              </article></div></section></li>
+          <li class="stage" data-stage-level="4"><section><h3>第 4 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="228">
+                <p class="card-kicker">dependency-only／未登錄 Dev Hub</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228 DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿</a></h4>
+                <p><span class="status status-open">open</span> <span class="muted">未登錄 Dev Hub</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/221">#221</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/222">#222</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/223">#223</a><span class="source">Issue</span></span></p>
+              </article></div></section></li>
+          <li class="stage" data-stage-level="5"><section><h3>第 5 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="229">
+                <p class="card-kicker">cycle-2026-08-28-1655-plugin-lifecycle-integration</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229 Plugin Host｜inactive/missing block 的來源保留與 exact re-enable</a></h4>
+                <p><span class="status status-open">open</span> <span class="status status-in-progress">in_progress</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228</a><span class="source">Issue</span></span></p>
+              </article></div></section></li>
+          <li class="stage" data-stage-level="6"><section><h3>第 6 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="234">
+                <p class="card-kicker">cycle-2026-08-28-1655-plugin-lifecycle-integration</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234 Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗</a></h4>
+                <p><span class="status status-open">open</span> <span class="status status-pending">pending</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229</a><span class="source">Work Item</span></span></p>
+              </article></div></section></li>
+          <li class="stage" data-stage-level="7"><section><h3>第 7 階段</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="246">
+                <p class="card-kicker">cycle-2026-08-28-1655-plugin-lifecycle-integration</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/246">#246 Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝</a></h4>
+                <p><span class="status status-open">open</span> <span class="status status-pending">pending</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong><span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/220">#220</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/228">#228</a><span class="source">Issue</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229</a><span class="source">Issue＋Work Item</span></span> <span class="dependency-ref"><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234</a><span class="source">Issue＋Work Item</span></span></p>
+              </article></div></section></li>
+      </ol></div>
+      <section class="independent" id="independent-section"><h3>獨立工作</h3><div class="stage-cards">              <article class="issue-card" data-dependency-card data-issue-number="252" data-independent="true">
+                <p class="card-kicker">cycle-2026-08-28-1801-project-progress-roadmap</p>
+                <h4><a href="https://github.com/wahengchang/ai-study-note/issues/252">#252 Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數</a></h4>
+                <p><span class="status status-open">open</span> <span class="status status-in-progress">in_progress</span></p>
+                <p class="dependency-list"><strong>前置依賴：</strong>無</p>
+              </article></div></section>
+    </section>
+    <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1655-plugin-lifecycle-integration">
+          <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-1655-plugin-lifecycle-integration</code></p>
+          <h3>Plugin lifecycle integration</h3>
+          <p>Owner：Main · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
+          <ul><li data-cycle-row data-issue-number="229"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229 Plugin Host｜inactive/missing block 的來源保留與 exact re-enable</a> <span class="status status-in-progress">in_progress</span></li><li data-cycle-row data-issue-number="234"><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234 Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗</a> <span class="status status-pending">pending</span></li><li data-cycle-row data-issue-number="246"><a href="https://github.com/wahengchang/ai-study-note/issues/246">#246 Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝</a> <span class="status status-pending">pending</span></li></ul>
+        </article>
+        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1801-project-progress-roadmap">
+          <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-1801-project-progress-roadmap</code></p>
+          <h3>Project progress roadmap</h3>
+          <p>Owner：domain_application_engineer · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
+          <ul><li data-cycle-row data-issue-number="252"><a href="https://github.com/wahengchang/ai-study-note/issues/252">#252 Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數</a> <span class="status status-in-progress">in_progress</span></li></ul>
+        </article></div></section>
+    <section id="panel-status" role="tabpanel" aria-labelledby="tab-status" hidden><h2>狀態</h2><p id="status-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="status-board">        <section class="status-lane" data-status-lane="in_progress">
+          <h3>in_progress</h3>
+          <ul><li data-status-row data-issue-number="229"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229 Plugin Host｜inactive/missing block 的來源保留與 exact re-enable</a> <span class="status status-in-progress">in_progress</span></li><li data-status-row data-issue-number="252"><a href="https://github.com/wahengchang/ai-study-note/issues/252">#252 Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數</a> <span class="status status-in-progress">in_progress</span></li></ul>
+        </section>
+        <section class="status-lane" data-status-lane="pending">
+          <h3>pending</h3>
+          <ul><li data-status-row data-issue-number="234"><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234 Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗</a> <span class="status status-pending">pending</span></li><li data-status-row data-issue-number="246"><a href="https://github.com/wahengchang/ai-study-note/issues/246">#246 Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝</a> <span class="status status-pending">pending</span></li></ul>
+        </section>
+
+
+
+</div></section>
+  </main>
+  <script id="dev-hub-overview-model" type="application/json">{"rows":[{"issueNumber":219,"title":"持久化｜從空資料庫完成可信 Revision 的 forward storage migration","issueState":"open","dependencies":[239],"local":null},{"issueNumber":220,"title":"Plugin Host｜從可信根 discovery 到固定 identity 的顯式 activation","issueState":"open","dependencies":[239],"local":null},{"issueNumber":221,"title":"持久化｜原子切換同 entry 的 current/published pointers 並保留 lineage","issueState":"open","dependencies":[219],"local":null},{"issueNumber":222,"title":"SiteDefinition｜建立 current route claim 並拒絕同圖等價 collision","issueState":"open","dependencies":[219],"local":null},{"issueNumber":223,"title":"DataMedia｜最終 bytes 驗證後才 ready 的安全本機媒體匯入","issueState":"open","dependencies":[219],"local":null},{"issueNumber":228,"title":"DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿","issueState":"open","dependencies":[221,222,223],"local":null},{"issueNumber":229,"title":"Plugin Host｜inactive/missing block 的來源保留與 exact re-enable","issueState":"open","dependencies":[220,228],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"Plugin exact re-enable lifecycle","localStatus":"in_progress","owner":"Main"}},{"issueNumber":234,"title":"Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗","issueState":"open","dependencies":[220,228,229],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"SaveRevision validator snapshots","localStatus":"pending","owner":"Main"}},{"issueNumber":239,"title":"CMS-FND-01｜建立全域 repository 架構與 TypeScript Foundation","issueState":"open","dependencies":[],"local":null},{"issueNumber":246,"title":"Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝","issueState":"open","dependencies":[220,228,229,234],"local":{"cycleId":"cycle-2026-08-28-1655-plugin-lifecycle-integration","workItemTitle":"Application Plugin composition","localStatus":"pending","owner":"Main"}},{"issueNumber":252,"title":"Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數","issueState":"open","dependencies":[],"local":{"cycleId":"cycle-2026-08-28-1801-project-progress-roadmap","workItemTitle":"Project progress roadmap governance","localStatus":"in_progress","owner":"domain_application_engineer"}}],"layout":{"stages":[{"level":1,"issueNumbers":[239]},{"level":2,"issueNumbers":[219,220]},{"level":3,"issueNumbers":[221,222,223]},{"level":4,"issueNumbers":[228]},{"level":5,"issueNumbers":[229]},{"level":6,"issueNumbers":[234]},{"level":7,"issueNumbers":[246]}],"independentIssueNumbers":[252],"issues":[{"issueNumber":219,"dependencies":[{"issueNumber":239,"source":"issue"}]},{"issueNumber":220,"dependencies":[{"issueNumber":239,"source":"issue"}]},{"issueNumber":221,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":222,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":223,"dependencies":[{"issueNumber":219,"source":"issue"}]},{"issueNumber":228,"dependencies":[{"issueNumber":221,"source":"issue"},{"issueNumber":222,"source":"issue"},{"issueNumber":223,"source":"issue"}]},{"issueNumber":229,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"}]},{"issueNumber":234,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"},{"issueNumber":229,"source":"work_item"}]},{"issueNumber":239,"dependencies":[]},{"issueNumber":246,"dependencies":[{"issueNumber":220,"source":"issue"},{"issueNumber":228,"source":"issue"},{"issueNumber":229,"source":"both"},{"issueNumber":234,"source":"both"}]},{"issueNumber":252,"dependencies":[]}]}}</script>
+  <script>
+(() => {
+  'use strict';
+  const storageKey = 'dev-hub-overview.preferences.v1';
+  const model = JSON.parse(document.getElementById('dev-hub-overview-model').textContent);
+  const views = ['table', 'dependencies', 'cycles', 'status'];
+  const columnNames = ['issue', 'localStatus', 'dependencies', 'owner', 'pr', 'parent', 'cycle', 'workItem', 'workGroup', 'branch', 'localPath'];
+  const defaultFilters = () => ({ query: '', issueState: 'all', localStatus: 'all', cycleId: 'all', scope: 'active' });
+  const defaults = () => ({ version: 1, view: 'table', visibleColumns: ['issue', 'localStatus', 'dependencies', 'owner', 'pr'], filters: defaultFilters(), savedFilters: [], selectedSavedFilter: null, controlsOpen: false });
+  const warning = document.getElementById('storage-warning');
+  const controls = document.getElementById('overview-controls');
+  const query = document.getElementById('filter-query');
+  const issueState = document.getElementById('filter-issue-state');
+  const localStatus = document.getElementById('filter-local-status');
+  const cycle = document.getElementById('filter-cycle');
+  const scope = document.getElementById('filter-scope');
+  const filterName = document.getElementById('saved-filter-name');
+  const savedSelect = document.getElementById('saved-filter-select');
+  const saveError = document.getElementById('saved-filter-error');
+  const applyButton = document.getElementById('apply-filter');
+  const deleteButton = document.getElementById('delete-filter');
+  const tabs = Array.from(document.querySelectorAll('[role="tab"]'));
+  const toggleInputs = Array.from(document.querySelectorAll('[data-column-toggle]'));
+  const rowsByNumber = new Map(model.rows.map((row) => [row.issueNumber, row]));
+  const issueStates = new Set(model.rows.map((row) => row.issueState));
+  const localStatuses = new Set(model.rows.flatMap((row) => row.local ? [row.local.localStatus] : []));
+  const cycleIds = new Set(model.rows.flatMap((row) => row.local ? [row.local.cycleId] : []));
+  const showWarning = () => { warning.hidden = false; };
+  const cloneFilters = (filters) => ({ query: filters.query, issueState: filters.issueState, localStatus: filters.localStatus, cycleId: filters.cycleId, scope: filters.scope });
+  const normalizeFilters = (value) => {
+    const input = value && typeof value === 'object' ? value : {};
+    return { query: typeof input.query === 'string' ? input.query : '', issueState: typeof input.issueState === 'string' && (input.issueState === 'all' || issueStates.has(input.issueState)) ? input.issueState : 'all', localStatus: typeof input.localStatus === 'string' && (input.localStatus === 'all' || localStatuses.has(input.localStatus)) ? input.localStatus : 'all', cycleId: typeof input.cycleId === 'string' && (input.cycleId === 'all' || cycleIds.has(input.cycleId)) ? input.cycleId : 'all', scope: input.scope === 'all' ? 'all' : 'active' };
+  };
+  const normalizePreferences = (value) => {
+    if (!value || typeof value !== 'object' || value.version !== 1 || !views.includes(value.view)) return null;
+    const visible = Array.isArray(value.visibleColumns) ? value.visibleColumns.filter((column, index, all) => typeof column === 'string' && columnNames.includes(column) && all.indexOf(column) === index) : [];
+    if (!visible.includes('issue')) visible.unshift('issue');
+    const savedFilters = Array.isArray(value.savedFilters) ? value.savedFilters.flatMap((preset) => {
+      if (!preset || typeof preset !== 'object' || typeof preset.name !== 'string') return [];
+      const name = preset.name.trim();
+      return name.length >= 1 && name.length <= 40 ? [{ name, filters: normalizeFilters(preset.filters) }] : [];
+    }).filter((preset, index, all) => all.findIndex((candidate) => candidate.name === preset.name) === index) : [];
+    const selected = typeof value.selectedSavedFilter === 'string' && savedFilters.some((preset) => preset.name === value.selectedSavedFilter) ? value.selectedSavedFilter : null;
+    return { version: 1, view: value.view, visibleColumns: visible.length ? visible : defaults().visibleColumns, filters: normalizeFilters(value.filters), savedFilters, selectedSavedFilter: selected, controlsOpen: value.controlsOpen === true };
+  };
+  const loadPreferences = () => {
+    try { const parsed = normalizePreferences(JSON.parse(localStorage.getItem(storageKey) || 'null')); if (parsed) return parsed; if (localStorage.getItem(storageKey) !== null) showWarning(); } catch { showWarning(); }
+    return defaults();
+  };
+  let preferences = loadPreferences();
+  const persist = () => { try { localStorage.setItem(storageKey, JSON.stringify(preferences)); } catch { showWarning(); } };
+  const selectedPreset = () => preferences.savedFilters.find((preset) => preset.name === preferences.selectedSavedFilter) || null;
+  const filtersEqual = (left, right) => ['query', 'issueState', 'localStatus', 'cycleId', 'scope'].every((key) => left[key] === right[key]);
+  const rowMatches = (row) => {
+    const filters = preferences.filters;
+    const tokens = filters.query.trim().toLocaleLowerCase().split(/s+/).filter(Boolean);
+    const haystack = [String(row.issueNumber), row.title, row.local?.workItemTitle || '', row.local?.owner || ''].join(' ').toLocaleLowerCase();
+    return tokens.every((token) => haystack.includes(token)) && (filters.issueState === 'all' || row.issueState === filters.issueState) && (filters.localStatus === 'all' || row.local?.localStatus === filters.localStatus) && (filters.cycleId === 'all' || row.local?.cycleId === filters.cycleId);
+  };
+  const syncPresetOptions = () => {
+    const previous = savedSelect.value;
+    while (savedSelect.options.length > 1) savedSelect.remove(1);
+    for (const preset of preferences.savedFilters) { const option = document.createElement('option'); option.value = preset.name; option.textContent = preset.name; savedSelect.append(option); }
+    savedSelect.value = preferences.selectedSavedFilter || (preferences.savedFilters.some((preset) => preset.name === previous) ? previous : '');
+    applyButton.disabled = !preferences.selectedSavedFilter;
+    deleteButton.disabled = !preferences.selectedSavedFilter;
+  };
+  const syncControls = () => {
+    query.value = preferences.filters.query; issueState.value = preferences.filters.issueState; localStatus.value = preferences.filters.localStatus; cycle.value = preferences.filters.cycleId; scope.value = preferences.filters.scope;
+    controls.open = preferences.controlsOpen;
+    for (const input of toggleInputs) input.checked = preferences.visibleColumns.includes(input.dataset.columnToggle);
+    syncPresetOptions();
+  };
+  const applyColumns = () => {
+    for (const column of columnNames) for (const cell of document.querySelectorAll('[data-column="' + column + '"]')) cell.hidden = !preferences.visibleColumns.includes(column);
+    document.getElementById('table-empty').firstElementChild.colSpan = preferences.visibleColumns.length;
+  };
+  const applyTable = () => {
+    let visible = 0;
+    for (const element of document.querySelectorAll('tr[data-issue-number]')) { const row = rowsByNumber.get(Number(element.dataset.issueNumber)); const matches = rowMatches(row) && (preferences.filters.scope === 'all' || row.local); element.hidden = !matches; if (matches) visible++; }
+    document.getElementById('table-empty').hidden = visible !== 0;
+  };
+  const applyDependencyFocus = () => {
+    const hasFocusCriteria = preferences.filters.query.trim() !== '' || preferences.filters.issueState !== 'all' || preferences.filters.localStatus !== 'all' || preferences.filters.cycleId !== 'all';
+    const visible = new Set(); const focal = new Set();
+    if (hasFocusCriteria) {
+      for (const row of model.rows) if (row.local && rowMatches(row)) focal.add(row.issueNumber);
+      const include = (number) => { if (visible.has(number)) return; visible.add(number); for (const dependency of rowsByNumber.get(number).dependencies) include(dependency); };
+      for (const number of focal) include(number);
+    } else for (const row of model.rows) visible.add(row.issueNumber);
+    for (const card of document.querySelectorAll('[data-dependency-card]')) { const number = Number(card.dataset.issueNumber); card.hidden = !visible.has(number); card.classList.toggle('context', hasFocusCriteria && visible.has(number) && !focal.has(number)); }
+    for (const stage of document.querySelectorAll('[data-stage-level]')) stage.hidden = !Array.from(stage.querySelectorAll('[data-dependency-card]')).some((card) => !card.hidden);
+    document.getElementById('independent-section').hidden = !Array.from(document.querySelectorAll('[data-independent="true"]')).some((card) => !card.hidden);
+    document.getElementById('dependency-empty').hidden = visible.size !== 0;
+  };
+  const applyCycles = () => {
+    let visible = 0;
+    for (const card of document.querySelectorAll('[data-cycle-card]')) { let count = 0, active = 0, pending = 0; for (const item of card.querySelectorAll('[data-cycle-row]')) { const row = rowsByNumber.get(Number(item.dataset.issueNumber)); const matches = rowMatches(row); item.hidden = !matches; if (matches) { count++; visible++; if (row.local.localStatus === 'in_progress') active++; if (row.local.localStatus === 'pending') pending++; } } card.hidden = count === 0; card.querySelector('[data-cycle-in-progress]').textContent = String(active); card.querySelector('[data-cycle-pending]').textContent = String(pending); }
+    document.getElementById('cycle-empty').hidden = visible !== 0;
+  };
+  const applyStatus = () => {
+    let visible = 0;
+    for (const lane of document.querySelectorAll('[data-status-lane]')) { let count = 0; for (const item of lane.querySelectorAll('[data-status-row]')) { const row = rowsByNumber.get(Number(item.dataset.issueNumber)); const matches = rowMatches(row); item.hidden = !matches; if (matches) { count++; visible++; } } lane.hidden = count === 0; }
+    document.getElementById('status-empty').hidden = visible !== 0;
+  };
+  const setView = (view, save = true) => { preferences.view = view; for (const tab of tabs) { const selected = tab.dataset.view === view; tab.setAttribute('aria-selected', String(selected)); tab.tabIndex = selected ? 0 : -1; document.getElementById(tab.getAttribute('aria-controls')).hidden = !selected; } if (save) persist(); };
+  const render = () => { applyColumns(); applyTable(); applyDependencyFocus(); applyCycles(); applyStatus(); setView(preferences.view, false); };
+  const updateFilters = () => { preferences.filters = { query: query.value, issueState: issueState.value, localStatus: localStatus.value, cycleId: cycle.value, scope: scope.value }; const preset = selectedPreset(); if (preset && !filtersEqual(preferences.filters, preset.filters)) preferences.selectedSavedFilter = null; syncPresetOptions(); render(); persist(); };
+  for (const input of [query, issueState, localStatus, cycle, scope]) input.addEventListener(input === query ? 'input' : 'change', updateFilters);
+  for (const input of toggleInputs) input.addEventListener('change', () => { const name = input.dataset.columnToggle; preferences.visibleColumns = columnNames.filter((column) => column === 'issue' || (column === name ? input.checked : preferences.visibleColumns.includes(column))); applyColumns(); persist(); });
+  controls.addEventListener('toggle', () => { preferences.controlsOpen = controls.open; persist(); });
+  for (const tab of tabs) { tab.addEventListener('click', () => setView(tab.dataset.view)); tab.addEventListener('keydown', (event) => { const index = tabs.indexOf(tab); let target = null; if (event.key === 'ArrowRight' || event.key === 'ArrowDown') target = tabs[(index + 1) % tabs.length]; if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') target = tabs[(index + tabs.length - 1) % tabs.length]; if (event.key === 'Home') target = tabs[0]; if (event.key === 'End') target = tabs[tabs.length - 1]; if (target) { event.preventDefault(); target.focus(); target.click(); } }); }
+  document.getElementById('clear-filters').addEventListener('click', () => { preferences.filters = defaultFilters(); preferences.selectedSavedFilter = null; syncControls(); render(); persist(); });
+  document.getElementById('save-filter').addEventListener('click', () => { const name = filterName.value.trim(); if (name.length < 1 || name.length > 40) { saveError.textContent = 'Filter 名稱須為 1–40 字。'; return; } saveError.textContent = ''; const preset = { name, filters: cloneFilters(preferences.filters) }; const index = preferences.savedFilters.findIndex((item) => item.name === name); if (index === -1) preferences.savedFilters.push(preset); else preferences.savedFilters[index] = preset; preferences.selectedSavedFilter = name; syncPresetOptions(); persist(); });
+  savedSelect.addEventListener('change', () => { preferences.selectedSavedFilter = savedSelect.value || null; syncPresetOptions(); persist(); });
+  applyButton.addEventListener('click', () => { const preset = selectedPreset(); if (!preset) return; preferences.filters = cloneFilters(preset.filters); syncControls(); render(); persist(); });
+  deleteButton.addEventListener('click', () => { if (!preferences.selectedSavedFilter) return; preferences.savedFilters = preferences.savedFilters.filter((preset) => preset.name !== preferences.selectedSavedFilter); preferences.selectedSavedFilter = null; syncPresetOptions(); persist(); });
+  syncControls(); render();
+})();
+  </script>
+</body>
+</html>

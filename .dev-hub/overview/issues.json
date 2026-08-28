@@ -1,0 +1,99 @@
+{
+  "schema_version": 2,
+  "coverage": {
+    "mode": "active_dev_hub_with_dependencies",
+    "complete": false,
+    "note": "僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。"
+  },
+  "updated_at": "2026-08-28T21:35:44+08:00",
+  "issues": [
+    {
+      "number": 219,
+      "title": "持久化｜從空資料庫完成可信 Revision 的 forward storage migration",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/219",
+      "state": "open",
+      "parent_issue": 214,
+      "depends_on": [239]
+    },
+    {
+      "number": 220,
+      "title": "Plugin Host｜從可信根 discovery 到固定 identity 的顯式 activation",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/220",
+      "state": "open",
+      "parent_issue": 218,
+      "depends_on": [239]
+    },
+    {
+      "number": 221,
+      "title": "持久化｜原子切換同 entry 的 current/published pointers 並保留 lineage",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/221",
+      "state": "open",
+      "parent_issue": 214,
+      "depends_on": [219]
+    },
+    {
+      "number": 222,
+      "title": "SiteDefinition｜建立 current route claim 並拒絕同圖等價 collision",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/222",
+      "state": "open",
+      "parent_issue": 216,
+      "depends_on": [219]
+    },
+    {
+      "number": 223,
+      "title": "DataMedia｜最終 bytes 驗證後才 ready 的安全本機媒體匯入",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/223",
+      "state": "open",
+      "parent_issue": 217,
+      "depends_on": [219]
+    },
+    {
+      "number": 228,
+      "title": "DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/228",
+      "state": "open",
+      "parent_issue": 215,
+      "depends_on": [221, 222, 223]
+    },
+    {
+      "number": 229,
+      "title": "Plugin Host｜inactive/missing block 的來源保留與 exact re-enable",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/229",
+      "state": "open",
+      "parent_issue": 218,
+      "depends_on": [220, 228]
+    },
+    {
+      "number": 234,
+      "title": "Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/234",
+      "state": "open",
+      "parent_issue": 218,
+      "depends_on": [220, 228]
+    },
+    {
+      "number": 239,
+      "title": "CMS-FND-01｜建立全域 repository 架構與 TypeScript Foundation",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/239",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 246,
+      "title": "Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/246",
+      "state": "open",
+      "parent_issue": 218,
+      "depends_on": [220, 228, 229, 234]
+    },
+    {
+      "number": 252,
+      "title": "Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/252",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    }
+  ]
+}

@@ -29,6 +29,15 @@ Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的�
 
 每個 Work Group 的 PR 固定恰好兩個 commit，不得新增第三個。推送後若必須修正，amend 對應的第一或第二個 commit，再以 `--force-with-lease` 更新同一 PR。
 
+## Dev Hub overview projection 維護
+
+- `.dev-hub/overview/issues.json` 與 `links.json` 是 repository-local 的手動 projection；renderer 只讀這兩份已提交 snapshot，絕不讀網路、GitHub Issue 或 GitHub Project。
+- `issues.json` 的 coverage 固定為 `active_dev_hub_with_dependencies`：linked Issues 是 active Dev Hub 主清單；沒有 link 的 Issue 只能作為 linked Issues 的遞迴前置 dependency closure，不能當成全部 open GitHub Issues。
+- 每次 active Issue 的 `depends_on` 改變時，必須同步手動更新完整遞迴 closure。loader 會拒絕遺漏 prerequisite snapshot、無法由 linked Issue 抵達的 dependency-only row，以及不存在的 Issue／Work Item link target。
+- `issues.json` 與 `links.json` 必須使用相同 schema version 與含 UTC offset 的 `updated_at`；active Cycle、Work Item、Work Group 與 Issue→WI links 仍是一對一，dependency-only row 不增加 link 或 role。
+- 變更 overview 時，在對應 Work Group worktree 執行 `npm run dev-hub:overview` 與 `npm run dev-hub:overview:check`，並以 `node --import tsx --test tests/scripts/render-dev-hub-overview.test.ts` 驗證。root 缺少此 script 時，不得在 root 產生 projection。
+- `index.html` 的 localStorage 僅保存個人的 View、filter、欄位與 named filter preference；不得回寫 JSON、GitHub Issue、GitHub Project 或 Dev Hub state。
+
 ## 完成閘門
 
 最後一個 Work Group 只有在下列條件全數成立後才能 closeout：
@@ -40,6 +49,17 @@ Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的�
 - 每個執行中的 Work Item 都有 Work Group；每個 Work Group 都有 Branch 與 Worktree。
 
 `completed` 表示合併前已完成並通過驗證，不表示 PR 已 merged。`blocked` 必須在 Work Item 的 `Notes` 或 Work Group 的 `Verification` 寫明原因與解除條件；`cancelled` 必須寫明取消理由。
+
+## 本地專案總覽
+
+`.dev-hub/overview/issues.json` 與 `links.json` 是可重建的手動 overview projection；`index.html` 只能由兩份 JSON 衍生。GitHub Issue 仍保存 requirement／acceptance，active Cycle／Work Item／Work Group 仍保存執行現況；這些 overview 檔案不取得 SSOT 地位。
+
+- 新增或移除 active Work Item，或 Issue 的 number、title、URL、state、parent、dependency 改變時，手動更新 `issues.json`。
+- Cycle／Work Item／Work Group 的 local path、status、dependency、owner、branch、worktree、PR 或 Issue 關聯改變時，手動更新 `links.json`。
+- 每次更新時，兩份 JSON 的 `updated_at` 必須相同；依序執行 `npm run dev-hub:overview` 與 `npm run dev-hub:overview:check`。handoff、PR ready 與 Cycle closeout 前，check 必須通過。
+- 不得從 JSON 或 HTML 回寫／修改 GitHub Issue，不得引入 GitHub Project、Project API、auto-add 或全量 Issue sync。擴大 coverage 必須另行決定。
+
+目前 coverage 是刻意不完整的 `active_dev_hub_only` projection；先開 `.dev-hub/overview/index.html` 檢視 active work，再進對應 Cycle，不得把它解讀為全部 open GitHub Issues。
 
 <details>
 <summary>命名、狀態與固定 schema</summary>

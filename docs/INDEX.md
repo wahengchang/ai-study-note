@@ -13,7 +13,7 @@
 | 執行或修改資料庫 migration CLI | [CMS-DB-01 Persistence 規格](../specs/cms-basic-contracts-v1/01-persistence-and-schema-migrations.md) | [db-migrate CLI](../apps/cli/db-migrate.ts)、[db:migrate script](../package.json) | [CLI test](../tests/apps/cli/db-migrate.test.ts)、`npm run db:migrate -- --database /tmp/ai-study-note-reset-cms.sqlite` |
 | 修改 Plugin discovery／activation | [CMS-CORE-05 Plugin Host 規格](../specs/cms-basic-contracts-v1/05-plugin-host-core.md) | [Plugin Host public entry](../core/plugin-host/index.ts)、[Plugin Host contracts](../core/plugin-host/contracts.ts) | [Plugin Host test](../tests/core/plugin-host/plugin-host.test.ts)、[locale determinism](../tests/core/plugin-host/locale-determinism.test.ts)；[activation-probe](../extensions/plugins/activation-probe/) 是測試 fixture，不是正式範本 |
 | 開始尚未實作的 CMS domain | [implementation contract](../contracts/README.md)、[CMS 工作包 router](../specs/cms-basic-contracts-v1/README.md) 中對應工作包 | 依規格的 primary seam 建立真實垂直切片；禁止建立 stub、`.gitkeep` 或假成功入口 | 依同一 primary seam 建立可觀察的契約測試 |
-| 延續大型工作 | [Dev Hub workflow](dev-hub-workflow.md)，再只讀 [active Cycle](../.dev-hub/active/) 中對應記錄 | 由該 Cycle 已記錄範圍決定 | 由該 Cycle 已記錄範圍決定；不要把 [logs/](../logs/) 或歷史 handoff 當現行狀態 |
+| 延續大型工作 | [Dev Hub workflow](dev-hub-workflow.md)、[本地 active work overview](../.dev-hub/overview/index.html)，再只讀 [active Cycle](../.dev-hub/active/) 中對應記錄 | 由 overview 對應的 Cycle 已記錄範圍決定 | overview 僅涵蓋 active Dev Hub 工作，不代表全部 open GitHub Issues；不要把 [logs/](../logs/) 或歷史 handoff 當現行狀態 |
 | 修改 AI 指令或同步輸出 | [Rulesync canonical source](../.rulesync/rules/CLAUDE.md)、[Rulesync 設定](../rulesync.jsonc) | 根目錄 [AGENTS.md](../AGENTS.md) 與 [CLAUDE.md](../CLAUDE.md) 是 generated outputs | `npm run sync:ai`、`npm run check:ai-sync` |
 
 ## 先從 Domain 開始
@@ -40,7 +40,7 @@
 
 ## 目前工作
 
-只有在恢復既有大型工作時，先讀 [Dev Hub workflow](dev-hub-workflow.md)，再讀對應 active Cycle 的 `hub.md` 與其連結狀態。歷史 handoff 目錄維持唯讀。
+恢復既有大型工作時，先開 [本地 active work overview](../.dev-hub/overview/index.html) 確認 active Cycle 與 Work Item，再讀 [Dev Hub workflow](dev-hub-workflow.md) 與對應 Cycle 的 `hub.md`／連結狀態。overview 只涵蓋 active Dev Hub 工作，不代表全部 open GitHub Issues；歷史 handoff 目錄維持唯讀。
 
 ## 閱讀規則
 

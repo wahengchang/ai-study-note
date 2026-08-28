@@ -17,7 +17,9 @@
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "check:architecture": "node --import tsx scripts/check-architecture.ts",
     "check": "npm run typecheck && npm run check:architecture && npm test",
-    "db:migrate": "node --disable-warning=ExperimentalWarning --import tsx apps/cli/db-migrate.ts"
+    "db:migrate": "node --disable-warning=ExperimentalWarning --import tsx apps/cli/db-migrate.ts",
+    "dev-hub:overview": "node --import tsx scripts/render-dev-hub-overview.ts",
+    "dev-hub:overview:check": "node --import tsx scripts/render-dev-hub-overview.ts --check"
   },
   "dependencies": {
     "json-canonicalize": "3.0.0",
