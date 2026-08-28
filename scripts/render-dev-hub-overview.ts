@@ -70,6 +70,7 @@ export type DevHubDependencyLayout = {
 
 const ISSUE_URL_PREFIX = 'https://github.com/wahengchang/ai-study-note/issues/';
 const PULL_URL_PREFIX = 'https://github.com/wahengchang/ai-study-note/pull/';
+const PULL_URL_PATTERN = new RegExp(`^${PULL_URL_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[1-9]\\d*$`);
 const INVALID_PREFIX = 'DEV_HUB_OVERVIEW_INVALID:';
 const COVERAGE_NOTE = '僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。';
 const UPDATED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/;
@@ -156,7 +157,7 @@ function parseWorkGroup(value: unknown, cycleId: string, index: number): WorkGro
   const path = asString(group.path, `cycles.${cycleId}.work_groups[${index}].path`);
   requireLocalMarkdownPath(path, cycleId, `cycles.${cycleId}.work_groups[${index}].path`);
   const pr = group.pr;
-  if (pr !== null && (typeof pr !== 'string' || !new RegExp(`^${PULL_URL_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[1-9]\\d*$`).test(pr))) {
+  if (pr !== null && (typeof pr !== 'string' || !PULL_URL_PATTERN.test(pr))) {
     invalid(`cycles.${cycleId}.work_groups[${index}].pr 必須是本 repository 的正整數 PR URL 或 null。`);
   }
   return {
@@ -434,17 +435,18 @@ function renderDependencyCard(row: OverviewRow, issueByNumber: ReadonlyMap<numbe
 }
 
 function renderCyclePanel(rows: readonly OverviewRow[]): string {
-  const cycles = new Map<string, OverviewRow[]>();
+  const groups = new Map<string, OverviewRow[]>();
   for (const row of rows) {
     if (row.local === null) continue;
-    const entries = cycles.get(row.local.cycle.id) ?? [];
+    const key = `${row.local.cycle.id}/${row.local.workGroup.id}`;
+    const entries = groups.get(key) ?? [];
     entries.push(row);
-    cycles.set(row.local.cycle.id, entries);
+    groups.set(key, entries);
   }
-  return [...cycles.entries()].map(([cycleId, entries]) => {
+  return [...groups.entries()].map(([key, entries]) => {
     const local = entries[0]!.local!;
-    return `        <article class="cycle-card" data-cycle-card="${escapeHtml(cycleId)}">
-          <p class="card-kicker">Cycle ID: <code>${escapeHtml(cycleId)}</code></p>
+    return `        <article class="cycle-card" data-cycle-card="${escapeHtml(key)}">
+          <p class="card-kicker">Cycle ID: <code>${escapeHtml(local.cycle.id)}</code> · Work Group: <code>${escapeHtml(local.workGroup.id)}</code></p>
           <h3>${escapeHtml(local.workGroup.title)}</h3>
           <p>Owner：${escapeHtml(local.workGroup.owner)} · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
           <ul>${entries.map((row) => `<li data-cycle-row data-issue-number="${row.issue.number}"><a href="${escapeHtml(row.issue.url)}">#${row.issue.number} ${escapeHtml(row.issue.title)}</a> ${renderStatus(row.local!.workItem.status)}</li>`).join('')}</ul>
@@ -568,7 +570,7 @@ ${dependencyStages}
       </ol></div>
       <section class="independent" id="independent-section"><h3>獨立工作</h3><div class="stage-cards">${layout.independentIssueNumbers.map((number) => renderDependencyCard(rowByNumber.get(number)!, issueByNumber, true)).join('')}</div></section>
     </section>
-    <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">${renderCyclePanel(rows)}</div></section>
+    <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle／Work Group</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">${renderCyclePanel(rows)}</div></section>
     <section id="panel-status" role="tabpanel" aria-labelledby="tab-status" hidden><h2>狀態</h2><p id="status-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="status-board">${renderStatusPanel(rows)}</div></section>
   </main>
   <script id="dev-hub-overview-model" type="application/json">${escapeJsonForScript(clientModel(rows, layout))}</script>
@@ -607,7 +609,8 @@ ${dependencyStages}
   };
   const normalizePreferences = (value) => {
     if (!value || typeof value !== 'object' || value.version !== 1 || !views.includes(value.view)) return null;
-    const visible = Array.isArray(value.visibleColumns) ? value.visibleColumns.filter((column, index, all) => typeof column === 'string' && columnNames.includes(column) && all.indexOf(column) === index) : [];
+    const storedColumns = Array.isArray(value.visibleColumns) ? value.visibleColumns.filter((column, index, all) => typeof column === 'string' && columnNames.includes(column) && all.indexOf(column) === index) : null;
+    const visible = storedColumns && storedColumns.length ? storedColumns : defaults().visibleColumns.slice();
     if (!visible.includes('issue')) visible.unshift('issue');
     const savedFilters = Array.isArray(value.savedFilters) ? value.savedFilters.flatMap((preset) => {
       if (!preset || typeof preset !== 'object' || typeof preset.name !== 'string') return [];
@@ -615,7 +618,7 @@ ${dependencyStages}
       return name.length >= 1 && name.length <= 40 ? [{ name, filters: normalizeFilters(preset.filters) }] : [];
     }).filter((preset, index, all) => all.findIndex((candidate) => candidate.name === preset.name) === index) : [];
     const selected = typeof value.selectedSavedFilter === 'string' && savedFilters.some((preset) => preset.name === value.selectedSavedFilter) ? value.selectedSavedFilter : null;
-    return { version: 1, view: value.view, visibleColumns: visible.length ? visible : defaults().visibleColumns, filters: normalizeFilters(value.filters), savedFilters, selectedSavedFilter: selected, controlsOpen: value.controlsOpen === true };
+    return { version: 1, view: value.view, visibleColumns: visible, filters: normalizeFilters(value.filters), savedFilters, selectedSavedFilter: selected, controlsOpen: value.controlsOpen === true };
   };
   const loadPreferences = () => {
     try { const parsed = normalizePreferences(JSON.parse(localStorage.getItem(storageKey) || 'null')); if (parsed) return parsed; if (localStorage.getItem(storageKey) !== null) showWarning(); } catch { showWarning(); }

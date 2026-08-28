@@ -276,14 +276,14 @@
                 <p class="dependency-list"><strong>前置依賴：</strong>無</p>
               </article></div></section>
     </section>
-    <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1655-plugin-lifecycle-integration">
-          <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-1655-plugin-lifecycle-integration</code></p>
+    <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle／Work Group</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1655-plugin-lifecycle-integration/WG-001-plugin-lifecycle-integration">
+          <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-1655-plugin-lifecycle-integration</code> · Work Group: <code>WG-001-plugin-lifecycle-integration</code></p>
           <h3>Plugin lifecycle integration</h3>
           <p>Owner：Main · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
           <ul><li data-cycle-row data-issue-number="229"><a href="https://github.com/wahengchang/ai-study-note/issues/229">#229 Plugin Host｜inactive/missing block 的來源保留與 exact re-enable</a> <span class="status status-in-progress">in_progress</span></li><li data-cycle-row data-issue-number="234"><a href="https://github.com/wahengchang/ai-study-note/issues/234">#234 Plugin Host｜SaveRevision validator 的最小 capability 與原子失敗</a> <span class="status status-pending">pending</span></li><li data-cycle-row data-issue-number="246"><a href="https://github.com/wahengchang/ai-study-note/issues/246">#246 Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝</a> <span class="status status-pending">pending</span></li></ul>
         </article>
-        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1801-project-progress-roadmap">
-          <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-1801-project-progress-roadmap</code></p>
+        <article class="cycle-card" data-cycle-card="cycle-2026-08-28-1801-project-progress-roadmap/WG-001-project-progress-roadmap">
+          <p class="card-kicker">Cycle ID: <code>cycle-2026-08-28-1801-project-progress-roadmap</code> · Work Group: <code>WG-001-project-progress-roadmap</code></p>
           <h3>Project progress roadmap</h3>
           <p>Owner：domain_application_engineer · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
           <ul><li data-cycle-row data-issue-number="252"><a href="https://github.com/wahengchang/ai-study-note/issues/252">#252 Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數</a> <span class="status status-in-progress">in_progress</span></li></ul>
@@ -337,7 +337,8 @@
   };
   const normalizePreferences = (value) => {
     if (!value || typeof value !== 'object' || value.version !== 1 || !views.includes(value.view)) return null;
-    const visible = Array.isArray(value.visibleColumns) ? value.visibleColumns.filter((column, index, all) => typeof column === 'string' && columnNames.includes(column) && all.indexOf(column) === index) : [];
+    const storedColumns = Array.isArray(value.visibleColumns) ? value.visibleColumns.filter((column, index, all) => typeof column === 'string' && columnNames.includes(column) && all.indexOf(column) === index) : null;
+    const visible = storedColumns && storedColumns.length ? storedColumns : defaults().visibleColumns.slice();
     if (!visible.includes('issue')) visible.unshift('issue');
     const savedFilters = Array.isArray(value.savedFilters) ? value.savedFilters.flatMap((preset) => {
       if (!preset || typeof preset !== 'object' || typeof preset.name !== 'string') return [];
@@ -345,7 +346,7 @@
       return name.length >= 1 && name.length <= 40 ? [{ name, filters: normalizeFilters(preset.filters) }] : [];
     }).filter((preset, index, all) => all.findIndex((candidate) => candidate.name === preset.name) === index) : [];
     const selected = typeof value.selectedSavedFilter === 'string' && savedFilters.some((preset) => preset.name === value.selectedSavedFilter) ? value.selectedSavedFilter : null;
-    return { version: 1, view: value.view, visibleColumns: visible.length ? visible : defaults().visibleColumns, filters: normalizeFilters(value.filters), savedFilters, selectedSavedFilter: selected, controlsOpen: value.controlsOpen === true };
+    return { version: 1, view: value.view, visibleColumns: visible, filters: normalizeFilters(value.filters), savedFilters, selectedSavedFilter: selected, controlsOpen: value.controlsOpen === true };
   };
   const loadPreferences = () => {
     try { const parsed = normalizePreferences(JSON.parse(localStorage.getItem(storageKey) || 'null')); if (parsed) return parsed; if (localStorage.getItem(storageKey) !== null) showWarning(); } catch { showWarning(); }

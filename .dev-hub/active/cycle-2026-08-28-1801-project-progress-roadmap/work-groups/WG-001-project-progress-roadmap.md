@@ -17,8 +17,8 @@ pr: https://github.com/wahengchang/ai-study-note/pull/258
 
 # Verification
 
-- `node --import tsx --test tests/scripts/render-dev-hub-overview.test.ts`：11 個測試通過，涵蓋 11-Issue closure、七階段 layout、合併 cycle、錯誤 PR URL、escaping、deterministic render 與 `--check`。
+- `node --import tsx --test tests/scripts/render-dev-hub-overview.test.ts`：12 個測試通過，涵蓋 11-Issue closure、七階段 layout、合併 cycle、錯誤 PR URL、同 Cycle 多 Work Group 分卡、escaping、deterministic render 與 `--check`。
 - `npm run dev-hub:overview` 與 `npm run dev-hub:overview:check`：通過。
 - Chrome isolated `file://` review：1440px 預設為五欄表格、controls 收合、4/7/2 chips 與 `PR #258` link；建立 `Plugin 待處理` named filter、顯示 Cycle 欄、切換依賴 View 後 reload，View／欄位／filters／preset／controls state 全數由 localStorage 還原，且 #234/#246 保留 #239→#246 的必要前置脈絡。
 - 清除 filters 後確認七階段與獨立 #252、兩張 Cycle cards（Plugin 1 active/2 pending、roadmap 1 active/0 pending）、status lanes `in_progress` #229/#252 與 `pending` #234/#246。390×844 mobile emulation 無 page horizontal overflow，只有 table／stage container 水平捲動；擷取寬版與窄版 screenshot 後已清除 isolated localStorage。
-- `npm run typecheck`：未通過；既有 `core/site-definition/normalization.ts` 缺少 `unicode-case-folding` module，衍生 4 個該檔 diagnostics；本次 renderer 與測試已無 diagnostics。
+- `npm run check`（`typecheck` + `check:architecture` + 全量 `test`）：通過，74 個測試全數通過。先前記錄的 `unicode-case-folding` diagnostics 來自未安裝 dependencies 的環境，安裝後即不重現。

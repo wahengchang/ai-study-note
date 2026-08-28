@@ -158,6 +158,32 @@ test("缺少 closure、合併 cycle 與錯誤 PR 都 fail closed 且不覆寫 ou
   });
 });
 
+test("同一 Cycle 的多個 Work Group 各自成卡，不共用第一個 Work Group 的 title 與 owner", async () => {
+  const directory = temporaryDirectory();
+  try {
+    const fixture = createFixture();
+    const cycle = fixture.links.cycles[0]!;
+    const firstGroup = cycle.work_groups[0]!;
+    firstGroup.work_items = ["WI-001", "WI-002"];
+    cycle.work_items[2]!.work_group = "WG-002-plugin-composition";
+    cycle.work_groups.push({
+      id: "WG-002-plugin-composition", title: "Plugin composition", status: "pending", work_items: ["WI-003"],
+      owner: "domain_application_engineer", branch: "cms/plugin-composition", worktree: ".dev-hub/worktrees/plugin-composition", pr: null,
+      path: `.dev-hub/active/${cycle.id}/work-groups/WG-002-plugin-composition.md`,
+    });
+    fixture.links.links.find((link) => link.issue_number === 246)!.work_group_id = "WG-002-plugin-composition";
+    const html = renderDevHubOverviewHtml(await loadDevHubOverview(writeFixture(directory, fixture)));
+    const cards = [...html.matchAll(/data-cycle-card="([^"]+)"/g)].map((match) => match[1]);
+    assert.deepEqual(cards, [`${cycle.id}/WG-001-plugin-lifecycle-integration`, `${cycle.id}/WG-002-plugin-composition`, "cycle-2026-08-28-1801-project-progress-roadmap/WG-001-project-progress-roadmap"]);
+    const compositionCard = html.match(/<article class="cycle-card" data-cycle-card="[^"]*WG-002-plugin-composition">[\s\S]*?<\/article>/)?.[0];
+    assert.notEqual(compositionCard, undefined);
+    assert.match(compositionCard!, /<h3>Plugin composition<\/h3>/);
+    assert.match(compositionCard!, /Owner：domain_application_engineer/);
+    assert.match(compositionCard!, /data-issue-number="246"/);
+    assert.equal(/data-issue-number="229"/.test(compositionCard!), false);
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
 test("HTML 對可疑 model 值安全 escaping，並保持 JSON payload 可解析", async () => {
   const directory = temporaryDirectory();
   try {
