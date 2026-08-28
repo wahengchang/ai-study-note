@@ -5,84 +5,25 @@ targets:
 globs:
   - '**/*'
 ---
-# AI Study Note — Claude Code Configuration
+# AI Study Note Reset — 專案設定
 
-An Astro-powered digital garden of AI learning notes, deployed to GitHub Pages at https://wahengchang.github.io/ai-study-note/.
+此專案從零打造 JavaScript／TypeScript CMS 平台，並由 published projection 產生 AI 學習筆記的公開靜態網站。
 
-This file focuses on the **writing workflow** and **safety invariants** Claude must respect on every action. Detailed guidelines live in `docs/`; see the bottom of this file.
+- 將 `draft/`、`source-drafts/`、`dev-hub-*/` 與 `project-*/` handoff artifact 視為唯讀歷史參考資料。不得編輯、刪除、將其發布為網站內容，或在未經新的 Owner 決策下從中抽取需求。
 
-> **Project portability rule.** All project context lives in this repo — `CLAUDE.md`, `docs/`, `.claude/`. **Do not use Claude Code's per-machine memory system** (`~/.claude/projects/.../memory/`). Other team members and other machines must have the same context, so anything worth remembering goes into a tracked file here.
+## 專案持久紀錄
 
-## Scope
+- `MEMORY.md` 保存跨工作階段仍有效的專案脈絡。開始涉及既有決策、架構或工作方式的工作前先閱讀；僅記錄已確認且具長期價值的資訊。
+- 任何 CMS／renderer 規劃、issue 或實作前必須閱讀 `contracts/README.md`。該檔是唯一現行 implementation contract；與其他資料衝突時以它為準，SSOT 變更只改該檔。
+- 每個大型工作使用獨立的 `logs/YYYY-MM-DD-HHmm-{slug}.md` 檔案，`date-time` 採本地完成時間、`slug` 採描述工作的英文 kebab-case。完成、準備結束前，檢視是否有長期資訊應更新至 `MEMORY.md`，或有交付、驗證、限制、風險應新增工作紀錄；若皆無，無須新增形式化紀錄。
+- 「大型工作」指跨多個檔案或元件、改變使用者可見行為／專案架構，或需要非直觀交接資訊的工作。每份紀錄列出交付、關鍵決策（如有）、實際驗證、已知限制／後續（如有）與相關變更。
 
-| Directory | Purpose |
-|-----------|---------|
-| `src/content/blog/` | Published notes (flat layout, kebab-case = URL slug). The writing workflow writes here directly. |
-| `src/content.config.ts` | Zod schema for the `blog` collection |
-| `src/pages/` | Routes: `index`, `404`, `blog/`, `categories/`, `tags/` |
-| `public/assets/` | Images referenced from notes |
-| `docs/` | Canonical guidelines (taxonomy, system rules, dev, design) |
-| `.claude/` | Standard Claude Code project — agents, skills, prompts, config |
+## 開發溝通語言
 
-## Writing Workflow
+- 開發溝通一律使用臺灣繁體中文（`zh-TW`），包括 AI 回覆、計畫、程式碼註解、提交訊息與文件；程式碼識別字與既有外部 API／產品名稱除外。
 
-The pipeline is **single-pass auto-pilot** — no sign-off gates. The agent researches, writes directly to `src/content/blog/`, polishes in place, builds, and reports. The user can interrupt at any time.
+## OMP 任務路由
 
-```
-seed → [research, smart-skip, silent .research/<slug>.md] → write src/content/blog/<slug>.md → polish → build → done
-```
-
-The agent only halts on four conditions: no artifact possible, ambiguous category, no honest iteration moment in source material, or build fails. Everything else is decided and shipped.
-
-### Agents
-
-- **`@aihero-writer`** — Canonical writer. Single-pass auto-pilot: research → write directly to `blog/` → polish → build. AI-Hero-style (one named concept, one copy-pasteable artifact, opinionated, honest about failure). Default length `short` (400–800w); `medium` and `chapter` available. Auto-invokes `@categorizer` in polish phase.
-- **`@categorizer`** — Fill `category:`/`tags:` from the closed vocabulary; regen `*-index.md` auto blocks. Heuristic-only, author wins, never overwrites set values.
-- **`@diagram`** — Generate or refactor Mermaid diagrams (LR only).
-- **`@content-ops`** — File renames, taxonomy migrations, bulk content maintenance.
-
-Full pipeline spec: `.claude/agents/aihero-writer.md`. Skill rules: `.claude/skills/research-and-write/SKILL.md`.
-
-## Language
-
-This site is for **繁體中文 (zh-tw / Traditional Chinese, Taiwan)** readers. **All content is written in zh-tw by default.** Non-negotiable.
-
-- **Body**: zh-tw prose. Write for a Taiwanese reader, not an English-speaking one.
-- **Technical terminology** (library names, API names, code identifiers, command flags, error codes): stay in English. Don't translate `webhook`, `prompt`, `commit`, `getStaticPaths`, `p99 latency`.
-- **Hard-to-translate concepts**: English is acceptable. Don't force a clumsy translation.
-- **Bilingual form** is encouraged when a Chinese rendering exists but isn't widely recognized: `代理 (agent)`, `延遲 (latency)`, `脈絡 (context)`. Pattern: `<zh-tw> (<english>)`.
-- **Title**: zh-tw, English, or mixed — all acceptable, matching the existing corpus (`Ch1: OpenClaw 架構：四大支柱`, `Telegram Bot 橋接 Claude Code 運作原理`).
-- **Description**: zh-tw. The schema allows ≤160 chars; Chinese is denser, so ~80 zh-tw chars fits. (Replaces the prior English-only convention.)
-- **Code blocks, frontmatter values, file/directory names, URL slugs**: always English/ASCII. `kebab-case` for filenames.
-
-If a post comes back English-only, that's a polish-phase block — same severity as a missing artifact.
-
-## Safety Invariants
-
-These rules Claude must respect every action. Violating them breaks the build or the live site.
-
-1. **Closed category vocabulary.** `category:` must be one of the values in `CATEGORIES` (`src/content.config.ts`). Build fails on typos via `z.enum`. Adding a new category requires editing the enum *and* `docs/content-taxonomy.md` in the same commit.
-2. **Tag-as-truth.** Category is *derived* from the post's Subject tag via the priority list in `.claude/skills/categorize/SKILL.md` §3. Edit tags to change category — never edit the category field alone.
-3. **Draft filter.** Every `getCollection("blog", ...)` call must pass `({ data }) => !data.draft`. No exceptions.
-4. **`BASE_URL` for internal links.** Use `${import.meta.env.BASE_URL}...` in components/code; absolute base-prefixed paths in markdown (`/ai-study-note/...`). Never hardcode `/blog/`, `/categories/`, `/tags/`, or asset paths.
-5. **No Obsidian syntax in posts.** No `[[wikilinks]]`, no `![[embeds]]`, no `:::col` Smart Columns. They were stripped during the Astro migration; the build will not parse them.
-6. **kebab-case filenames.** Filename = URL slug. No spaces, PascalCase, camelCase, or special characters.
-7. **No relative markdown links between posts.** `./foo.md`, `../bar.md` look fine in source but render as 404s on the deployed site (each post is at `/ai-study-note/blog/<slug>/`, not `/blog/<slug>.md`). Cross-link via the base-prefixed absolute form `/ai-study-note/blog/<target-slug>/`. Roughly 17 legacy posts contain such links — known issue, grandfathered; do not add new ones.
-8. **No generic single-word slugs.** Filenames like `admin.md`, `marketing.md`, `general.md`, `hr.md`, `sales.md`, `executives.md`, `customer-service.md`, `communications.md`, `project-management.md` are reserved for the existing Gemini prompt corpus. New posts must use a topic-specific slug (`gemini-prompt-marketing-brief.md`, not `marketing.md`). The writer pipeline tempts one-word slugs from one-word topics; reject them at slug-naming time.
-
-## Two pages share the word "index" — they are not the same artifact
-
-- **`/categories/<cat>/`** is **auto-generated by Astro** from `getCollection("blog")` filtered by `category`. Exists for every category in `CATEGORIES`. Plain post list, no editorial structure.
-- **`src/content/blog/<cat>-index.md`** is an **editorial overview with auto-managed lists**. The prose, headings, and cross-references between sub-indexes are hand-written; the post listings inside `<!-- auto:start ... --> ... <!-- auto:end -->` markers are regenerated by `scripts/sync-indexes.mjs` on every `npm run build` (wired as `prebuild`). **Never hand-edit content inside the markers.** See `.claude/skills/index-sync/SKILL.md` for marker grammar.
-
-The two pages serve different purposes (Astro list vs. editorial overview) and are both live. Updating one does not update the other. Do not delete a `<cat>-index.md` file thinking it's redundant with the auto Astro page — and do not hand-maintain its entry list.
-
-## See also
-
-- **`docs/content-taxonomy.md`** — Closed vocabulary for `category` (5 values) and tags (3 dimensions: Type / Subject / Tech) plus the banned-tag normalization table. Read before adding a new category or tag.
-- **`docs/system-rules.md`** — Full content governance: file/folder naming, frontmatter schema, tag rules, linking protocols, writing style, build verification. Canonical superset of the safety invariants above.
-- **`docs/dev.md`** — Architecture (page tree, `getStaticPaths` pattern), commands, deployment, config files, build invariants. Read when working on layouts, components, or build infra.
-- **`docs/visual-guideline.md`** — Design tokens, typography, layout. Read when changing styles.
-- **`.claude/agents/aihero-writer.md`** — Full pipeline spec for the writing workflow.
-- **`.claude/skills/research-and-write/SKILL.md`** — Single-pass rules, halt conditions, and the quality checklist.
-- **`README.md`** — Public-facing project overview, repo structure, and external references.
+- 當平台 delegation policy 允許且確有必要委派時，依工作類型選擇最精確的 agent：唯讀研究使用 `scout` 或 `librarian`、UI/UX 使用 `designer`、程式碼審查使用 `reviewer`、安全審查使用 `security-reviewer`、機械性工作使用 `sonic`、實作使用 `task`。
+- 專案本地模型路由定義於 `.omp/config.yml`；當已設定的 role 適合工作時，不得臨時覆寫 agent 的模型。
+- 主 session 不會依任務語意自行切換模型；工作需要不同模型能力時，使用綁定 role 的 subagent。
