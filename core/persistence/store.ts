@@ -2,13 +2,16 @@ import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } fr
 
 import type {
   AssetVersionIdentity, CreateRevisionInput, EntryPointerRecord, MediaImportIntent,
-  OperationLineageIdentity, PersistenceCanonicalState, PersistenceFailure, PersistenceResult, PersistenceStore,
+  OperationLineageIdentity, PersistenceCanonicalState, PersistenceFailure, PersistenceFailureCode, PersistenceResult, PersistenceStore,
   PersistenceTransaction, ReadyAssetVersionRecord, RevisionIdentity, RevisionRecord, RevisionReferenceRecord, RouteClaimRecord,
   SchemaVersionIdentity, SchemaVersionRecord, SetEntryPointersInput, TransactionDecision,
 } from "./contracts.js";
 import { validateCanonicalBytes } from "./canonical-bytes.js";
 import { persistenceFailure, persistenceResultFailure } from "./failures.js";
 import { sqliteFailureCode, type SqliteAdapter, type SqliteRow } from "./sqlite-adapter.js";
+
+/** 產生 failure result 的方式：`failed` 會讓外層 transaction 回滾，`refused` 不會。 */
+type Fail = <T>(code: PersistenceFailureCode) => PersistenceResult<T>;
 
 class Rollback extends Error { constructor(readonly decision: TransactionDecision<never, unknown>) { super("rollback"); } }
 
@@ -54,18 +57,31 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
 }
 
 function createOperations(database: SqliteAdapter, live: () => boolean = () => true, markFailure?: (failure: PersistenceFailure) => void): PersistenceTransaction {
-  const failed = <T>(code: Parameters<typeof persistenceFailure>[0]): PersistenceResult<T> => {
+  // 寫入操作的失敗可能發生在部分 statement 已執行之後，必須讓外層 transaction 回滾，
+  // 即使呼叫端把該失敗當成可處理的結果。
+  const failed: Fail = <T>(code: PersistenceFailureCode): PersistenceResult<T> => {
     const result = persistenceResultFailure(code);
     markFailure?.(result.error);
     return result;
   };
-  const guarded = <T>(operation: () => PersistenceResult<T>): PersistenceResult<T> => {
+  // 唯讀查詢不寫入任何 row，「找不到」是呼叫端可自行決定如何處理的正常結果，
+  // 不得污染仍打算 commit 的 transaction。
+  const refused: Fail = <T>(code: PersistenceFailureCode): PersistenceResult<T> => persistenceResultFailure(code) as PersistenceResult<T>;
+  const guarded = <T>(operation: () => PersistenceResult<T>, onConstraint?: PersistenceFailureCode): PersistenceResult<T> => {
     if (!live()) return failed("STORAGE_FAILURE");
     try {
       const result = operation();
       if (!result.ok && result.error.owner === "Persistence") markFailure?.(result.error);
       return result;
     }
+    catch (error) {
+      const code = sqliteFailureCode(error);
+      return failed(onConstraint !== undefined && code === "CONSTRAINT_VIOLATION" ? onConstraint : code);
+    }
+  };
+  const reading = <T>(operation: () => PersistenceResult<T>): PersistenceResult<T> => {
+    if (!live()) return failed("STORAGE_FAILURE");
+    try { return operation(); }
     catch (error) { return failed(sqliteFailureCode(error)); }
   };
   const revision = (input: CreateRevisionInput): PersistenceResult<RevisionRecord> => guarded(() => {
@@ -78,7 +94,7 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     database.run("INSERT INTO revisions (entry_id, revision_id, schema_id, schema_version, content_bytes, content_digest, restored_from_revision_id) VALUES (?, ?, ?, ?, ?, ?, ?)", input.identity.entryId, input.identity.revisionId, input.schemaIdentity.schemaId, input.schemaIdentity.version, copyBytes(canonical.bytes), canonical.digest, input.restoredFromRevisionId ?? null);
     database.run("INSERT INTO operation_lineage (entry_id, revision_id, operation_id, operation_kind, creates_revision) VALUES (?, ?, ?, ?, 1)", input.identity.entryId, input.identity.revisionId, input.lineage.operationId, input.lineage.operationKind);
     return { ok: true, value: revisionRecord(input, canonical.bytes, canonical.digest) };
-  });
+  }, "REVISION_CONFLICT");
   const references = (identity: RevisionIdentity, assetVersions: readonly AssetVersionIdentity[]): PersistenceResult<readonly RevisionReferenceRecord[]> => guarded(() => {
     if (!validRevisionIdentity(identity) || !validAssetVersions(assetVersions)) return failed("INVALID_PERSISTENCE_INPUT");
     const ordered = [...assetVersions].sort(compareAssetVersions);
@@ -103,24 +119,24 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       if (input.identity.version !== expected) return failed("SCHEMA_VERSION_CONFLICT");
       database.run("INSERT INTO schema_versions (schema_id, version, schema_bytes, schema_digest) VALUES (?, ?, ?, ?)", input.identity.schemaId, input.identity.version, copyBytes(canonical.bytes), canonical.digest);
       return { ok: true, value: schemaRecord(input.identity, canonical.bytes, canonical.digest) };
-    }); },
-    getSchemaVersion(identity) { return guarded(() => {
-      if (!validSchemaIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT");
+    }, "SCHEMA_VERSION_CONFLICT"); },
+    getSchemaVersion(identity) { return reading(() => {
+      if (!validSchemaIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT");
       const row = database.get("SELECT schema_bytes, schema_digest FROM schema_versions WHERE schema_id = ? AND version = ?", identity.schemaId, identity.version);
       const bytes = row === undefined ? null : byte(row, "schema_bytes"); const digest = row === undefined ? null : digestField(row, "schema_digest");
-      if (row === undefined) return failed("SCHEMA_VERSION_NOT_FOUND"); if (bytes === null || digest === null) return failed("STORAGE_FAILURE");
+      if (row === undefined) return refused("SCHEMA_VERSION_NOT_FOUND"); if (bytes === null || digest === null) return refused("STORAGE_FAILURE");
       return { ok: true, value: schemaRecord(identity, bytes, digest) };
     }); },
     createRevision(input) { return revision(input); },
-    getRevision(identity) { return guarded(() => {
-      if (!validRevisionIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT");
+    getRevision(identity) { return reading(() => {
+      if (!validRevisionIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT");
       const row = database.get("SELECT r.schema_id, r.schema_version, r.content_bytes, r.content_digest, r.restored_from_revision_id, l.operation_id, l.operation_kind FROM revisions r JOIN operation_lineage l ON l.entry_id=r.entry_id AND l.revision_id=r.revision_id AND l.creates_revision=1 WHERE r.entry_id=? AND r.revision_id=?", identity.entryId, identity.revisionId);
-      if (row === undefined) return failed("REVISION_NOT_FOUND");
+      if (row === undefined) return refused("REVISION_NOT_FOUND");
       const schemaId = text(row, "schema_id"), version = positive(row.schema_version), bytes = byte(row, "content_bytes"), digest = digestField(row, "content_digest"), operationId = text(row, "operation_id"), operationKind = text(row, "operation_kind"), restored = nullableText(row, "restored_from_revision_id");
-      if (schemaId === null || version === null || bytes === null || digest === null || operationId === null || operationKind === null || restored === undefined) return failed("STORAGE_FAILURE");
+      if (schemaId === null || version === null || bytes === null || digest === null || operationId === null || operationKind === null || restored === undefined) return refused("STORAGE_FAILURE");
       return { ok: true, value: revisionRecord({ identity, schemaIdentity: { schemaId, version }, contentBytes: bytes, contentDigest: digest, ...(restored === null ? {} : { restoredFromRevisionId: restored }), lineage: { operationId, operationKind } }, bytes, digest) };
     }); },
-    getEntryPointers(entryId) { return guarded(() => pointer(database.get("SELECT current_revision_id, published_revision_id FROM entry_pointers WHERE entry_id=?", entryId), entryId, failed)); },
+    getEntryPointers(entryId) { return reading(() => pointer(database.get("SELECT current_revision_id, published_revision_id FROM entry_pointers WHERE entry_id=?", entryId), entryId, refused)); },
     setEntryPointers(input) { return guarded(() => {
       if (!validPointers(input)) return failed("INVALID_PERSISTENCE_INPUT");
       const identity = { entryId: input.entryId, revisionId: input.lineage.revisionId, operationId: input.lineage.operationId };
@@ -131,20 +147,20 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       database.run("INSERT INTO entry_pointers (entry_id,current_revision_id,published_revision_id) VALUES (?, ?, ?) ON CONFLICT(entry_id) DO UPDATE SET current_revision_id=excluded.current_revision_id,published_revision_id=excluded.published_revision_id", input.entryId, input.currentRevisionId, input.publishedRevisionId ?? null);
       return { ok: true, value: { entryId: input.entryId, currentRevisionId: input.currentRevisionId, ...(input.publishedRevisionId === undefined ? {} : { publishedRevisionId: input.publishedRevisionId }) } };
     }); },
-    getOperationLineage(identity) { return guarded(() => {
-      if (!validLineageIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT"); const row = database.get("SELECT operation_kind, creates_revision FROM operation_lineage WHERE entry_id=? AND revision_id=? AND operation_id=?", identity.entryId, identity.revisionId, identity.operationId);
-      if (row === undefined) return failed("REVISION_NOT_FOUND"); const kind = text(row, "operation_kind"); const creates = row.creates_revision;
-      if (kind === null || (creates !== 0 && creates !== 1)) return failed("STORAGE_FAILURE"); return { ok: true, value: { ...identity, operationKind: kind, createsRevision: creates === 1 } };
+    getOperationLineage(identity) { return reading(() => {
+      if (!validLineageIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const row = database.get("SELECT operation_kind, creates_revision FROM operation_lineage WHERE entry_id=? AND revision_id=? AND operation_id=?", identity.entryId, identity.revisionId, identity.operationId);
+      if (row === undefined) return refused("REVISION_NOT_FOUND"); const kind = text(row, "operation_kind"); const creates = row.creates_revision;
+      if (kind === null || (creates !== 0 && creates !== 1)) return refused("STORAGE_FAILURE"); return { ok: true, value: { ...identity, operationKind: kind, createsRevision: creates === 1 } };
     }); },
-    getEntryPointerLineage(identity) { return guarded(() => {
-      if (!validLineageIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT"); const row = database.get("SELECT current_revision_id,published_revision_id FROM entry_pointer_lineage WHERE entry_id=? AND operation_revision_id=? AND operation_id=?", identity.entryId, identity.revisionId, identity.operationId);
-      if (row === undefined) return failed("ENTRY_POINTER_NOT_FOUND"); const current = text(row, "current_revision_id"), published = nullableText(row, "published_revision_id");
-      if (current === null || published === undefined) return failed("STORAGE_FAILURE");
+    getEntryPointerLineage(identity) { return reading(() => {
+      if (!validLineageIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const row = database.get("SELECT current_revision_id,published_revision_id FROM entry_pointer_lineage WHERE entry_id=? AND operation_revision_id=? AND operation_id=?", identity.entryId, identity.revisionId, identity.operationId);
+      if (row === undefined) return refused("ENTRY_POINTER_NOT_FOUND"); const current = text(row, "current_revision_id"), published = nullableText(row, "published_revision_id");
+      if (current === null || published === undefined) return refused("STORAGE_FAILURE");
       return { ok: true, value: { entryId: identity.entryId, currentRevisionId: current, ...(published === null ? {} : { publishedRevisionId: published }), lineageIdentity: { ...identity } } };
     }); },
-    listRouteClaims(graph) { return guarded(() => {
-      if (graph !== "current" && graph !== "published") return failed("INVALID_PERSISTENCE_INPUT");
-      const claims: RouteClaimRecord[] = []; for (const row of database.all("SELECT normalized_route,owner_entry_id,source_revision_id FROM route_claims WHERE graph=?", graph)) { const normalizedRoute=text(row,"normalized_route"), owner=text(row,"owner_entry_id"), sourceRevisionId=text(row,"source_revision_id"); if (normalizedRoute===null||owner===null||sourceRevisionId===null) return failed("STORAGE_FAILURE"); claims.push({graph,normalizedRoute,owner,sourceRevisionId}); }
+    listRouteClaims(graph) { return reading(() => {
+      if (graph !== "current" && graph !== "published") return refused("INVALID_PERSISTENCE_INPUT");
+      const claims: RouteClaimRecord[] = []; for (const row of database.all("SELECT normalized_route,owner_entry_id,source_revision_id FROM route_claims WHERE graph=?", graph)) { const normalizedRoute=text(row,"normalized_route"), owner=text(row,"owner_entry_id"), sourceRevisionId=text(row,"source_revision_id"); if (normalizedRoute===null||owner===null||sourceRevisionId===null) return refused("STORAGE_FAILURE"); claims.push({graph,normalizedRoute,owner,sourceRevisionId}); }
       return { ok: true, value: claims.sort(compareClaims) };
     }); },
     replaceRouteClaim(input) { return guarded(() => {
@@ -158,7 +174,7 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       if (prior !== undefined) { if (text(prior,"asset_id")===input.identity.assetId&&text(prior,"asset_version_id")===input.identity.assetVersionId&&text(prior,"object_digest")===input.objectDigest&&prior.byte_length===input.byteLength&&text(prior,"metadata_digest")===input.metadataDigest) return {ok:true,value:copyIntent(input)}; return failed("MEDIA_IMPORT_CONFLICT"); }
       database.run("INSERT INTO media_import_intents (import_id,asset_id,asset_version_id,object_digest,byte_length,metadata_bytes,metadata_digest) VALUES (?,?,?,?,?,?,?)",input.importId,input.identity.assetId,input.identity.assetVersionId,input.objectDigest,input.byteLength,copyBytes(input.metadataBytes),input.metadataDigest); return {ok:true,value:copyIntent(input)};
     }); },
-    getMediaImportIntent(importId) { return guarded(() => intentRow(database.get("SELECT * FROM media_import_intents WHERE import_id=?",importId), failed)); },
+    getMediaImportIntent(importId) { return reading(() => intentRow(database.get("SELECT * FROM media_import_intents WHERE import_id=?",importId), refused)); },
     commitReadyAssetVersion(input) { return guarded(() => {
       if (!validIntent(input)) return failed("INVALID_PERSISTENCE_INPUT"); const intent=intentRow(database.get("SELECT * FROM media_import_intents WHERE import_id=?",input.importId),failed); if(!intent.ok) return intent; if(!sameIntent(intent.value,input)) return failed("MEDIA_IMPORT_CONFLICT");
       const version=database.get("SELECT object_digest,metadata_bytes,metadata_digest FROM asset_versions WHERE asset_id=? AND asset_version_id=?",input.identity.assetId,input.identity.assetVersionId); if(version!==undefined) return failed("MEDIA_IMPORT_CONFLICT");
@@ -166,21 +182,21 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       database.run("INSERT INTO media_assets (asset_id) VALUES (?) ON CONFLICT(asset_id) DO NOTHING",input.identity.assetId); database.run("INSERT INTO asset_versions (asset_id,asset_version_id,object_digest,metadata_bytes,metadata_digest) VALUES (?,?,?,?,?)",input.identity.assetId,input.identity.assetVersionId,input.objectDigest,copyBytes(input.metadataBytes),input.metadataDigest); database.run("INSERT INTO asset_version_availability (asset_id,asset_version_id,availability) VALUES (?,?,'ready')",input.identity.assetId,input.identity.assetVersionId); database.run("DELETE FROM media_import_intents WHERE import_id=?",input.importId);
       return {ok:true,value:readyFromIntent(input)};
     }); },
-    getReadyAssetVersion(identity) { return guarded(() => readyRow(database.get("SELECT v.object_digest,o.byte_length,v.metadata_bytes,v.metadata_digest,a.availability FROM asset_versions v JOIN media_objects o ON o.object_digest=v.object_digest JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id WHERE v.asset_id=? AND v.asset_version_id=?",identity.assetId,identity.assetVersionId),identity,failed)); },
+    getReadyAssetVersion(identity) { return reading(() => readyRow(database.get("SELECT v.object_digest,o.byte_length,v.metadata_bytes,v.metadata_digest,a.availability FROM asset_versions v JOIN media_objects o ON o.object_digest=v.object_digest JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id WHERE v.asset_id=? AND v.asset_version_id=?",identity.assetId,identity.assetVersionId),identity,refused)); },
     createRevisionReferences(identity, assetVersions) { return references(identity,assetVersions); },
-    getRevisionReferences(identity) { return guarded(() => { if(!validRevisionIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT"); const items: RevisionReferenceRecord[]=[]; for(const row of database.all("SELECT asset_id,asset_version_id FROM revision_refs WHERE entry_id=? AND revision_id=?",identity.entryId,identity.revisionId)){const assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id");if(assetId===null||assetVersionId===null)return failed("STORAGE_FAILURE");items.push({revision:{...identity},assetVersion:{assetId,assetVersionId}});} return {ok:true,value:items.sort((a,b)=>compareAssetVersions(a.assetVersion,b.assetVersion))}; }); },
+    getRevisionReferences(identity) { return reading(() => { if(!validRevisionIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const items: RevisionReferenceRecord[]=[]; for(const row of database.all("SELECT asset_id,asset_version_id FROM revision_refs WHERE entry_id=? AND revision_id=?",identity.entryId,identity.revisionId)){const assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id");if(assetId===null||assetVersionId===null)return refused("STORAGE_FAILURE");items.push({revision:{...identity},assetVersion:{assetId,assetVersionId}});} return {ok:true,value:items.sort((a,b)=>compareAssetVersions(a.assetVersion,b.assetVersion))}; }); },
     createRevisionWithReferences(input) { return guarded(() => { const created=revision(input.revision); if(!created.ok)return created; const createdReferences=references(input.revision.identity,input.assetVersions); if(!createdReferences.ok)return createdReferences; return {ok:true,value:{revision:created.value,references:createdReferences.value}}; }); },
-    canonicalState() { return guarded(() => canonicalState(database, failed)); },
+    canonicalState() { return reading(() => canonicalState(database, refused)); },
   };
 }
 
-function canonicalState(database: SqliteAdapter, failed: <T>(code: Parameters<typeof persistenceFailure>[0]) => PersistenceResult<T>): PersistenceResult<PersistenceCanonicalState> {
+function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResult<PersistenceCanonicalState> {
   const collect=(sql:string, keys:readonly string[])=>database.all(sql).map((row)=>Object.fromEntries(keys.map((key)=>[key,row[key]]))).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b),"en",{sensitivity:"variant"}));
   try { const payload={contract:"persistence-canonical-state/v1",schemaVersions:collect("SELECT schema_id AS schemaId,version,schema_digest AS schemaDigest FROM schema_versions",["schemaId","version","schemaDigest"]),revisions:collect("SELECT entry_id AS entryId,revision_id AS revisionId,schema_id AS schemaId,schema_version AS schemaVersion,content_digest AS contentDigest,restored_from_revision_id AS restoredFromRevisionId FROM revisions",["entryId","revisionId","schemaId","schemaVersion","contentDigest","restoredFromRevisionId"]),operationLineage:collect("SELECT entry_id AS entryId,revision_id AS revisionId,operation_id AS operationId,operation_kind AS operationKind,creates_revision AS createsRevision FROM operation_lineage",["entryId","revisionId","operationId","operationKind","createsRevision"]),entryPointers:collect("SELECT entry_id AS entryId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointers",["entryId","currentRevisionId","publishedRevisionId"]),entryPointerLineage:collect("SELECT entry_id AS entryId,operation_revision_id AS operationRevisionId,operation_id AS operationId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointer_lineage",["entryId","operationRevisionId","operationId","currentRevisionId","publishedRevisionId"]),routeClaims:collect("SELECT graph,normalized_route AS normalizedRoute,owner_entry_id AS owner,source_revision_id AS sourceRevisionId FROM route_claims",["graph","normalizedRoute","owner","sourceRevisionId"]),mediaImportIntents:collect("SELECT import_id AS importId,asset_id AS assetId,asset_version_id AS assetVersionId,object_digest AS objectDigest,byte_length AS byteLength,metadata_digest AS metadataDigest FROM media_import_intents",["importId","assetId","assetVersionId","objectDigest","byteLength","metadataDigest"]),mediaObjects:collect("SELECT object_digest AS objectDigest,byte_length AS byteLength FROM media_objects",["objectDigest","byteLength"]),mediaAssets:collect("SELECT asset_id AS assetId FROM media_assets",["assetId"]),assetVersions:collect("SELECT v.asset_id AS assetId,v.asset_version_id AS assetVersionId,v.object_digest AS objectDigest,v.metadata_digest AS metadataDigest,a.availability FROM asset_versions v JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id",["assetId","assetVersionId","objectDigest","metadataDigest","availability"]),revisionReferences:collect("SELECT entry_id AS entryId,revision_id AS revisionId,asset_id AS assetId,asset_version_id AS assetVersionId FROM revision_refs",["entryId","revisionId","assetId","assetVersionId"])}; const bytes=canonicalJsonBytes(payload); if(!bytes.ok)return failed("STORAGE_FAILURE"); const counts={schemaVersions:payload.schemaVersions.length,revisions:payload.revisions.length,operationLineage:payload.operationLineage.length,entryPointers:payload.entryPointers.length,entryPointerLineage:payload.entryPointerLineage.length,routeClaims:payload.routeClaims.length,mediaImportIntents:payload.mediaImportIntents.length,mediaObjects:payload.mediaObjects.length,mediaAssets:payload.mediaAssets.length,assetVersions:payload.assetVersions.length,revisionReferences:payload.revisionReferences.length}; return {ok:true,value:{contract:"persistence-canonical-state/v1",bytes:copyBytes(bytes.value),digest:sha256Digest(bytes.value),counts}}; } catch{return failed("STORAGE_FAILURE");}
 }
-function pointer(row:SqliteRow|undefined,entryId:string,failed:<T>(code:Parameters<typeof persistenceFailure>[0])=>PersistenceResult<T>):PersistenceResult<EntryPointerRecord>{if(row===undefined)return failed("ENTRY_POINTER_NOT_FOUND");const current=text(row,"current_revision_id"),published=nullableText(row,"published_revision_id");if(current===null||published===undefined)return failed("STORAGE_FAILURE");return{ok:true,value:{entryId,currentRevisionId:current,...(published===null?{}:{publishedRevisionId:published})}};}
-function intentRow(row:SqliteRow|undefined,failed:<T>(code:Parameters<typeof persistenceFailure>[0])=>PersistenceResult<T>):PersistenceResult<MediaImportIntent>{if(row===undefined)return failed("MEDIA_IMPORT_CONFLICT");const importId=text(row,"import_id"),assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id"),objectDigest=digestField(row,"object_digest"),byteLength=row.byte_length,metadataBytes=byte(row,"metadata_bytes"),metadataDigest=digestField(row,"metadata_digest");if(importId===null||assetId===null||assetVersionId===null||objectDigest===null||typeof byteLength!=="number"||metadataBytes===null||metadataDigest===null)return failed("STORAGE_FAILURE");return{ok:true,value:{importId,identity:{assetId,assetVersionId},objectDigest,byteLength,metadataBytes:copyBytes(metadataBytes),metadataDigest}};}
-function readyRow(row:SqliteRow|undefined,identity:AssetVersionIdentity,failed:<T>(code:Parameters<typeof persistenceFailure>[0])=>PersistenceResult<T>):PersistenceResult<ReadyAssetVersionRecord>{if(row===undefined||row.availability!=="ready")return failed("ASSET_VERSION_NOT_FOUND");const objectDigest=digestField(row,"object_digest"),byteLength=row.byte_length,metadataBytes=byte(row,"metadata_bytes"),metadataDigest=digestField(row,"metadata_digest");if(objectDigest===null||typeof byteLength!=="number"||metadataBytes===null||metadataDigest===null)return failed("STORAGE_FAILURE");return{ok:true,value:{identity:{...identity},objectDigest,byteLength,metadataBytes:copyBytes(metadataBytes),metadataDigest,availability:"ready"}};}
+function pointer(row:SqliteRow|undefined,entryId:string,failed:Fail):PersistenceResult<EntryPointerRecord>{if(row===undefined)return failed("ENTRY_POINTER_NOT_FOUND");const current=text(row,"current_revision_id"),published=nullableText(row,"published_revision_id");if(current===null||published===undefined)return failed("STORAGE_FAILURE");return{ok:true,value:{entryId,currentRevisionId:current,...(published===null?{}:{publishedRevisionId:published})}};}
+function intentRow(row:SqliteRow|undefined,failed:Fail):PersistenceResult<MediaImportIntent>{if(row===undefined)return failed("MEDIA_IMPORT_CONFLICT");const importId=text(row,"import_id"),assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id"),objectDigest=digestField(row,"object_digest"),byteLength=row.byte_length,metadataBytes=byte(row,"metadata_bytes"),metadataDigest=digestField(row,"metadata_digest");if(importId===null||assetId===null||assetVersionId===null||objectDigest===null||typeof byteLength!=="number"||metadataBytes===null||metadataDigest===null)return failed("STORAGE_FAILURE");return{ok:true,value:{importId,identity:{assetId,assetVersionId},objectDigest,byteLength,metadataBytes:copyBytes(metadataBytes),metadataDigest}};}
+function readyRow(row:SqliteRow|undefined,identity:AssetVersionIdentity,failed:Fail):PersistenceResult<ReadyAssetVersionRecord>{if(row===undefined||row.availability!=="ready")return failed("ASSET_VERSION_NOT_FOUND");const objectDigest=digestField(row,"object_digest"),byteLength=row.byte_length,metadataBytes=byte(row,"metadata_bytes"),metadataDigest=digestField(row,"metadata_digest");if(objectDigest===null||typeof byteLength!=="number"||metadataBytes===null||metadataDigest===null)return failed("STORAGE_FAILURE");return{ok:true,value:{identity:{...identity},objectDigest,byteLength,metadataBytes:copyBytes(metadataBytes),metadataDigest,availability:"ready"}};}
 function schemaRecord(identity:SchemaVersionIdentity,bytes:Uint8Array,digest:Digest):SchemaVersionRecord{return{identity:{...identity},schemaBytes:copyBytes(bytes),schemaDigest:digest};} function revisionRecord(input:CreateRevisionInput,bytes:Uint8Array,digest:Digest):RevisionRecord{return{identity:{...input.identity},schemaIdentity:{...input.schemaIdentity},contentBytes:copyBytes(bytes),contentDigest:digest,...(input.restoredFromRevisionId===undefined?{}:{restoredFromRevisionId:input.restoredFromRevisionId}),lineage:{...input.lineage}};}
 function readyFromIntent(input:MediaImportIntent):ReadyAssetVersionRecord{return{identity:{...input.identity},objectDigest:input.objectDigest,byteLength:input.byteLength,metadataBytes:copyBytes(input.metadataBytes),metadataDigest:input.metadataDigest,availability:"ready"};} function copyIntent(input:MediaImportIntent):MediaImportIntent{return{...input,identity:{...input.identity},metadataBytes:copyBytes(input.metadataBytes)};} function sameIntent(a:MediaImportIntent,b:MediaImportIntent){return a.importId===b.importId&&a.identity.assetId===b.identity.assetId&&a.identity.assetVersionId===b.identity.assetVersionId&&a.objectDigest===b.objectDigest&&a.byteLength===b.byteLength&&a.metadataDigest===b.metadataDigest&&sameBytes(a.metadataBytes,b.metadataBytes);}
 function validRevisionInput(input:CreateRevisionInput):boolean{return validRevisionIdentity(input.identity)&&validSchemaIdentity(input.schemaIdentity)&&input.contentBytes instanceof Uint8Array&&isDigest(input.contentDigest)&&validText(input.lineage.operationId)&&validText(input.lineage.operationKind)&&(input.restoredFromRevisionId===undefined||validText(input.restoredFromRevisionId));} function validSchemaIdentity(value:SchemaVersionIdentity):boolean{return validText(value.schemaId)&&Number.isSafeInteger(value.version)&&value.version>0;} function validRevisionIdentity(value:RevisionIdentity):boolean{return validText(value.entryId)&&validText(value.revisionId);} function validAssetVersions(values:readonly AssetVersionIdentity[]):boolean{return Array.isArray(values)&&values.every((value)=>validText(value.assetId)&&validText(value.assetVersionId));} function validLineageIdentity(value:OperationLineageIdentity):boolean{return validRevisionIdentity(value)&&validText(value.operationId);} function validPointers(value:SetEntryPointersInput):boolean{return validText(value.entryId)&&validText(value.currentRevisionId)&&validText(value.lineage.revisionId)&&validText(value.lineage.operationId)&&validText(value.lineage.operationKind)&&(value.publishedRevisionId===undefined||validText(value.publishedRevisionId));} function validIntent(value:MediaImportIntent):boolean{return validText(value.importId)&&validText(value.identity.assetId)&&validText(value.identity.assetVersionId)&&isDigest(value.objectDigest)&&Number.isSafeInteger(value.byteLength)&&value.byteLength>=0&&value.metadataBytes instanceof Uint8Array&&isDigest(value.metadataDigest)&&sha256Digest(value.metadataBytes)===value.metadataDigest;} function validText(value:unknown):value is string{return typeof value==="string"&&value.length>0;}
