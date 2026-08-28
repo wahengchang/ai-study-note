@@ -1,4 +1,4 @@
-import type { CommandRemediation, CoreResult, Digest, MessageRemediation } from "../foundation/index.js";
+import type { CommandRemediation, Digest, MessageRemediation } from "../foundation/index.js";
 
 export type SchemaVersionIdentity = Readonly<{ schemaId: string; version: number }>;
 
@@ -43,6 +43,7 @@ export type MigrationSummary = Readonly<{
 
 export type PersistenceFailureCode =
   | "INVALID_DATABASE_PATH"
+  | "DATABASE_UNAVAILABLE"
   | "UNKNOWN_DATABASE"
   | "MIGRATION_HISTORY_MISMATCH"
   | "MIGRATION_FAILED"
@@ -65,7 +66,11 @@ export type PersistenceFailure = Readonly<{
   remediation: MessageRemediation | CommandRemediation;
 }>;
 
-export type PersistenceResult<T> = CoreResult<T> | Readonly<{ ok: false; error: PersistenceFailure }>;
+// 刻意不沿用 CoreResult：Persistence 永遠不回傳 CoreFailure，聯集會讓 caller 被迫處理
+// `owner: "CoreFoundation"` 這種不可能出現的 failure。
+export type PersistenceResult<T> =
+  | Readonly<{ ok: true; value: T }>
+  | Readonly<{ ok: false; error: PersistenceFailure }>;
 
 export interface PersistenceStore {
   registerSchemaVersion(input: RegisterSchemaVersionInput): PersistenceResult<SchemaVersionRecord>;

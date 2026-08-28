@@ -7,7 +7,7 @@ import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { migrateDatabase } from "../../../core/persistence/index.js";
-import { migrateDatabaseWithSources, shippedMigrationSources } from "../../../core/persistence/migrations.js";
+import { migrateDatabaseWithSources, shippedMigrationSources, type MigrationSource } from "../../../core/persistence/migrations.js";
 import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
 
 function temporaryDatabase(): Readonly<{ directory: string; databasePath: string }> {
@@ -17,6 +17,13 @@ function temporaryDatabase(): Readonly<{ directory: string; databasePath: string
 
 function digestFile(databasePath: string): string {
   return createHash("sha256").update(readFileSync(databasePath)).digest("hex");
+}
+
+function shippedSources(): readonly MigrationSource[] {
+  const sources = shippedMigrationSources();
+  assert.notEqual(sources, null);
+  if (sources === null) throw new Error("Shipped migration sources are unreadable");
+  return sources;
 }
 
 test("empty database migrates once and rerun preserves current storage", () => {
@@ -49,7 +56,7 @@ test("empty database migrates once and rerun preserves current storage", () => {
 test("forward migration preserves prior canonical evidence byte-for-byte", () => {
   const fixture = temporaryDatabase();
   try {
-    assert.equal(migrateDatabaseWithSources({ databasePath: fixture.databasePath }, shippedMigrationSources.slice(0, 1)).ok, true);
+    assert.equal(migrateDatabaseWithSources({ databasePath: fixture.databasePath }, shippedSources().slice(0, 1)).ok, true);
     const schemaBytes = canonicalJsonBytes({ fields: { title: "string" } });
     const contentBytes = canonicalJsonBytes({ title: "可信 Revision" });
     assert.equal(schemaBytes.ok, true);
@@ -66,6 +73,26 @@ test("forward migration preserves prior canonical evidence byte-for-byte", () =>
     const after = afterDatabase.get("SELECT content_bytes, content_digest FROM revisions WHERE entry_id = ? AND revision_id = ?", "entry", "r1");
     afterDatabase.close();
     assert.deepEqual(after, before);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("path syntax and open failures are separate failures", () => {
+  const fixture = temporaryDatabase();
+  try {
+    const invalidPath = migrateDatabase({ databasePath: "  " });
+    assert.equal(invalidPath.ok, false);
+    if (!invalidPath.ok) assert.equal(invalidPath.error.code, "INVALID_DATABASE_PATH");
+
+    // path 格式合法但目錄不存在：不得再回報成「請提供有效的 database path」。
+    const unavailable = migrateDatabase({ databasePath: path.join(fixture.directory, "no-such-directory", "cms.sqlite") });
+    assert.equal(unavailable.ok, false);
+    if (!unavailable.ok) {
+      assert.equal(unavailable.error.code, "DATABASE_UNAVAILABLE");
+      assert.deepEqual(unavailable.error.subjectIds, []);
+      assert.equal(JSON.stringify(unavailable).includes(fixture.directory), false);
+    }
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }
@@ -103,7 +130,7 @@ test("unknown and failed migrations do not alter database evidence", () => {
     const broken = new TextEncoder().encode("CREATE TABLE rollback_canary (value TEXT) STRICT; INVALID SQL;");
     const failedResult = migrateDatabaseWithSources(
       { databasePath: failed.databasePath },
-      [shippedMigrationSources[0] as NonNullable<(typeof shippedMigrationSources)[number]>, { filename: "0002-add-persistence-query-indexes.sql", sqlBytes: broken }],
+      [shippedSources()[0] as MigrationSource, { filename: "0002-add-persistence-query-indexes.sql", sqlBytes: broken }],
     );
     assert.equal(failedResult.ok, false);
     if (!failedResult.ok) assert.equal(failedResult.error.code, "MIGRATION_FAILED");
