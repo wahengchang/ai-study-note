@@ -8,7 +8,7 @@ owner: domain_application_engineer
 branch: chore/project-progress-roadmap
 worktree: .dev-hub/worktrees/project-progress-roadmap
 logical_pr_unit: cycle-2026-08-28-1801-project-progress-roadmap/WG-001
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/258
 ---
 
 # Delivery
