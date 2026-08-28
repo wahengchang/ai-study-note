@@ -26,19 +26,26 @@ test("empty database migrates once and rerun preserves current storage", () => {
     assert.deepEqual(first, {
       ok: true,
       value: {
-        appliedMigrationIds: ["0001-create-persistence-storage", "0002-add-persistence-query-indexes"],
-        currentMigrationId: "0002-add-persistence-query-indexes",
+        appliedMigrationIds: [
+          "0001-create-persistence-storage",
+          "0002-add-persistence-query-indexes",
+          "0003-add-entry-pointers",
+          "0004-add-route-claims",
+          "0005-add-media-storage",
+          "0006-add-revision-references",
+        ],
+        currentMigrationId: "0006-add-revision-references",
       },
     });
     const database = openSqliteAdapter(fixture.databasePath);
     assert.equal(database.get("PRAGMA application_id")?.application_id, 1095324500);
-    assert.equal(database.get("PRAGMA user_version")?.user_version, 2);
-    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 2);
+    assert.equal(database.get("PRAGMA user_version")?.user_version, 6);
+    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 6);
     database.close();
     const before = digestFile(fixture.databasePath);
     assert.deepEqual(migrateDatabase({ databasePath: fixture.databasePath }), {
       ok: true,
-      value: { appliedMigrationIds: [], currentMigrationId: "0002-add-persistence-query-indexes" },
+      value: { appliedMigrationIds: [], currentMigrationId: "0006-add-revision-references" },
     });
     assert.equal(digestFile(fixture.databasePath), before);
   } finally {

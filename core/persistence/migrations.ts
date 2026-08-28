@@ -29,6 +29,10 @@ type DatabaseState = Readonly<{
 export const shippedMigrationSources: readonly MigrationSource[] = [
   { filename: "0001-create-persistence-storage.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0001-create-persistence-storage.sql", import.meta.url)) },
   { filename: "0002-add-persistence-query-indexes.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0002-add-persistence-query-indexes.sql", import.meta.url)) },
+  { filename: "0003-add-entry-pointers.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0003-add-entry-pointers.sql", import.meta.url)) },
+  { filename: "0004-add-route-claims.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0004-add-route-claims.sql", import.meta.url)) },
+  { filename: "0005-add-media-storage.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0005-add-media-storage.sql", import.meta.url)) },
+  { filename: "0006-add-revision-references.sql", sqlBytes: readFileSync(new URL("../../db/migrations/0006-add-revision-references.sql", import.meta.url)) },
 ];
 
 export function migrateDatabaseWithSources(
