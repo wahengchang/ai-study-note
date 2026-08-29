@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/schema-migration-execution
 worktree: .dev-hub/worktrees/schema-migration-execution
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/272
 ---
 
 # 原子執行 schema migration
