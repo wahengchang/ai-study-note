@@ -33,4 +33,4 @@ status: completed
 ## 相關 Branch／PR
 
 - Branch：`site-reset`
-- PR：`null`
+- PR：https://github.com/wahengchang/ai-study-note/pull/213
