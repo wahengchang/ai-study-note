@@ -2,7 +2,7 @@
 id: cycle-2026-08-28-1655-plugin-lifecycle-integration
 status: active
 created_at: 2026-08-28T16:55:00+08:00
-updated_at: 2026-08-28T16:55:00+08:00
+updated_at: 2026-08-29T14:18:17+08:00
 ---
 
 # Plugin lifecycle integration

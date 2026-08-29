@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "updated_at": "2026-08-29T11:31:38+08:00",
+  "updated_at": "2026-08-29T14:18:17+08:00",
   "cycles": [
     {
       "id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
@@ -12,38 +12,38 @@
         {
           "id": "WI-001",
           "title": "Plugin exact re-enable lifecycle",
-          "status": "in_progress",
+          "status": "done",
           "depends_on": [],
           "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-001-plugin-lifecycle.md"
+          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-001-plugin-exact-reenable.md"
         },
         {
           "id": "WI-002",
           "title": "SaveRevision validator snapshots",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             "WI-001"
           ],
           "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-002-plugin-lifecycle.md"
+          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-002-save-revision-validators.md"
         },
         {
           "id": "WI-003",
           "title": "Application Plugin composition",
-          "status": "pending",
+          "status": "done",
           "depends_on": [
             "WI-001",
             "WI-002"
           ],
           "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-003-plugin-lifecycle.md"
+          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-003-application-plugin-composition.md"
         }
       ],
       "work_groups": [
         {
           "id": "WG-001-plugin-lifecycle-integration",
           "title": "Plugin lifecycle integration",
-          "status": "in_progress",
+          "status": "completed",
           "work_items": [
             "WI-001",
             "WI-002",
