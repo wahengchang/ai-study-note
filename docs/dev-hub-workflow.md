@@ -1,6 +1,6 @@
 # Dev Hub 大型工作流程
 
-本檔是 Dev Hub 操作規則的單一入口。根目錄代理指令與 `MEMORY.md` 只保留觸發條件和本檔連結；需要執行大型工作時才讀取下列細節。
+本檔是 Dev Hub 操作規則的單一入口。根目錄代理指令（`CLAUDE.md`／`AGENTS.md`）只保留觸發條件和本檔連結；需要執行大型工作時才讀取下列細節。
 
 ## 30 秒判斷
 
@@ -12,7 +12,7 @@
 | `.dev-hub/worktrees/` | 實體 worktree | 忽略 |
 | `.dev-hub/runtime/` | 工具暫存 | 忽略 |
 | `logs/` | 已完成 Cycle 的永久摘要 | 提交 |
-| `dev-hub-*/` | 舊 handoff artifact | 唯讀歷史，不作現行狀態 |
+| `dev-hub-*/` | 舊 handoff artifact，唯讀歷史，不作現行狀態 | 忽略 |
 
 Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的已核准範圍與設計約束，也不得覆蓋程式碼與對應測試所證明的已實作行為。
 
