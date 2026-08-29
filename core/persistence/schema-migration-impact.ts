@@ -25,6 +25,7 @@ import type {
 } from "./contracts.js";
 import { validateCanonicalBytes } from "./canonical-bytes.js";
 import { persistenceResultFailure } from "./failures.js";
+import { plainRecord } from "./record-shape.js";
 import type { SqliteAdapter, SqliteRow } from "./sqlite-adapter.js";
 
 type NormalizedRequest = Readonly<{
@@ -88,7 +89,8 @@ const remediationMessages: Readonly<Record<SchemaMigrationBlockedReason["code"],
 export function createSchemaMigrationImpactAnalyzer(database: SqliteAdapter): Readonly<{
   preflight(input: SchemaMigrationPreflightInput): PersistenceResult<SchemaMigrationImpactReport>;
   validateEvidence(evidence: SchemaMigrationImpactEvidence): PersistenceResult<undefined>;
-  consumeExecutionPlan(evidence: SchemaMigrationImpactEvidence): PersistenceResult<SchemaMigrationExecutionPlan>;
+  readExecutionPlan(evidence: SchemaMigrationImpactEvidence): PersistenceResult<SchemaMigrationExecutionPlan>;
+  releaseExecutionPlan(evidence: SchemaMigrationImpactEvidence): void;
   validateExecutionPlanInTransaction(plan: SchemaMigrationExecutionPlan): PersistenceResult<undefined>;
 }> {
   const issued = new WeakMap<SchemaMigrationImpactEvidence, InternalEvidence>();
@@ -165,21 +167,25 @@ export function createSchemaMigrationImpactAnalyzer(database: SqliteAdapter): Re
     if (!current.ok) return current.error.code === "SCHEMA_VERSION_CONFLICT" ? persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT") : current;
     return current.value.digest === prior.scopedDigest ? Object.freeze({ ok: true, value: undefined }) : persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT");
   };
-  const consumeExecutionPlan = (evidence: SchemaMigrationImpactEvidence): PersistenceResult<SchemaMigrationExecutionPlan> => {
+  // evidence 只在「已 commit 的 execution」後失效：被拒絕或回滾的嘗試沒有寫入任何 row，
+  // 燒掉 evidence 只會逼呼叫端重跑整個 preflight（含 mapper／validator）。
+  const readExecutionPlan = (evidence: SchemaMigrationImpactEvidence): PersistenceResult<SchemaMigrationExecutionPlan> => {
     if (!isOpaqueEvidence(evidence)) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_EVIDENCE");
     const prior = issued.get(evidence);
     if (prior === undefined) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_EVIDENCE");
-    issued.delete(evidence);
     return prior.status === "approvable"
       ? Object.freeze({ ok: true, value: prior.plan })
       : persistenceResultFailure("SCHEMA_MIGRATION_REPORT_NOT_APPROVABLE");
+  };
+  const releaseExecutionPlan = (evidence: SchemaMigrationImpactEvidence): void => {
+    if (isOpaqueEvidence(evidence)) issued.delete(evidence);
   };
   const validateExecutionPlanInTransaction = (plan: SchemaMigrationExecutionPlan): PersistenceResult<undefined> => {
     const current = snapshot(database, plan.sourceSchemaIdentity, plan.targetSchema, "omit", true);
     if (!current.ok) return current.error.code === "SCHEMA_VERSION_CONFLICT" ? persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT") : current;
     return current.value.digest === plan.scopedDigest ? Object.freeze({ ok: true, value: undefined }) : persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT");
   };
-  return Object.freeze({ preflight, validateEvidence, consumeExecutionPlan, validateExecutionPlanInTransaction });
+  return Object.freeze({ preflight, validateEvidence, readExecutionPlan, releaseExecutionPlan, validateExecutionPlanInTransaction });
 }
 
 function normalizeRequest(input: unknown): NormalizedRequest | null {
@@ -351,5 +357,4 @@ function registerSchemaInput(value: unknown): value is RegisterSchemaVersionInpu
 function callback(value: unknown, name: "map" | "validate"): boolean { try { return value !== null && (typeof value === "object" || typeof value === "function") && typeof (value as Record<string, unknown>)[name] === "function"; } catch { return false; } }
 function thenable(value: unknown): boolean { try { return value !== null && (typeof value === "object" || typeof value === "function") && typeof (value as { then?: unknown }).then === "function"; } catch { return true; } }
 function isOpaqueEvidence(value: unknown): value is SchemaMigrationImpactEvidence { try { return value !== null && typeof value === "object" && Object.isFrozen(value); } catch { return false; } }
-function plainRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> { if (value === null || typeof value !== "object" || Array.isArray(value)) return false; try { const prototype = Object.getPrototypeOf(value); if (prototype !== Object.prototype && prototype !== null) return false; const descriptors = Object.getOwnPropertyDescriptors(value); const actual = Reflect.ownKeys(descriptors); if (actual.some((key) => typeof key !== "string")) return false; const orderedActual = (actual as string[]).sort(compareCodeUnits); const wanted = [...keys].sort(compareCodeUnits); if (orderedActual.length !== wanted.length || orderedActual.some((key, index) => key !== wanted[index])) return false; return wanted.every((key) => { const descriptor = descriptors[key]; return descriptor !== undefined && "value" in descriptor; }); } catch { return false; } }
 function plainDataRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> { if (!plainRecord(value, keys)) return false; try { structuredClone(value); return true; } catch { return false; } }

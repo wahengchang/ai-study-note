@@ -9,6 +9,7 @@ import type {
   SchemaMigrationPointer,
 } from "./contracts.js";
 import { persistenceResultFailure } from "./failures.js";
+import { plainRecord } from "./record-shape.js";
 import type { SchemaMigrationExecutionPlan } from "./schema-migration-impact.js";
 import type { SqliteAdapter, SqliteRow } from "./sqlite-adapter.js";
 
@@ -22,11 +23,16 @@ export function normalizeSchemaMigrationExecution(input: unknown, plan: SchemaMi
   const expected = plan.mapped.map((item) => item.sourceRevision).sort(compareRevision);
   const replacements: Array<Readonly<{ sourceRevision: RevisionIdentity; replacementRevisionId: string }>> = [];
   const seen = new Set<string>();
+  // replacement identity 必須在寫入前就唯一：同一 entry 的兩個 source revision 共用同一個
+  // replacement ID 只會在 transaction 中途撞上 REVISION_CONFLICT，這裡先回報結構化失敗。
+  const seenReplacements = new Set<string>();
   for (const item of input.replacements) {
-    if (!plainRecord(item, ["sourceRevision", "replacementRevisionId"]) || !revisionIdentity(item.sourceRevision) || !text(item.replacementRevisionId) || item.replacementRevisionId.includes("\0")) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_REQUEST");
+    if (!plainRecord(item, ["sourceRevision", "replacementRevisionId"]) || !revisionIdentity(item.sourceRevision) || !text(item.replacementRevisionId) || item.replacementRevisionId.includes("\0") || item.replacementRevisionId === item.sourceRevision.revisionId) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_REQUEST");
     const key = revisionKey(item.sourceRevision);
-    if (seen.has(key)) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_REQUEST");
+    const replacementKey = revisionKey({ entryId: item.sourceRevision.entryId, revisionId: item.replacementRevisionId });
+    if (seen.has(key) || seenReplacements.has(replacementKey)) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_REQUEST");
     seen.add(key);
+    seenReplacements.add(replacementKey);
     replacements.push(Object.freeze({ sourceRevision: freezeRevisionIdentity(item.sourceRevision), replacementRevisionId: item.replacementRevisionId }));
   }
   replacements.sort((left, right) => compareRevision(left.sourceRevision, right.sourceRevision));
@@ -137,4 +143,3 @@ function text(value: unknown): value is string { return typeof value === "string
 function positive(value: unknown): number | null { return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : null; }
 function textField(row: SqliteRow, key: string): string | null { const value = row[key]; return text(value) ? value : null; }
 function revisionIdentity(value: unknown): value is RevisionIdentity { return plainRecord(value, ["entryId", "revisionId"]) && text(value.entryId) && !value.entryId.includes("\0") && text(value.revisionId) && !value.revisionId.includes("\0"); }
-function plainRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> { if (value === null || typeof value !== "object" || Array.isArray(value)) return false; try { const descriptors = Object.getOwnPropertyDescriptors(value); const actual = Reflect.ownKeys(descriptors); return Object.getPrototypeOf(value) === Object.prototype && actual.length === keys.length && actual.every((key) => typeof key === "string" && keys.includes(key)) && keys.every((key) => { const descriptor = descriptors[key]; return descriptor !== undefined && "value" in descriptor && descriptor.enumerable && descriptor.configurable && descriptor.writable; }); } catch { return false; } }

@@ -19,6 +19,7 @@ import type {
   RevisionRecord,
   RevisionReferenceRecord,
   RouteClaimRecord,
+  SchemaMigrationImpactEvidence,
   SchemaVersionIdentity,
   SchemaVersionRecord,
   SetEntryPointersInput,
@@ -78,11 +79,15 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     preflightSchemaMigration(input) { return migrationImpact.preflight(input); },
     validateSchemaMigrationImpactEvidence(evidence) { return migrationImpact.validateEvidence(evidence); },
     executeSchemaMigration(input) {
-      const plan = migrationImpact.consumeExecutionPlan(input.evidence);
+      const evidence = (input as Readonly<{ evidence?: SchemaMigrationImpactEvidence }> | null | undefined)?.evidence;
+      const plan = migrationImpact.readExecutionPlan(evidence as SchemaMigrationImpactEvidence);
       if (!plan.ok) return plan;
       const normalized = normalizeSchemaMigrationExecution(input, plan.value);
       if (!normalized.ok) return normalized;
-      return atomic((transaction) => executeSchemaMigrationInTransaction(database, transaction, plan.value, normalized.value, migrationImpact.validateExecutionPlanInTransaction));
+      const executed = atomic((transaction) => executeSchemaMigrationInTransaction(database, transaction, plan.value, normalized.value, migrationImpact.validateExecutionPlanInTransaction));
+      // 只有 commit 過的 execution 會讓 evidence 失效，避免同一份 report 產生第二次 write-set。
+      if (executed.ok) migrationImpact.releaseExecutionPlan(evidence as SchemaMigrationImpactEvidence);
+      return executed;
     },
     getSchemaMigrationExecution(operationId) { return getSchemaMigrationExecution(database, operationId); },
     close() { database.close(); },
@@ -279,7 +284,7 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     const mediaImportIntents = collect("SELECT import_id AS importId,asset_id AS assetId,asset_version_id AS assetVersionId,object_digest AS objectDigest,byte_length AS byteLength,metadata_digest AS metadataDigest FROM media_import_intents", ["importId", "assetId", "assetVersionId", "objectDigest", "byteLength", "metadataDigest"]);
     const mediaObjects = collect("SELECT object_digest AS objectDigest,byte_length AS byteLength FROM media_objects", ["objectDigest", "byteLength"]);
     const mediaAssets = collect("SELECT asset_id AS assetId FROM media_assets", ["assetId"]);
-    const assetVersions = collect("SELECT asset_id AS assetId,asset_version_id AS assetVersionId,object_digest AS objectDigest,metadata_digest AS metadataDigest FROM asset_versions", ["assetId", "assetVersionId", "objectDigest", "metadataDigest"]);
+    const assetVersions = collect("SELECT v.asset_id AS assetId,v.asset_version_id AS assetVersionId,v.object_digest AS objectDigest,v.metadata_digest AS metadataDigest,a.availability FROM asset_versions v JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id", ["assetId", "assetVersionId", "objectDigest", "metadataDigest", "availability"]);
     const revisionReferences = collect("SELECT entry_id AS entryId,revision_id AS revisionId,asset_id AS assetId,asset_version_id AS assetVersionId FROM revision_refs", ["entryId", "revisionId", "assetId", "assetVersionId"]);
     const schemaMigrationExecutions = collect("SELECT operation_id AS operationId,source_schema_id AS sourceSchemaId,source_schema_version AS sourceSchemaVersion,target_schema_id AS targetSchemaId,target_schema_version AS targetSchemaVersion,mapping_identity AS mappingIdentity FROM schema_migration_executions", ["operationId", "sourceSchemaId", "sourceSchemaVersion", "targetSchemaId", "targetSchemaVersion", "mappingIdentity"]);
     const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);

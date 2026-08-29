@@ -14,19 +14,22 @@
 
 ## 關鍵決策
 
-- execution 先 consume issuer evidence，再在唯一 `BEGIN IMMEDIATE` transaction 重新驗證 plan freshness、next schema version、replacement identities 和 operation ID；任何失敗回滾整個 write-set。
+- execution 在唯一 `BEGIN IMMEDIATE` transaction 內重新驗證 plan freshness、next schema version、replacement identities 和 operation ID；任何失敗回滾整個 write-set。
+- evidence 只在「已 commit 的 execution」後失效。被拒絕或回滾的嘗試沒有寫入任何 row，若先 consume 再驗證請求，呼叫端會因為一個 typo 就得重跑整個 preflight（含 mapper／validator）。單次 commit 的保證由 evidence 失效與 in-transaction freshness 檢查共同維持。
+- 輸入形狀守衛抽為 `core/persistence/record-shape.ts`：preflight 與 execution 共用同一份規則，frozen／immutable 請求物件在兩邊都必須被接受。
 
 ## 實際驗證
 
-- `node --import tsx --test tests/core/persistence/schema-migration-impact.test.ts tests/core/persistence/schema-migration-execution.test.ts tests/core/persistence/migration-runner.test.ts`：11 pass。
-- `node --import tsx --test "tests/core/persistence/*.test.ts"`：21 pass。
-- `npm run check`：94 pass。
+- `node --import tsx --test tests/core/persistence/schema-migration-execution.test.ts`：5 pass（含 blocked report 拒絕、frozen 請求、evidence 生命週期、media reference 複製與 pin entry 不變）。
+- `node --import tsx --test "tests/core/persistence/*.test.ts"`：24 pass。
+- `npm run check`：97 pass。
 
 ## 已知限制／後續
 
-無。
+- execution 只有 persistence 介面，尚未有 application command 或 CLI 入口；pointer policy 與 replacement identity 仍由呼叫端決定。
+- `asset_version_availability` 目前只會是 `ready`；canonical state 已恢復涵蓋 availability，但 archive／restore 路徑尚未實作。
 
 ## 相關 Branch／PR
 
 - Branch：`cms/schema-migration-execution`
-- PR：尚未建立。
+- PR：https://github.com/wahengchang/ai-study-note/pull/272
