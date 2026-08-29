@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "updated_at": "2026-08-29T10:02:00+08:00",
+  "updated_at": "2026-08-29T10:33:22+08:00",
   "cycles": [
     {
       "id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
@@ -418,7 +418,7 @@
           "owner": "Main",
           "branch": "chore/dev-hub-planned-backlog",
           "worktree": ".dev-hub/worktrees/dev-hub-planned-backlog",
-          "pr": null,
+          "pr": "https://github.com/wahengchang/ai-study-note/pull/265",
           "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-groups/WG-001-planned-backlog-onboarding.md"
         }
       ]

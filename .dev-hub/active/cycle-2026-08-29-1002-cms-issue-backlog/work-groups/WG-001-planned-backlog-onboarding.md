@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: chore/dev-hub-planned-backlog
 worktree: .dev-hub/worktrees/dev-hub-planned-backlog
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/265
 ---
 
 # Planned backlog onboarding
