@@ -12,7 +12,8 @@
 
 ### Dev Hub 大型工作流程
 
-- 只有上述定義的「大型工作」必須在執行前閱讀並遵循 `docs/dev-hub-workflow.md`；純問答、小型修正與唯讀查詢不建立 Cycle。該檔是現行 `.dev-hub/` 狀態流程的唯一操作入口；`dev-hub-*/` 仍是受保護的唯讀 handoff 歷史。
+- 只有上述定義的「大型工作」必須在執行前閱讀並遵循 `docs/dev-hub-workflow.md`；純問答、小型修正與唯讀查詢不建立 Cycle。該檔是 `.dev-hub/` 狀態流程的唯一操作入口。
+- `.dev-hub/active/` 只保存進行中的 Cycle 協作狀態。Cycle 完成時整包刪除，永久摘要改寫入上述 `logs/` 工作紀錄；因此查詢已完成工作一律看 `logs/`，不看 `.dev-hub/`。
 
 ## 專案文件
 

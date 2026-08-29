@@ -87,7 +87,8 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
   // 唯讀查詢不寫入任何 row，「找不到」是呼叫端可自行決定如何處理的正常結果，
   // 不得污染仍打算 commit 的 transaction。
   const refused: Fail = <T>(code: PersistenceFailureCode): PersistenceResult<T> => persistenceResultFailure(code) as PersistenceResult<T>;
-  const guarded = <T>(operation: () => PersistenceResult<T>, onConstraint?: PersistenceFailureCode): PersistenceResult<T> => {
+  // 只有唯一性衝突才是 conflict；CHECK／FK 失敗代表輸入違反既定 constraint，必須照實回報。
+  const guarded = <T>(operation: () => PersistenceResult<T>, onUniqueConflict?: PersistenceFailureCode): PersistenceResult<T> => {
     if (!live()) return failed("STORAGE_FAILURE");
     try {
       const result = operation();
@@ -95,8 +96,7 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       return result;
     }
     catch (error) {
-      const code = sqliteFailureCode(error);
-      return failed(onConstraint !== undefined && code === "CONSTRAINT_VIOLATION" ? onConstraint : code);
+      return failed(onUniqueConflict !== undefined && sqliteConstraintKind(error) === "unique" ? onUniqueConflict : sqliteFailureCode(error));
     }
   };
   const reading = <T>(operation: () => PersistenceResult<T>): PersistenceResult<T> => {
