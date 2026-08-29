@@ -12,7 +12,6 @@ type Installed = Readonly<{ manifest: PluginManifestV1; manifestHash: Digest; en
 type InstalledLookup = Readonly<{ status: "available"; value: Installed }> | Readonly<{ status: "invalid-root" }> | Readonly<{ status: "source-missing" }> | Readonly<{ status: "evidence-mismatch" }>;
 type State = Readonly<{ state: PluginActivationState; digest: Digest }>;
 type Prepared = Readonly<{ entryId: string; digest: Digest; callbacks: readonly Readonly<{ identity: PluginActivationIdentity; priority: number; callback: (input: unknown, facade: unknown) => unknown }>[] }>;
-type ActiveEvidence = Readonly<{ state: State; installedById: ReadonlyMap<string, Installed> }>;
 
 function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
   try {
@@ -269,7 +268,7 @@ class Host implements PluginHost {
       const current = await this.state();
       if (!current.ok) return current;
       const validated = await this.validateActiveEvidence(current.value);
-      return validated.ok ? { ok: true, value: snapshot(validated.value.state.state, validated.value.state.digest) } : validated;
+      return validated.ok ? { ok: true, value: snapshot(validated.value.state, validated.value.digest) } : validated;
     });
   }
 
@@ -325,6 +324,8 @@ class Host implements PluginHost {
       } catch {
         return pluginHostError("PLUGIN_CALLBACK_FAILED", wanted.id, editorDetail(wanted.id, evidence.entryId, "callback-fault"));
       }
+      // Callback 回傳的 native promise 一律被拒絕；未觀察的 rejection 會以 raw exception 逸出 host 的 sanitized diagnostic boundary。
+      if (nativePromise(output)) observeRejectedPromise(output);
       if (thenable(output) || !exact(output, ["contract", "block"]) || output.contract !== "cms-editor-block-output/v1") return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", wanted.id, editorDetail(wanted.id, evidence.entryId, "invalid-result"));
       const resolved = json((output as CmsEditorBlockResolverOutput).block);
       if (resolved === null) return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", wanted.id, editorDetail(wanted.id, evidence.entryId, "invalid-result"));
@@ -406,8 +407,7 @@ class Host implements PluginHost {
     return { ok: true, value: Object.freeze({ content: content.value, contentBytes: content.bytes, contentDigest: content.digest, activeStateDigest: prepared.digest }) };
   }
 
-  private async validateActiveEvidence(current: State): Promise<PluginHostResult<ActiveEvidence>> {
-    const installedById = new Map<string, Installed>();
+  private async validateActiveEvidence(current: State): Promise<PluginHostResult<State>> {
     const drift: Readonly<{ identity: PluginActivationIdentity; code: "ACTIVE_PLUGIN_SOURCE_MISSING" | "ACTIVE_PLUGIN_IDENTITY_MISMATCH" }>[] = [];
     for (const entry of current.state.active) {
       const item = await installed(this.roots, entry.id);
@@ -425,7 +425,6 @@ class Host implements PluginHost {
         drift.push(Object.freeze({ identity: entry, code: "ACTIVE_PLUGIN_IDENTITY_MISMATCH" }));
         continue;
       }
-      installedById.set(entry.id, item.value);
     }
     if (drift.length > 0) {
       const latched = await this.latchReactivation(current, drift.map((item) => item.identity));
@@ -437,7 +436,7 @@ class Host implements PluginHost {
     if (!fresh.ok) return fresh;
     if (fresh.value.digest !== current.digest) return pluginHostError("ACTIVATION_STATE_CONFLICT");
     if (fresh.value.state.reactivationRequired.length > 0) return pluginHostError("ACTIVE_PLUGIN_REACTIVATION_REQUIRED", fresh.value.state.reactivationRequired[0]!.id);
-    return { ok: true, value: Object.freeze({ state: fresh.value, installedById }) };
+    return { ok: true, value: fresh.value };
   }
 
   private async state(): Promise<Readonly<{ ok: true; value: State }> | Readonly<{ ok: false; error: PluginHostFailure }>> {

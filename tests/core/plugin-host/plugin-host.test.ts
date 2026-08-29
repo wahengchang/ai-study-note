@@ -110,6 +110,7 @@ export function resolveEditorBlock(input, facade) {
   probe.facades += facade.capability === "cms-editor-block-resolution" ? 1 : 0;
   if (probe.mode === "throw") throw new Error("token-do-not-leak");
   if (probe.mode === "thenable") return Promise.resolve({ contract: "cms-editor-block-output/v1", block: {} });
+  if (probe.mode === "rejected") return Promise.reject(new Error("token-do-not-leak"));
   if (probe.mode === "extra") return { contract: "cms-editor-block-output/v1", block: {}, extra: true };
   if (probe.mode === "invalid") return { contract: "cms-editor-block-output/v1", block: { unsafe: BigInt(1) } };
   if (probe.mode === "mutate") { probe.frozen = Object.isFrozen(input.source) && Object.isFrozen(input.source.nested); try { input.source.nested.value = "mutated"; } catch {} }
@@ -536,16 +537,26 @@ test("editor callback failures are sanitized, contract-bound, and never authoriz
     assert.equal(activated.ok, true);
     if (!activated.ok) return;
     const identity = activated.value.identities[0]!;
-    for (const mode of ["throw", "thenable", "extra", "invalid"] as const) {
-      probe().mode = mode;
-      const result = await pluginHost.resolveCmsEditorBlock(source(identity));
-      assert.equal(result.ok, false);
-      if (!result.ok) {
-        assert.equal(result.error.code, mode === "throw" ? "PLUGIN_CALLBACK_FAILED" : "PLUGIN_CALLBACK_RESULT_INVALID");
-        assert.deepEqual(result.error.detail, { pluginId: identity.id, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", entryId: "entry-a", cause: mode === "throw" ? "callback-fault" : "invalid-result" });
-        assert.equal(result.error.remediation.kind === "message" && result.error.remediation.message.includes("replacement"), false);
+    // `rejected` 讓 callback 回傳 rejected native promise：host 必須觀察它，raw exception 不得以 unhandled rejection 逸出 sanitized boundary。
+    let unhandled: unknown;
+    const onUnhandled = (reason: unknown) => { unhandled = reason; };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      for (const mode of ["throw", "thenable", "rejected", "extra", "invalid"] as const) {
+        probe().mode = mode;
+        const result = await pluginHost.resolveCmsEditorBlock(source(identity));
+        assert.equal(result.ok, false);
+        if (!result.ok) {
+          assert.equal(result.error.code, mode === "throw" ? "PLUGIN_CALLBACK_FAILED" : "PLUGIN_CALLBACK_RESULT_INVALID");
+          assert.deepEqual(result.error.detail, { pluginId: identity.id, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", entryId: "entry-a", cause: mode === "throw" ? "callback-fault" : "invalid-result" });
+          assert.equal(result.error.remediation.kind === "message" && result.error.remediation.message.includes("replacement"), false);
+        }
+        assertSanitized(result, value);
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        assert.equal(unhandled, undefined);
       }
-      assertSanitized(result, value);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
     }
     probe().mode = "mutate";
     const frozen = await pluginHost.resolveCmsEditorBlock(source(identity));
@@ -560,7 +571,7 @@ test("editor callback failures are sanitized, contract-bound, and never authoriz
       fresh.port.mutateOnRead = fresh.port.reads + 3;
       const stale = await staleHost.resolveCmsEditorBlock(source(staleActivated.ok ? staleActivated.value.identities[0]! : identity));
       assertFailure(stale, "INVALID_PLUGIN_OPERATION_SNAPSHOT");
-      assert.equal(probe().callbacks, 5);
+      assert.equal(probe().callbacks, 6);
     } finally {
       rmSync(fresh.directory, { recursive: true, force: true });
     }
