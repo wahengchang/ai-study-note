@@ -31,6 +31,62 @@ export type PersistenceCanonicalState = Readonly<{
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
 
+export type SchemaMigrationPointer = "current" | "published";
+export type SchemaMigrationPointerPolicy = "move" | "pin";
+export type SchemaMigrationPointerPolicyInput = Readonly<{ entryId: string; pointer: SchemaMigrationPointer; policy: SchemaMigrationPointerPolicy }>;
+export type SchemaMigrationMapperInput = Readonly<{ sourceSchema: SchemaVersionRecord; targetSchema: SchemaVersionRecord; sourceRevision: RevisionRecord }>;
+export interface SchemaMigrationMapper {
+  map(input: SchemaMigrationMapperInput): Readonly<{ ok: true; contentBytes: Uint8Array; contentDigest: Digest }> | Readonly<{ ok: false; code: "MAPPING_NOT_PROVIDED" }>;
+}
+export type SchemaMigrationValidationIssue = Readonly<{ code: "MISSING_REQUIRED_FIELD" | "INVALID_SELECT_MAPPING" | "TARGET_SCHEMA_REJECTED"; schemaPath: string }>;
+export interface SchemaMigrationValidator {
+  validate(input: Readonly<{ schema: SchemaVersionRecord; contentBytes: Uint8Array; contentDigest: Digest }>): Readonly<{ ok: true }> | Readonly<{ ok: false; issues: readonly SchemaMigrationValidationIssue[] }>;
+}
+export type SchemaMigrationPreflightInput = Readonly<{
+  sourceSchemaIdentity: SchemaVersionIdentity;
+  targetSchemaIdentity: SchemaVersionIdentity;
+  pointerPolicies: readonly SchemaMigrationPointerPolicyInput[];
+  mappingIdentity: Digest;
+  mapper: SchemaMigrationMapper;
+  validator: SchemaMigrationValidator;
+}>;
+export type SchemaMigrationImpactEvidence = Readonly<{ readonly __schemaMigrationImpactEvidence: unique symbol }>;
+export type SchemaMigrationAffectedPointer = Readonly<{
+  entryId: string;
+  pointer: SchemaMigrationPointer;
+  revisionId: string;
+  targetSchemaIdentity: SchemaVersionIdentity;
+  policy: SchemaMigrationPointerPolicy | "unassigned";
+}>;
+export type SchemaMigrationHistoricalRevision = Readonly<{ revision: RevisionIdentity; disposition: "retained" }>;
+export type SchemaMigrationMappingRow = Readonly<{
+  sourceRevision: RevisionIdentity;
+  targetSchemaIdentity: SchemaVersionIdentity;
+  affectedPointers: readonly SchemaMigrationAffectedPointer[];
+  outcome: "validated" | "blocked";
+}>;
+export type SchemaMigrationBlockedReason = Readonly<{
+  code: "POINTER_POLICY_MISSING" | "MAPPING_NOT_PROVIDED" | "MISSING_REQUIRED_FIELD" | "INVALID_SELECT_MAPPING" | "TARGET_SCHEMA_REJECTED";
+  remediation: MessageRemediation;
+  schemaPath?: string;
+}>;
+export type SchemaMigrationBlockedRow = Readonly<{
+  subject: Readonly<{ kind: "pointer"; entryId: string; pointer: SchemaMigrationPointer; revisionId: string }> | Readonly<{ kind: "mapping"; sourceRevision: RevisionIdentity }>;
+  reasons: readonly SchemaMigrationBlockedReason[];
+}>;
+export type SchemaMigrationImpactReport = Readonly<{
+  contract: "schema-migration-impact-report/v1";
+  status: "approvable" | "blocked";
+  sourceSchemaIdentity: SchemaVersionIdentity;
+  targetSchemaIdentity: SchemaVersionIdentity;
+  mappingIdentity: Digest;
+  affectedPointers: readonly SchemaMigrationAffectedPointer[];
+  historicalRevisions: readonly SchemaMigrationHistoricalRevision[];
+  mapping: readonly SchemaMigrationMappingRow[];
+  blockedRows: readonly SchemaMigrationBlockedRow[];
+  evidence: SchemaMigrationImpactEvidence;
+}>;
+
 export type PersistenceFailureCode =
   | "INVALID_DATABASE_PATH"
   | "DATABASE_UNAVAILABLE"
@@ -52,6 +108,13 @@ export type PersistenceFailureCode =
   | "IMMUTABLE_SCHEMA_VERSION"
   | "IMMUTABLE_REVISION"
   | "CONSTRAINT_VIOLATION"
+  | "INVALID_SCHEMA_MIGRATION_REQUEST"
+  | "SCHEMA_MIGRATION_SOURCE_NOT_FOUND"
+  | "SCHEMA_MIGRATION_TARGET_NOT_FOUND"
+  | "SCHEMA_MIGRATION_MAPPING_FAILED"
+  | "SCHEMA_MIGRATION_VALIDATION_FAILED"
+  | "INVALID_SCHEMA_MIGRATION_EVIDENCE"
+  | "STALE_SCHEMA_MIGRATION_REPORT"
   | "STORAGE_FAILURE";
 
 export type PersistenceFailure = Readonly<{
@@ -93,4 +156,6 @@ export interface PersistenceStore extends PersistenceTransaction {
   compareAndReplacePluginActivationState(input: CompareAndReplacePluginActivationStateInput): PersistenceResult<boolean>;
   runTransaction<T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
   close(): void;
+  preflightSchemaMigration(input: SchemaMigrationPreflightInput): PersistenceResult<SchemaMigrationImpactReport>;
+  validateSchemaMigrationImpactEvidence(evidence: SchemaMigrationImpactEvidence): PersistenceResult<undefined>;
 }

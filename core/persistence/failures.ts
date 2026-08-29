@@ -21,6 +21,13 @@ const messages: Readonly<Record<PersistenceFailureCode, string>> = {
   IMMUTABLE_SCHEMA_VERSION: "Schema version 不可修改或刪除。",
   IMMUTABLE_REVISION: "Revision 不可修改或刪除。",
   CONSTRAINT_VIOLATION: "Persistence constraint 拒絕這次操作。",
+  INVALID_SCHEMA_MIGRATION_REQUEST: "Schema migration 預演請求無效。",
+  SCHEMA_MIGRATION_SOURCE_NOT_FOUND: "找不到來源 schema version。",
+  SCHEMA_MIGRATION_TARGET_NOT_FOUND: "找不到目標 schema version。",
+  SCHEMA_MIGRATION_MAPPING_FAILED: "Schema migration mapping 未完成。",
+  SCHEMA_MIGRATION_VALIDATION_FAILED: "Schema migration validation 未完成。",
+  INVALID_SCHEMA_MIGRATION_EVIDENCE: "Schema migration impact evidence 無效。",
+  STALE_SCHEMA_MIGRATION_REPORT: "Schema migration impact report 已過期，請重新預演。",
   STORAGE_FAILURE: "Persistence 操作未完成。",
 };
 

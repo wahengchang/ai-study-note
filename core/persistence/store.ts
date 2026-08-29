@@ -26,6 +26,7 @@ import type {
 } from "./contracts.js";
 import { validateCanonicalBytes } from "./canonical-bytes.js";
 import { persistenceFailure, persistenceResultFailure } from "./failures.js";
+import { createSchemaMigrationImpactAnalyzer } from "./schema-migration-impact.js";
 import { sqliteConstraintKind, sqliteFailureCode, type SqliteAdapter, type SqliteRow } from "./sqlite-adapter.js";
 
 /** 產生 failure result 的方式：`failed` 會讓外層 transaction 回滾，`refused` 不會。 */
@@ -59,6 +60,7 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     });
     return result as PersistenceResult<T>;
   };
+  const migrationImpact = createSchemaMigrationImpactAnalyzer(database);
   return {
     ...operations,
     registerSchemaVersion(input) { return atomic((transaction) => transaction.registerSchemaVersion(input)); },
@@ -72,6 +74,8 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     readPluginActivationState() { return readPluginActivationState(database); },
     compareAndReplacePluginActivationState(input) { return compareAndReplacePluginActivationState(database, input); },
     runTransaction,
+    preflightSchemaMigration(input) { return migrationImpact.preflight(input); },
+    validateSchemaMigrationImpactEvidence(evidence) { return migrationImpact.validateEvidence(evidence); },
     close() { database.close(); },
   };
 }

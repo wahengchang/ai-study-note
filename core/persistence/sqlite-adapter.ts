@@ -49,6 +49,22 @@ export class SqliteAdapter {
     }
   }
 
+  readTransaction<T>(operation: () => T): T {
+    this.exec("BEGIN");
+    try {
+      const value = operation();
+      this.exec("COMMIT");
+      return value;
+    } catch (error) {
+      try {
+        this.exec("ROLLBACK");
+      } catch {
+        // 唯讀快照未開始或已中止時保留原始失敗。
+      }
+      throw error;
+    }
+  }
+
   close(): void {
     this.#database.close();
   }
