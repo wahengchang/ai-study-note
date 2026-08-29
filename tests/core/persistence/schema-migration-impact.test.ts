@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { migrateDatabase, openPersistence, type PersistenceResult, type PersistenceStore, type SchemaMigrationPreflightInput } from "../../../core/persistence/index.js";
+import { migrateDatabase, openPersistence, type PersistenceResult, type PersistenceStore, type SchemaMigrationMapper, type SchemaMigrationMapperInput, type SchemaMigrationPreflightInput, type SchemaMigrationValidator } from "../../../core/persistence/index.js";
 
 function bytes(value: unknown): Uint8Array { const result = canonicalJsonBytes(value); assert.equal(result.ok, true); if (!result.ok) throw new Error("canonical fixture failed"); return result.value; }
 function databasePath(): Readonly<{ directory: string; value: string }> { const directory = mkdtempSync(path.join(tmpdir(), "schema-migration-impact-")); return { directory, value: path.join(directory, "cms.sqlite") }; }
@@ -133,5 +133,52 @@ test("preflight fails closed for callback faults and stale or foreign evidence",
     assert.equal(failure(other.value.validateSchemaMigrationImpactEvidence(report.value.evidence)), "INVALID_SCHEMA_MIGRATION_EVIDENCE");
     other.value.close();
     assert.equal(digest(store) === before, false);
+  } finally { rmSync(database.directory, { recursive: true, force: true }); }
+});
+
+class ClassMapper implements SchemaMigrationMapper {
+  readonly calls: string[] = [];
+  map(input: SchemaMigrationMapperInput): ReturnType<SchemaMigrationMapper["map"]> {
+    this.calls.push(`${input.sourceRevision.identity.entryId}/${input.sourceRevision.identity.revisionId}`);
+    const contentBytes = bytes({ mapped: input.sourceRevision.identity });
+    return { ok: true, contentBytes, contentDigest: sha256Digest(contentBytes) };
+  }
+}
+
+class ClassValidator implements SchemaMigrationValidator {
+  readonly calls: string[] = [];
+  validate(input: Parameters<SchemaMigrationValidator["validate"]>[0]): ReturnType<SchemaMigrationValidator["validate"]> {
+    this.calls.push(input.contentDigest);
+    return { ok: true };
+  }
+}
+
+test("preflight accepts any object that implements the mapper and validator interfaces", () => {
+  const database = databasePath();
+  try {
+    const store = fixture(database.value);
+    const classMapper = new ClassMapper();
+    const classValidator = new ClassValidator();
+    const fromClass = store.preflightSchemaMigration(preflight(classMapper, classValidator, completePolicies));
+    assert.equal(failure(fromClass), undefined);
+    assert.deepEqual(classMapper.calls, ["entry-a/r2", "entry-b/r3"]);
+    assert.equal(classValidator.calls.length, 2);
+    const carrier = { table: new Map<string, string>(), map: (input: SchemaMigrationMapperInput) => classMapper.map(input) };
+    const fromCarrier = store.preflightSchemaMigration(preflight(carrier, { helper: 1, validate: () => ({ ok: true as const }) } as never, completePolicies));
+    assert.equal(failure(fromCarrier), undefined);
+    if (fromClass.ok && fromCarrier.ok) assert.deepEqual(fromCarrier.value.mapping, fromClass.value.mapping);
+  } finally { rmSync(database.directory, { recursive: true, force: true }); }
+});
+
+test("storage faults keep their own code instead of collapsing to a stale report", () => {
+  const database = databasePath();
+  try {
+    const store = fixture(database.value);
+    const report = store.preflightSchemaMigration(preflight(mapper([]), acceptingValidator([]), completePolicies));
+    assert.equal(report.ok, true);
+    if (!report.ok) return;
+    store.close();
+    assert.equal(failure(store.validateSchemaMigrationImpactEvidence(report.value.evidence)), "STORAGE_FAILURE");
+    assert.equal(failure(store.preflightSchemaMigration(preflight(mapper([]), acceptingValidator([]), completePolicies))), "STORAGE_FAILURE");
   } finally { rmSync(database.directory, { recursive: true, force: true }); }
 });

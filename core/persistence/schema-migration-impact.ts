@@ -3,6 +3,7 @@ import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } fr
 import type {
   PersistenceResult,
   RevisionIdentity,
+  RevisionLineage,
   RevisionRecord,
   SchemaMigrationAffectedPointer,
   SchemaMigrationBlockedReason,
@@ -35,10 +36,20 @@ type NormalizedRequest = Readonly<{
 }>;
 type PointerRow = Readonly<{ entryId: string; currentRevisionId: string; publishedRevisionId?: string }>;
 type ReferenceRow = Readonly<{ revision: RevisionIdentity; assetId: string; assetVersionId: string }>;
+type SnapshotContent = "include" | "omit";
+type RevisionSnapshot = Readonly<{
+  identity: RevisionIdentity;
+  schemaIdentity: SchemaVersionIdentity;
+  contentDigest: Digest;
+  restoredFromRevisionId?: string;
+  lineage: RevisionLineage;
+  contentBytes?: Uint8Array;
+}>;
+type LoadedRevision = RevisionSnapshot & Readonly<{ contentBytes: Uint8Array }>;
 type Snapshot = Readonly<{
   sourceSchema: SchemaVersionRecord;
   targetSchema: SchemaVersionRecord;
-  revisions: readonly RevisionRecord[];
+  revisions: readonly RevisionSnapshot[];
   pointers: readonly PointerRow[];
   references: readonly ReferenceRow[];
   digest: Digest;
@@ -47,14 +58,15 @@ type InternalEvidence = Readonly<{
   sourceSchemaIdentity: SchemaVersionIdentity;
   targetSchemaIdentity: SchemaVersionIdentity;
   scopedDigest: Digest;
-  mappingIdentity: Digest;
-  pointerPolicies: readonly SchemaMigrationPointerPolicyInput[];
-  status: "approvable" | "blocked";
-  mappedOutputs: readonly Readonly<{ sourceRevision: RevisionIdentity; contentBytes: Uint8Array; contentDigest: Digest }>[];
 }>;
 type CallbackResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false }>;
 type MapperOutcome = Readonly<{ kind: "mapped"; contentBytes: Uint8Array; contentDigest: Digest }> | Readonly<{ kind: "missing" }>;
 
+const revisionsMetadataColumns = "r.entry_id,r.revision_id,r.content_digest,r.restored_from_revision_id,l.operation_id,l.operation_kind";
+const revisionsFrom = "FROM revisions r JOIN operation_lineage l ON l.entry_id=r.entry_id AND l.revision_id=r.revision_id AND l.creates_revision=1 WHERE r.schema_id=? AND r.schema_version=?";
+// staleness 重讀與 evidence 驗證只比對 digest，content bytes 不進記憶體。
+const revisionsMetadataQuery = `SELECT ${revisionsMetadataColumns} ${revisionsFrom}`;
+const revisionsWithContentQuery = `SELECT ${revisionsMetadataColumns},r.content_bytes ${revisionsFrom}`;
 const pointerOrder: Readonly<Record<SchemaMigrationPointer, number>> = { current: 0, published: 1 };
 const remediationMessages: Readonly<Record<SchemaMigrationBlockedReason["code"], string>> = {
   POINTER_POLICY_MISSING: "請為受影響 pointer 指定 move 或 pin policy。",
@@ -73,7 +85,7 @@ export function createSchemaMigrationImpactAnalyzer(database: SqliteAdapter): Re
   const preflight = (input: SchemaMigrationPreflightInput): PersistenceResult<SchemaMigrationImpactReport> => {
     const request = normalizeRequest(input);
     if (request === null) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_REQUEST");
-    const initial = snapshot(database, request.sourceSchemaIdentity, request.targetSchemaIdentity);
+    const initial = snapshot(database, request.sourceSchemaIdentity, request.targetSchemaIdentity, "include");
     if (!initial.ok) return initial;
     const policies = new Map(request.pointerPolicies.map((policy) => [policyKey(policy.entryId, policy.pointer), policy.policy]));
     const affectedPointers = affected(initial.value, request.targetSchemaIdentity, policies);
@@ -82,18 +94,17 @@ export function createSchemaMigrationImpactAnalyzer(database: SqliteAdapter): Re
     const pointerBlockedRows = affectedPointers
       .filter((item) => item.policy === "unassigned")
       .map((item) => blockedPointer(item, "POINTER_POLICY_MISSING"));
-    const moved = new Map<string, Readonly<{ revision: RevisionRecord; pointers: readonly SchemaMigrationAffectedPointer[] }>>();
+    const moved = new Map<string, Readonly<{ revision: LoadedRevision; pointers: readonly SchemaMigrationAffectedPointer[] }>>();
     for (const item of affectedPointers) {
       if (item.policy !== "move") continue;
       const key = revisionKey({ entryId: item.entryId, revisionId: item.revisionId });
       const source = initial.value.revisions.find((revision) => revisionKey(revision.identity) === key);
-      if (source === undefined) return persistenceResultFailure("STORAGE_FAILURE");
+      if (source === undefined || !loaded(source)) return persistenceResultFailure("STORAGE_FAILURE");
       const prior = moved.get(key);
       moved.set(key, Object.freeze({ revision: source, pointers: Object.freeze([...(prior?.pointers ?? []), item]) }));
     }
     const mapping: SchemaMigrationMappingRow[] = [];
     const mappingBlockedRows: SchemaMigrationBlockedRow[] = [];
-    const outputs: Readonly<{ sourceRevision: RevisionIdentity; contentBytes: Uint8Array; contentDigest: Digest }>[] = [];
     for (const item of [...moved.values()].sort((left, right) => compareRevision(left.revision.identity, right.revision.identity))) {
       const mapped = runMapper(request.mapper, initial.value.sourceSchema, initial.value.targetSchema, item.revision);
       if (!mapped.ok) return persistenceResultFailure("SCHEMA_MIGRATION_MAPPING_FAILED");
@@ -110,10 +121,10 @@ export function createSchemaMigrationImpactAnalyzer(database: SqliteAdapter): Re
         continue;
       }
       mapping.push(freezeMapping(item.revision.identity, request.targetSchemaIdentity, item.pointers, "validated"));
-      outputs.push(Object.freeze({ sourceRevision: freezeRevisionIdentity(item.revision.identity), contentBytes: copyBytes(mapped.value.contentBytes), contentDigest: mapped.value.contentDigest }));
     }
-    const current = snapshot(database, request.sourceSchemaIdentity, request.targetSchemaIdentity);
-    if (!current.ok || current.value.digest !== initial.value.digest) return persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT");
+    const current = snapshot(database, request.sourceSchemaIdentity, request.targetSchemaIdentity, "omit");
+    if (!current.ok) return current;
+    if (current.value.digest !== initial.value.digest) return persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT");
     const blockedRows = Object.freeze([...pointerBlockedRows, ...mappingBlockedRows].sort(compareBlocked));
     const evidence = Object.freeze({}) as SchemaMigrationImpactEvidence;
     const report = freezeReport({
@@ -132,10 +143,6 @@ export function createSchemaMigrationImpactAnalyzer(database: SqliteAdapter): Re
       sourceSchemaIdentity: freezeSchemaIdentity(request.sourceSchemaIdentity),
       targetSchemaIdentity: freezeSchemaIdentity(request.targetSchemaIdentity),
       scopedDigest: initial.value.digest,
-      mappingIdentity: request.mappingIdentity,
-      pointerPolicies: Object.freeze(request.pointerPolicies.map(freezePolicy)),
-      status: report.status,
-      mappedOutputs: Object.freeze(outputs),
     }));
     return Object.freeze({ ok: true, value: report });
   };
@@ -144,8 +151,9 @@ export function createSchemaMigrationImpactAnalyzer(database: SqliteAdapter): Re
     if (!isOpaqueEvidence(evidence)) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_EVIDENCE");
     const prior = issued.get(evidence);
     if (prior === undefined) return persistenceResultFailure("INVALID_SCHEMA_MIGRATION_EVIDENCE");
-    const current = snapshot(database, prior.sourceSchemaIdentity, prior.targetSchemaIdentity);
-    if (!current.ok || current.value.digest !== prior.scopedDigest) return persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT");
+    const current = snapshot(database, prior.sourceSchemaIdentity, prior.targetSchemaIdentity, "omit");
+    if (!current.ok) return current;
+    if (current.value.digest !== prior.scopedDigest) return persistenceResultFailure("STALE_SCHEMA_MIGRATION_REPORT");
     return Object.freeze({ ok: true, value: undefined });
   };
 
@@ -176,16 +184,16 @@ function normalizeRequest(input: unknown): NormalizedRequest | null {
   });
 }
 
-function snapshot(database: SqliteAdapter, sourceIdentity: SchemaVersionIdentity, targetIdentity: SchemaVersionIdentity): PersistenceResult<Snapshot> {
+function snapshot(database: SqliteAdapter, sourceIdentity: SchemaVersionIdentity, targetIdentity: SchemaVersionIdentity, content: SnapshotContent): PersistenceResult<Snapshot> {
   try {
     return database.readTransaction(() => {
       const sourceSchema = schema(database.get("SELECT schema_bytes, schema_digest FROM schema_versions WHERE schema_id=? AND version=?", sourceIdentity.schemaId, sourceIdentity.version), sourceIdentity);
       if (sourceSchema === null) return persistenceResultFailure("SCHEMA_MIGRATION_SOURCE_NOT_FOUND");
       const targetSchema = schema(database.get("SELECT schema_bytes, schema_digest FROM schema_versions WHERE schema_id=? AND version=?", targetIdentity.schemaId, targetIdentity.version), targetIdentity);
       if (targetSchema === null) return persistenceResultFailure("SCHEMA_MIGRATION_TARGET_NOT_FOUND");
-      const revisions: RevisionRecord[] = [];
-      for (const row of database.all("SELECT r.entry_id,r.revision_id,r.content_bytes,r.content_digest,r.restored_from_revision_id,l.operation_id,l.operation_kind FROM revisions r JOIN operation_lineage l ON l.entry_id=r.entry_id AND l.revision_id=r.revision_id AND l.creates_revision=1 WHERE r.schema_id=? AND r.schema_version=?", sourceIdentity.schemaId, sourceIdentity.version)) {
-        const record = revision(row, sourceIdentity);
+      const revisions: RevisionSnapshot[] = [];
+      for (const row of database.all(content === "include" ? revisionsWithContentQuery : revisionsMetadataQuery, sourceIdentity.schemaId, sourceIdentity.version)) {
+        const record = revision(row, sourceIdentity, content);
         if (record === null) return persistenceResultFailure("STORAGE_FAILURE");
         revisions.push(record);
       }
@@ -237,7 +245,7 @@ function affected(snapshot: Snapshot, targetSchemaIdentity: SchemaVersionIdentit
   return Object.freeze(values.sort(compareAffected));
 }
 
-function runMapper(mapper: SchemaMigrationMapper, sourceSchema: SchemaVersionRecord, targetSchema: SchemaVersionRecord, sourceRevision: RevisionRecord): CallbackResult<MapperOutcome> {
+function runMapper(mapper: SchemaMigrationMapper, sourceSchema: SchemaVersionRecord, targetSchema: SchemaVersionRecord, sourceRevision: LoadedRevision): CallbackResult<MapperOutcome> {
   let output: unknown;
   try { output = mapper.map(Object.freeze({ sourceSchema: callbackSchema(sourceSchema), targetSchema: callbackSchema(targetSchema), sourceRevision: callbackRevision(sourceRevision) }) as SchemaMigrationMapperInput); } catch { return Object.freeze({ ok: false }); }
   if (thenable(output)) return Object.freeze({ ok: false });
@@ -267,14 +275,16 @@ function schema(row: SqliteRow | undefined, identity: SchemaVersionIdentity): Sc
   if (row === undefined || !(row.schema_bytes instanceof Uint8Array) || typeof row.schema_digest !== "string" || !isDigest(row.schema_digest)) return null;
   return Object.freeze({ identity: freezeSchemaIdentity(identity), schemaBytes: copyBytes(row.schema_bytes), schemaDigest: row.schema_digest });
 }
-function revision(row: SqliteRow, schemaIdentity: SchemaVersionIdentity): RevisionRecord | null {
-  if (!text(row.entry_id) || !text(row.revision_id) || !(row.content_bytes instanceof Uint8Array) || typeof row.content_digest !== "string" || !isDigest(row.content_digest) || !text(row.operation_id) || !text(row.operation_kind) || (row.restored_from_revision_id !== null && !text(row.restored_from_revision_id))) return null;
-  return Object.freeze({ identity: freezeRevisionIdentity({ entryId: row.entry_id, revisionId: row.revision_id }), schemaIdentity: freezeSchemaIdentity(schemaIdentity), contentBytes: copyBytes(row.content_bytes), contentDigest: row.content_digest, ...(row.restored_from_revision_id === null ? {} : { restoredFromRevisionId: row.restored_from_revision_id }), lineage: Object.freeze({ operationId: row.operation_id, operationKind: row.operation_kind }) });
+function revision(row: SqliteRow, schemaIdentity: SchemaVersionIdentity, content: SnapshotContent): RevisionSnapshot | null {
+  if (!text(row.entry_id) || !text(row.revision_id) || typeof row.content_digest !== "string" || !isDigest(row.content_digest) || !text(row.operation_id) || !text(row.operation_kind) || (row.restored_from_revision_id !== null && !text(row.restored_from_revision_id))) return null;
+  if (content === "include" && !(row.content_bytes instanceof Uint8Array)) return null;
+  return Object.freeze({ identity: freezeRevisionIdentity({ entryId: row.entry_id, revisionId: row.revision_id }), schemaIdentity: freezeSchemaIdentity(schemaIdentity), contentDigest: row.content_digest, ...(row.restored_from_revision_id === null ? {} : { restoredFromRevisionId: row.restored_from_revision_id }), lineage: Object.freeze({ operationId: row.operation_id, operationKind: row.operation_kind }), ...(content === "include" && row.content_bytes instanceof Uint8Array ? { contentBytes: copyBytes(row.content_bytes) } : {}) });
 }
+function loaded(value: RevisionSnapshot): value is LoadedRevision { return value.contentBytes !== undefined; }
 function pointerRow(row: SqliteRow): PointerRow | null { if (!text(row.entry_id) || !text(row.current_revision_id) || (row.published_revision_id !== null && !text(row.published_revision_id))) return null; return Object.freeze({ entryId: row.entry_id, currentRevisionId: row.current_revision_id, ...(row.published_revision_id === null ? {} : { publishedRevisionId: row.published_revision_id }) }); }
 function referenceRow(row: SqliteRow): ReferenceRow | null { if (!text(row.entry_id) || !text(row.revision_id) || !text(row.asset_id) || !text(row.asset_version_id)) return null; return Object.freeze({ revision: freezeRevisionIdentity({ entryId: row.entry_id, revisionId: row.revision_id }), assetId: row.asset_id, assetVersionId: row.asset_version_id }); }
 function callbackSchema(value: SchemaVersionRecord): SchemaVersionRecord { return Object.freeze({ identity: freezeSchemaIdentity(value.identity), schemaBytes: copyBytes(value.schemaBytes), schemaDigest: value.schemaDigest }); }
-function callbackRevision(value: RevisionRecord): RevisionRecord { return Object.freeze({ identity: freezeRevisionIdentity(value.identity), schemaIdentity: freezeSchemaIdentity(value.schemaIdentity), contentBytes: copyBytes(value.contentBytes), contentDigest: value.contentDigest, ...(value.restoredFromRevisionId === undefined ? {} : { restoredFromRevisionId: value.restoredFromRevisionId }), lineage: Object.freeze({ ...value.lineage }) }); }
+function callbackRevision(value: LoadedRevision): RevisionRecord { return Object.freeze({ identity: freezeRevisionIdentity(value.identity), schemaIdentity: freezeSchemaIdentity(value.schemaIdentity), contentBytes: copyBytes(value.contentBytes), contentDigest: value.contentDigest, ...(value.restoredFromRevisionId === undefined ? {} : { restoredFromRevisionId: value.restoredFromRevisionId }), lineage: Object.freeze({ ...value.lineage }) }); }
 function reason(code: SchemaMigrationBlockedReason["code"], schemaPath?: string): SchemaMigrationBlockedReason { return Object.freeze({ code, remediation: Object.freeze({ kind: "message", message: remediationMessages[code] }), ...(schemaPath === undefined ? {} : { schemaPath }) }); }
 function blockedPointer(value: SchemaMigrationAffectedPointer, code: "POINTER_POLICY_MISSING"): SchemaMigrationBlockedRow { return Object.freeze({ subject: Object.freeze({ kind: "pointer", entryId: value.entryId, pointer: value.pointer, revisionId: value.revisionId }), reasons: Object.freeze([reason(code)]) }); }
 function blockedMapping(sourceRevision: RevisionIdentity, values: readonly SchemaMigrationBlockedReason[]): SchemaMigrationBlockedRow { return Object.freeze({ subject: Object.freeze({ kind: "mapping", sourceRevision: freezeRevisionIdentity(sourceRevision) }), reasons: Object.freeze([...values].sort(compareReason).filter((item, index, all) => index === 0 || item.code !== all[index - 1]!.code || item.schemaPath !== all[index - 1]!.schemaPath)) }); }
@@ -296,7 +306,7 @@ function policyKey(entryId: string, pointer: SchemaMigrationPointer): string { r
 function revisionKey(value: RevisionIdentity): string { return `${value.entryId}\u0000${value.revisionId}`; }
 function text(value: unknown): value is string { return typeof value === "string" && value.length > 0; }
 function schemaIdentity(value: unknown): value is SchemaVersionIdentity { return plainRecord(value, ["schemaId", "version"]) && text(value.schemaId) && typeof value.version === "number" && Number.isSafeInteger(value.version) && value.version > 0; }
-function callback(value: unknown, name: "map" | "validate"): boolean { return plainRecord(value, [name]) && typeof value[name] === "function"; }
+function callback(value: unknown, name: "map" | "validate"): boolean { try { return value !== null && (typeof value === "object" || typeof value === "function") && typeof (value as Record<string, unknown>)[name] === "function"; } catch { return false; } }
 function thenable(value: unknown): boolean { try { return value !== null && (typeof value === "object" || typeof value === "function") && typeof (value as { then?: unknown }).then === "function"; } catch { return true; } }
 function isOpaqueEvidence(value: unknown): value is SchemaMigrationImpactEvidence { try { return value !== null && typeof value === "object" && Object.isFrozen(value); } catch { return false; } }
 function plainRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> { if (value === null || typeof value !== "object" || Array.isArray(value)) return false; try { const prototype = Object.getPrototypeOf(value); if (prototype !== Object.prototype && prototype !== null) return false; const descriptors = Object.getOwnPropertyDescriptors(value); const actual = Reflect.ownKeys(descriptors); if (actual.some((key) => typeof key !== "string")) return false; const orderedActual = (actual as string[]).sort(compareCodeUnits); const wanted = [...keys].sort(compareCodeUnits); if (orderedActual.length !== wanted.length || orderedActual.some((key, index) => key !== wanted[index])) return false; return wanted.every((key) => { const descriptor = descriptors[key]; return descriptor !== undefined && "value" in descriptor; }); } catch { return false; } }

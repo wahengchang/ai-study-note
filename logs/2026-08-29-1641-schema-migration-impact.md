@@ -15,7 +15,7 @@
 
 ## 關鍵決策
 
-以同一 issuing `PersistenceStore` 的 `WeakMap` 保存 private scoped digest 與 validated mapping output；公開 report 只保留不可偽造的 frozen opaque token，不序列化 content、schema、digest、SQL 或 callback cause。
+以同一 issuing `PersistenceStore` 的 `WeakMap` 保存 private scoped digest；公開 report 只保留不可偽造的 frozen opaque token，不序列化 content、schema、digest、SQL 或 callback cause。
 
 ## 實際驗證
 
