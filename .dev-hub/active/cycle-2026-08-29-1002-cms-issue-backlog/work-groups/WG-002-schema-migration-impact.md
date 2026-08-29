@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/schema-migration-impact
 worktree: .dev-hub/worktrees/schema-migration-impact
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/271
 ---
 
 # Schema migration impact preflight
