@@ -19,7 +19,7 @@ type WorkItemSnapshot = {
   title: string;
   status: string;
   dependsOn: string[];
-  workGroup: string;
+  workGroup: string | null;
   path: string;
 };
 
@@ -47,7 +47,7 @@ type LinkSnapshot = {
   issueNumber: number;
   cycleId: string;
   workItemId: string;
-  workGroupId: string;
+  workGroupId: string | null;
 };
 
 export type DevHubOverview = {
@@ -72,7 +72,7 @@ const ISSUE_URL_PREFIX = 'https://github.com/wahengchang/ai-study-note/issues/';
 const PULL_URL_PREFIX = 'https://github.com/wahengchang/ai-study-note/pull/';
 const PULL_URL_PATTERN = new RegExp(`^${PULL_URL_PREFIX.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}[1-9]\\d*$`);
 const INVALID_PREFIX = 'DEV_HUB_OVERVIEW_INVALID:';
-const COVERAGE_NOTE = '僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。';
+const COVERAGE_NOTE = '涵蓋已登錄 Dev Hub 的 planned、active、done Work Items 及其遞迴前置 Issue，不代表 GitHub Issues 自動同步。';
 const UPDATED_AT_PATTERN = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/;
 
 function invalid(message: string): never {
@@ -98,6 +98,10 @@ function asString(value: unknown, label: string): string {
   return value;
 }
 
+function asNullableString(value: unknown, label: string): string | null {
+  return value === null ? null : asString(value, label);
+}
+
 function asInteger(value: unknown, label: string): number {
   if (typeof value !== 'number' || !Number.isSafeInteger(value) || value <= 0) invalid(`${label} 必須是正整數。`);
   return value;
@@ -108,7 +112,7 @@ function asStringArray(value: unknown, label: string): string[] {
 }
 
 function requireSchemaVersion(value: unknown, filename: string): void {
-  if (value !== 2) invalid(`${filename} 的 schema_version 必須為 2。`);
+  if (value !== 3) invalid(`${filename} 的 schema_version 必須為 3。`);
 }
 
 function requireLocalMarkdownPath(path: string, cycleId: string, label: string): void {
@@ -147,7 +151,7 @@ function parseWorkItem(value: unknown, cycleId: string, index: number): WorkItem
     title: asString(item.title, `cycles.${cycleId}.work_items[${index}].title`),
     status: asString(item.status, `cycles.${cycleId}.work_items[${index}].status`),
     dependsOn: asStringArray(item.depends_on, `cycles.${cycleId}.work_items[${index}].depends_on`),
-    workGroup: asString(item.work_group, `cycles.${cycleId}.work_items[${index}].work_group`),
+    workGroup: asNullableString(item.work_group, `cycles.${cycleId}.work_items[${index}].work_group`),
     path,
   };
 }
@@ -187,9 +191,13 @@ function parseCycle(value: unknown, index: number): CycleSnapshot {
   requireUnique(workGroups.map((group) => group.id), `cycles.${id} 的 Work Group ID`);
   const groupsById = new Map(workGroups.map((group) => [group.id, group]));
   for (const item of workItems) {
-    const group = groupsById.get(item.workGroup);
-    if (group === undefined) invalid(`cycles.${id} 的 Work Item ${item.id} 指向不存在的 Work Group。`);
-    if (!group.workItems.includes(item.id)) invalid(`cycles.${id} 的 Work Group ${group.id} 未列出 Work Item ${item.id}。`);
+    if (item.workGroup === null) {
+      if (item.status === 'in_progress' || item.status === 'blocked') invalid(`cycles.${id} 的 Work Item ${item.id} 在 ${item.status} 狀態必須指向 Work Group。`);
+    } else {
+      const group = groupsById.get(item.workGroup);
+      if (group === undefined) invalid(`cycles.${id} 的 Work Item ${item.id} 指向不存在的 Work Group。`);
+      if (!group.workItems.includes(item.id)) invalid(`cycles.${id} 的 Work Group ${group.id} 未列出 Work Item ${item.id}。`);
+    }
     for (const dependency of item.dependsOn) {
       if (!workItems.some((candidate) => candidate.id === dependency)) invalid(`cycles.${id} 的 Work Item ${item.id} 依賴不存在的 Work Item ${dependency}。`);
     }
@@ -211,7 +219,7 @@ function parseLink(value: unknown, index: number): LinkSnapshot {
     issueNumber: asInteger(link.issue_number, `links[${index}].issue_number`),
     cycleId: asString(link.cycle_id, `links[${index}].cycle_id`),
     workItemId: asString(link.work_item_id, `links[${index}].work_item_id`),
-    workGroupId: asString(link.work_group_id, `links[${index}].work_group_id`),
+    workGroupId: asNullableString(link.work_group_id, `links[${index}].work_group_id`),
   };
 }
 
@@ -227,8 +235,8 @@ async function readJson(path: string, filename: string): Promise<JsonRecord> {
 function validateOverview(data: DevHubOverview): void {
   const issuesByNumber = new Map(data.issues.map((issue) => [issue.number, issue]));
   const cyclesById = new Map(data.cycles.map((cycle) => [cycle.id, cycle]));
-  const activeWorkItemKeys = new Set<string>();
-  for (const cycle of data.cycles) for (const item of cycle.workItems) activeWorkItemKeys.add(`${cycle.id}/${item.id}`);
+  const workItemKeys = new Set<string>();
+  for (const cycle of data.cycles) for (const item of cycle.workItems) workItemKeys.add(`${cycle.id}/${item.id}`);
   for (const issue of data.issues) {
     for (const dependency of issue.dependsOn) {
       if (!issuesByNumber.has(dependency)) invalid(`Issue #${issue.number} 依賴的 #${dependency} 不存在於 issues.json。`);
@@ -240,11 +248,12 @@ function validateOverview(data: DevHubOverview): void {
     if (cycle === undefined) invalid(`links 的 Cycle ${link.cycleId} 不存在於 links.json。`);
     const workItem = cycle.workItems.find((item) => item.id === link.workItemId);
     if (workItem === undefined) invalid(`links 的 Work Item ${link.cycleId}/${link.workItemId} 不存在。`);
-    const workGroup = cycle.workGroups.find((group) => group.id === link.workGroupId);
-    if (workGroup === undefined) invalid(`links 的 Work Group ${link.cycleId}/${link.workGroupId} 不存在。`);
     if (workItem.workGroup !== link.workGroupId) invalid(`links 的 Work Item ${link.cycleId}/${link.workItemId} 與 Work Group 不一致。`);
+    if (link.workGroupId !== null && !cycle.workGroups.some((group) => group.id === link.workGroupId)) {
+      invalid(`links 的 Work Group ${link.cycleId}/${link.workGroupId} 不存在。`);
+    }
   }
-  if (data.links.length !== activeWorkItemKeys.size) invalid('每個 active Work Item 都必須恰好有一筆 links 記錄。');
+  if (data.links.length !== workItemKeys.size) invalid('每個 Work Item 都必須恰好有一筆 links 記錄。');
   const linkedIssueNumbers = new Set(data.links.map((link) => link.issueNumber));
   const visited = new Set<number>();
   const visit = (number: number): void => {
@@ -266,8 +275,8 @@ export async function loadDevHubOverview(inputDirectory: string): Promise<DevHub
   const updatedAt = asString(issuesJson.updated_at, 'issues.json.updated_at');
   if (!UPDATED_AT_PATTERN.test(updatedAt) || updatedAt !== asString(linksJson.updated_at, 'links.json.updated_at')) invalid('issues.json 與 links.json 的 updated_at 必須相同且含 UTC offset。');
   const coverage = asRecord(issuesJson.coverage, 'issues.json.coverage');
-  if (coverage.mode !== 'active_dev_hub_with_dependencies' || coverage.complete !== false || coverage.note !== COVERAGE_NOTE) {
-    invalid('issues.json.coverage 必須標示固定的 active Dev Hub dependency coverage。');
+  if (coverage.mode !== 'dev_hub_work_with_dependencies' || coverage.complete !== false || coverage.note !== COVERAGE_NOTE) {
+    invalid('issues.json.coverage 必須標示固定的 Dev Hub work dependency coverage。');
   }
   const data: DevHubOverview = {
     coverageNote: COVERAGE_NOTE,
@@ -377,7 +386,7 @@ function sourceLabel(source: DependencySource): string {
 type OverviewRow = {
   issue: IssueSnapshot;
   dependencies: readonly DevHubDependency[];
-  local: { cycle: CycleSnapshot; workItem: WorkItemSnapshot; workGroup: WorkGroupSnapshot } | null;
+  local: { cycle: CycleSnapshot; workItem: WorkItemSnapshot; workGroup: WorkGroupSnapshot | null } | null;
 };
 
 function createRows(data: DevHubOverview, layout: DevHubDependencyLayout): OverviewRow[] {
@@ -389,8 +398,8 @@ function createRows(data: DevHubOverview, layout: DevHubDependencyLayout): Overv
     if (link === undefined) return { issue, dependencies: dependenciesByIssue.get(issue.number) ?? [], local: null };
     const cycle = cyclesById.get(link.cycleId);
     const workItem = cycle?.workItems.find((item) => item.id === link.workItemId);
-    const workGroup = cycle?.workGroups.find((group) => group.id === link.workGroupId);
-    if (cycle === undefined || workItem === undefined || workGroup === undefined) invalid('已驗證 overview 資料缺少 join target。');
+    const workGroup = link.workGroupId === null ? null : cycle?.workGroups.find((group) => group.id === link.workGroupId) ?? null;
+    if (cycle === undefined || workItem === undefined || (link.workGroupId !== null && workGroup === null)) invalid('已驗證 overview 資料缺少 join target。');
     return { issue, dependencies: dependenciesByIssue.get(issue.number) ?? [], local: { cycle, workItem, workGroup } };
   });
 }
@@ -407,19 +416,21 @@ function renderDependencies(row: OverviewRow, issueByNumber: ReadonlyMap<number,
 function renderTableRow(row: OverviewRow, issueByNumber: ReadonlyMap<number, IssueSnapshot>): string {
   const local = row.local;
   const optional = ' hidden';
-  const pr = local?.workGroup.pr;
+  const workGroup = local?.workGroup ?? null;
+  const pr = workGroup?.pr;
   const prNumber = pr === null || pr === undefined ? null : pr.slice(PULL_URL_PREFIX.length);
+  const unassigned = local !== null && workGroup === null;
   return `          <tr data-issue-number="${row.issue.number}"${local === null ? ' hidden' : ''}>
             <td data-column="issue" class="issue-cell"><a href="${escapeHtml(row.issue.url)}">#${row.issue.number} ${escapeHtml(row.issue.title)}</a><br>${renderStatus(row.issue.state)}</td>
             <td data-column="localStatus">${local === null ? '未登錄 Dev Hub' : renderStatus(local.workItem.status)}</td>
             <td data-column="dependencies">${renderDependencies(row, issueByNumber)}</td>
-            <td data-column="owner">${local === null ? '—' : escapeHtml(local.workGroup.owner)}</td>
-            <td data-column="pr">${prNumber === null ? '尚未建立' : `<a href="${escapeHtml(pr!)}">PR #${prNumber}</a>`}</td>
+            <td data-column="owner">${local === null ? '—' : unassigned ? '未分派' : escapeHtml(workGroup!.owner)}</td>
+            <td data-column="pr">${local === null ? '—' : unassigned ? '未分派' : prNumber === null ? '尚未建立' : `<a href="${escapeHtml(pr!)}">PR #${prNumber}</a>`}</td>
             <td data-column="parent"${optional}>${row.issue.parentIssue === null ? '—' : `#${row.issue.parentIssue}`}</td>
             <td data-column="cycle"${optional}><code>${local === null ? '—' : escapeHtml(local.cycle.id)}</code></td>
             <td data-column="workItem"${optional}>${local === null ? '—' : `<code>${escapeHtml(local.workItem.id)}</code><br>${escapeHtml(local.workItem.title)}`}</td>
-            <td data-column="workGroup"${optional}>${local === null ? '—' : `<code>${escapeHtml(local.workGroup.id)}</code><br>${escapeHtml(local.workGroup.title)}`}</td>
-            <td data-column="branch"${optional}><code>${local === null ? '—' : escapeHtml(local.workGroup.branch)}</code></td>
+            <td data-column="workGroup"${optional}>${local === null ? '—' : unassigned ? '未分派' : `<code>${escapeHtml(workGroup!.id)}</code><br>${escapeHtml(workGroup!.title)}`}</td>
+            <td data-column="branch"${optional}><code>${local === null ? '—' : unassigned ? '未分派' : escapeHtml(workGroup!.branch)}</code></td>
             <td data-column="localPath"${optional}><code>${local === null ? '—' : escapeHtml(local.workItem.path)}</code></td>
           </tr>`;
 }
@@ -438,17 +449,25 @@ function renderCyclePanel(rows: readonly OverviewRow[]): string {
   const groups = new Map<string, OverviewRow[]>();
   for (const row of rows) {
     if (row.local === null) continue;
-    const key = `${row.local.cycle.id}/${row.local.workGroup.id}`;
+    const key = `${row.local.cycle.id}/${row.local.workGroup?.id ?? 'unassigned'}`;
     const entries = groups.get(key) ?? [];
     entries.push(row);
     groups.set(key, entries);
   }
-  return [...groups.entries()].map(([key, entries]) => {
+  const cycleOrder = new Map([...new Set(rows.flatMap((row) => row.local === null ? [] : [row.local.cycle.id]))].map((id, index) => [id, index]));
+  return [...groups.entries()].sort(([left], [right]) => {
+    const [leftCycle = '', leftGroup = ''] = left.split('/');
+    const [rightCycle = '', rightGroup = ''] = right.split('/');
+    return (cycleOrder.get(leftCycle) ?? 0) - (cycleOrder.get(rightCycle) ?? 0)
+      || (leftGroup === 'unassigned' ? 1 : rightGroup === 'unassigned' ? -1 : leftGroup.localeCompare(rightGroup));
+  }).map(([key, entries]) => {
     const local = entries[0]!.local!;
+    const workGroup = local.workGroup;
+    const unassigned = workGroup === null;
     return `        <article class="cycle-card" data-cycle-card="${escapeHtml(key)}">
-          <p class="card-kicker">Cycle ID: <code>${escapeHtml(local.cycle.id)}</code> · Work Group: <code>${escapeHtml(local.workGroup.id)}</code></p>
-          <h3>${escapeHtml(local.workGroup.title)}</h3>
-          <p>Owner：${escapeHtml(local.workGroup.owner)} · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
+          <p class="card-kicker">Cycle ID: <code>${escapeHtml(local.cycle.id)}</code> · Work Group: <code>${unassigned ? '未分派' : escapeHtml(workGroup.id)}</code></p>
+          <h3>${unassigned ? '未分派 Work Items' : escapeHtml(workGroup.title)}</h3>
+          <p>Owner：${unassigned ? '—' : escapeHtml(workGroup.owner)} · <span data-cycle-in-progress>0</span> active · <span data-cycle-pending>0</span> pending</p>
           <ul>${entries.map((row) => `<li data-cycle-row data-issue-number="${row.issue.number}"><a href="${escapeHtml(row.issue.url)}">#${row.issue.number} ${escapeHtml(row.issue.title)}</a> ${renderStatus(row.local!.workItem.status)}</li>`).join('')}</ul>
         </article>`;
   }).join('\n');
@@ -477,7 +496,7 @@ function clientModel(rows: readonly OverviewRow[], layout: DevHubDependencyLayou
         cycleId: row.local.cycle.id,
         workItemTitle: row.local.workItem.title,
         localStatus: row.local.workItem.status,
-        owner: row.local.workGroup.owner,
+        owner: row.local.workGroup?.owner ?? null,
       },
     })),
     layout,
@@ -489,8 +508,8 @@ export function renderDevHubOverviewHtml(data: DevHubOverview): string {
   const rows = createRows(data, layout);
   const issueByNumber = new Map(data.issues.map((issue) => [issue.number, issue]));
   const rowByNumber = new Map(rows.map((row) => [row.issue.number, row]));
-  const activeCount = data.links.length;
-  const dependencyCount = data.issues.length - activeCount;
+  const linkedCount = data.links.length;
+  const dependencyCount = layout.issues.reduce((count, issue) => count + issue.dependencies.length, 0);
   const cycleOptions = data.cycles.map((cycle) => `<option value="${escapeHtml(cycle.id)}">${escapeHtml(cycle.id)}</option>`).join('');
   const issueStateOptions = [...new Set(rows.map((row) => row.issue.state))].sort().map((state) => `<option value="${escapeHtml(state)}">${escapeHtml(state)}</option>`).join('');
   const localStatusOptions = [...new Set(rows.flatMap((row) => row.local === null ? [] : [row.local.workItem.status]))].sort().map((status) => `<option value="${escapeHtml(status)}">${escapeHtml(status)}</option>`).join('');
@@ -531,7 +550,7 @@ export function renderDevHubOverviewHtml(data: DevHubOverview): string {
     <header>
       <h1>Dev Hub 專案總覽</h1>
       <aside class="coverage" role="note">${escapeHtml(data.coverageNote)}</aside>
-      <ul class="summary-chips" aria-label="目前摘要"><li><strong>${activeCount}</strong> active Issues</li><li><strong>${dependencyCount}</strong> upstream dependencies</li><li><strong>${data.cycles.length}</strong> active Cycles</li></ul>
+      <ul class="summary-chips" aria-label="目前摘要"><li><strong>${linkedCount}</strong> linked Issues</li><li><strong>${dependencyCount}</strong> dependency edges</li><li><strong>${data.cycles.length}</strong> active Cycles</li></ul>
     </header>
     <div class="tablist" role="tablist" aria-label="總覽檢視">
       <button type="button" role="tab" id="tab-table" aria-controls="panel-table" aria-selected="true" tabindex="0" data-view="table">表格</button>
@@ -546,7 +565,7 @@ export function renderDevHubOverviewHtml(data: DevHubOverview): string {
         <label>Issue state<select id="filter-issue-state"><option value="all">全部</option>${issueStateOptions}</select></label>
         <label>Local status<select id="filter-local-status"><option value="all">全部</option>${localStatusOptions}</select></label>
         <label>Cycle<select id="filter-cycle"><option value="all">全部</option>${cycleOptions}</select></label>
-        <label>範圍<select id="filter-scope"><option value="active">active</option><option value="all">active + dependencies</option></select></label>
+        <label>範圍<select id="filter-scope"><option value="active">已登錄 Dev Hub</option><option value="all">已登錄 Dev Hub + dependency-only</option></select></label>
         <label>Filter 名稱<input id="saved-filter-name" maxlength="40" aria-describedby="saved-filter-error"></label>
         <label>已存 Filter<select id="saved-filter-select"><option value="">選擇 Filter</option></select></label>
       </div>
@@ -557,21 +576,21 @@ export function renderDevHubOverviewHtml(data: DevHubOverview): string {
     <p id="storage-warning" class="storage-warning" role="status" aria-live="polite" hidden>設定無法保存</p>
     <section id="panel-table" role="tabpanel" aria-labelledby="tab-table">
       <h2>緊湊表格</h2>
-      <div class="table-scroll" tabindex="0" aria-label="Issue 總覽表，可橫向捲動"><table><caption>active Dev Hub 工作與遞迴前置 Issue 的手動 snapshot</caption><thead><tr><th scope="col" data-column="issue">Issue／Issue state</th><th scope="col" data-column="localStatus">Local status</th><th scope="col" data-column="dependencies">前置依賴</th><th scope="col" data-column="owner">Owner</th><th scope="col" data-column="pr">PR</th><th scope="col" data-column="parent" hidden>Parent</th><th scope="col" data-column="cycle" hidden>Cycle</th><th scope="col" data-column="workItem" hidden>Work Item</th><th scope="col" data-column="workGroup" hidden>Work Group</th><th scope="col" data-column="branch" hidden>Branch</th><th scope="col" data-column="localPath" hidden>Local path</th></tr></thead><tbody>
+      <div class="table-scroll" tabindex="0" aria-label="Issue 總覽表，可橫向捲動"><table><caption>planned、active、done Dev Hub work 與遞迴前置 Issue 的手動 snapshot</caption><thead><tr><th scope="col" data-column="issue">Issue／Issue state</th><th scope="col" data-column="localStatus">Local status</th><th scope="col" data-column="dependencies">前置依賴</th><th scope="col" data-column="owner">Owner</th><th scope="col" data-column="pr">PR</th><th scope="col" data-column="parent" hidden>Parent</th><th scope="col" data-column="cycle" hidden>Cycle</th><th scope="col" data-column="workItem" hidden>Work Item</th><th scope="col" data-column="workGroup" hidden>Work Group</th><th scope="col" data-column="branch" hidden>Branch</th><th scope="col" data-column="localPath" hidden>Local path</th></tr></thead><tbody>
 ${rows.map((row) => renderTableRow(row, issueByNumber)).join('\n')}
           <tr id="table-empty" hidden><td colspan="5">目前 filter 沒有符合項目；請清除 filter。</td></tr>
       </tbody></table></div>
     </section>
     <section id="panel-dependencies" role="tabpanel" aria-labelledby="tab-dependencies" hidden>
       <h2 id="dependencies-title">依賴階段</h2>
-      <p id="dependency-empty" class="empty-state" hidden>目前 filter 沒有符合的 active Issue。</p>
+      <p id="dependency-empty" class="empty-state" hidden>目前 filter 沒有符合的已登錄 Dev Hub work。</p>
       <div class="stage-scroll" role="region" tabindex="0" aria-labelledby="dependencies-title"><ol class="stage-board">
 ${dependencyStages}
       </ol></div>
       <section class="independent" id="independent-section"><h3>獨立工作</h3><div class="stage-cards">${layout.independentIssueNumbers.map((number) => renderDependencyCard(rowByNumber.get(number)!, issueByNumber, true)).join('')}</div></section>
     </section>
     <section id="panel-cycles" role="tabpanel" aria-labelledby="tab-cycles" hidden><h2>Cycle／Work Group</h2><p id="cycle-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="cycle-grid">${renderCyclePanel(rows)}</div></section>
-    <section id="panel-status" role="tabpanel" aria-labelledby="tab-status" hidden><h2>狀態</h2><p id="status-empty" class="empty-state" hidden>目前 filter 沒有符合項目；請清除 filter。</p><div class="status-board">${renderStatusPanel(rows)}</div></section>
+    <section id="panel-status" role="tabpanel" aria-labelledby="tab-status" hidden><h2>狀態</h2><p id="status-empty" class="empty-state" hidden>目前 filter 沒有符合的已登錄 Dev Hub work。</p><div class="status-board">${renderStatusPanel(rows)}</div></section>
   </main>
   <script id="dev-hub-overview-model" type="application/json">${escapeJsonForScript(clientModel(rows, layout))}</script>
   <script>

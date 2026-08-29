@@ -7,10 +7,10 @@ import test from "node:test";
 import { buildDevHubDependencyLayout, loadDevHubOverview, renderDevHubOverviewHtml } from "../../scripts/render-dev-hub-overview.js";
 
 type RawIssue = { number: number; title: string; url: string; state: string; parent_issue: number | null; depends_on: number[] };
-type RawWorkItem = { id: string; title: string; status: string; depends_on: string[]; work_group: string; path: string };
+type RawWorkItem = { id: string; title: string; status: string; depends_on: string[]; work_group: string | null; path: string };
 type RawWorkGroup = { id: string; title: string; status: string; work_items: string[]; owner: string; branch: string; worktree: string; pr: string | null; path: string };
 type RawCycle = { id: string; hub: { path: string; status: string }; work_items: RawWorkItem[]; work_groups: RawWorkGroup[] };
-type RawLink = { issue_number: number; target_kind: string; cycle_id: string; work_item_id: string; work_group_id: string };
+type RawLink = { issue_number: number; target_kind: string; cycle_id: string; work_item_id: string; work_group_id: string | null };
 type RawOverviewFixture = {
   issues: { schema_version: number; coverage: { mode: string; complete: boolean; note: string }; updated_at: string; issues: RawIssue[] };
   links: { schema_version: number; updated_at: string; cycles: RawCycle[]; links: RawLink[] };
@@ -30,10 +30,10 @@ function createFixture(): RawOverviewFixture {
   const pluginCycleId = "cycle-2026-08-28-1655-plugin-lifecycle-integration";
   const overviewCycleId = "cycle-2026-08-28-1801-project-progress-roadmap";
   const timestamp = "2026-08-28T21:35:44+08:00";
-  return {
+  const fixture: RawOverviewFixture = {
     issues: {
-      schema_version: 2,
-      coverage: { mode: "active_dev_hub_with_dependencies", complete: false, note: "僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。" },
+      schema_version: 3,
+      coverage: { mode: "dev_hub_work_with_dependencies", complete: false, note: "涵蓋已登錄 Dev Hub 的 planned、active、done Work Items 及其遞迴前置 Issue，不代表 GitHub Issues 自動同步。" },
       updated_at: timestamp,
       issues: [
         { number: 219, title: "Forward storage migration", url: issueUrl(219), state: "open", parent_issue: 214, depends_on: [239] },
@@ -50,7 +50,7 @@ function createFixture(): RawOverviewFixture {
       ],
     },
     links: {
-      schema_version: 2,
+      schema_version: 3,
       updated_at: timestamp,
       cycles: [
         {
@@ -78,6 +78,16 @@ function createFixture(): RawOverviewFixture {
       ],
     },
   };
+  const backlogCycleId = "cycle-2026-08-29-1002-cms-issue-backlog";
+  const backlogNumbers = [214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 230, 231, 232, 233, 235, 236, 237, 238, 239, 241, 252, 253, 254, 255, 256, 257, 260, 261, 262];
+  const allNumbers = [...backlogNumbers, 229, 234, 246].sort((left, right) => left - right);
+  const dependencies: Record<number, number[]> = { 219: [239], 220: [239], 221: [219], 222: [219], 223: [219], 224: [219, 221], 225: [222], 226: [219, 223], 227: [219, 223], 228: [221, 222, 223], 229: [220, 228], 230: [224], 231: [225], 232: [223, 225, 228], 233: [223, 228], 234: [220, 228], 235: [223, 232], 236: [223, 232], 237: [228, 231, 236], 238: [228, 231], 241: [228], 246: [220, 228, 229, 234], 254: [232, 235, 246, 253], 255: [253, 254, 256], 256: [246, 254], 257: [232, 233, 236, 237, 238, 241, 254, 255] };
+  const ids = new Map(backlogNumbers.map((number, index) => [number, `WI-${String(index + 1).padStart(3, "0")}`]));
+  const done = new Set([219, 220, 221, 222, 223, 225, 227, 228, 239, 252]);
+  fixture.issues.issues = allNumbers.map((number) => ({ number, title: `Issue #${number}`, url: issueUrl(number), state: "open", parent_issue: null, depends_on: dependencies[number] ?? [] }));
+  fixture.links.cycles = [fixture.links.cycles[0]!, { id: backlogCycleId, hub: { path: `.dev-hub/active/${backlogCycleId}/hub.md`, status: "active" }, work_items: backlogNumbers.map((number) => ({ id: ids.get(number)!, title: `Issue #${number}`, status: number === 261 || done.has(number) ? "done" : "pending", depends_on: (dependencies[number] ?? []).flatMap((dependency) => ids.has(dependency) ? [ids.get(dependency)!] : []), work_group: number === 261 ? "WG-001-planned-backlog-onboarding" : null, path: `.dev-hub/active/${backlogCycleId}/work-items/${ids.get(number)!}-issue-${number}.md` })), work_groups: [{ id: "WG-001-planned-backlog-onboarding", title: "Planned backlog onboarding", status: "completed", work_items: ["WI-033"], owner: "Main", branch: "chore/dev-hub-planned-backlog", worktree: ".dev-hub/worktrees/dev-hub-planned-backlog", pr: null, path: `.dev-hub/active/${backlogCycleId}/work-groups/WG-001-planned-backlog-onboarding.md` }] }];
+  fixture.links.links = allNumbers.map((number) => number === 229 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-001", work_group_id: "WG-001-plugin-lifecycle-integration" } : number === 234 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-002", work_group_id: "WG-001-plugin-lifecycle-integration" } : number === 246 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-003", work_group_id: "WG-001-plugin-lifecycle-integration" } : { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: backlogCycleId, work_item_id: ids.get(number)!, work_group_id: number === 261 ? "WG-001-planned-backlog-onboarding" : null });
+  return fixture;
 }
 
 function writeFixture(directory: string, fixture: RawOverviewFixture): string {
@@ -100,24 +110,27 @@ function issue(fixture: RawOverviewFixture, number: number): RawIssue {
   return result;
 }
 
-test("schema v2 的十一張 Issue closure 產生七階段與四個 View", async () => {
+test("schema v3 的 37 張 linked Issues 產生 58 edges、11 階段與 unassigned HTML", async () => {
   const directory = temporaryDirectory();
   try {
     const data = await loadDevHubOverview(writeFixture(directory, createFixture()));
-    assert.deepEqual(data.issues.map((item) => item.number), [219, 220, 221, 222, 223, 228, 229, 234, 239, 246, 252]);
-    assert.deepEqual(data.links.map((item) => item.issueNumber), [229, 234, 246, 252]);
+    assert.equal(data.issues.length, 37);
+    assert.equal(data.links.length, 37);
+    assert.equal(data.cycles.length, 2);
     const layout = buildDevHubDependencyLayout(data);
-    assert.deepEqual(layout.stages, [
-      { level: 1, issueNumbers: [239] }, { level: 2, issueNumbers: [219, 220] }, { level: 3, issueNumbers: [221, 222, 223] },
-      { level: 4, issueNumbers: [228] }, { level: 5, issueNumbers: [229] }, { level: 6, issueNumbers: [234] }, { level: 7, issueNumbers: [246] },
-    ]);
-    assert.deepEqual(layout.independentIssueNumbers, [252]);
-    assert.deepEqual(layout.issues.find((item) => item.issueNumber === 234)?.dependencies.find((item) => item.issueNumber === 229)?.source, "work_item");
-    assert.deepEqual(layout.issues.find((item) => item.issueNumber === 246)?.dependencies.filter((item) => item.issueNumber === 229 || item.issueNumber === 234).map((item) => item.source), ["both", "both"]);
+    assert.equal(layout.issues.reduce((count, item) => count + item.dependencies.length, 0), 58);
+    assert.equal(layout.stages.length, 11);
+    assert.deepEqual(layout.stages[0], { level: 1, issueNumbers: [239, 253] });
+    assert.deepEqual(layout.stages.at(-1), { level: 11, issueNumbers: [257] });
+    assert.deepEqual(layout.independentIssueNumbers, [214, 215, 216, 217, 218, 252, 260, 261, 262]);
     const html = renderDevHubOverviewHtml(data);
-    assert.match(html, /<strong>4<\/strong> active Issues/);
-    assert.match(html, /<strong>7<\/strong> upstream dependencies/);
+    assert.match(html, /<strong>37<\/strong> linked Issues/);
+    assert.match(html, /<strong>58<\/strong> dependency edges/);
     assert.match(html, /<strong>2<\/strong> active Cycles/);
+    assert.match(html, /未分派 Work Items/);
+    assert.match(html, /data-cycle-card="cycle-2026-08-29-1002-cms-issue-backlog\/unassigned"/);
+    assert.match(html, /data-issue-number="214"[\s\S]*?未分派/);
+    assert.match(html, /第 11 階段/);
     assert.match(html, /role="tab" id="tab-table"[^>]+aria-selected="true"/);
     assert.match(html, /role="tab" id="tab-dependencies"/);
     assert.match(html, /id="panel-dependencies" role="tabpanel"/);
@@ -127,12 +140,11 @@ test("schema v2 的十一張 Issue closure 產生七階段與四個 View", async
     assert.match(html, /<th scope="col" data-column="localStatus">Local status<\/th>/);
     assert.match(html, /<th scope="col" data-column="dependencies">前置依賴<\/th>/);
     assert.match(html, /data-column="parent" hidden/);
-    assert.match(html, /第 7 階段/);
+    assert.match(html, /第 11 階段/);
     assert.match(html, /獨立工作/);
     assert.match(html, /data-cycle-card=/);
     assert.match(html, /data-status-lane="in_progress"/);
     assert.match(html, /data-status-lane="pending"/);
-    assert.match(html, /<a href="https:\/\/github\.com\/wahengchang\/ai-study-note\/pull\/258">PR #258<\/a>/);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
@@ -174,7 +186,7 @@ test("同一 Cycle 的多個 Work Group 各自成卡，不共用第一個 Work G
     fixture.links.links.find((link) => link.issue_number === 246)!.work_group_id = "WG-002-plugin-composition";
     const html = renderDevHubOverviewHtml(await loadDevHubOverview(writeFixture(directory, fixture)));
     const cards = [...html.matchAll(/data-cycle-card="([^"]+)"/g)].map((match) => match[1]);
-    assert.deepEqual(cards, [`${cycle.id}/WG-001-plugin-lifecycle-integration`, `${cycle.id}/WG-002-plugin-composition`, "cycle-2026-08-28-1801-project-progress-roadmap/WG-001-project-progress-roadmap"]);
+    assert.deepEqual(cards, ["cycle-2026-08-29-1002-cms-issue-backlog/WG-001-planned-backlog-onboarding", "cycle-2026-08-29-1002-cms-issue-backlog/unassigned", `${cycle.id}/WG-001-plugin-lifecycle-integration`, `${cycle.id}/WG-002-plugin-composition`]);
     const compositionCard = html.match(/<article class="cycle-card" data-cycle-card="[^"]*WG-002-plugin-composition">[\s\S]*?<\/article>/)?.[0];
     assert.notEqual(compositionCard, undefined);
     assert.match(compositionCard!, /<h3>Plugin composition<\/h3>/);
@@ -211,4 +223,27 @@ test("相同 inputs 的 render 穩定，CLI check 不改寫 stale output", async
     const staleOutput = Buffer.from("stale output\n"); writeFileSync(outputPath, staleOutput);
     const staleCheck = invoke(directory, ["--check"]); assert.equal(staleCheck.status, 1); assert.match(staleCheck.stderr, /^DEV_HUB_OVERVIEW_STALE:/); assert.deepEqual(readFileSync(outputPath), staleOutput);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test("nullable assignment 違規 fail closed 且不覆寫 output", async (t) => {
+  const cases = ["schema v2", "unassigned in progress", "null WI with group link", "assigned WI with null link", "unassigned WI listed by group", "missing group"];
+  for (const name of cases) await t.test(name, async () => {
+    const directory = temporaryDirectory();
+    try {
+      const fixture = createFixture();
+      const backlog = fixture.links.cycles[1]!;
+      const item = backlog.work_items[0]!;
+      const link = fixture.links.links.find((candidate) => candidate.issue_number === 214)!;
+      if (name === "schema v2") fixture.issues.schema_version = 2;
+      if (name === "unassigned in progress") item.status = "in_progress";
+      if (name === "null WI with group link") link.work_group_id = "WG-001-planned-backlog-onboarding";
+      if (name === "assigned WI with null link") fixture.links.links.find((candidate) => candidate.issue_number === 261)!.work_group_id = null;
+      if (name === "unassigned WI listed by group") backlog.work_groups[0]!.work_items.push(item.id);
+      if (name === "missing group") { const assigned = backlog.work_items.find((candidate) => candidate.id === "WI-033")!; assigned.work_group = "WG-404"; fixture.links.links.find((candidate) => candidate.issue_number === 261)!.work_group_id = "WG-404"; }
+      const inputDirectory = writeFixture(directory, fixture); const outputPath = path.join(inputDirectory, "index.html"); const canary = Buffer.from("preserve-existing-output\n"); writeFileSync(outputPath, canary);
+      await assert.rejects(loadDevHubOverview(inputDirectory), /^Error: DEV_HUB_OVERVIEW_INVALID:/);
+      assert.equal(invoke(directory, []).status, 1); assert.deepEqual(readFileSync(outputPath), canary);
+    } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
 });

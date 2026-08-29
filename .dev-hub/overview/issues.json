@@ -1,19 +1,61 @@
 {
-  "schema_version": 2,
+  "schema_version": 3,
   "coverage": {
-    "mode": "active_dev_hub_with_dependencies",
+    "mode": "dev_hub_work_with_dependencies",
     "complete": false,
-    "note": "僅涵蓋已登錄於 active Dev Hub 的工作及其遞迴前置 Issue，不代表全部 open GitHub Issues。"
+    "note": "涵蓋已登錄 Dev Hub 的 planned、active、done Work Items 及其遞迴前置 Issue，不代表 GitHub Issues 自動同步。"
   },
-  "updated_at": "2026-08-28T22:58:35+08:00",
+  "updated_at": "2026-08-29T10:33:22+08:00",
   "issues": [
+    {
+      "number": 214,
+      "title": "CMS-BASIC-CONTRACTS-V1｜資料持久化與 schema migration",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/214",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 215,
+      "title": "CMS-BASIC-CONTRACTS-V1｜內容生命週期 application core",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/215",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 216,
+      "title": "CMS-BASIC-CONTRACTS-V1｜路由圖 application core",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/216",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 217,
+      "title": "CMS-BASIC-CONTRACTS-V1｜媒體生命週期 application core",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/217",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 218,
+      "title": "CMS-BASIC-CONTRACTS-V1｜Plugin host core",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/218",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
     {
       "number": 219,
       "title": "持久化｜從空資料庫完成可信 Revision 的 forward storage migration",
       "url": "https://github.com/wahengchang/ai-study-note/issues/219",
       "state": "open",
       "parent_issue": 214,
-      "depends_on": [239]
+      "depends_on": [
+        239
+      ]
     },
     {
       "number": 220,
@@ -21,7 +63,9 @@
       "url": "https://github.com/wahengchang/ai-study-note/issues/220",
       "state": "open",
       "parent_issue": 218,
-      "depends_on": [239]
+      "depends_on": [
+        239
+      ]
     },
     {
       "number": 221,
@@ -29,7 +73,9 @@
       "url": "https://github.com/wahengchang/ai-study-note/issues/221",
       "state": "open",
       "parent_issue": 214,
-      "depends_on": [219]
+      "depends_on": [
+        219
+      ]
     },
     {
       "number": 222,
@@ -37,7 +83,9 @@
       "url": "https://github.com/wahengchang/ai-study-note/issues/222",
       "state": "open",
       "parent_issue": 216,
-      "depends_on": [219]
+      "depends_on": [
+        219
+      ]
     },
     {
       "number": 223,
@@ -45,7 +93,52 @@
       "url": "https://github.com/wahengchang/ai-study-note/issues/223",
       "state": "open",
       "parent_issue": 217,
-      "depends_on": [219]
+      "depends_on": [
+        219
+      ]
+    },
+    {
+      "number": 224,
+      "title": "持久化｜預演 schema 變更並產生可核准、去敏且綁定狀態的 impact report",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/224",
+      "state": "open",
+      "parent_issue": 214,
+      "depends_on": [
+        219,
+        221
+      ]
+    },
+    {
+      "number": 225,
+      "title": "SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/225",
+      "state": "open",
+      "parent_issue": 216,
+      "depends_on": [
+        222
+      ]
+    },
+    {
+      "number": 226,
+      "title": "DataMedia｜啟動時安全收斂中斷匯入",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/226",
+      "state": "open",
+      "parent_issue": 217,
+      "depends_on": [
+        219,
+        223
+      ]
+    },
+    {
+      "number": 227,
+      "title": "持久化｜原子建立含 immutable asset-version reference 的新 Revision",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/227",
+      "state": "open",
+      "parent_issue": 214,
+      "depends_on": [
+        219,
+        223
+      ]
     },
     {
       "number": 228,
@@ -53,7 +146,11 @@
       "url": "https://github.com/wahengchang/ai-study-note/issues/228",
       "state": "open",
       "parent_issue": 215,
-      "depends_on": [221, 222, 223]
+      "depends_on": [
+        221,
+        222,
+        223
+      ]
     },
     {
       "number": 229,
@@ -61,7 +158,53 @@
       "url": "https://github.com/wahengchang/ai-study-note/issues/229",
       "state": "open",
       "parent_issue": 218,
-      "depends_on": [220, 228]
+      "depends_on": [
+        220,
+        228
+      ]
+    },
+    {
+      "number": 230,
+      "title": "持久化｜從新鮮 impact report 原子建立 replacement Revisions 並執行 move/pin",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/230",
+      "state": "open",
+      "parent_issue": 214,
+      "depends_on": [
+        224
+      ]
+    },
+    {
+      "number": 231,
+      "title": "SiteDefinition｜原子替換 route/source revision 並回傳 retained impact",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/231",
+      "state": "open",
+      "parent_issue": 216,
+      "depends_on": [
+        225
+      ]
+    },
+    {
+      "number": 232,
+      "title": "DomainApplication｜PublishRevision 發布呼叫端確認的 current revision",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/232",
+      "state": "open",
+      "parent_issue": 215,
+      "depends_on": [
+        223,
+        225,
+        228
+      ]
+    },
+    {
+      "number": 233,
+      "title": "DataMedia｜透過 SaveRevision 原子替換一個 current revision 的媒體引用",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/233",
+      "state": "open",
+      "parent_issue": 217,
+      "depends_on": [
+        223,
+        228
+      ]
     },
     {
       "number": 234,
@@ -69,7 +212,55 @@
       "url": "https://github.com/wahengchang/ai-study-note/issues/234",
       "state": "open",
       "parent_issue": 218,
-      "depends_on": [220, 228]
+      "depends_on": [
+        220,
+        228
+      ]
+    },
+    {
+      "number": 235,
+      "title": "DataMedia｜從 published pointer 解析唯一可信的媒體選取",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/235",
+      "state": "open",
+      "parent_issue": 217,
+      "depends_on": [
+        223,
+        232
+      ]
+    },
+    {
+      "number": 236,
+      "title": "DataMedia｜ArchiveAsset/RestoreAsset 的可用性復原閉環",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/236",
+      "state": "open",
+      "parent_issue": 217,
+      "depends_on": [
+        223,
+        232
+      ]
+    },
+    {
+      "number": 237,
+      "title": "DomainApplication｜RestoreRevision 還原為新的 current 草稿",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/237",
+      "state": "open",
+      "parent_issue": 215,
+      "depends_on": [
+        228,
+        231,
+        236
+      ]
+    },
+    {
+      "number": 238,
+      "title": "ChangeRoute｜原子套用 SiteDefinition plan 並防止 stale/競爭提交",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/238",
+      "state": "open",
+      "parent_issue": 215,
+      "depends_on": [
+        228,
+        231
+      ]
     },
     {
       "number": 239,
@@ -80,12 +271,120 @@
       "depends_on": []
     },
     {
+      "number": 241,
+      "title": "規劃 External Authoring API｜CMS／CLI 共用 API 與 Bearer API Key",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/241",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": [
+        228
+      ]
+    },
+    {
       "number": 246,
       "title": "Plugin Host Integration｜activation snapshot、inactive lifecycle 與 SaveRevision hooks 組裝",
       "url": "https://github.com/wahengchang/ai-study-note/issues/246",
       "state": "open",
       "parent_issue": 218,
-      "depends_on": [220, 228, 229, 234]
+      "depends_on": [
+        220,
+        228,
+        229,
+        234
+      ]
+    },
+    {
+      "number": 252,
+      "title": "Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/252",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 253,
+      "title": "Theme Host｜可信 Theme identity 與 renderer source boundary",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/253",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 254,
+      "title": "Projection & Preview｜renderer-input/v1 與 current/published 隔離",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/254",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": [
+        232,
+        235,
+        246,
+        253
+      ]
+    },
+    {
+      "number": 255,
+      "title": "Renderer、Public UI 與 Release｜deterministic artifact 到 GitHub Pages",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/255",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": [
+        253,
+        254,
+        256
+      ]
+    },
+    {
+      "number": 256,
+      "title": "Plugin Host｜renderer/assets callback 與 published build isolation",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/256",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": [
+        246,
+        254
+      ]
+    },
+    {
+      "number": 257,
+      "title": "CMS Workspace｜單一管理者 authoring、preview 與 release diagnostics",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/257",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": [
+        232,
+        233,
+        236,
+        237,
+        238,
+        241,
+        254,
+        255
+      ]
+    },
+    {
+      "number": 260,
+      "title": "Dev Hub Overview｜固定暗色主題與依賴圖 View",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/260",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 261,
+      "title": "Dev Hub｜將 #214 起 Issues onboarding 為 planned backlog",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/261",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
+    },
+    {
+      "number": 262,
+      "title": "Dev Hub Overview｜整合可重用的 Issue／Dev Hub overview 機制",
+      "url": "https://github.com/wahengchang/ai-study-note/issues/262",
+      "state": "open",
+      "parent_issue": null,
+      "depends_on": []
     }
   ]
 }
