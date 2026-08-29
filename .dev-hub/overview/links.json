@@ -1,62 +1,7 @@
 {
   "schema_version": 3,
-  "updated_at": "2026-08-29T14:18:17+08:00",
+  "updated_at": "2026-08-29T14:19:40+08:00",
   "cycles": [
-    {
-      "id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
-      "hub": {
-        "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/hub.md",
-        "status": "active"
-      },
-      "work_items": [
-        {
-          "id": "WI-001",
-          "title": "Plugin exact re-enable lifecycle",
-          "status": "done",
-          "depends_on": [],
-          "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-001-plugin-exact-reenable.md"
-        },
-        {
-          "id": "WI-002",
-          "title": "SaveRevision validator snapshots",
-          "status": "done",
-          "depends_on": [
-            "WI-001"
-          ],
-          "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-002-save-revision-validators.md"
-        },
-        {
-          "id": "WI-003",
-          "title": "Application Plugin composition",
-          "status": "done",
-          "depends_on": [
-            "WI-001",
-            "WI-002"
-          ],
-          "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-003-application-plugin-composition.md"
-        }
-      ],
-      "work_groups": [
-        {
-          "id": "WG-001-plugin-lifecycle-integration",
-          "title": "Plugin lifecycle integration",
-          "status": "completed",
-          "work_items": [
-            "WI-001",
-            "WI-002",
-            "WI-003"
-          ],
-          "owner": "Main",
-          "branch": "cms/plugin-lifecycle-integration",
-          "worktree": ".dev-hub/worktrees/plugin-lifecycle-integration",
-          "pr": null,
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-groups/WG-001-plugin-lifecycle-integration.md"
-        }
-      ]
-    },
     {
       "id": "cycle-2026-08-29-1002-cms-issue-backlog",
       "hub": {
@@ -523,13 +468,6 @@
       "work_group_id": null
     },
     {
-      "issue_number": 229,
-      "target_kind": "dev_hub_work_item",
-      "cycle_id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
-      "work_item_id": "WI-001",
-      "work_group_id": "WG-001-plugin-lifecycle-integration"
-    },
-    {
       "issue_number": 230,
       "target_kind": "dev_hub_work_item",
       "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
@@ -556,13 +494,6 @@
       "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
       "work_item_id": "WI-019",
       "work_group_id": null
-    },
-    {
-      "issue_number": 234,
-      "target_kind": "dev_hub_work_item",
-      "cycle_id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
-      "work_item_id": "WI-002",
-      "work_group_id": "WG-001-plugin-lifecycle-integration"
     },
     {
       "issue_number": 235,
@@ -605,13 +536,6 @@
       "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
       "work_item_id": "WI-025",
       "work_group_id": null
-    },
-    {
-      "issue_number": 246,
-      "target_kind": "dev_hub_work_item",
-      "cycle_id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
-      "work_item_id": "WI-003",
-      "work_group_id": "WG-001-plugin-lifecycle-integration"
     },
     {
       "issue_number": 252,
