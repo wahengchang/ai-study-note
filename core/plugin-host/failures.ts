@@ -34,7 +34,7 @@ const messages: Readonly<Record<PluginHostFailureCode, string>> = {
   ACTIVE_PLUGIN_IDENTITY_MISMATCH: "Active Plugin identity 與 installed evidence 不一致。", ACTIVATION_STATE_CONFLICT: "Plugin activation state 已變更。",
   ACTIVATION_STATE_FAILURE: "Plugin activation state 操作未完成。", PLUGIN_BLOCK_INACTIVE: "請重新啟用此內容所需的 exact Plugin identity。",
   PLUGIN_BLOCK_MISSING: "請安裝並啟用此內容所需的 exact Plugin identity。", PLUGIN_BLOCK_IDENTITY_CHANGED: "目前安裝的 Plugin identity 與此內容不相符。",
-  PLUGIN_VALIDATION_REJECTED: "Plugin validator 拒絕儲存此內容。", PLUGIN_CALLBACK_RESULT_INVALID: "Plugin callback 回傳不符合 plugin-hooks/v1 的 replacement。",
+  PLUGIN_VALIDATION_REJECTED: "Plugin validator 拒絕儲存此內容。", PLUGIN_CALLBACK_RESULT_INVALID: "Plugin callback 回傳不符合 plugin-hooks/v1 contract。",
   PLUGIN_CALLBACK_FAILED: "Plugin callback 執行失敗。", PLUGIN_CAPABILITY_DENIED: "Plugin 未獲授權使用此 capability。",
   INVALID_PLUGIN_OPERATION_SNAPSHOT: "Plugin operation snapshot 無效或已使用。", PLUGIN_VALIDATION_SERVICE_FAILED: "Plugin replacement 驗證未完成。",
   ACTIVE_PLUGIN_SOURCE_MISSING: "Active Plugin 的 installed source 不可用。", ACTIVE_PLUGIN_REACTIVATION_REQUIRED: "請重新啟用受影響的 exact Plugin identity。",

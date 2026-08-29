@@ -20,11 +20,11 @@
 
 ## 實際驗證
 
-Node `24.20.0`（`npx --yes node@24.20.0`）、依 `package-lock.json` 安裝：
+合併 base `site-reset`（`d091252`）後於 Node `24.20.0`（`npx --yes node@24.20.0`）、依 `package-lock.json` 安裝：
 
 - `tsc --noEmit`：通過，無 diagnostics。
 - `node --import tsx scripts/check-architecture.ts`：通過。
-- `node --import tsx --test "tests/**/*.test.ts"`：75 tests、75 pass、0 fail。
+- `node --import tsx --test "tests/**/*.test.ts"`：87 tests、87 pass、0 fail（含 base #268 新增的 `save-revision-plugin-composition` 測試）。
 - 殘留參照檢查：`git grep` 於 `.dev-hub/overview`、`dev-hub:overview`、`render-dev-hub-overview`、`issues.json`、`links.json`、`work_group_id` 於 `logs/` 與唯讀歷史目錄之外均無命中；唯一例外為上述刻意保留的 WG-001 `Verification`。
 - 相依檢查：被刪除的 renderer 只 import `node:fs/promises`、`node:path`、`node:url`，未造成 `package.json` 產生孤兒相依；`es-module-lexer`、`json-canonicalize`、`semver`、`unicode-case-folding` 仍各有現行使用者。
 
@@ -39,4 +39,5 @@ Node `24.20.0`（`npx --yes node@24.20.0`）、依 `package-lock.json` 安裝：
 ## 相關 Branch／PR
 
 - Branch：`remove-dev-hub-overview`（base：`site-reset`）
+- Base 合併：#268、#270 合入 `site-reset` 後，`.dev-hub/overview/` 三份 snapshot 產生 modify/delete 衝突；依本次移除範圍一律採刪除解決，`docs/INDEX.md` 的 domain 表格則保留 base 的 Plugin Host／Content + Application 更新。
 - PR：https://github.com/wahengchang/ai-study-note/pull/269

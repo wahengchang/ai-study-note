@@ -5,6 +5,10 @@
 - **依據**：`CMS-BASIC-CONTRACTS-V1` §1；它定義已核准範圍與設計約束。程式碼與對應測試是已實作行為的 SSOT。
 - **前置規格**：`CMS-DB-01`。
 
+## 目前實作 surface
+
+`SaveRevision` 於 schema、route 與 media preflight 後只 prepare 一次 real `PluginHost` validator snapshot；同一 transaction 在第一個 canonical write 前 consume token。成功結果分離 lifecycle `stateDigest` 與 prepare snapshot 的 `activePluginStateDigest`；validator 或 transaction fault 會 rollback revision、references、lineage、pointer 與 route claim，published state 維持不變。
+
 ## Problem Statement
 
 內容管理者需要一個可信任且可預期的入口，將草稿內容儲存、發布、還原與變更路由。若各功能各自寫資料，schema 驗證、媒體可用性、路由衝突檢查和 error handling 將不一致，失敗時更可能留下新 revision、pointer 或 route claim 的部分狀態。
