@@ -4,7 +4,7 @@
 - **狀態**：已通過架構與安全複審
 - **依據**：`CMS-BASIC-CONTRACTS-V1` §4，以及 `MEMORY.md` 的長期 Plugin boundary 原則。前者定義已核准範圍與設計約束；程式碼與對應測試是已實作行為的 SSOT。
 - **前置規格**：`CMS-CORE-02`、`CMS-CORE-04`；published renderer 介面等待 projection work package。
-- **目前實作 surface**：程式與測試僅涵蓋 manifest discovery、evidence validation、exact-identity activation／deactivation／snapshot。callback invocation、hook ordering、capability mediation，以及 editor／validator／renderer／assets 能力仍未實作。
+- **目前實作 surface**：程式與測試涵蓋 trusted-root revalidation、manifest discovery 與 verified evidence、durable exact-identity activation／deactivation／drift latch、CMS editor-block resolution，以及 SaveRevision validator preparation／execution seam。CMS resolution 對 active exact identity 只以 verified entry bytes 載入 callback；inactive、missing、identity-changed 一律保留 canonical source evidence 並零執行。public renderer 與 assets callback 仍未實作。
 
 ## Problem Statement
 
