@@ -5,7 +5,7 @@
     "complete": false,
     "note": "涵蓋已登錄 Dev Hub 的 planned、active、done Work Items 及其遞迴前置 Issue，不代表 GitHub Issues 自動同步。"
   },
-  "updated_at": "2026-08-29T10:33:22+08:00",
+  "updated_at": "2026-08-29T11:31:38+08:00",
   "issues": [
     {
       "number": 214,
@@ -361,14 +361,6 @@
         254,
         255
       ]
-    },
-    {
-      "number": 260,
-      "title": "Dev Hub Overview｜固定暗色主題與依賴圖 View",
-      "url": "https://github.com/wahengchang/ai-study-note/issues/260",
-      "state": "open",
-      "parent_issue": null,
-      "depends_on": []
     },
     {
       "number": 261,

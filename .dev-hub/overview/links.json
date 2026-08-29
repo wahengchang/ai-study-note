@@ -1,6 +1,6 @@
 {
   "schema_version": 3,
-  "updated_at": "2026-08-29T10:33:22+08:00",
+  "updated_at": "2026-08-29T11:31:38+08:00",
   "cycles": [
     {
       "id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
@@ -383,14 +383,6 @@
           "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-031-issue-257.md"
         },
         {
-          "id": "WI-032",
-          "title": "Dev Hub Overview｜固定暗色主題與依賴圖 View",
-          "status": "pending",
-          "depends_on": [],
-          "work_group": null,
-          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-032-issue-260.md"
-        },
-        {
           "id": "WI-033",
           "title": "Dev Hub｜將 #214 起 Issues onboarding 為 planned backlog",
           "status": "done",
@@ -661,13 +653,6 @@
       "target_kind": "dev_hub_work_item",
       "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
       "work_item_id": "WI-031",
-      "work_group_id": null
-    },
-    {
-      "issue_number": 260,
-      "target_kind": "dev_hub_work_item",
-      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
-      "work_item_id": "WI-032",
       "work_group_id": null
     },
     {

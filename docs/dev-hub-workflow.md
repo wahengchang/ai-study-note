@@ -39,6 +39,7 @@ Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的�
 - 兩份 JSON 必須使用相同 schema version，以及相同且含 UTC offset 的 `updated_at`。
 - 變更 overview 時，在對應 Work Group worktree 依序執行 `npm run dev-hub:overview` 與 `npm run dev-hub:overview:check`，並以 `node --import tsx --test tests/scripts/render-dev-hub-overview.test.ts` 驗證；handoff、PR ready 與 Cycle closeout 前 check 必須通過。root 缺少此 script 時，不得在 root 產生 projection。
 - `index.html` 的 localStorage 僅保存個人的 View、filter、欄位與 named filter preference；不得回寫 JSON、Dev Hub state、GitHub Issue 或 GitHub Project，也不得引入 GitHub Project、Project API、auto-add 或全量 Issue sync。擴大 coverage 必須另行決定。
+- overview 的「依賴網路」是置中的由上而下 DAG：dependency 指向 dependent；desktop 初始視窗聚焦主 DAG，所有超出可用寬度的 projection（含獨立工作列與 long-edge gutter）只在 network container 局部橫向捲動。`in_progress` linked Work Item 的遞迴 prerequisite traversal 是唯一紅色「進行中路徑」；其他 edge 均為灰色。沒有 `in_progress` 時所有 edge 均為灰色，絕不猜測優先路徑。snapshot 未定義每項工作的 duration／start／end，network view 不展示或推測時程。
 
 ## 完成閘門
 

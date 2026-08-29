@@ -4,7 +4,7 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 import test from "node:test";
 
-import { buildDevHubDependencyLayout, loadDevHubOverview, renderDevHubOverviewHtml } from "../../scripts/render-dev-hub-overview.js";
+import { buildDevHubDependencyLayout, buildDevHubDependencyNetworkLayout, loadDevHubOverview, renderDevHubOverviewHtml } from "../../scripts/render-dev-hub-overview.js";
 
 type RawIssue = { number: number; title: string; url: string; state: string; parent_issue: number | null; depends_on: number[] };
 type RawWorkItem = { id: string; title: string; status: string; depends_on: string[]; work_group: string | null; path: string };
@@ -79,14 +79,19 @@ function createFixture(): RawOverviewFixture {
     },
   };
   const backlogCycleId = "cycle-2026-08-29-1002-cms-issue-backlog";
-  const backlogNumbers = [214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 230, 231, 232, 233, 235, 236, 237, 238, 239, 241, 252, 253, 254, 255, 256, 257, 260, 261, 262];
-  const allNumbers = [...backlogNumbers, 229, 234, 246].sort((left, right) => left - right);
+  const correctionCycleId = "cycle-2026-08-29-1042-dependency-network-correction";
+  const backlogNumbers = [214, 215, 216, 217, 218, 219, 220, 221, 222, 223, 224, 225, 226, 227, 228, 230, 231, 232, 233, 235, 236, 237, 238, 239, 241, 252, 253, 254, 255, 256, 257, 261, 262];
+  const allNumbers = [...backlogNumbers, 229, 234, 246, 260].sort((left, right) => left - right);
   const dependencies: Record<number, number[]> = { 219: [239], 220: [239], 221: [219], 222: [219], 223: [219], 224: [219, 221], 225: [222], 226: [219, 223], 227: [219, 223], 228: [221, 222, 223], 229: [220, 228], 230: [224], 231: [225], 232: [223, 225, 228], 233: [223, 228], 234: [220, 228], 235: [223, 232], 236: [223, 232], 237: [228, 231, 236], 238: [228, 231], 241: [228], 246: [220, 228, 229, 234], 254: [232, 235, 246, 253], 255: [253, 254, 256], 256: [246, 254], 257: [232, 233, 236, 237, 238, 241, 254, 255] };
-  const ids = new Map(backlogNumbers.map((number, index) => [number, `WI-${String(index + 1).padStart(3, "0")}`]));
+  const ids = new Map(backlogNumbers.map((number, index) => [number, `WI-${String(index + 1 + (number > 260 ? 1 : 0)).padStart(3, "0")}`]));
   const done = new Set([219, 220, 221, 222, 223, 225, 227, 228, 239, 252]);
   fixture.issues.issues = allNumbers.map((number) => ({ number, title: `Issue #${number}`, url: issueUrl(number), state: "open", parent_issue: null, depends_on: dependencies[number] ?? [] }));
-  fixture.links.cycles = [fixture.links.cycles[0]!, { id: backlogCycleId, hub: { path: `.dev-hub/active/${backlogCycleId}/hub.md`, status: "active" }, work_items: backlogNumbers.map((number) => ({ id: ids.get(number)!, title: `Issue #${number}`, status: number === 261 || done.has(number) ? "done" : "pending", depends_on: (dependencies[number] ?? []).flatMap((dependency) => ids.has(dependency) ? [ids.get(dependency)!] : []), work_group: number === 261 ? "WG-001-planned-backlog-onboarding" : null, path: `.dev-hub/active/${backlogCycleId}/work-items/${ids.get(number)!}-issue-${number}.md` })), work_groups: [{ id: "WG-001-planned-backlog-onboarding", title: "Planned backlog onboarding", status: "completed", work_items: ["WI-033"], owner: "Main", branch: "chore/dev-hub-planned-backlog", worktree: ".dev-hub/worktrees/dev-hub-planned-backlog", pr: null, path: `.dev-hub/active/${backlogCycleId}/work-groups/WG-001-planned-backlog-onboarding.md` }] }];
-  fixture.links.links = allNumbers.map((number) => number === 229 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-001", work_group_id: "WG-001-plugin-lifecycle-integration" } : number === 234 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-002", work_group_id: "WG-001-plugin-lifecycle-integration" } : number === 246 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-003", work_group_id: "WG-001-plugin-lifecycle-integration" } : { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: backlogCycleId, work_item_id: ids.get(number)!, work_group_id: number === 261 ? "WG-001-planned-backlog-onboarding" : null });
+  fixture.links.cycles = [
+    fixture.links.cycles[0]!,
+    { id: backlogCycleId, hub: { path: `.dev-hub/active/${backlogCycleId}/hub.md`, status: "active" }, work_items: backlogNumbers.map((number) => ({ id: ids.get(number)!, title: `Issue #${number}`, status: number === 261 || done.has(number) ? "done" : "pending", depends_on: (dependencies[number] ?? []).flatMap((dependency) => ids.has(dependency) ? [ids.get(dependency)!] : []), work_group: number === 261 ? "WG-001-planned-backlog-onboarding" : null, path: `.dev-hub/active/${backlogCycleId}/work-items/${ids.get(number)!}-issue-${number}.md` })), work_groups: [{ id: "WG-001-planned-backlog-onboarding", title: "Planned backlog onboarding", status: "completed", work_items: ["WI-033"], owner: "Main", branch: "chore/dev-hub-planned-backlog", worktree: ".dev-hub/worktrees/dev-hub-planned-backlog", pr: null, path: `.dev-hub/active/${backlogCycleId}/work-groups/WG-001-planned-backlog-onboarding.md` }] },
+    { id: correctionCycleId, hub: { path: `.dev-hub/active/${correctionCycleId}/hub.md`, status: "active" }, work_items: [{ id: "WI-001", title: "Correct dependency network rendering", status: "in_progress", depends_on: [], work_group: "WG-001-dependency-network-correction", path: `.dev-hub/active/${correctionCycleId}/work-items/WI-001-dependency-network-correction.md` }], work_groups: [{ id: "WG-001-dependency-network-correction", title: "Correct dependency network rendering", status: "in_progress", work_items: ["WI-001"], owner: "Main", branch: "site-reset", worktree: ".", pr: null, path: `.dev-hub/active/${correctionCycleId}/work-groups/WG-001-dependency-network-correction.md` }] },
+  ];
+  fixture.links.links = allNumbers.map((number) => number === 229 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-001", work_group_id: "WG-001-plugin-lifecycle-integration" } : number === 234 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-002", work_group_id: "WG-001-plugin-lifecycle-integration" } : number === 246 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: pluginCycleId, work_item_id: "WI-003", work_group_id: "WG-001-plugin-lifecycle-integration" } : number === 260 ? { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: correctionCycleId, work_item_id: "WI-001", work_group_id: "WG-001-dependency-network-correction" } : { issue_number: number, target_kind: "dev_hub_work_item", cycle_id: backlogCycleId, work_item_id: ids.get(number)!, work_group_id: number === 261 ? "WG-001-planned-backlog-onboarding" : null });
   return fixture;
 }
 
@@ -110,32 +115,71 @@ function issue(fixture: RawOverviewFixture, number: number): RawIssue {
   return result;
 }
 
-test("schema v3 的 37 張 linked Issues 產生 58 edges、11 階段與 unassigned HTML", async () => {
+test("schema v3 的 37 張 linked Issues 產生置中由上而下 dependency network", async () => {
   const directory = temporaryDirectory();
   try {
     const data = await loadDevHubOverview(writeFixture(directory, createFixture()));
     assert.equal(data.issues.length, 37);
     assert.equal(data.links.length, 37);
-    assert.equal(data.cycles.length, 2);
+    assert.equal(data.cycles.length, 3);
     const layout = buildDevHubDependencyLayout(data);
     assert.equal(layout.issues.reduce((count, item) => count + item.dependencies.length, 0), 58);
     assert.equal(layout.stages.length, 11);
     assert.deepEqual(layout.stages[0], { level: 1, issueNumbers: [239, 253] });
     assert.deepEqual(layout.stages.at(-1), { level: 11, issueNumbers: [257] });
     assert.deepEqual(layout.independentIssueNumbers, [214, 215, 216, 217, 218, 252, 260, 261, 262]);
+    const networkLayout = buildDevHubDependencyNetworkLayout(data, layout);
+    assert.deepEqual(networkLayout, buildDevHubDependencyNetworkLayout(data, layout));
+    const networkNodes = new Map(networkLayout.nodes.map((node) => [node.issueNumber, node]));
+    assert.equal(networkNodes.get(229)?.routeState, "current");
+    assert.equal(networkNodes.get(260)?.routeState, "current");
+    for (const issueNumber of [239, 219, 220, 221, 222, 223, 228]) assert.equal(networkNodes.get(issueNumber)?.routeState, "prerequisite");
+    assert.equal(networkNodes.get(234)?.routeState, "pending");
+    assert.equal(networkNodes.get(246)?.routeState, "pending");
+    for (let index = 1; index < layout.stages.length; index += 1) {
+      assert.ok(networkNodes.get(layout.stages[index - 1]!.issueNumbers[0]!)!.y < networkNodes.get(layout.stages[index]!.issueNumbers[0]!)!.y);
+    }
+    const rowCenters = [...layout.stages.map((stage) => stage.issueNumbers), layout.independentIssueNumbers].map((issueNumbers) => {
+      const nodes = issueNumbers.map((issueNumber) => networkNodes.get(issueNumber)!).sort((left, right) => left.x - right.x);
+      for (let index = 1; index < nodes.length; index += 1) assert.ok(nodes[index - 1]!.x + 216 + 24 <= nodes[index]!.x);
+      return (Math.min(...nodes.map((node) => node.x)) + Math.max(...nodes.map((node) => node.x + 216))) / 2;
+    });
+    for (const center of rowCenters) assert.equal(center, rowCenters[0]);
+    assert.equal(networkLayout.mainCenterX, rowCenters[0]);
+    assert.ok(networkLayout.width - Math.max(...networkLayout.nodes.map((node) => node.x + 216)) >= 88);
+    assert.ok(networkLayout.edges.some((edge) => edge.span > 1));
+    assert.ok(networkLayout.edges.every((edge) => edge.span >= 1));
+    assert.ok(networkLayout.edges.filter((edge) => edge.active).every((edge) => edge.toIssueNumber === 229 || networkNodes.get(edge.toIssueNumber)?.routeState === "prerequisite"));
+    assert.equal(networkLayout.edges.find((edge) => edge.fromIssueNumber === 229 && edge.toIssueNumber === 234)?.active, false);
+    assert.equal(networkLayout.edges.find((edge) => edge.fromIssueNumber === 229 && edge.toIssueNumber === 246)?.active, false);
+    const noCurrentFixture = createFixture();
+    for (const cycle of noCurrentFixture.links.cycles) for (const workItem of cycle.work_items) workItem.status = "pending";
+    const noCurrentData = await loadDevHubOverview(writeFixture(directory, noCurrentFixture));
+    assert.ok(buildDevHubDependencyNetworkLayout(noCurrentData, buildDevHubDependencyLayout(noCurrentData)).edges.every((edge) => !edge.active));
     const html = renderDevHubOverviewHtml(data);
     assert.match(html, /<strong>37<\/strong> linked Issues/);
     assert.match(html, /<strong>58<\/strong> dependency edges/);
-    assert.match(html, /<strong>2<\/strong> active Cycles/);
-    assert.match(html, /未分派 Work Items/);
-    assert.match(html, /data-cycle-card="cycle-2026-08-29-1002-cms-issue-backlog\/unassigned"/);
-    assert.match(html, /data-issue-number="214"[\s\S]*?未分派/);
-    assert.match(html, /第 11 階段/);
-    assert.match(html, /role="tab" id="tab-table"[^>]+aria-selected="true"/);
-    assert.match(html, /role="tab" id="tab-dependencies"/);
-    assert.match(html, /id="panel-dependencies" role="tabpanel"/);
+    assert.match(html, /<strong>3<\/strong> active Cycles/);
+    assert.match(html, /data-network-edge[^>]+data-network-span="1"/);
+    assert.match(html, /class="network-edge network-edge-active"[^>]+data-network-from="239"[^>]+data-network-to="219"/);
+    assert.match(html, /class="network-edge"[^>]+data-network-active="false"[^>]+data-network-from="229"[^>]+data-network-to="234"/);
+    assert.ok(html.lastIndexOf('data-network-active="false"') < html.indexOf('data-network-active="true"'));
+    assert.match(html, /data-network-node data-issue-number="229" data-route-state="current"/);
+    for (const legend of ["進行中路徑", "其他依賴", "進行中工作", "待處理工作"]) assert.match(html, new RegExp(legend));
+    assert.match(html, /\.network-board \{ position:relative; margin-inline:auto; \}/);
+    assert.doesNotMatch(html, /\.network-board \{[^}]*min-inline-size:100%/);
+    assert.match(html, /inline-size:216px; block-size:64px/);
+    assert.match(html, /const longRoutes/);
+    assert.match(html, /data-network-span/);
+    assert.match(html, /data-network-main-center=/);
+    assert.match(html, /const centerNetworkBoard/);
+    assert.doesNotMatch(html, /network-card|network-metadata|network-primary-label|最長相依鏈|class="network-stage"/);
+    assert.match(html, /const views = \['table', 'dependencies', 'network', 'cycles', 'status'\]/);
     assert.match(html, /<details id="overview-controls">/);
     assert.match(html, /dev-hub-overview\.preferences\.v1/);
+    assert.match(html, /:root \{ color-scheme:dark;/);
+    assert.match(html, /--canvas:#111827;/);
+    assert.match(html, /background:var\(--warning-surface\)/);
     assert.match(html, /<th scope="col" data-column="issue">Issue／Issue state<\/th>/);
     assert.match(html, /<th scope="col" data-column="localStatus">Local status<\/th>/);
     assert.match(html, /<th scope="col" data-column="dependencies">前置依賴<\/th>/);
@@ -186,7 +230,7 @@ test("同一 Cycle 的多個 Work Group 各自成卡，不共用第一個 Work G
     fixture.links.links.find((link) => link.issue_number === 246)!.work_group_id = "WG-002-plugin-composition";
     const html = renderDevHubOverviewHtml(await loadDevHubOverview(writeFixture(directory, fixture)));
     const cards = [...html.matchAll(/data-cycle-card="([^"]+)"/g)].map((match) => match[1]);
-    assert.deepEqual(cards, ["cycle-2026-08-29-1002-cms-issue-backlog/WG-001-planned-backlog-onboarding", "cycle-2026-08-29-1002-cms-issue-backlog/unassigned", `${cycle.id}/WG-001-plugin-lifecycle-integration`, `${cycle.id}/WG-002-plugin-composition`]);
+    assert.deepEqual(cards, ["cycle-2026-08-29-1002-cms-issue-backlog/WG-001-planned-backlog-onboarding", "cycle-2026-08-29-1002-cms-issue-backlog/unassigned", `${cycle.id}/WG-001-plugin-lifecycle-integration`, `${cycle.id}/WG-002-plugin-composition`, "cycle-2026-08-29-1042-dependency-network-correction/WG-001-dependency-network-correction"]);
     const compositionCard = html.match(/<article class="cycle-card" data-cycle-card="[^"]*WG-002-plugin-composition">[\s\S]*?<\/article>/)?.[0];
     assert.notEqual(compositionCard, undefined);
     assert.match(compositionCard!, /<h3>Plugin composition<\/h3>/);
