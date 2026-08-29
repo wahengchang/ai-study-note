@@ -23,10 +23,10 @@ export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: 
 export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
 
 export type PersistenceCanonicalState = Readonly<{
-  contract: "persistence-canonical-state/v1";
+  contract: "persistence-canonical-state/v2";
   bytes: Uint8Array;
   digest: Digest;
-  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number }>;
+  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
 }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
@@ -44,7 +44,7 @@ export interface SchemaMigrationValidator {
 }
 export type SchemaMigrationPreflightInput = Readonly<{
   sourceSchemaIdentity: SchemaVersionIdentity;
-  targetSchemaIdentity: SchemaVersionIdentity;
+  targetSchema: RegisterSchemaVersionInput;
   pointerPolicies: readonly SchemaMigrationPointerPolicyInput[];
   mappingIdentity: Digest;
   mapper: SchemaMigrationMapper;
@@ -87,6 +87,21 @@ export type SchemaMigrationImpactReport = Readonly<{
   evidence: SchemaMigrationImpactEvidence;
 }>;
 
+export type SchemaMigrationExecutionReplacementInput = Readonly<{ sourceRevision: RevisionIdentity; replacementRevisionId: string }>;
+export type SchemaMigrationExecutionInput = Readonly<{ evidence: SchemaMigrationImpactEvidence; operationId: string; replacements: readonly SchemaMigrationExecutionReplacementInput[] }>;
+export type SchemaMigrationExecutionReplacementRecord = Readonly<{ sourceRevision: RevisionIdentity; replacementRevision: RevisionIdentity }>;
+export type SchemaMigrationExecutionPointerRecord = Readonly<{ entryId: string; pointer: SchemaMigrationPointer; sourceRevisionId: string; policy: SchemaMigrationPointerPolicy; resultRevisionId: string }>;
+export type SchemaMigrationExecutionRecord = Readonly<{
+  contract: "schema-migration-execution/v1";
+  operationId: string;
+  operationKind: "SchemaMigration";
+  sourceSchemaIdentity: SchemaVersionIdentity;
+  targetSchemaIdentity: SchemaVersionIdentity;
+  mappingIdentity: Digest;
+  replacements: readonly SchemaMigrationExecutionReplacementRecord[];
+  pointers: readonly SchemaMigrationExecutionPointerRecord[];
+}>;
+
 export type PersistenceFailureCode =
   | "INVALID_DATABASE_PATH"
   | "DATABASE_UNAVAILABLE"
@@ -115,6 +130,8 @@ export type PersistenceFailureCode =
   | "SCHEMA_MIGRATION_VALIDATION_FAILED"
   | "INVALID_SCHEMA_MIGRATION_EVIDENCE"
   | "STALE_SCHEMA_MIGRATION_REPORT"
+  | "SCHEMA_MIGRATION_REPORT_NOT_APPROVABLE"
+  | "SCHEMA_MIGRATION_EXECUTION_NOT_FOUND"
   | "STORAGE_FAILURE";
 
 export type PersistenceFailure = Readonly<{
@@ -158,4 +175,6 @@ export interface PersistenceStore extends PersistenceTransaction {
   close(): void;
   preflightSchemaMigration(input: SchemaMigrationPreflightInput): PersistenceResult<SchemaMigrationImpactReport>;
   validateSchemaMigrationImpactEvidence(evidence: SchemaMigrationImpactEvidence): PersistenceResult<undefined>;
+  executeSchemaMigration(input: SchemaMigrationExecutionInput): PersistenceResult<SchemaMigrationExecutionRecord>;
+  getSchemaMigrationExecution(operationId: string): PersistenceResult<SchemaMigrationExecutionRecord>;
 }

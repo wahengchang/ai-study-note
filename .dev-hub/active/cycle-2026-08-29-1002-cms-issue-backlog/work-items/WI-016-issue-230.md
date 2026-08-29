@@ -1,8 +1,8 @@
 ---
 id: WI-016
-status: pending
+status: done
 title: 持久化｜從新鮮 impact report 原子建立 replacement Revisions 並執行 move/pin
-work_group: null
+work_group: WG-003-schema-migration-execution
 depends_on: ["WI-011"]
 ---
 
