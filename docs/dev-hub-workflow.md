@@ -29,18 +29,6 @@ Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的�
 
 每個 Work Group 的 PR 固定恰好兩個 commit，不得新增第三個。推送後若必須修正，amend 對應的第一或第二個 commit，再以 `--force-with-lease` 更新同一 PR。
 
-## 本地專案總覽 projection
-
-`.dev-hub/overview/issues.json` 與 `links.json` 是 repository-local、可重建的手動 projection；`index.html` 只能由這兩份已提交 snapshot 衍生，renderer 絕不讀網路、GitHub Issue 或 GitHub Project。GitHub Issue 仍保存 requirement／acceptance，active Cycle／Work Item／Work Group 仍保存執行現況；overview 檔案不取得 SSOT 地位。
-
-- coverage 固定為 `dev_hub_work_with_dependencies`：linked Issues 是已登錄 Dev Hub 的 planned、active、done Work Items 主清單；沒有 link 的 Issue 只能作為 linked Issues 的遞迴前置 dependency closure，不代表 GitHub Issues 自動同步或全量 Issue catalog。恢復工作時先開 `.dev-hub/overview/index.html`，再進對應 Cycle。
-- 新增、移除或改變 Work Item，或 Issue 的 number、title、URL、state、parent、dependency 時，手動更新 `issues.json`；每次 `depends_on` 改變都必須同步補齊完整遞迴 closure。loader 會拒絕遺漏 prerequisite snapshot、無法由 linked Issue 抵達的 dependency-only row，以及不存在的 Issue／Work Item link target。
-- Cycle／Work Item／Work Group 的 local path、status、dependency、owner、branch、worktree、PR 或 Issue 關聯改變時，手動更新 `links.json`；每個 Work Item 與 Issue link 仍是一對一。`pending` backlog 與由 completion log 證明的 `done | cancelled` Work Item 可令 `work_group`／`work_group_id` 為 `null`；一旦切為 `in_progress | blocked`，同一變更必須建立真實 Work Group、branch、worktree 並同步兩欄。已完成 Work Group 可留在長期 active Cycle 保存 PR provenance。
-- 兩份 JSON 必須使用相同 schema version，以及相同且含 UTC offset 的 `updated_at`。
-- 變更 overview 時，在對應 Work Group worktree 依序執行 `npm run dev-hub:overview` 與 `npm run dev-hub:overview:check`，並以 `node --import tsx --test tests/scripts/render-dev-hub-overview.test.ts` 驗證；handoff、PR ready 與 Cycle closeout 前 check 必須通過。root 缺少此 script 時，不得在 root 產生 projection。
-- `index.html` 的 localStorage 僅保存個人的 View、filter、欄位與 named filter preference；不得回寫 JSON、Dev Hub state、GitHub Issue 或 GitHub Project，也不得引入 GitHub Project、Project API、auto-add 或全量 Issue sync。擴大 coverage 必須另行決定。
-- overview 的「依賴網路」是置中的由上而下 DAG：dependency 指向 dependent；desktop 初始視窗聚焦主 DAG，所有超出可用寬度的 projection（含獨立工作列與 long-edge gutter）只在 network container 局部橫向捲動。`in_progress` linked Work Item 的遞迴 prerequisite traversal 是唯一紅色「進行中路徑」；其他 edge 均為灰色。沒有 `in_progress` 時所有 edge 均為灰色，絕不猜測優先路徑。snapshot 未定義每項工作的 duration／start／end，network view 不展示或推測時程。
-
 ## 完成閘門
 
 最後一個 Work Group 只有在下列條件全數成立後才能 closeout：
@@ -71,7 +59,7 @@ Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的�
 - 正文：`Outcome`、`Acceptance`、`Notes`
 - 狀態：`pending | in_progress | blocked | done | cancelled`
 
-`work_group` 與 overview link 的 `work_group_id` 可為 `null`，但空字串無效。未分派 Work Item 不得出現在任何 Work Group；已分派 Work Item 與 Work Group 必須雙向一致。
+`work_group` 可為 `null`，但空字串無效。未分派 Work Item 不得出現在任何 Work Group；已分派 Work Item 與 Work Group 必須雙向一致。
 
 ### Work Group
 
