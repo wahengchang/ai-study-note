@@ -2,7 +2,7 @@ import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest } from "../fou
 
 import type {
   CurrentRouteClaimProposal, PublishedRouteClaimProposal, RouteClaim, RouteGraph, RouteGraphSnapshot, SiteDefinition,
-  SiteDefinitionPersistence, SiteDefinitionResult, SiteDefinitionTransaction, ValidatedCurrentRouteClaim, ValidatedPublishedRouteClaim,
+  SiteDefinitionFailure, SiteDefinitionPersistence, SiteDefinitionResult, SiteDefinitionTransaction, ValidatedCurrentRouteClaim, ValidatedPublishedRouteClaim,
 } from "./contracts.js";
 import { normalizeRoute } from "./normalization.js";
 
@@ -80,7 +80,8 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
         const token = validate(proposal, transaction);
         return token.ok ? apply(token.value, transaction) : token;
       });
-      return committed.ok ? committed : fail("SITE_DEFINITION_STORAGE_FAILURE");
+      if (committed.ok) return committed;
+      return isSiteDefinitionFailure(committed.error) ? { ok: false, error: committed.error } : fail("SITE_DEFINITION_STORAGE_FAILURE");
     } catch { return fail("SITE_DEFINITION_STORAGE_FAILURE"); }
   };
   return {
@@ -104,7 +105,7 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
     preparePublishedClaim(input) {
       const state = prepareClaim("published", input);
       if (!state.ok) return state;
-      const proposal: PublishedRouteClaimProposal = { contract: "published-route-claim-proposal/v1", baselineDigests: { ...state.value.baselineDigests }, claim: { graph: "published", normalizedRoute: state.value.claim.normalizedRoute, owner: state.value.claim.owner, sourceRevisionId: state.value.claim.sourceRevisionId }, resultingDigests: { ...state.value.resultingDigests }, nextPublishedBytes: copyBytes(state.value.nextBytes) };
+      const proposal: PublishedRouteClaimProposal = { contract: "published-route-claim-proposal/v1", baselineDigests: { ...state.value.baselineDigests }, claim: { ...state.value.claim, graph: "published" }, resultingDigests: { ...state.value.resultingDigests }, nextPublishedBytes: copyBytes(state.value.nextBytes) };
       prepared.set(proposal, state.value);
       return { ok: true, value: proposal };
     },
@@ -123,7 +124,9 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
 function encodeSnapshot(graph: RouteGraph, claims: readonly RouteClaim[]) {
   return canonicalJsonBytes({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph, claims: [...claims].sort(compareClaims).map(({ normalizedRoute, owner, sourceRevisionId }) => ({ normalizedRoute, owner, sourceRevisionId })) });
 }
-function compareClaims(a: RouteClaim, b: RouteClaim) { return a.normalizedRoute.localeCompare(b.normalizedRoute, "en") || a.owner.localeCompare(b.owner, "en"); }
+// canonical snapshot bytes 與 digest 必須與 host locale／ICU 版本無關，因此排序一律使用 code-unit 順序而非 `localeCompare`。
+function compareCodeUnits(left: string, right: string) { return left < right ? -1 : left > right ? 1 : 0; }
+function compareClaims(a: RouteClaim, b: RouteClaim) { return compareCodeUnits(a.normalizedRoute, b.normalizedRoute) || compareCodeUnits(a.owner, b.owner); }
 function matchesProposal(proposal: Record<PropertyKey, unknown>, state: PreparedState, contract: "current-route-claim-proposal/v1" | "published-route-claim-proposal/v1", bytesField: "nextCurrentBytes" | "nextPublishedBytes") {
   const nextBytes = proposal[bytesField];
   return proposal.contract === contract && sameDigests(proposal.baselineDigests, state.baselineDigests) && sameClaim(proposal.claim, state.claim) && sameDigests(proposal.resultingDigests, state.resultingDigests) && nextBytes instanceof Uint8Array && sha256Digest(nextBytes) === state.resultingDigests[state.targetGraph] && sameBytes(nextBytes, state.nextBytes);
@@ -131,5 +134,6 @@ function matchesProposal(proposal: Record<PropertyKey, unknown>, state: Prepared
 function sameClaim(value: unknown, expected: RouteClaim) { return isObject(value) && value.graph === expected.graph && value.normalizedRoute === expected.normalizedRoute && value.owner === expected.owner && value.sourceRevisionId === expected.sourceRevisionId; }
 function sameDigests(value: unknown, expected: Digests) { return isObject(value) && value.current === expected.current && value.published === expected.published; }
 function sameBytes(a: Uint8Array, b: Uint8Array) { if (a.byteLength !== b.byteLength) return false; for (let index = 0; index < a.byteLength; index += 1) if (a[index] !== b[index]) return false; return true; }
+function isSiteDefinitionFailure(value: unknown): value is SiteDefinitionFailure { return isObject(value) && value.owner === "SiteDefinition" && typeof value.code === "string" && Object.hasOwn(messages, value.code); }
 function isObject(value: unknown): value is Record<PropertyKey, unknown> { return typeof value === "object" && value !== null; }
 function valid(value: unknown): value is string { return typeof value === "string" && value.length > 0; }

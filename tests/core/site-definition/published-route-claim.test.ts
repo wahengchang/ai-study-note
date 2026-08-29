@@ -260,3 +260,51 @@ test("any graph baseline change stales proposal; tokens bind graph and transacti
     ]);
   });
 });
+
+test("snapshot claim ordering is locale-independent so both graph digests stay reproducible", () => {
+  withSite("published-route-ordering-", (_store, site) => {
+    // "/z" 與 "/ä" 在 ICU collation 下的順序與 code-unit 順序相反；canonical bytes 必須採後者。
+    assert.equal(site.createPublishedClaim({ owner: "entry-a", route: "/z", sourceRevisionId: "r1" }).ok, true);
+    assert.equal(site.createPublishedClaim({ owner: "entry-b", route: "/Ä", sourceRevisionId: "r1" }).ok, true);
+    assert.equal("/z".localeCompare("/ä", "en") > 0, true);
+    const published = snapshots(site).published;
+    assert.deepEqual(published.claims.map((claim) => claim.normalizedRoute), ["/z", "/ä"]);
+    const expected = canonicalJsonBytes({
+      contract: "route-graph-snapshot/v1",
+      normalization: "route-normalization/v1",
+      graph: "published",
+      claims: [
+        { normalizedRoute: "/z", owner: "entry-a", sourceRevisionId: "r1" },
+        { normalizedRoute: "/ä", owner: "entry-b", sourceRevisionId: "r1" },
+      ],
+    });
+    assert.equal(expected.ok, true);
+    if (!expected.ok) throw new Error("canonicalJsonBytes");
+    assert.deepEqual(published.bytes, expected.value);
+    assert.equal(published.digest, sha256Digest(expected.value));
+  });
+});
+
+test("createPublishedClaim reports the domain failure code when the baseline moves mid-commit", () => {
+  withSite("published-route-race-", (store, _site) => {
+    let raced = false;
+    const racingPersistence = {
+      listRouteClaims: (graph: "current" | "published") => store.listRouteClaims(graph),
+      replaceRouteClaim: (input: RouteClaim) => store.replaceRouteClaim(input),
+      runTransaction: <T, E>(operation: (transaction: SiteDefinitionTransaction) => Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>) => {
+        if (!raced) {
+          raced = true;
+          const interleaved = store.runTransaction((transaction) => ({ ok: true as const, value: transaction.replaceRouteClaim({ graph: "published", normalizedRoute: "/interleaved", owner: "entry-c", sourceRevisionId: "r1" }) }));
+          assert.equal(interleaved.ok, true);
+        }
+        return store.runTransaction(operation);
+      },
+    };
+    const site = createSiteDefinition({ persistence: racingPersistence });
+    const raceLost = site.createPublishedClaim({ owner: "entry-a", route: "/published", sourceRevisionId: "r1" });
+    assert.equal(raced, true);
+    assertStale(raceLost);
+    assert.deepEqual(snapshots(site).published.claims.map((claim) => claim.normalizedRoute), ["/interleaved"]);
+    assert.equal(site.createPublishedClaim({ owner: "entry-a", route: "/published", sourceRevisionId: "r1" }).ok, true);
+  });
+});
