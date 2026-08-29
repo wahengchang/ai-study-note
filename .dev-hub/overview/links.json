@@ -1,6 +1,6 @@
 {
-  "schema_version": 2,
-  "updated_at": "2026-08-28T22:58:35+08:00",
+  "schema_version": 3,
+  "updated_at": "2026-08-29T10:02:00+08:00",
   "cycles": [
     {
       "id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
@@ -15,23 +15,28 @@
           "status": "in_progress",
           "depends_on": [],
           "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-001-plugin-exact-reenable.md"
+          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-001-plugin-lifecycle.md"
         },
         {
           "id": "WI-002",
           "title": "SaveRevision validator snapshots",
           "status": "pending",
-          "depends_on": ["WI-001"],
+          "depends_on": [
+            "WI-001"
+          ],
           "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-002-save-revision-validators.md"
+          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-002-plugin-lifecycle.md"
         },
         {
           "id": "WI-003",
           "title": "Application Plugin composition",
           "status": "pending",
-          "depends_on": ["WI-001", "WI-002"],
+          "depends_on": [
+            "WI-001",
+            "WI-002"
+          ],
           "work_group": "WG-001-plugin-lifecycle-integration",
-          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-003-application-plugin-composition.md"
+          "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-items/WI-003-plugin-lifecycle.md"
         }
       ],
       "work_groups": [
@@ -39,7 +44,11 @@
           "id": "WG-001-plugin-lifecycle-integration",
           "title": "Plugin lifecycle integration",
           "status": "in_progress",
-          "work_items": ["WI-001", "WI-002", "WI-003"],
+          "work_items": [
+            "WI-001",
+            "WI-002",
+            "WI-003"
+          ],
           "owner": "Main",
           "branch": "cms/plugin-lifecycle-integration",
           "worktree": ".dev-hub/worktrees/plugin-lifecycle-integration",
@@ -47,15 +56,514 @@
           "path": ".dev-hub/active/cycle-2026-08-28-1655-plugin-lifecycle-integration/work-groups/WG-001-plugin-lifecycle-integration.md"
         }
       ]
+    },
+    {
+      "id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "hub": {
+        "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/hub.md",
+        "status": "active"
+      },
+      "work_items": [
+        {
+          "id": "WI-001",
+          "title": "CMS-BASIC-CONTRACTS-V1｜資料持久化與 schema migration",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-001-issue-214.md"
+        },
+        {
+          "id": "WI-002",
+          "title": "CMS-BASIC-CONTRACTS-V1｜內容生命週期 application core",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-002-issue-215.md"
+        },
+        {
+          "id": "WI-003",
+          "title": "CMS-BASIC-CONTRACTS-V1｜路由圖 application core",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-003-issue-216.md"
+        },
+        {
+          "id": "WI-004",
+          "title": "CMS-BASIC-CONTRACTS-V1｜媒體生命週期 application core",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-004-issue-217.md"
+        },
+        {
+          "id": "WI-005",
+          "title": "CMS-BASIC-CONTRACTS-V1｜Plugin host core",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-005-issue-218.md"
+        },
+        {
+          "id": "WI-006",
+          "title": "持久化｜從空資料庫完成可信 Revision 的 forward storage migration",
+          "status": "done",
+          "depends_on": [
+            "WI-024"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-006-issue-219.md"
+        },
+        {
+          "id": "WI-007",
+          "title": "Plugin Host｜從可信根 discovery 到固定 identity 的顯式 activation",
+          "status": "done",
+          "depends_on": [
+            "WI-024"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-007-issue-220.md"
+        },
+        {
+          "id": "WI-008",
+          "title": "持久化｜原子切換同 entry 的 current/published pointers 並保留 lineage",
+          "status": "done",
+          "depends_on": [
+            "WI-006"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-008-issue-221.md"
+        },
+        {
+          "id": "WI-009",
+          "title": "SiteDefinition｜建立 current route claim 並拒絕同圖等價 collision",
+          "status": "done",
+          "depends_on": [
+            "WI-006"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-009-issue-222.md"
+        },
+        {
+          "id": "WI-010",
+          "title": "DataMedia｜最終 bytes 驗證後才 ready 的安全本機媒體匯入",
+          "status": "done",
+          "depends_on": [
+            "WI-006"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-010-issue-223.md"
+        },
+        {
+          "id": "WI-011",
+          "title": "持久化｜預演 schema 變更並產生可核准、去敏且綁定狀態的 impact report",
+          "status": "pending",
+          "depends_on": [
+            "WI-006",
+            "WI-008"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-011-issue-224.md"
+        },
+        {
+          "id": "WI-012",
+          "title": "SiteDefinition｜建立 published claim 並證明雙圖 collision 隔離",
+          "status": "done",
+          "depends_on": [
+            "WI-009"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-012-issue-225.md"
+        },
+        {
+          "id": "WI-013",
+          "title": "DataMedia｜啟動時安全收斂中斷匯入",
+          "status": "pending",
+          "depends_on": [
+            "WI-006",
+            "WI-010"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-013-issue-226.md"
+        },
+        {
+          "id": "WI-014",
+          "title": "持久化｜原子建立含 immutable asset-version reference 的新 Revision",
+          "status": "done",
+          "depends_on": [
+            "WI-006",
+            "WI-010"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-014-issue-227.md"
+        },
+        {
+          "id": "WI-015",
+          "title": "DomainApplication｜SaveRevision 原子儲存具路由與媒體參照的 current 草稿",
+          "status": "done",
+          "depends_on": [
+            "WI-008",
+            "WI-009",
+            "WI-010"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-015-issue-228.md"
+        },
+        {
+          "id": "WI-016",
+          "title": "持久化｜從新鮮 impact report 原子建立 replacement Revisions 並執行 move/pin",
+          "status": "pending",
+          "depends_on": [
+            "WI-011"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-016-issue-230.md"
+        },
+        {
+          "id": "WI-017",
+          "title": "SiteDefinition｜原子替換 route/source revision 並回傳 retained impact",
+          "status": "pending",
+          "depends_on": [
+            "WI-012"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-017-issue-231.md"
+        },
+        {
+          "id": "WI-018",
+          "title": "DomainApplication｜PublishRevision 發布呼叫端確認的 current revision",
+          "status": "pending",
+          "depends_on": [
+            "WI-010",
+            "WI-012",
+            "WI-015"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-018-issue-232.md"
+        },
+        {
+          "id": "WI-019",
+          "title": "DataMedia｜透過 SaveRevision 原子替換一個 current revision 的媒體引用",
+          "status": "pending",
+          "depends_on": [
+            "WI-010",
+            "WI-015"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-019-issue-233.md"
+        },
+        {
+          "id": "WI-020",
+          "title": "DataMedia｜從 published pointer 解析唯一可信的媒體選取",
+          "status": "pending",
+          "depends_on": [
+            "WI-010",
+            "WI-018"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-020-issue-235.md"
+        },
+        {
+          "id": "WI-021",
+          "title": "DataMedia｜ArchiveAsset/RestoreAsset 的可用性復原閉環",
+          "status": "pending",
+          "depends_on": [
+            "WI-010",
+            "WI-018"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-021-issue-236.md"
+        },
+        {
+          "id": "WI-022",
+          "title": "DomainApplication｜RestoreRevision 還原為新的 current 草稿",
+          "status": "pending",
+          "depends_on": [
+            "WI-015",
+            "WI-017",
+            "WI-021"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-022-issue-237.md"
+        },
+        {
+          "id": "WI-023",
+          "title": "ChangeRoute｜原子套用 SiteDefinition plan 並防止 stale/競爭提交",
+          "status": "pending",
+          "depends_on": [
+            "WI-015",
+            "WI-017"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-023-issue-238.md"
+        },
+        {
+          "id": "WI-024",
+          "title": "CMS-FND-01｜建立全域 repository 架構與 TypeScript Foundation",
+          "status": "done",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-024-issue-239.md"
+        },
+        {
+          "id": "WI-025",
+          "title": "規劃 External Authoring API｜CMS／CLI 共用 API 與 Bearer API Key",
+          "status": "pending",
+          "depends_on": [
+            "WI-015"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-025-issue-241.md"
+        },
+        {
+          "id": "WI-026",
+          "title": "Dev Hub｜建立全 Issue 總表、角色與剩餘 PR 計數",
+          "status": "done",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-026-issue-252.md"
+        },
+        {
+          "id": "WI-027",
+          "title": "Theme Host｜可信 Theme identity 與 renderer source boundary",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-027-issue-253.md"
+        },
+        {
+          "id": "WI-028",
+          "title": "Projection & Preview｜renderer-input/v1 與 current/published 隔離",
+          "status": "pending",
+          "depends_on": [
+            "WI-018",
+            "WI-020",
+            "WI-027"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-028-issue-254.md"
+        },
+        {
+          "id": "WI-029",
+          "title": "Renderer、Public UI 與 Release｜deterministic artifact 到 GitHub Pages",
+          "status": "pending",
+          "depends_on": [
+            "WI-027",
+            "WI-028",
+            "WI-030"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-029-issue-255.md"
+        },
+        {
+          "id": "WI-030",
+          "title": "Plugin Host｜renderer/assets callback 與 published build isolation",
+          "status": "pending",
+          "depends_on": [
+            "WI-028"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-030-issue-256.md"
+        },
+        {
+          "id": "WI-031",
+          "title": "CMS Workspace｜單一管理者 authoring、preview 與 release diagnostics",
+          "status": "pending",
+          "depends_on": [
+            "WI-018",
+            "WI-019",
+            "WI-021",
+            "WI-022",
+            "WI-023",
+            "WI-025",
+            "WI-028",
+            "WI-029"
+          ],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-031-issue-257.md"
+        },
+        {
+          "id": "WI-032",
+          "title": "Dev Hub Overview｜固定暗色主題與依賴圖 View",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-032-issue-260.md"
+        },
+        {
+          "id": "WI-033",
+          "title": "Dev Hub｜將 #214 起 Issues onboarding 為 planned backlog",
+          "status": "done",
+          "depends_on": [],
+          "work_group": "WG-001-planned-backlog-onboarding",
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-033-issue-261.md"
+        },
+        {
+          "id": "WI-034",
+          "title": "Dev Hub Overview｜整合可重用的 Issue／Dev Hub overview 機制",
+          "status": "pending",
+          "depends_on": [],
+          "work_group": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-items/WI-034-issue-262.md"
+        }
+      ],
+      "work_groups": [
+        {
+          "id": "WG-001-planned-backlog-onboarding",
+          "title": "Planned backlog onboarding",
+          "status": "completed",
+          "work_items": [
+            "WI-033"
+          ],
+          "owner": "Main",
+          "branch": "chore/dev-hub-planned-backlog",
+          "worktree": ".dev-hub/worktrees/dev-hub-planned-backlog",
+          "pr": null,
+          "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog/work-groups/WG-001-planned-backlog-onboarding.md"
+        }
+      ]
     }
   ],
   "links": [
+    {
+      "issue_number": 214,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-001",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 215,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-002",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 216,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-003",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 217,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-004",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 218,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-005",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 219,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-006",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 220,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-007",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 221,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-008",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 222,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-009",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 223,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-010",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 224,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-011",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 225,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-012",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 226,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-013",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 227,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-014",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 228,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-015",
+      "work_group_id": null
+    },
     {
       "issue_number": 229,
       "target_kind": "dev_hub_work_item",
       "cycle_id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
       "work_item_id": "WI-001",
       "work_group_id": "WG-001-plugin-lifecycle-integration"
+    },
+    {
+      "issue_number": 230,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-016",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 231,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-017",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 232,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-018",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 233,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-019",
+      "work_group_id": null
     },
     {
       "issue_number": 234,
@@ -65,11 +573,116 @@
       "work_group_id": "WG-001-plugin-lifecycle-integration"
     },
     {
+      "issue_number": 235,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-020",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 236,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-021",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 237,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-022",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 238,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-023",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 239,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-024",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 241,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-025",
+      "work_group_id": null
+    },
+    {
       "issue_number": 246,
       "target_kind": "dev_hub_work_item",
       "cycle_id": "cycle-2026-08-28-1655-plugin-lifecycle-integration",
       "work_item_id": "WI-003",
       "work_group_id": "WG-001-plugin-lifecycle-integration"
+    },
+    {
+      "issue_number": 252,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-026",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 253,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-027",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 254,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-028",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 255,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-029",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 256,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-030",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 257,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-031",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 260,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-032",
+      "work_group_id": null
+    },
+    {
+      "issue_number": 261,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-033",
+      "work_group_id": "WG-001-planned-backlog-onboarding"
+    },
+    {
+      "issue_number": 262,
+      "target_kind": "dev_hub_work_item",
+      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
+      "work_item_id": "WI-034",
+      "work_group_id": null
     }
   ]
 }
