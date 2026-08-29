@@ -196,3 +196,72 @@ test("failures are classified by SQLite result code, not by driver message text"
     rmSync(value.directory, { recursive: true, force: true });
   }
 });
+
+// `validText` 只要求 length > 0，但 SQLite 的 `length()` 在第一個 NUL 就停止，
+// 因此含前導 NUL 的 identity 會通過 store 前置檢查、在 INSERT 才觸發 CHECK。
+// 這是唯一能從公開 API 走到「非 unique constraint 失敗」的路徑。
+const nulEntryId = "\u0000entry";
+
+test("CHECK 違規不得被回報成 identity conflict", () => {
+  const value = fixture();
+  try {
+    const store = readyStore(value.databasePath);
+    const content = canonicalContent();
+    const revision = store.createRevision({
+      identity: { entryId: nulEntryId, revisionId: "r1" },
+      schemaIdentity: { schemaId: "article", version: 1 },
+      contentBytes: content,
+      contentDigest: sha256Digest(content),
+      lineage: { operationId: "op-1", operationKind: "SaveRevision" },
+    });
+    assert.equal(revision.ok, false);
+    if (!revision.ok) assert.equal(revision.error.code, "CONSTRAINT_VIOLATION");
+
+    const schemaBytes = canonicalJsonBytes({ fields: { title: "string" } });
+    assert.equal(schemaBytes.ok, true);
+    if (!schemaBytes.ok) throw new Error("Foundation canonical JSON unexpectedly failed");
+    const schema = store.registerSchemaVersion({
+      identity: { schemaId: nulEntryId, version: 1 },
+      schemaBytes: schemaBytes.value,
+      schemaDigest: sha256Digest(schemaBytes.value),
+    });
+    assert.equal(schema.ok, false);
+    if (!schema.ok) assert.equal(schema.error.code, "CONSTRAINT_VIOLATION");
+    store.close();
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("INSERT 期間的 unique 違規仍回報 REVISION_CONFLICT", () => {
+  const value = fixture();
+  try {
+    const setup = readyStore(value.databasePath);
+    setup.close();
+    // 額外的 unique index 讓第二筆 revision 通過 store 的存在性前置檢查後，
+    // 才在 INSERT 撞上 unique constraint，藉此走到 catch 分支。
+    const schemaSetup = openSqliteAdapter(value.databasePath);
+    schemaSetup.exec("CREATE UNIQUE INDEX one_revision_per_content ON revisions (content_digest)");
+    schemaSetup.close();
+
+    const opened = openPersistence({ databasePath: value.databasePath });
+    assert.equal(opened.ok, true);
+    if (!opened.ok) throw new Error("Persistence store did not reopen");
+    const content = canonicalContent();
+    const write = (revisionId: string) =>
+      opened.value.createRevision({
+        identity: { entryId: "entry", revisionId },
+        schemaIdentity: { schemaId: "article", version: 1 },
+        contentBytes: content,
+        contentDigest: sha256Digest(content),
+        lineage: { operationId: `op-${revisionId}`, operationKind: "SaveRevision" },
+      });
+    assert.equal(write("r1").ok, true);
+    const conflict = write("r2");
+    assert.equal(conflict.ok, false);
+    if (!conflict.ok) assert.equal(conflict.error.code, "REVISION_CONFLICT");
+    opened.value.close();
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
