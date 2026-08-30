@@ -19,6 +19,7 @@ import type {
   RevisionRecord,
   RevisionReferenceRecord,
   RouteClaimRecord,
+  SchemaMigrationImpactEvidence,
   SchemaVersionIdentity,
   SchemaVersionRecord,
   SetEntryPointersInput,
@@ -27,6 +28,7 @@ import type {
 import { validateCanonicalBytes } from "./canonical-bytes.js";
 import { persistenceFailure, persistenceResultFailure } from "./failures.js";
 import { createSchemaMigrationImpactAnalyzer } from "./schema-migration-impact.js";
+import { executeSchemaMigrationInTransaction, getSchemaMigrationExecution, normalizeSchemaMigrationExecution } from "./schema-migration-execution.js";
 import { sqliteConstraintKind, sqliteFailureCode, type SqliteAdapter, type SqliteRow } from "./sqlite-adapter.js";
 
 /** 產生 failure result 的方式：`failed` 會讓外層 transaction 回滾，`refused` 不會。 */
@@ -76,6 +78,18 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     runTransaction,
     preflightSchemaMigration(input) { return migrationImpact.preflight(input); },
     validateSchemaMigrationImpactEvidence(evidence) { return migrationImpact.validateEvidence(evidence); },
+    executeSchemaMigration(input) {
+      const evidence = (input as Readonly<{ evidence?: SchemaMigrationImpactEvidence }> | null | undefined)?.evidence;
+      const plan = migrationImpact.readExecutionPlan(evidence as SchemaMigrationImpactEvidence);
+      if (!plan.ok) return plan;
+      const normalized = normalizeSchemaMigrationExecution(input, plan.value);
+      if (!normalized.ok) return normalized;
+      const executed = atomic((transaction) => executeSchemaMigrationInTransaction(database, transaction, plan.value, normalized.value, migrationImpact.validateExecutionPlanInTransaction));
+      // 只有 commit 過的 execution 會讓 evidence 失效，避免同一份 report 產生第二次 write-set。
+      if (executed.ok) migrationImpact.releaseExecutionPlan(evidence as SchemaMigrationImpactEvidence);
+      return executed;
+    },
+    getSchemaMigrationExecution(operationId) { return getSchemaMigrationExecution(database, operationId); },
     close() { database.close(); },
   };
 }
@@ -257,8 +271,31 @@ function compareAndReplacePluginActivationState(
 }
 
 function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResult<PersistenceCanonicalState> {
-  const collect=(sql:string, keys:readonly string[])=>database.all(sql).map((row)=>Object.fromEntries(keys.map((key)=>[key,row[key]]))).sort((a,b)=>JSON.stringify(a).localeCompare(JSON.stringify(b),"en",{sensitivity:"variant"}));
-  try { const payload={contract:"persistence-canonical-state/v1",schemaVersions:collect("SELECT schema_id AS schemaId,version,schema_digest AS schemaDigest FROM schema_versions",["schemaId","version","schemaDigest"]),revisions:collect("SELECT entry_id AS entryId,revision_id AS revisionId,schema_id AS schemaId,schema_version AS schemaVersion,content_digest AS contentDigest,restored_from_revision_id AS restoredFromRevisionId FROM revisions",["entryId","revisionId","schemaId","schemaVersion","contentDigest","restoredFromRevisionId"]),operationLineage:collect("SELECT entry_id AS entryId,revision_id AS revisionId,operation_id AS operationId,operation_kind AS operationKind,creates_revision AS createsRevision FROM operation_lineage",["entryId","revisionId","operationId","operationKind","createsRevision"]),entryPointers:collect("SELECT entry_id AS entryId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointers",["entryId","currentRevisionId","publishedRevisionId"]),entryPointerLineage:collect("SELECT entry_id AS entryId,operation_revision_id AS operationRevisionId,operation_id AS operationId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointer_lineage",["entryId","operationRevisionId","operationId","currentRevisionId","publishedRevisionId"]),routeClaims:collect("SELECT graph,normalized_route AS normalizedRoute,owner_entry_id AS owner,source_revision_id AS sourceRevisionId FROM route_claims",["graph","normalizedRoute","owner","sourceRevisionId"]),mediaImportIntents:collect("SELECT import_id AS importId,asset_id AS assetId,asset_version_id AS assetVersionId,object_digest AS objectDigest,byte_length AS byteLength,metadata_digest AS metadataDigest FROM media_import_intents",["importId","assetId","assetVersionId","objectDigest","byteLength","metadataDigest"]),mediaObjects:collect("SELECT object_digest AS objectDigest,byte_length AS byteLength FROM media_objects",["objectDigest","byteLength"]),mediaAssets:collect("SELECT asset_id AS assetId FROM media_assets",["assetId"]),assetVersions:collect("SELECT v.asset_id AS assetId,v.asset_version_id AS assetVersionId,v.object_digest AS objectDigest,v.metadata_digest AS metadataDigest,a.availability FROM asset_versions v JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id",["assetId","assetVersionId","objectDigest","metadataDigest","availability"]),revisionReferences:collect("SELECT entry_id AS entryId,revision_id AS revisionId,asset_id AS assetId,asset_version_id AS assetVersionId FROM revision_refs",["entryId","revisionId","assetId","assetVersionId"])}; const bytes=canonicalJsonBytes(payload); if(!bytes.ok)return failed("STORAGE_FAILURE"); const counts={schemaVersions:payload.schemaVersions.length,revisions:payload.revisions.length,operationLineage:payload.operationLineage.length,entryPointers:payload.entryPointers.length,entryPointerLineage:payload.entryPointerLineage.length,routeClaims:payload.routeClaims.length,mediaImportIntents:payload.mediaImportIntents.length,mediaObjects:payload.mediaObjects.length,mediaAssets:payload.mediaAssets.length,assetVersions:payload.assetVersions.length,revisionReferences:payload.revisionReferences.length}; return {ok:true,value:{contract:"persistence-canonical-state/v1",bytes:copyBytes(bytes.value),digest:sha256Digest(bytes.value),counts}}; } catch{return failed("STORAGE_FAILURE");}
+  const collect = (sql: string, keys: readonly string[]) => database.all(sql)
+    .map((row) => Object.fromEntries(keys.map((key) => [key, row[key]])))
+    .sort((left, right) => JSON.stringify(left).localeCompare(JSON.stringify(right), "en", { sensitivity: "variant" }));
+  try {
+    const schemaVersions = collect("SELECT schema_id AS schemaId,version,schema_digest AS schemaDigest FROM schema_versions", ["schemaId", "version", "schemaDigest"]);
+    const revisions = collect("SELECT entry_id AS entryId,revision_id AS revisionId,schema_id AS schemaId,schema_version AS schemaVersion,content_digest AS contentDigest,restored_from_revision_id AS restoredFromRevisionId FROM revisions", ["entryId", "revisionId", "schemaId", "schemaVersion", "contentDigest", "restoredFromRevisionId"]);
+    const operationLineage = collect("SELECT entry_id AS entryId,revision_id AS revisionId,operation_id AS operationId,operation_kind AS operationKind,creates_revision AS createsRevision FROM operation_lineage", ["entryId", "revisionId", "operationId", "operationKind", "createsRevision"]);
+    const entryPointers = collect("SELECT entry_id AS entryId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointers", ["entryId", "currentRevisionId", "publishedRevisionId"]);
+    const entryPointerLineage = collect("SELECT entry_id AS entryId,operation_revision_id AS operationRevisionId,operation_id AS operationId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointer_lineage", ["entryId", "operationRevisionId", "operationId", "currentRevisionId", "publishedRevisionId"]);
+    const routeClaims = collect("SELECT graph,normalized_route AS normalizedRoute,owner_entry_id AS ownerEntryId,source_revision_id AS sourceRevisionId FROM route_claims", ["graph", "normalizedRoute", "ownerEntryId", "sourceRevisionId"]);
+    const mediaImportIntents = collect("SELECT import_id AS importId,asset_id AS assetId,asset_version_id AS assetVersionId,object_digest AS objectDigest,byte_length AS byteLength,metadata_digest AS metadataDigest FROM media_import_intents", ["importId", "assetId", "assetVersionId", "objectDigest", "byteLength", "metadataDigest"]);
+    const mediaObjects = collect("SELECT object_digest AS objectDigest,byte_length AS byteLength FROM media_objects", ["objectDigest", "byteLength"]);
+    const mediaAssets = collect("SELECT asset_id AS assetId FROM media_assets", ["assetId"]);
+    const assetVersions = collect("SELECT v.asset_id AS assetId,v.asset_version_id AS assetVersionId,v.object_digest AS objectDigest,v.metadata_digest AS metadataDigest,a.availability FROM asset_versions v JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id", ["assetId", "assetVersionId", "objectDigest", "metadataDigest", "availability"]);
+    const revisionReferences = collect("SELECT entry_id AS entryId,revision_id AS revisionId,asset_id AS assetId,asset_version_id AS assetVersionId FROM revision_refs", ["entryId", "revisionId", "assetId", "assetVersionId"]);
+    const schemaMigrationExecutions = collect("SELECT operation_id AS operationId,source_schema_id AS sourceSchemaId,source_schema_version AS sourceSchemaVersion,target_schema_id AS targetSchemaId,target_schema_version AS targetSchemaVersion,mapping_identity AS mappingIdentity FROM schema_migration_executions", ["operationId", "sourceSchemaId", "sourceSchemaVersion", "targetSchemaId", "targetSchemaVersion", "mappingIdentity"]);
+    const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);
+    const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
+    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const bytes = canonicalJsonBytes(payload);
+    if (!bytes.ok) return failed("STORAGE_FAILURE");
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
+  } catch {
+    return failed("STORAGE_FAILURE");
+  }
 }
 function pointer(row:SqliteRow|undefined,entryId:string,failed:Fail):PersistenceResult<EntryPointerRecord>{if(row===undefined)return failed("ENTRY_POINTER_NOT_FOUND");const current=text(row,"current_revision_id"),published=nullableText(row,"published_revision_id");if(current===null||published===undefined)return failed("STORAGE_FAILURE");return{ok:true,value:{entryId,currentRevisionId:current,...(published===null?{}:{publishedRevisionId:published})}};}
 function intentRow(row:SqliteRow|undefined,failed:Fail):PersistenceResult<MediaImportIntent>{if(row===undefined)return failed("MEDIA_IMPORT_CONFLICT");const importId=text(row,"import_id"),assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id"),objectDigest=digestField(row,"object_digest"),byteLength=row.byte_length,metadataBytes=byte(row,"metadata_bytes"),metadataDigest=digestField(row,"metadata_digest");if(importId===null||assetId===null||assetVersionId===null||objectDigest===null||typeof byteLength!=="number"||metadataBytes===null||metadataDigest===null)return failed("STORAGE_FAILURE");return{ok:true,value:{importId,identity:{assetId,assetVersionId},objectDigest,byteLength,metadataBytes:copyBytes(metadataBytes),metadataDigest}};}

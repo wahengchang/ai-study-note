@@ -18,10 +18,8 @@ function fixture(databasePathname: string): PersistenceStore {
   assert.equal(opened.ok, true);
   if (!opened.ok) throw new Error("store unavailable");
   const store = opened.value;
-  for (const version of [1, 2]) {
-    const schemaBytes = bytes({ type: "note", version, canary: "schema-private-canary" });
-    assert.equal(store.registerSchemaVersion({ identity: { schemaId: "note", version }, schemaBytes, schemaDigest: sha256Digest(schemaBytes) }).ok, true);
-  }
+  const schemaBytes = bytes({ type: "note", version: 1, canary: "schema-private-canary" });
+  assert.equal(store.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes, schemaDigest: sha256Digest(schemaBytes) }).ok, true);
   for (const [entryId, revisionId] of [["history", "r0"], ["entry-a", "r1"], ["entry-a", "r2"], ["entry-b", "r3"]] as const) {
     const contentBytes = bytes({ entryId, revisionId, private: "content-private-canary" });
     assert.equal(store.createRevision({ identity: { entryId, revisionId }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes, contentDigest: sha256Digest(contentBytes), lineage: { operationId: `save-${entryId}-${revisionId}`, operationKind: "SaveRevision" } }).ok, true);
@@ -32,7 +30,8 @@ function fixture(databasePathname: string): PersistenceStore {
 }
 
 function preflight(map: SchemaMigrationPreflightInput["mapper"], validator: SchemaMigrationPreflightInput["validator"], policies: SchemaMigrationPreflightInput["pointerPolicies"]): SchemaMigrationPreflightInput {
-  return { sourceSchemaIdentity: { schemaId: "note", version: 1 }, targetSchemaIdentity: { schemaId: "note", version: 2 }, mappingIdentity: sha256Digest(bytes({ operator: "migration-v1" })), pointerPolicies: policies, mapper: map, validator };
+  const schemaBytes = bytes({ type: "note", version: 2, canary: "schema-private-canary" });
+  return { sourceSchemaIdentity: { schemaId: "note", version: 1 }, targetSchema: { identity: { schemaId: "note", version: 2 }, schemaBytes, schemaDigest: sha256Digest(schemaBytes) }, mappingIdentity: sha256Digest(bytes({ operator: "migration-v1" })), pointerPolicies: policies, mapper: map, validator };
 }
 
 const completePolicies = [
@@ -65,12 +64,14 @@ test("preflight is read-only, covers pointers, and issues issuer-bound evidence"
     const store = fixture(database.value);
     const before = digest(store);
     const mappings: string[] = [];
+    assert.equal(failure(store.getSchemaVersion({ schemaId: "note", version: 2 })), "SCHEMA_VERSION_NOT_FOUND");
     const validations: string[] = [];
     const result = store.preflightSchemaMigration(preflight(mapper(mappings), acceptingValidator(validations), completePolicies));
     assert.equal(result.ok, true);
     if (!result.ok) return;
     assert.equal(digest(store), before);
     assert.equal(result.value.status, "approvable");
+    assert.equal(failure(store.getSchemaVersion({ schemaId: "note", version: 2 })), "SCHEMA_VERSION_NOT_FOUND");
     assert.deepEqual(result.value.affectedPointers.map((item) => [item.entryId, item.pointer, item.revisionId, item.policy]), [["entry-a", "current", "r2", "move"], ["entry-a", "published", "r1", "pin"], ["entry-b", "current", "r3", "move"], ["entry-b", "published", "r3", "move"]]);
     assert.deepEqual(result.value.historicalRevisions.map((item) => item.revision), [{ entryId: "entry-a", revisionId: "r1" }, { entryId: "entry-a", revisionId: "r2" }, { entryId: "entry-b", revisionId: "r3" }, { entryId: "history", revisionId: "r0" }]);
     assert.deepEqual(result.value.mapping.map((item) => [item.sourceRevision, item.outcome]), [[{ entryId: "entry-a", revisionId: "r2" }, "validated"], [{ entryId: "entry-b", revisionId: "r3" }, "validated"]]);
@@ -115,7 +116,7 @@ test("preflight fails closed for callback faults and stale or foreign evidence",
     assert.equal(failure(store.preflightSchemaMigration(preflight(mapper([], "throw"), acceptingValidator([]), completePolicies))), "SCHEMA_MIGRATION_MAPPING_FAILED");
     assert.equal(failure(store.preflightSchemaMigration(preflight(mapper([], "thenable"), acceptingValidator([]), completePolicies))), "SCHEMA_MIGRATION_MAPPING_FAILED");
     assert.equal(failure(store.preflightSchemaMigration(preflight(mapper([]), { validate() { return new Proxy({ ok: true }, {}); } }, completePolicies))), "SCHEMA_MIGRATION_VALIDATION_FAILED");
-    assert.equal(failure(store.preflightSchemaMigration({ ...preflight(mapper([]), acceptingValidator([]), completePolicies), targetSchemaIdentity: { schemaId: "note", version: 1 } })), "INVALID_SCHEMA_MIGRATION_REQUEST");
+    assert.equal(failure(store.preflightSchemaMigration({ ...preflight(mapper([]), acceptingValidator([]), completePolicies), targetSchema: { identity: { schemaId: "note", version: 1 }, schemaBytes: bytes({ type: "note", version: 1 }), schemaDigest: sha256Digest(bytes({ type: "note", version: 1 })) } })), "INVALID_SCHEMA_MIGRATION_REQUEST");
     const report = store.preflightSchemaMigration(preflight(mapper([]), acceptingValidator([]), completePolicies));
     assert.equal(report.ok, true);
     if (!report.ok) return;
