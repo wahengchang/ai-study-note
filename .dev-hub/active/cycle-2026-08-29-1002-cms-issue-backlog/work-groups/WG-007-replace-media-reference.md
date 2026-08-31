@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/replace-media-reference
 worktree: .dev-hub/worktrees/replace-media-reference
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/294
 ---
 
 # 原子替換 current revision 媒體引用
