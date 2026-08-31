@@ -1,4 +1,5 @@
 import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
+import type { AssetVersionIdentity } from "../media/index.js";
 import type { PluginHostFailure } from "../plugin-host/index.js";
 import type { PublishedRouteClaimProposal, RouteClaim, RouteClaimReplacementProposal } from "../site-definition/index.js";
 
@@ -22,6 +23,7 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_PUBLISH_REVISION_REQUEST: "請修正 PublishRevision request。",
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再發布。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
+  MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
   SCHEMA_INVALID: "草稿不符合選定的 schema version。",
   MEDIA_UNAVAILABLE: "請先完成所有引用媒體的匯入或復原。",
   ROUTE_CONFLICT: "請選擇未被其他內容占用的 route。",
@@ -40,6 +42,7 @@ type NormalizedSaveRevisionCommand =
   | Readonly<{ kind: "media-reference-replacement"; request: SaveRevisionMediaReferenceReplacementRequest }>;
 
 type CanonicalContent = Readonly<{ value: JsonValue; bytes: Uint8Array; digest: Digest }>;
+type SelectedCurrentClaim = Readonly<{ claim: RouteClaim; snapshotDigest: Digest }>;
 
 function fail<T>(code: DomainApplicationFailureCode, owner: DomainApplicationCommandFailure["owner"] = "DomainApplication", subjectIds: readonly string[] = []): DomainApplicationResult<T> {
   return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] } } };
@@ -75,6 +78,23 @@ function verifiedSourceContent(bytes: Uint8Array, digest: Digest): CanonicalCont
 }
 
 export function createDomainApplication({ persistence, siteDefinition, dataMedia, schemaValidator, pluginHost }: DomainApplicationDependencies): DomainApplication {
+  const mediaUnavailable = <T>(assetVersions: readonly AssetVersionIdentity[]): DomainApplicationResult<T> => {
+    const unavailable = assetVersions.filter((assetVersion) => !dataMedia.getReadyAssetVersion(assetVersion).ok);
+    return fail("MEDIA_UNAVAILABLE", "DataMedia", (unavailable.length > 0 ? unavailable : assetVersions).map((item) => item.assetId));
+  };
+
+  const selectCurrentClaim = (entryId: string, expectedCurrentRevisionId: string, operation: "SaveRevision" | "PublishRevision"): DomainApplicationResult<SelectedCurrentClaim> => {
+    const current = siteDefinition.snapshot("current");
+    if (!current.ok) return fail(operation === "SaveRevision" ? "SAVE_REVISION_FAILED" : "PUBLISH_REVISION_FAILED");
+    const claim = current.value.claims.find((item) => item.owner === entryId && item.sourceRevisionId === expectedCurrentRevisionId);
+    if (claim !== undefined) return { ok: true, value: { claim, snapshotDigest: current.value.digest } };
+    const latest = persistence.getEntryPointers(entryId);
+    if (latest.ok ? latest.value.currentRevisionId !== expectedCurrentRevisionId : latest.error.code === "ENTRY_POINTER_NOT_FOUND") {
+      return fail("CURRENT_REVISION_MISMATCH", "Content", [entryId]);
+    }
+    return fail(operation === "SaveRevision" ? "SAVE_REVISION_FAILED" : "PUBLISH_REVISION_FAILED", "SiteDefinition", [entryId]);
+  };
+
   const executeSaveRevision = async (request: SaveRevisionRequest, expectedCurrentRevisionId?: string): Promise<DomainApplicationResult<SaveRevisionSuccess>> => {
     if (!validSave(request) || duplicate(request.assetVersions)) return fail("INVALID_SAVE_REVISION_REQUEST");
     const initial = canonicalContent(request.content);
@@ -94,15 +114,13 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
 
     const claim = siteDefinition.prepareCurrentClaim({ owner: request.entryId, route: request.route, sourceRevisionId: request.revisionId });
     if (!claim.ok) return route(claim.error.code, request.entryId, "SaveRevision");
-    if (!dataMedia.requireReadyAssetVersions(request.assetVersions).ok) {
-      return fail("MEDIA_UNAVAILABLE", "DataMedia", request.assetVersions.map((item) => item.assetId));
-    }
+    if (!dataMedia.requireReadyAssetVersions(request.assetVersions).ok) return mediaUnavailable(request.assetVersions);
 
     const prepared = await pluginHost.prepareSaveRevisionValidators({ entryId: request.entryId });
     if (!prepared.ok) return plugin(prepared.error as PluginHostFailure);
 
     const result = persistence.runTransaction<SaveRevisionSuccess, DomainApplicationFailure>((transaction) => {
-      let prior = transaction.getEntryPointers(request.entryId);
+      const prior = transaction.getEntryPointers(request.entryId);
       if (expectedCurrentRevisionId !== undefined) {
         if (!prior.ok || prior.value.currentRevisionId !== expectedCurrentRevisionId) {
           return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
@@ -202,6 +220,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     if (!references.ok) return fail("SAVE_REVISION_FAILED");
 
     const target = identityKey(request.targetAssetVersion);
+    const replacement = identityKey(request.replacementAssetVersion);
     let found = false;
     const assetVersions = references.value.map((reference) => {
       if (identityKey(reference.assetVersion) !== target) return reference.assetVersion;
@@ -211,16 +230,13 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     if (!found) {
       return fail("MEDIA_REFERENCE_NOT_FOUND", "DataMedia", [request.targetAssetVersion.assetId, request.targetAssetVersion.assetVersionId]);
     }
-    if (!dataMedia.requireReadyAssetVersions(assetVersions).ok) {
-      return fail("MEDIA_UNAVAILABLE", "DataMedia", assetVersions.map((item) => item.assetId));
+    if (references.value.some((reference) => identityKey(reference.assetVersion) === replacement)) {
+      return fail("MEDIA_REFERENCE_CONFLICT", "DataMedia", [request.replacementAssetVersion.assetId, request.replacementAssetVersion.assetVersionId]);
     }
+    if (!dataMedia.requireReadyAssetVersions(assetVersions).ok) return mediaUnavailable(assetVersions);
 
-    const current = siteDefinition.snapshot("current");
-    if (!current.ok) return fail("SAVE_REVISION_FAILED");
-    const currentClaim = current.value.claims.find(
-      (claim) => claim.owner === request.entryId && claim.sourceRevisionId === request.expectedCurrentRevisionId,
-    );
-    if (currentClaim === undefined) return fail("SAVE_REVISION_FAILED", "SiteDefinition", [request.entryId]);
+    const selected = selectCurrentClaim(request.entryId, request.expectedCurrentRevisionId, "SaveRevision");
+    if (!selected.ok) return selected;
 
     return executeSaveRevision(
       {
@@ -229,7 +245,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         operationId: request.operationId,
         schemaIdentity: source.value.schemaIdentity,
         content: sourceContent.value,
-        route: currentClaim.normalizedRoute,
+        route: selected.value.claim.normalizedRoute,
         assetVersions,
       },
       request.expectedCurrentRevisionId,
@@ -272,22 +288,11 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       const references = persistence.getRevisionReferences(revision.value.identity);
       if (!references.ok) return fail("PUBLISH_REVISION_FAILED");
       const assetVersions = references.value.map((reference) => reference.assetVersion);
-      if (!dataMedia.requireReadyAssetVersions(assetVersions).ok) {
-        return fail("MEDIA_UNAVAILABLE", "DataMedia", assetVersions.map((item) => item.assetId));
-      }
+      if (!dataMedia.requireReadyAssetVersions(assetVersions).ok) return mediaUnavailable(assetVersions);
 
-      const current = siteDefinition.snapshot("current");
-      if (!current.ok) return fail("PUBLISH_REVISION_FAILED");
-      const currentClaim = current.value.claims.find(
-        (claim) => claim.owner === request.entryId && claim.sourceRevisionId === request.expectedCurrentRevisionId,
-      );
-      if (currentClaim === undefined) {
-        const latest = persistence.getEntryPointers(request.entryId);
-        if (latest.ok && latest.value.currentRevisionId !== request.expectedCurrentRevisionId) {
-          return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
-        }
-        return fail("PUBLISH_REVISION_FAILED", "SiteDefinition", [request.entryId]);
-      }
+      const selected = selectCurrentClaim(request.entryId, request.expectedCurrentRevisionId, "PublishRevision");
+      if (!selected.ok) return selected;
+      const currentClaim = selected.value.claim;
 
       const direct = siteDefinition.preparePublishedClaim({
         owner: request.entryId,
@@ -309,7 +314,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       } else {
         return route(direct.error.code, request.entryId, "PublishRevision");
       }
-      if (preparedClaim.proposal.baselineDigests.current !== current.value.digest) {
+      if (preparedClaim.proposal.baselineDigests.current !== selected.value.snapshotDigest) {
         return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition", [request.entryId]);
       }
 

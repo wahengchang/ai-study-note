@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, type DomainApplicationDependencies } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence, type PersistenceStore } from "../../../core/persistence/index.js";
@@ -45,7 +45,8 @@ test("SaveRevision media replacement copies the complete set, moves only current
     assert.equal(published.value.claims[0]?.sourceRevisionId, "draft-1");
     const beforeFailure = opened.value.canonicalState(); assert.equal(beforeFailure.ok, true); if (!beforeFailure.ok) return;
     const unavailable = await app.saveRevision({ kind: "media-reference-replacement", entryId: "entry", revisionId: "draft-3", operationId: "replace-2", expectedCurrentRevisionId: "draft-2", targetAssetVersion: { assetId: "asset-a", assetVersionId: "v2" }, replacementAssetVersion: { assetId: "asset-a", assetVersionId: "missing" } });
-    assert.equal(unavailable.ok, false); if (!unavailable.ok) assert.equal(unavailable.error.code, "MEDIA_UNAVAILABLE");
+    assert.equal(unavailable.ok, false);
+    if (!unavailable.ok) { assert.equal(unavailable.error.code, "MEDIA_UNAVAILABLE"); assert.deepEqual(unavailable.error.subjectIds, ["asset-a"]); }
     const afterFailure = opened.value.canonicalState(); assert.equal(afterFailure.ok, true); if (!afterFailure.ok) return;
     assert.equal(afterFailure.value.digest, beforeFailure.value.digest);
     opened.value.close();
@@ -75,10 +76,12 @@ async function replacementFixture() {
   for (const assetVersionId of ["v1", "v2"] as const) {
     assert.equal(media.importLocal({ assetId: "asset-a", assetVersionId, importId: `import-${assetVersionId}`, bytes: new TextEncoder().encode(assetVersionId), metadata: { mime: "text/plain" } }).ok, true);
   }
-  const app = createDomainApplication({ persistence: opened.value, siteDefinition: createSiteDefinition({ persistence: opened.value }), dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host.value });
+  const site = createSiteDefinition({ persistence: opened.value });
+  const dependencies: DomainApplicationDependencies = { persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host.value };
+  const app = createDomainApplication(dependencies);
   const source = await app.saveRevision({ entryId: "entry", revisionId: "source", operationId: "save-source", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "source" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }] });
   assert.equal(source.ok, true, source.ok ? "" : source.error.code);
-  return { app, directory, store: opened.value };
+  return { app, dependencies, directory, site, store: opened.value };
 }
 
 function digest(store: PersistenceStore): string {
@@ -138,6 +141,63 @@ test("SaveRevision media replacement rejects malformed, missing, unavailable, an
     const stale = await value.app.saveRevision(request);
     assert.equal(stale.ok, false);
     if (!stale.ok) assert.equal(stale.error.code, "CURRENT_REVISION_MISMATCH");
+  } finally {
+    value.store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("SaveRevision media replacement rejects a replacement the current source already references", async () => {
+  const value = await replacementFixture();
+  try {
+    const both = await value.app.saveRevision({ entryId: "entry", revisionId: "both", operationId: "save-both", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "both" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }, { assetId: "asset-a", assetVersionId: "v2" }] });
+    assert.equal(both.ok, true, both.ok ? "" : both.error.code);
+    const before = digest(value.store);
+    const conflict = await value.app.saveRevision({ kind: "media-reference-replacement", entryId: "entry", revisionId: "candidate", operationId: "replace", expectedCurrentRevisionId: "both", targetAssetVersion: { assetId: "asset-a", assetVersionId: "v1" }, replacementAssetVersion: { assetId: "asset-a", assetVersionId: "v2" } });
+    assert.equal(conflict.ok, false);
+    if (!conflict.ok) {
+      assert.equal(conflict.error.code, "MEDIA_REFERENCE_CONFLICT");
+      assert.equal(conflict.error.owner, "DataMedia");
+      assert.deepEqual(conflict.error.subjectIds, ["asset-a", "v2"]);
+    }
+    assert.equal(digest(value.store), before);
+  } finally {
+    value.store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("SaveRevision media replacement reports a current pointer that moves before the route snapshot as a mismatch", async () => {
+  const value = await replacementFixture();
+  try {
+    const next = await value.app.saveRevision({ entryId: "entry", revisionId: "next", operationId: "save-next", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "next" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }] });
+    assert.equal(next.ok, true, next.ok ? "" : next.error.code);
+    assert.equal(value.store.setEntryPointers({ entryId: "entry", currentRevisionId: "source", lineage: { revisionId: "source", operationId: "rewind", operationKind: "SaveRevision" } }).ok, true);
+    assert.equal(value.site.replaceRouteClaim({ graph: "current", owner: "entry", route: "/source", sourceRevisionId: "source" }).ok, true);
+
+    let raced = false;
+    const racedSite: DomainApplicationDependencies["siteDefinition"] = {
+      ...value.site,
+      snapshot(graph) {
+        if (!raced && graph === "current") {
+          raced = true;
+          assert.equal(value.store.setEntryPointers({ entryId: "entry", currentRevisionId: "next", lineage: { revisionId: "next", operationId: "race", operationKind: "SaveRevision" } }).ok, true);
+          assert.equal(value.site.replaceRouteClaim({ graph: "current", owner: "entry", route: "/source", sourceRevisionId: "next" }).ok, true);
+        }
+        return value.site.snapshot(graph);
+      },
+    };
+    const app = createDomainApplication({ ...value.dependencies, siteDefinition: racedSite });
+    const result = await app.saveRevision({ kind: "media-reference-replacement", entryId: "entry", revisionId: "candidate", operationId: "replace", expectedCurrentRevisionId: "source", targetAssetVersion: { assetId: "asset-a", assetVersionId: "v1" }, replacementAssetVersion: { assetId: "asset-a", assetVersionId: "v2" } });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "CURRENT_REVISION_MISMATCH");
+      assert.equal(result.error.owner, "Content");
+    }
+    assert.equal(value.store.getRevision({ entryId: "entry", revisionId: "candidate" }).ok, false);
+    const pointers = value.store.getEntryPointers("entry");
+    assert.equal(pointers.ok, true);
+    if (pointers.ok) assert.equal(pointers.value.currentRevisionId, "next");
   } finally {
     value.store.close();
     rmSync(value.directory, { recursive: true, force: true });
