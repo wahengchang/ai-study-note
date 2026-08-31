@@ -18,6 +18,7 @@ const noMedia: DataMedia = {
   importLocal: () => ({ ok: false, error: mediaFailure() }),
   getReadyAssetVersion: () => ({ ok: false, error: mediaFailure() }),
   requireReadyAssetVersions: () => ({ ok: true, value: [] }),
+  resolvePublishedSelection: () => ({ ok: false, error: mediaFailure() }),
 };
 
 function mediaFailure() {
