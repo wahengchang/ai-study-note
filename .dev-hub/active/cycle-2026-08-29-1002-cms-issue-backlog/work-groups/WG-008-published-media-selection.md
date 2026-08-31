@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/published-media-selection
 worktree: .dev-hub/worktrees/published-media-selection
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/295
 ---
 
 # 解析完整 published 媒體選擇
