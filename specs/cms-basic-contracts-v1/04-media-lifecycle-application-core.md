@@ -9,6 +9,8 @@
 
 `DataMedia` 先建立 ready asset version；`DomainApplication.SaveRevision` 的 `media-reference-replacement` derived request 從 immutable current revision 派生 schema、content、normalized route 與完整 reference set，只把一個 ready 同 logical asset 的 version 替換為另一 version。成功只移動 current pointer／claim，published pointer／claim 保持 pin 直到明確 `PublishRevision`。target reference 不存在時回傳 `MEDIA_REFERENCE_NOT_FOUND`；source 已引用 replacement version 時回傳 `MEDIA_REFERENCE_CONFLICT`，不靜默去除重複引用。
 
+`ArchiveAsset` 在寫入交易外驗證 object health，交易內重驗 immutable evidence、active published references 與 availability transition，仍被 active published pointer 引用時回傳完整 `archive-asset-impact/v1` 並保持 digest 不變。`RestoreAsset` 只接受對既有 digest、length 與 canonical metadata 完全相符的 bytes recovery，並以受控 object store 驗證 final object；stage 釋放先於 canonical availability 寫入，因此任一 host fault 都不會留下已翻成 ready 的紀錄，重送同一份 recovery 仍是可重試的成功。published selection 對任何 archived、missing 或不健康 reference fail closed。
+
 ## Problem Statement
 
 內容管理者需要能安全匯入、替換、封存與還原本機媒體，而內容 revision 必須永遠指向當時可驗證的 asset version。若媒體檔案和資料庫 intent 沒有可恢復的狀態機，或 replace 覆寫舊版本，重新啟動、部分失敗與還原舊內容都可能讓 published selection 指向遺失、損壞或被悄悄改寫的檔案。
