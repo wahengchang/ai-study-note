@@ -48,6 +48,7 @@ type NormalizedSaveRevisionCommand =
 
 type CanonicalContent = Readonly<{ value: JsonValue; bytes: Uint8Array; digest: Digest }>;
 type SelectedCurrentClaim = Readonly<{ claim: RouteClaim; snapshotDigest: Digest }>;
+type CommandOperation = "SaveRevision" | "PublishRevision" | "RestoreRevision";
 
 function fail<T>(
   code: DomainApplicationFailureCode,
@@ -93,16 +94,16 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     return fail("MEDIA_UNAVAILABLE", "DataMedia", (unavailable.length > 0 ? unavailable : assetVersions).map((item) => item.assetId));
   };
 
-  const selectCurrentClaim = (entryId: string, expectedCurrentRevisionId: string, operation: "SaveRevision" | "PublishRevision"): DomainApplicationResult<SelectedCurrentClaim> => {
+  const selectCurrentClaim = (entryId: string, expectedCurrentRevisionId: string, operation: CommandOperation): DomainApplicationResult<SelectedCurrentClaim> => {
     const current = siteDefinition.snapshot("current");
-    if (!current.ok) return fail(operation === "SaveRevision" ? "SAVE_REVISION_FAILED" : "PUBLISH_REVISION_FAILED");
+    if (!current.ok) return fail(operationFailure[operation]);
     const claim = current.value.claims.find((item) => item.owner === entryId && item.sourceRevisionId === expectedCurrentRevisionId);
     if (claim !== undefined) return { ok: true, value: { claim, snapshotDigest: current.value.digest } };
     const latest = persistence.getEntryPointers(entryId);
     if (latest.ok ? latest.value.currentRevisionId !== expectedCurrentRevisionId : latest.error.code === "ENTRY_POINTER_NOT_FOUND") {
       return fail("CURRENT_REVISION_MISMATCH", "Content", [entryId]);
     }
-    return fail(operation === "SaveRevision" ? "SAVE_REVISION_FAILED" : "PUBLISH_REVISION_FAILED", "SiteDefinition", [entryId]);
+    return fail(operationFailure[operation], "SiteDefinition", [entryId]);
   };
 
   const executeSaveRevision = async (request: SaveRevisionRequest, expectedCurrentRevisionId?: string): Promise<DomainApplicationResult<SaveRevisionSuccess>> => {
@@ -276,7 +277,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       if (restored === null) return fail("INVALID_RESTORE_REVISION_REQUEST");
       const sourceIdentity = { entryId: restored.entryId, revisionId: restored.sourceRevisionId };
       const source = persistence.getRevision(sourceIdentity);
-      if (!source.ok) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
+      if (!source.ok) return fail(source.error.code === "REVISION_NOT_FOUND" ? "INVALID_RESTORE_REVISION_REQUEST" : "RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
       const content = verifiedSourceContent(source.value.contentBytes, source.value.contentDigest);
       if (content === null) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
       const schema = persistence.getSchemaVersion(source.value.schemaIdentity);
@@ -308,16 +309,18 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         route: currentClaim.normalizedRoute,
         sourceRevisionId: restored.revisionId,
       });
-      if (!proposal.ok) return fail("RESTORE_REVISION_FAILED", "SiteDefinition", [restored.entryId]);
+      if (!proposal.ok) return route(proposal.error.code, restored.entryId, "RestoreRevision");
+      if (proposal.value.baselineDigests.current !== current.value.digest) return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition", [restored.entryId]);
 
       const result = persistence.runTransaction<RestoreRevisionSuccess, DomainApplicationFailure>((transaction) => {
         const latest = transaction.getEntryPointers(restored.entryId);
-        if (!latest.ok || latest.value.currentRevisionId !== pointer.value.currentRevisionId) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId]);
+        if (!latest.ok) return fail(latest.error.code === "ENTRY_POINTER_NOT_FOUND" ? "CURRENT_REVISION_MISMATCH" : "RESTORE_REVISION_FAILED", "Content", [restored.entryId]);
+        if (latest.value.currentRevisionId !== pointer.value.currentRevisionId) return fail("CURRENT_REVISION_MISMATCH", "Content", [restored.entryId]);
         for (const assetVersion of assetVersions) {
           if (!transaction.getReadyAssetVersion(assetVersion).ok) return fail("RESTORE_REVISION_FAILED", "DataMedia", [assetVersion.assetId, assetVersion.assetVersionId]);
         }
         const token = siteDefinition.validateRouteClaimReplacementInTransaction(proposal.value, transaction);
-        if (!token.ok) return fail("RESTORE_REVISION_FAILED", "SiteDefinition", [restored.entryId]);
+        if (!token.ok) return route(token.error.code, restored.entryId, "RestoreRevision");
         const created = transaction.createRevisionWithReferences({
           revision: {
             identity: { entryId: restored.entryId, revisionId: restored.revisionId },
@@ -507,10 +510,16 @@ function duplicate(values: readonly { assetId: string; assetVersionId: string }[
   return false;
 }
 
-function route<T>(code: string, entryId: string, operation: "SaveRevision" | "PublishRevision"): DomainApplicationResult<T> {
+const operationFailure: Readonly<Record<CommandOperation, DomainApplicationFailureCode>> = {
+  SaveRevision: "SAVE_REVISION_FAILED",
+  PublishRevision: "PUBLISH_REVISION_FAILED",
+  RestoreRevision: "RESTORE_REVISION_FAILED",
+};
+
+function route<T>(code: string, entryId: string, operation: CommandOperation): DomainApplicationResult<T> {
   return code === "ROUTE_CONFLICT" || code === "ROUTE_CHANGE_REQUIRED" || code === "STALE_ROUTE_PROPOSAL"
     ? fail(code, "SiteDefinition", [entryId])
-    : fail(operation === "SaveRevision" ? "SAVE_REVISION_FAILED" : "PUBLISH_REVISION_FAILED");
+    : fail(operationFailure[operation]);
 }
 
 function validPublish(value: unknown): value is PublishRevisionRequest {

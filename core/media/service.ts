@@ -1,4 +1,4 @@
-import { canonicalJsonBytes, copyBytes, sha256Digest } from "../foundation/index.js";
+import { canonicalJsonBytes, copyBytes, sha256Digest, type JsonValue } from "../foundation/index.js";
 import type {
   AssetVersion,
   ArchiveAssetImpact,
@@ -8,11 +8,13 @@ import type {
   DataMediaPersistence,
   DataMediaResult,
   ImportLocalMediaInput,
+  MediaEvidence,
   MediaImportIntent,
   MediaObjectStore,
   ReadyAssetVersion,
   RestoreAssetCommandDescriptor,
   RestoreAssetInput,
+  RestoreAvailabilityReport,
 } from "./contracts.js";
 
 const messages: Readonly<Record<DataMediaFailureCode, string>> = {
@@ -47,14 +49,35 @@ export function createDataMedia({ persistence, objectStore }: Readonly<{ persist
     const healthy = objectHealth(record.value, true);
     return healthy.ok ? { ok: true, value: healthy.value as ReadyAssetVersion } : healthy;
   };
-  const commitReady = (identity: AssetVersionIdentity): DataMediaResult<ReadyAssetVersion> => {
+  // object 的讀取與雜湊已在 transaction 外完成；交易內只重新確認 immutable evidence 未變，避免整份 object I/O 持有 write lock。
+  const commitReady = (identity: AssetVersionIdentity, verified: AssetVersion): DataMediaResult<ReadyAssetVersion> => {
     const result = persistence.runTransaction<ReadyAssetVersion, DataMediaResult<never>>((transaction) => {
       const current = transaction.getAssetVersion(identity);
-      if (!current.ok || !validMetadata(current.value) || !objectStore.verifyEvidence({ objectDigest: current.value.objectDigest, byteLength: current.value.byteLength }).ok) return { ok: false, error: fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity)) };
+      if (!current.ok || !sameEvidence(current.value, verified)) return { ok: false, error: fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity)) };
       const updated = transaction.setAssetVersionAvailability(identity, "ready");
       return updated.ok ? { ok: true, value: cloneAsset(updated.value) as ReadyAssetVersion } : { ok: false, error: fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity)) };
     });
-    return result.ok ? result : typeof result.error === "object" && result.error !== null && "ok" in result.error ? result.error as DataMediaResult<ReadyAssetVersion> : fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
+    return result.ok ? result : unwrap(result.error, "MEDIA_RESTORE_FAILURE", identitySubjects(identity));
+  };
+  const inspectRestoreAvailability = (identities: readonly AssetVersionIdentity[]): DataMediaResult<RestoreAvailabilityReport> => {
+    if (!Array.isArray(identities) || identities.some((identity) => !validIdentity(identity))) return fail("INVALID_MEDIA_INPUT");
+    const ordered = [...identities].sort(compareIdentity);
+    const assets: ReadyAssetVersion[] = [];
+    const commands: RestoreAssetCommandDescriptor[] = [];
+    for (const identity of ordered) {
+      const record = persistence.getAssetVersion(identity);
+      if (!record.ok || !validMetadata(record.value)) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
+      const final = objectStore.inspectFinal({ objectDigest: record.value.objectDigest, byteLength: record.value.byteLength });
+      if (!final.ok || final.value === "unhealthy") return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
+      if (record.value.availability === "ready" && final.value === "healthy") {
+        assets.push(cloneAsset(record.value) as ReadyAssetVersion);
+      } else if (final.value === "healthy") {
+        commands.push(command(identity, "none"));
+      } else {
+        commands.push(command(identity, "local-bytes-and-metadata"));
+      }
+    }
+    return commands.length === 0 ? { ok: true, value: { contract: "restore-availability/v1", status: "ready", assets } } : { ok: true, value: { contract: "restore-availability/v1", status: "blocked", commands } };
   };
 
   return {
@@ -87,7 +110,7 @@ export function createDataMedia({ persistence, objectStore }: Readonly<{ persist
       for (const identity of identities) {
         const value = resolve(identity);
         if (!value.ok) {
-          const report = this.inspectRestoreAvailability(identities);
+          const report = inspectRestoreAvailability(identities);
           return !report.ok ? report : report.value.status === "blocked" ? fail("MEDIA_VERSION_UNAVAILABLE", commandSubjects(report.value.commands), { restoreCommands: report.value.commands }) : value;
         }
         values.push(value.value);
@@ -110,15 +133,15 @@ export function createDataMedia({ persistence, objectStore }: Readonly<{ persist
     },
     archiveAsset(identity) {
       if (!validIdentity(identity)) return fail("INVALID_MEDIA_INPUT");
+      const record = persistence.getAssetVersion(identity);
+      if (!record.ok || record.value.availability === "missing" || !objectHealth(record.value, false).ok) return fail("MEDIA_ARCHIVE_FAILURE", identitySubjects(identity));
       const result = persistence.runTransaction<AssetVersion, DataMediaResult<never>>((transaction) => {
-        const record = transaction.getAssetVersion(identity);
-        if (!record.ok || record.value.availability === "missing") return { ok: false, error: fail("MEDIA_ARCHIVE_FAILURE", identitySubjects(identity)) };
-        const healthy = objectHealth(record.value, false);
-        if (!healthy.ok) return { ok: false, error: fail("MEDIA_ARCHIVE_FAILURE", identitySubjects(identity)) };
+        const current = transaction.getAssetVersion(identity);
+        if (!current.ok || current.value.availability === "missing" || !sameEvidence(current.value, record.value)) return { ok: false, error: fail("MEDIA_ARCHIVE_FAILURE", identitySubjects(identity)) };
         const references = transaction.listPublishedAssetReferences(identity);
         if (!references.ok) return { ok: false, error: fail("MEDIA_ARCHIVE_FAILURE", identitySubjects(identity)) };
         if (references.value.length > 0) return { ok: false, error: fail("MEDIA_ARCHIVE_BLOCKED_PUBLISHED", identitySubjects(identity), { archiveImpact: { contract: "archive-asset-impact/v1", assetVersion: { ...identity }, publishedReferences: references.value } }) };
-        if (record.value.availability === "archived") return { ok: true, value: cloneAsset(record.value) };
+        if (current.value.availability === "archived") return { ok: true, value: cloneAsset(current.value) };
         const archived = transaction.setAssetVersionAvailability(identity, "archived");
         return archived.ok ? { ok: true, value: cloneAsset(archived.value) } : { ok: false, error: fail("MEDIA_ARCHIVE_FAILURE", identitySubjects(identity)) };
       });
@@ -132,39 +155,20 @@ export function createDataMedia({ persistence, objectStore }: Readonly<{ persist
       const evidence = { objectDigest: record.value.objectDigest, byteLength: record.value.byteLength };
       const final = objectStore.inspectFinal(evidence);
       if (!final.ok || final.value === "unhealthy") return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
-      if (final.value === "healthy") return input.recovery === undefined ? commitReady(identity) : fail("MEDIA_RESTORE_MISMATCH", identitySubjects(identity));
+      // recovery bytes 一律以既有 immutable evidence 檢查，重送同一份 recovery 的重試不得因 object 已健康而被判為 mismatch。
+      if (input.recovery !== undefined && !matchesEvidence(input.recovery, record.value, evidence)) return fail("MEDIA_RESTORE_MISMATCH", identitySubjects(identity));
+      if (final.value === "healthy") return commitReady(identity, record.value);
       if (input.recovery === undefined) return fail("MEDIA_RESTORE_REQUIRED", identitySubjects(identity));
-      const metadata = canonicalJsonBytes(input.recovery.metadata);
-      if (!metadata.ok || !sameBytes(metadata.value, record.value.metadataBytes) || sha256Digest(input.recovery.bytes) !== evidence.objectDigest || input.recovery.bytes.byteLength !== evidence.byteLength) return fail("MEDIA_RESTORE_MISMATCH", identitySubjects(identity));
       const staged = objectStore.stage({ importId: `restore:${identity.assetId}\u0000${identity.assetVersionId}`, bytes: copyBytes(input.recovery.bytes), evidence });
       if (!staged.ok) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
       const promoted = objectStore.promote(staged.value, evidence);
-      if (!promoted.ok || !objectStore.verifyFinal(promoted.ok ? promoted.value : ({} as never), evidence).ok) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
-      const ready = commitReady(identity);
-      if (!ready.ok) return ready;
+      if (!promoted.ok) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
+      if (!objectStore.verifyFinal(promoted.value, evidence).ok) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
+      // stage 釋放必須在 canonical availability 寫入之前完成，否則 host fault 會回報失敗卻已留下 ready 紀錄。
       if (!objectStore.releaseStage(staged.value, promoted.value).ok) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
-      return ready;
+      return commitReady(identity, record.value);
     },
-    inspectRestoreAvailability(identities) {
-      if (!Array.isArray(identities) || identities.some((identity) => !validIdentity(identity))) return fail("INVALID_MEDIA_INPUT");
-      const ordered = [...identities].sort(compareIdentity);
-      const assets: ReadyAssetVersion[] = [];
-      const commands: RestoreAssetCommandDescriptor[] = [];
-      for (const identity of ordered) {
-        const record = persistence.getAssetVersion(identity);
-        if (!record.ok || !validMetadata(record.value)) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
-        const final = objectStore.inspectFinal({ objectDigest: record.value.objectDigest, byteLength: record.value.byteLength });
-        if (!final.ok || final.value === "unhealthy") return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
-        if (record.value.availability === "ready" && final.value === "healthy") {
-          assets.push(cloneAsset(record.value) as ReadyAssetVersion);
-        } else if (final.value === "healthy") {
-          commands.push(command(identity, "none"));
-        } else {
-          commands.push(command(identity, "local-bytes-and-metadata"));
-        }
-      }
-      return commands.length === 0 ? { ok: true, value: { contract: "restore-availability/v1", status: "ready", assets } } : { ok: true, value: { contract: "restore-availability/v1", status: "blocked", commands } };
-    },
+    inspectRestoreAvailability,
   };
 }
 
@@ -180,6 +184,13 @@ function validMetadata(record: AssetVersion): boolean {
     const bytes = canonicalJsonBytes(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(record.metadataBytes)));
     return bytes.ok && sameBytes(bytes.value, record.metadataBytes) && sha256Digest(record.metadataBytes) === record.metadataDigest;
   } catch { return false; }
+}
+function matchesEvidence(recovery: Readonly<{ bytes: Uint8Array; metadata: JsonValue }>, record: AssetVersion, evidence: MediaEvidence): boolean {
+  const metadata = canonicalJsonBytes(recovery.metadata);
+  return metadata.ok && sameBytes(metadata.value, record.metadataBytes) && recovery.bytes.byteLength === evidence.byteLength && sha256Digest(recovery.bytes) === evidence.objectDigest;
+}
+function sameEvidence(left: AssetVersion, right: AssetVersion): boolean {
+  return left.objectDigest === right.objectDigest && left.byteLength === right.byteLength && left.metadataDigest === right.metadataDigest && sameBytes(left.metadataBytes, right.metadataBytes);
 }
 function cloneAsset(record: AssetVersion): AssetVersion { return { ...record, identity: { ...record.identity }, metadataBytes: copyBytes(record.metadataBytes) }; }
 function sameBytes(left: Uint8Array, right: Uint8Array): boolean { return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]); }

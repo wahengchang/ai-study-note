@@ -10,6 +10,7 @@ export type {
   DataMediaPersistence,
   DataMediaResult,
   ImportLocalMediaInput,
+  MediaEvidence,
   MediaObjectStore,
   PublishedMediaSelection,
   ReadyAssetVersion,

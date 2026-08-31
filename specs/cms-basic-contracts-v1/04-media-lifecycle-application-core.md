@@ -7,7 +7,9 @@
 
 ## 目前實作 surface
 
-`DataMedia` local import 建立 ready asset version；`ArchiveAsset` 在單一 transaction 內驗證 exact version、active published references 與 availability transition。`RestoreAsset` 只接受對既有 digest、length 與 canonical metadata 完全相符的 bytes recovery，並以受控 object store 驗證 final object；published selection 對任何 archived、missing 或不健康 reference fail closed。
+`DataMedia` 先建立 ready asset version；`DomainApplication.SaveRevision` 的 `media-reference-replacement` derived request 從 immutable current revision 派生 schema、content、normalized route 與完整 reference set，只把一個 ready 同 logical asset 的 version 替換為另一 version。成功只移動 current pointer／claim，published pointer／claim 保持 pin 直到明確 `PublishRevision`。target reference 不存在時回傳 `MEDIA_REFERENCE_NOT_FOUND`；source 已引用 replacement version 時回傳 `MEDIA_REFERENCE_CONFLICT`，不靜默去除重複引用。
+
+`ArchiveAsset` 在寫入交易外驗證 object health，交易內重驗 immutable evidence、active published references 與 availability transition，仍被 active published pointer 引用時回傳完整 `archive-asset-impact/v1` 並保持 digest 不變。`RestoreAsset` 只接受對既有 digest、length 與 canonical metadata 完全相符的 bytes recovery，並以受控 object store 驗證 final object；stage 釋放先於 canonical availability 寫入，因此任一 host fault 都不會留下已翻成 ready 的紀錄，重送同一份 recovery 仍是可重試的成功。published selection 對任何 archived、missing 或不健康 reference fail closed。
 
 ## Problem Statement
 

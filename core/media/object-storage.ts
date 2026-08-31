@@ -95,8 +95,10 @@ export function createLocalMediaObjectStore({ objectsRoot }: Readonly<{ objectsR
         if (!digestKey.test(name)) return fail("MEDIA_PROMOTION_FAILURE");
         const target = finalPath(name);
         try {
-          if (inspect(target, evidence) === "unhealthy") return fail("MEDIA_PROMOTION_FAILURE");
-          if (inspect(target, evidence) === "absent") promoteBytes(stagePath(stage.name), target);
+          // 既有 final object 只檢查一次；每次 inspect 都是完整讀取與雜湊。
+          const existing = inspect(target, evidence);
+          if (existing === "unhealthy") return fail("MEDIA_PROMOTION_FAILURE");
+          if (existing === "absent") promoteBytes(stagePath(stage.name), target);
           if (!usable() || inspect(target, evidence) !== "healthy") return fail("MEDIA_PROMOTION_FAILURE");
           const final = {} as MediaFinalToken;
           finals.set(final, { name, evidence });

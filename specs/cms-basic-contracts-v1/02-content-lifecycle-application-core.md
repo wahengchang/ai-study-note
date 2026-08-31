@@ -7,7 +7,9 @@
 
 ## 目前實作 surface
 
-`SaveRevision` 在 schema、route 與完整 media preflight 後只 prepare 一次 real `PluginHost` validator snapshot；`PublishRevision` 原子更新 published pointer／claim。`RestoreRevision` 以 exact own-data request 從已驗證 immutable source 建立新 current revision，保留 published pointer、標記 `restoredFromRevisionId`，並在寫入前以 ordered `RestoreAsset` descriptors 阻擋 unavailable media；revision、references、pointer、current claim 與 lineage 均在單一 transaction 寫入。
+`SaveRevision` 在 schema、route 與完整 media preflight 後只 prepare 一次 real `PluginHost` validator snapshot；其 `media-reference-replacement` request 只接受同 logical asset 的不同 version，從 immutable current source 重新驗證 canonical content bytes／digest、派生完整 references，並在 transaction 內重驗 current pointer。`PublishRevision` 重新驗證 selected current revision 的 schema、media 與綁定 selected current-route snapshot 的 published proposal；已存在的 published claim 以 replacement token 原子移到 current route。兩個命令共用同一個 current-route claim selector：找不到 selected revision 的 claim 時先重讀 pointer，current 已前進即回傳 `CURRENT_REVISION_MISMATCH`，否則才是 SiteDefinition fault。replacement 若會讓同一 revision 重複引用 replacement asset version，回傳 `MEDIA_REFERENCE_CONFLICT` 並指名該 asset version；`MEDIA_UNAVAILABLE` 的 subjectIds 只列出實際無法解析的 asset。
+
+`RestoreRevision` 以 exact own-data request 從已驗證 immutable source 建立新 current revision，保留 published pointer、標記 `restoredFromRevisionId`，並在寫入前以 ordered `RestoreAsset` descriptors 阻擋 unavailable media；revision、references、pointer、current claim 與 lineage 均在單一 transaction 寫入。未知的 source revision 回傳 `INVALID_RESTORE_REVISION_REQUEST`；transaction 內 current pointer 已前進回傳 `CURRENT_REVISION_MISMATCH`，route replacement proposal 過期回傳 `STALE_ROUTE_PROPOSAL`。所有命令的拒絕都維持 canonical write-set 不變。
 
 ## Problem Statement
 
