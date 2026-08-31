@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/publish-revision
 worktree: .dev-hub/worktrees/publish-revision
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/274
 ---
 
 # 發布呼叫端確認的 current revision
