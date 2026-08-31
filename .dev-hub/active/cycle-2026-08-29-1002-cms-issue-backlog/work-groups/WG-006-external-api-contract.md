@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/external-api-contract
 worktree: .dev-hub/worktrees/external-api-contract
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/293
 ---
 
 # 核准 External Authoring API v1 contract
