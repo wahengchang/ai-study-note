@@ -191,3 +191,113 @@ test("configured store owns all SiteDefinition proposal transactions and apply r
     } finally { otherOpened.value.close(); }
   });
 });
+
+test("accepted replacement reports digests reproducible from the public snapshots on both sides of the commit", () => {
+  withSite("route-replacement-digests-", (_databasePath, _store, site) => {
+    assert.equal(site.createCurrentClaim({ owner: "entry-a", route: "/old", sourceRevisionId: "r1" }).ok, true);
+    assert.equal(site.createPublishedClaim({ owner: "entry-b", route: "/kept", sourceRevisionId: "r1" }).ok, true);
+    const before = snapshots(site);
+    const result = site.replaceRouteClaim({ graph: "current", owner: "entry-a", route: "/new", sourceRevisionId: "r2" });
+    assert.equal(result.ok, true);
+    if (!result.ok) throw new Error("replacement");
+    const after = snapshots(site);
+    assert.deepEqual(result.value.baselineDigests, { current: before.current.digest, published: before.published.digest });
+    assert.deepEqual(result.value.resultingDigests, { current: after.current.digest, published: after.published.digest });
+    // 兩圖 digest 都必須能由 public snapshot bytes 重算，非目標圖維持 baseline。
+    assert.equal(sha256Digest(after.current.bytes), result.value.resultingDigests.current);
+    assert.equal(sha256Digest(after.published.bytes), result.value.resultingDigests.published);
+    assert.equal(result.value.resultingDigests.published, result.value.baselineDigests.published);
+    assert.notEqual(result.value.resultingDigests.current, result.value.baselineDigests.current);
+  });
+});
+
+test("every rejected replacement leaves the target graph as untouched as the other graph", () => {
+  withSite("route-replacement-rejected-", (_databasePath, _store, site) => {
+    assert.equal(site.createCurrentClaim({ owner: "entry-a", route: "/a", sourceRevisionId: "r1" }).ok, true);
+    assert.equal(site.createCurrentClaim({ owner: "entry-b", route: "/taken", sourceRevisionId: "r1" }).ok, true);
+    assert.equal(site.createPublishedClaim({ owner: "entry-a", route: "/a", sourceRevisionId: "r1" }).ok, true);
+    const baseline = snapshots(site);
+    const rejections = [
+      ["ROUTE_CLAIM_NOT_FOUND", { graph: "current", owner: "entry-c", route: "/missing", sourceRevisionId: "r1" }],
+      ["ROUTE_REPLACEMENT_REQUIRED", { graph: "current", owner: "entry-a", route: "/a", sourceRevisionId: "r1" }],
+      ["INVALID_ROUTE", { graph: "current", owner: "entry-a", route: "/bad%2froute", sourceRevisionId: "r2" }],
+      ["ROUTE_CONFLICT", { graph: "current", owner: "entry-a", route: "/taken", sourceRevisionId: "r2" }],
+      ["INVALID_SITE_DEFINITION_INPUT", { graph: "sketch", owner: "entry-a", route: "/a", sourceRevisionId: "r2" }],
+      ["INVALID_SITE_DEFINITION_INPUT", { graph: "current", owner: "entry-a", route: "/a", sourceRevisionId: "" }],
+    ] as const;
+    for (const [code, input] of rejections) {
+      assertFailure(site.replaceRouteClaim(input as never), code);
+      const after = snapshots(site);
+      for (const graph of ["current", "published"] as const) {
+        assert.equal(after[graph].digest, baseline[graph].digest, `${code} moved the ${graph} digest`);
+        assert.deepEqual(after[graph].bytes, baseline[graph].bytes, `${code} moved the ${graph} bytes`);
+      }
+    }
+  });
+});
+
+test("a faulted commit rolls both graphs back to their pre-command digests", () => {
+  withSite("route-replacement-fault-", (_databasePath, store, site) => {
+    assert.equal(site.createCurrentClaim({ owner: "entry-a", route: "/old", sourceRevisionId: "r1" }).ok, true);
+    assert.equal(site.createPublishedClaim({ owner: "entry-a", route: "/old", sourceRevisionId: "r1" }).ok, true);
+    const baseline = snapshots(site);
+    const assertBaseline = (label: string) => {
+      const after = snapshots(site);
+      for (const graph of ["current", "published"] as const) {
+        assert.equal(after[graph].digest, baseline[graph].digest, `${label} left the ${graph} digest moved`);
+        assert.deepEqual(after[graph].bytes, baseline[graph].bytes, `${label} left the ${graph} bytes moved`);
+      }
+    };
+    // 已 apply 但 caller 讓 transaction 失敗：write-set 必須整批回滾。
+    const aborted = site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/aborted", sourceRevisionId: "r2" });
+    assert.equal(aborted.ok, true);
+    if (!aborted.ok) throw new Error("aborted proposal");
+    const abortedCommit = store.runTransaction<never, string>((transaction) => {
+      const token = site.validateRouteClaimReplacementInTransaction(aborted.value, transaction);
+      if (!token.ok) return { ok: false as const, error: `validate:${token.error.code}` };
+      const applied = site.applyValidatedRouteClaimReplacementInTransaction(token.value, transaction);
+      return { ok: false as const, error: applied.ok ? "caller-abort" : `apply:${applied.error.code}` };
+    });
+    assert.equal(abortedCommit.ok, false);
+    if (!abortedCommit.ok) assert.equal(abortedCommit.error, "caller-abort");
+    assertBaseline("caller abort");
+    // apply 前 baseline 已被同一 transaction 內的其他 writer 移動：必須拒絕且不留下部分 write。
+    const raced = site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/raced", sourceRevisionId: "r2" });
+    assert.equal(raced.ok, true);
+    if (!raced.ok) throw new Error("raced proposal");
+    const racedCommit = store.runTransaction<never, string>((transaction) => {
+      const token = site.validateRouteClaimReplacementInTransaction(raced.value, transaction);
+      if (!token.ok) return { ok: false as const, error: `validate:${token.error.code}` };
+      const injected = transaction.replaceRouteClaim({ graph: "current", normalizedRoute: "/injected", owner: "entry-b", sourceRevisionId: "r1" });
+      if (!injected.ok) return { ok: false as const, error: "injected-write-refused" };
+      const applied = site.applyValidatedRouteClaimReplacementInTransaction(token.value, transaction);
+      return { ok: false as const, error: applied.ok ? "applied" : applied.error.code };
+    });
+    assert.equal(racedCommit.ok, false);
+    if (!racedCommit.ok) assert.equal(racedCommit.error, "STALE_ROUTE_PROPOSAL");
+    assertBaseline("stale apply");
+  });
+});
+
+test("a consumed token cannot be applied twice even when the commit left both digests unchanged", () => {
+  withSite("route-replacement-single-use-", (_databasePath, store, site) => {
+    assert.equal(site.createCurrentClaim({ owner: "entry-a", route: "/stable", sourceRevisionId: "r1" }).ok, true);
+    // 同 route 同 source revision 的 proposal 讓 resulting 與 baseline digest 相同，
+    // 因此只有 token 的單次使用限制能阻止重複 apply。
+    const proposal = site.prepareCurrentClaim({ owner: "entry-a", route: "/stable", sourceRevisionId: "r1" });
+    assert.equal(proposal.ok, true);
+    if (!proposal.ok) throw new Error("prepare");
+    assert.equal(proposal.value.resultingDigests.current, proposal.value.baselineDigests.current);
+    const replayed = store.runTransaction((transaction) => {
+      const token = site.validateCurrentClaimInTransaction(proposal.value, transaction);
+      if (!token.ok) return { ok: true as const, value: { first: token, second: token } };
+      const first = site.applyValidatedCurrentClaimInTransaction(token.value, transaction);
+      const second = site.applyValidatedCurrentClaimInTransaction(token.value, transaction);
+      return { ok: true as const, value: { first, second } };
+    });
+    assert.equal(replayed.ok, true);
+    if (!replayed.ok) throw new Error("transaction");
+    assert.equal(replayed.value.first.ok, true);
+    assertFailure(replayed.value.second, "STALE_ROUTE_PROPOSAL");
+  });
+});
