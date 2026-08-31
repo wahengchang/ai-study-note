@@ -1,8 +1,8 @@
 ---
 id: WI-017
-status: pending
+status: done
 title: SiteDefinition｜原子替換 route/source revision 並回傳 retained impact
-work_group: null
+work_group: WG-004-site-definition-route-replacement
 depends_on: ["WI-012"]
 ---
 

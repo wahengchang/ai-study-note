@@ -1,3 +1,3 @@
 export { createSiteDefinition } from "./service.js";
 export { diagnosticRoute, normalizeRoute } from "./normalization.js";
-export type { CurrentRouteClaimProposal, PublishedRouteClaimProposal, RouteClaim, RouteGraph, RouteGraphSnapshot, SiteDefinition, SiteDefinitionFailure, SiteDefinitionFailureCode, SiteDefinitionPersistence, SiteDefinitionResult, SiteDefinitionTransaction, ValidatedCurrentRouteClaim, ValidatedPublishedRouteClaim } from "./contracts.js";
+export type { CurrentRouteClaimProposal, PublishedRouteClaimProposal, RouteClaim, RouteClaimImpact, RouteClaimImpactChange, RouteClaimReplacementInput, RouteClaimReplacementProposal, RouteClaimReplacementResult, RouteGraph, RouteGraphSnapshot, SiteDefinition, SiteDefinitionFailure, SiteDefinitionFailureCode, SiteDefinitionPersistence, SiteDefinitionResult, SiteDefinitionTransaction, ValidatedCurrentRouteClaim, ValidatedPublishedRouteClaim, ValidatedRouteClaimReplacement } from "./contracts.js";
