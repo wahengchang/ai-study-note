@@ -2,8 +2,7 @@
 id: WG-007-replace-media-reference
 status: completed
 title: 原子替換 current revision 媒體引用
-work_items:
-  - WI-019
+work_items: []
 owner: Main
 branch: cms/replace-media-reference
 worktree: .dev-hub/worktrees/replace-media-reference
@@ -14,7 +13,7 @@ pr: https://github.com/wahengchang/ai-study-note/pull/294
 
 ## Delivery
 
-新增 `DomainApplication.replaceMediaReference`：從指定 current source revision 複製完整 reference set，只替換一個 ready target，建立 immutable new current revision；published pointer／claim 與歷史 revision/reference 維持不變。
+先前實作新增獨立 `DomainApplication.replaceMediaReference`，後續確認與核准的 SaveRevision request 契約不符；其修正交由 WG-009，故不再認領 WI-019。
 
 ## Verification
 
