@@ -1,8 +1,8 @@
 ---
 id: WI-025
-status: pending
+status: done
 title: 規劃 External Authoring API｜CMS／CLI 共用 API 與 Bearer API Key
-work_group: null
+work_group: WG-006-external-api-contract
 depends_on: ["WI-015"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-015"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #241；onboarding status：pending。
+GitHub #241；WG-006 已完成。API-01–13、DEC-TAXONOMY-01、CONTENT-01 對應 WI-035–WI-052，均保持 planned，待各自依賴解除後才可認領。
