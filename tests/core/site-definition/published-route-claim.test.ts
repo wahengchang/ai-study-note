@@ -291,6 +291,7 @@ test("createPublishedClaim reports the domain failure code when the baseline mov
     const racingPersistence = {
       listRouteClaims: (graph: "current" | "published") => store.listRouteClaims(graph),
       replaceRouteClaim: (input: RouteClaim) => store.replaceRouteClaim(input),
+      ownsActiveTransaction: (transaction: object) => store.ownsActiveTransaction(transaction),
       runTransaction: <T, E>(operation: (transaction: SiteDefinitionTransaction) => Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>) => {
         if (!raced) {
           raced = true;

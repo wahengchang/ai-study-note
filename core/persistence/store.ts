@@ -38,22 +38,26 @@ class Rollback extends Error { constructor(readonly decision: TransactionDecisio
 
 export function createPersistenceStore(database: SqliteAdapter): PersistenceStore {
   const operations = createOperations(database);
+  const activeTransactions = new WeakSet<object>();
   const runTransaction = <T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure> => {
     let alive = true;
     let firstFailure: PersistenceFailure | undefined;
     const transaction = createOperations(database, () => alive, (failure) => { firstFailure ??= failure; });
     try {
       return database.transaction(() => {
-        let decision: TransactionDecision<T, E>;
-        try { decision = operation(transaction); } catch { throw new Rollback({ ok: false, error: persistenceFailure("STORAGE_FAILURE") }); }
-        if (!decision.ok) throw new Rollback(decision as TransactionDecision<never, E>);
-        if (firstFailure !== undefined) throw new Rollback({ ok: false, error: firstFailure });
-        return decision;
+        activeTransactions.add(transaction);
+        try {
+          let decision: TransactionDecision<T, E>;
+          try { decision = operation(transaction); } catch { throw new Rollback({ ok: false, error: persistenceFailure("STORAGE_FAILURE") }); }
+          if (!decision.ok) throw new Rollback(decision as TransactionDecision<never, E>);
+          if (firstFailure !== undefined) throw new Rollback({ ok: false, error: firstFailure });
+          return decision;
+        } finally { activeTransactions.delete(transaction); }
       });
     } catch (error) {
       if (error instanceof Rollback) return error.decision as TransactionDecision<T, E | PersistenceFailure>;
       return { ok: false, error: persistenceFailure("STORAGE_FAILURE") };
-    } finally { alive = false; }
+    } finally { activeTransactions.delete(transaction); alive = false; }
   };
   const atomic = <T>(operation: (transaction: PersistenceTransaction) => PersistenceResult<T>): PersistenceResult<T> => {
     const result = runTransaction((transaction) => {
@@ -76,6 +80,7 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     readPluginActivationState() { return readPluginActivationState(database); },
     compareAndReplacePluginActivationState(input) { return compareAndReplacePluginActivationState(database, input); },
     runTransaction,
+    ownsActiveTransaction(transaction) { return activeTransactions.has(transaction); },
     preflightSchemaMigration(input) { return migrationImpact.preflight(input); },
     validateSchemaMigrationImpactEvidence(evidence) { return migrationImpact.validateEvidence(evidence); },
     executeSchemaMigration(input) {

@@ -172,6 +172,7 @@ export interface PersistenceStore extends PersistenceTransaction {
   readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
   compareAndReplacePluginActivationState(input: CompareAndReplacePluginActivationStateInput): PersistenceResult<boolean>;
   runTransaction<T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
+  ownsActiveTransaction(transaction: object): boolean;
   close(): void;
   preflightSchemaMigration(input: SchemaMigrationPreflightInput): PersistenceResult<SchemaMigrationImpactReport>;
   validateSchemaMigrationImpactEvidence(evidence: SchemaMigrationImpactEvidence): PersistenceResult<undefined>;
