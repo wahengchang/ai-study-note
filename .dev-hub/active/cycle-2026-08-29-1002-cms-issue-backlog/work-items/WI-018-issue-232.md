@@ -1,8 +1,8 @@
 ---
 id: WI-018
-status: pending
+status: done
 title: DomainApplication｜PublishRevision 發布呼叫端確認的 current revision
-work_group: null
+work_group: WG-005-publish-revision
 depends_on: ["WI-010", "WI-012", "WI-015"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-010", "WI-012", "WI-015"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #232；onboarding status：pending。
+GitHub #232；WG-005 已完成，等待 PR 建立。

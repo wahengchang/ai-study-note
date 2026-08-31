@@ -7,7 +7,7 @@
 
 ## 目前實作 surface
 
-`SaveRevision` 於 schema、route 與 media preflight 後只 prepare 一次 real `PluginHost` validator snapshot；同一 transaction 在第一個 canonical write 前 consume token。成功結果分離 lifecycle `stateDigest` 與 prepare snapshot 的 `activePluginStateDigest`；validator 或 transaction fault 會 rollback revision、references、lineage、pointer 與 route claim，published state 維持不變。
+`SaveRevision` 於 schema、route 與 media preflight 後只 prepare 一次 real `PluginHost` validator snapshot；同一 transaction 在第一個 canonical write 前 consume token。`PublishRevision` 重新驗證 selected current revision 的 schema、media 與 published route proposal，並只原子移動 published pointer／claim 與 `createsRevision: false` lineage；兩者的拒絕都維持 canonical write-set 不變。
 
 ## Problem Statement
 
