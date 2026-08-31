@@ -26,4 +26,4 @@
 ## 相關 Branch／PR
 
 - Branch：`cms/site-definition-route-replacement`
-- PR：尚未建立
+- PR：https://github.com/wahengchang/ai-study-note/pull/273

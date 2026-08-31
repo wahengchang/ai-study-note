@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/site-definition-route-replacement
 worktree: .dev-hub/worktrees/site-definition-route-replacement
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/273
 ---
 
 # 原子替換 route claim
