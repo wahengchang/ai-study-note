@@ -1,8 +1,8 @@
 ---
 id: WI-020
-status: pending
+status: done
 title: DataMedia｜從 published pointer 解析唯一可信的媒體選取
-work_group: null
+work_group: WG-008-published-media-selection
 depends_on: ["WI-010", "WI-018"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-010", "WI-018"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #235；onboarding status：pending。
+GitHub #235；WG-008 已完成，等待 PR 建立。
