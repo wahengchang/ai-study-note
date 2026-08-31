@@ -126,3 +126,48 @@ test("PublishRevision reports stale route proposals and leaves its write-set unc
     assert.equal(digestOf(store), before);
   });
 });
+
+test("PublishRevision replaces an existing published claim when current route moves", async () => {
+  await withStore(async (store, pluginHost) => {
+    const site = createSiteDefinition({ persistence: store });
+    const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    await save(app, "draft-1", "save-1");
+    assert.equal((await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" })).ok, true);
+    await save(app, "draft-2", "save-2");
+    const moved = site.replaceRouteClaim({ graph: "current", owner: "entry-a", route: "/new-guide", sourceRevisionId: "draft-2" });
+    assert.equal(moved.ok, true);
+    const republished = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-2", operationId: "publish-2" });
+    assert.equal(republished.ok, true, republished.ok ? "" : republished.error.code);
+    if (!republished.ok) return;
+    assert.equal(republished.value.publishedClaim.normalizedRoute, "/new-guide");
+    assert.equal(republished.value.publishedClaim.sourceRevisionId, "draft-2");
+    const pointer = store.getEntryPointers("entry-a");
+    assert.equal(pointer.ok, true);
+    if (!pointer.ok) return;
+    assert.equal(pointer.value.publishedRevisionId, "draft-2");
+  });
+});
+
+test("PublishRevision rejects a proposal detached from its selected current-route snapshot", async () => {
+  await withStore(async (store, pluginHost) => {
+    const site = createSiteDefinition({ persistence: store });
+    const initial = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    await save(initial, "draft-1", "save-1");
+    const racedSite: DomainApplicationDependencies["siteDefinition"] = {
+      ...site,
+      preparePublishedClaim(input) {
+        const moved = site.replaceRouteClaim({ graph: "current", owner: "entry-a", route: "/raced", sourceRevisionId: "draft-1" });
+        assert.equal(moved.ok, true);
+        return site.preparePublishedClaim(input);
+      },
+    };
+    const app = createDomainApplication({ persistence: store, siteDefinition: racedSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const result = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" });
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "STALE_ROUTE_PROPOSAL");
+    const pointer = store.getEntryPointers("entry-a");
+    assert.equal(pointer.ok, true);
+    if (!pointer.ok) return;
+    assert.equal(pointer.value.publishedRevisionId, undefined);
+  });
+});

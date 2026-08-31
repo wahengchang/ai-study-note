@@ -5,6 +5,10 @@
 - **依據**：`CMS-BASIC-CONTRACTS-V1` §2；它定義已核准範圍與設計約束。程式碼與對應測試是已實作行為的 SSOT。
 - **前置規格**：`CMS-DB-01`；供 `CMS-CORE-02` 與後續 published projection 使用。
 
+## 目前實作 surface
+
+`DataMedia` 先建立 ready asset version；`DomainApplication.SaveRevision` 的 `media-reference-replacement` derived request 從 immutable current revision 派生 schema、content、normalized route 與完整 reference set，只把一個 ready 同 logical asset 的 version 替換為另一 version。成功只移動 current pointer／claim，published pointer／claim 保持 pin 直到明確 `PublishRevision`。
+
 ## Problem Statement
 
 內容管理者需要能安全匯入、替換、封存與還原本機媒體，而內容 revision 必須永遠指向當時可驗證的 asset version。若媒體檔案和資料庫 intent 沒有可恢復的狀態機，或 replace 覆寫舊版本，重新啟動、部分失敗與還原舊內容都可能讓 published selection 指向遺失、損壞或被悄悄改寫的檔案。

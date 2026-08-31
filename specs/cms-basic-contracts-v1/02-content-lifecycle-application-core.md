@@ -7,7 +7,7 @@
 
 ## 目前實作 surface
 
-`SaveRevision` 於 schema、route 與 media preflight 後只 prepare 一次 real `PluginHost` validator snapshot；同一 transaction 在第一個 canonical write 前 consume token。`PublishRevision` 重新驗證 selected current revision 的 schema、media 與 published route proposal，並只原子移動 published pointer／claim 與 `createsRevision: false` lineage；兩者的拒絕都維持 canonical write-set 不變。
+`SaveRevision` 在 schema、route 與完整 media preflight 後只 prepare 一次 real `PluginHost` validator snapshot；其 `media-reference-replacement` request 只接受同 logical asset 的不同 version，從 immutable current source 重新驗證 canonical content bytes／digest、派生完整 references，並在 transaction 內重驗 current pointer。`PublishRevision` 重新驗證 selected current revision 的 schema、media 與綁定 selected current-route snapshot 的 published proposal；已存在的 published claim 以 replacement token 原子移到 current route。兩者的拒絕都維持 canonical write-set 不變。
 
 ## Problem Statement
 

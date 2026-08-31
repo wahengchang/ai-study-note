@@ -109,6 +109,7 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
   if (!objects.ok) throw new Error("local media object store failed");
   const media = createDataMedia({ persistence: store, objectStore: objects.value });
   assert.equal(media.importLocal({ importId: "import-a", assetId: "asset-a", assetVersionId: "version-a", bytes: new TextEncoder().encode("asset bytes"), metadata: { mime: "text/plain" } }).ok, true);
+  assert.equal(media.importLocal({ importId: "import-a-v2", assetId: "asset-a", assetVersionId: "version-b", bytes: new TextEncoder().encode("new asset bytes"), metadata: { mime: "text/plain" } }).ok, true);
 
   const installedRoot = path.join(directory, "installed");
   mkdirSync(installedRoot);
@@ -145,7 +146,7 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
     },
   };
   const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: media, schemaValidator, pluginHost });
-  const baselineSave = await app.saveRevision(request({ revisionId: "draft-0", operationId: "save-0" }));
+  const baselineSave = await app.saveRevision(request({ revisionId: "draft-0", operationId: "save-0", assetVersions: [{ assetId: "asset-a", assetVersionId: "version-a" }] }));
   assert.equal(baselineSave.ok, true);
   if (!baselineSave.ok) throw new Error("baseline SaveRevision failed");
   assert.equal(store.setEntryPointers({ entryId: "entry-a", currentRevisionId: "draft-0", publishedRevisionId: "draft-0", lineage: { revisionId: "draft-0", operationId: "publish-0", operationKind: "PublishRevision" } }).ok, true);
@@ -318,6 +319,30 @@ test("late route-claim fault rolls back validated revision references and lifecy
     assertApplicationFailure(result, "DomainApplication", "SAVE_REVISION_FAILED", "canary transaction failure");
     assert.equal(trace(value).length, 1);
     await assertFailedCandidateState(value, before);
+  } finally {
+    value.store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("SaveRevision replacement consumes one active validator snapshot and persists its normalized content", async () => {
+  const value = await fixture("accept");
+  try {
+    const replaced = await value.app.saveRevision({
+      kind: "media-reference-replacement",
+      entryId: "entry-a",
+      revisionId: "draft-1",
+      operationId: "replace-1",
+      expectedCurrentRevisionId: "draft-0",
+      targetAssetVersion: { assetId: "asset-a", assetVersionId: "version-a" },
+      replacementAssetVersion: { assetId: "asset-a", assetVersionId: "version-b" },
+    });
+    assert.equal(replaced.ok, true, replaced.ok ? "" : replaced.error.code);
+    if (!replaced.ok) return;
+    assert.equal(replaced.value.activePluginStateDigest, value.activeDigest);
+    assert.deepEqual(JSON.parse(new TextDecoder().decode(replaced.value.revision.contentBytes)), { title: "validated" });
+    assert.deepEqual(replaced.value.references.map((reference) => reference.assetVersion), [{ assetId: "asset-a", assetVersionId: "version-b" }]);
+    assert.equal(trace(value).length, 1);
   } finally {
     value.store.close();
     rmSync(value.directory, { recursive: true, force: true });
