@@ -6,7 +6,7 @@ work_items: ["WI-021", "WI-022"]
 owner: Main
 branch: cms/archive-restore-asset
 worktree: .dev-hub/worktrees/archive-restore-asset
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/297
 ---
 
 # 媒體封存復原與 RestoreRevision
