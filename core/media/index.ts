@@ -1,3 +1,19 @@
 export { createDataMedia } from "./service.js";
 export { createLocalMediaObjectStore } from "./object-storage.js";
-export type { AssetVersionIdentity, DataMedia, DataMediaFailure, DataMediaFailureCode, DataMediaPersistence, DataMediaResult, ImportLocalMediaInput, MediaObjectStore, PublishedMediaSelection, ReadyAssetVersion } from "./contracts.js";
+export type {
+  ArchiveAssetImpact,
+  AssetVersion,
+  AssetVersionIdentity,
+  DataMedia,
+  DataMediaFailure,
+  DataMediaFailureCode,
+  DataMediaPersistence,
+  DataMediaResult,
+  ImportLocalMediaInput,
+  MediaObjectStore,
+  PublishedMediaSelection,
+  ReadyAssetVersion,
+  RestoreAssetCommandDescriptor,
+  RestoreAssetInput,
+  RestoreAvailabilityReport,
+} from "./contracts.js";

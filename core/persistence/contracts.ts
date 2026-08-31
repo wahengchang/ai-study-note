@@ -19,6 +19,9 @@ export type EntryPointerLineageRecord = Readonly<EntryPointerRecord & { lineageI
 export type RouteClaimRecord = Readonly<{ graph: "current" | "published"; normalizedRoute: string; owner: string; sourceRevisionId: string }>;
 export type MediaImportIntent = Readonly<{ importId: string; identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest }>;
 export type ReadyAssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: "ready" }>;
+export type AssetVersionAvailability = "ready" | "archived" | "missing";
+export type AssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: AssetVersionAvailability }>;
+export type PublishedAssetReference = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
 export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
 export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
 
@@ -162,6 +165,9 @@ export interface PersistenceTransaction {
   getMediaImportIntent(importId: string): PersistenceResult<MediaImportIntent>;
   commitReadyAssetVersion(input: MediaImportIntent): PersistenceResult<ReadyAssetVersionRecord>;
   getReadyAssetVersion(identity: AssetVersionIdentity): PersistenceResult<ReadyAssetVersionRecord>;
+  getAssetVersion(identity: AssetVersionIdentity): PersistenceResult<AssetVersionRecord>;
+  setAssetVersionAvailability(identity: AssetVersionIdentity, availability: AssetVersionAvailability): PersistenceResult<AssetVersionRecord>;
+  listPublishedAssetReferences(identity: AssetVersionIdentity): PersistenceResult<readonly PublishedAssetReference[]>;
   createRevisionReferences(revision: RevisionIdentity, assetVersions: readonly AssetVersionIdentity[]): PersistenceResult<readonly RevisionReferenceRecord[]>;
   getRevisionReferences(revision: RevisionIdentity): PersistenceResult<readonly RevisionReferenceRecord[]>;
   createRevisionWithReferences(input: CreateRevisionWithReferencesInput): PersistenceResult<Readonly<{ revision: RevisionRecord; references: readonly RevisionReferenceRecord[] }>>;

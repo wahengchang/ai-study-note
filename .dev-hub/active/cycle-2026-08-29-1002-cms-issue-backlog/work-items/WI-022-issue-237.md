@@ -1,8 +1,8 @@
 ---
 id: WI-022
-status: pending
+status: done
 title: DomainApplication｜RestoreRevision 還原為新的 current 草稿
-work_group: null
+work_group: WG-010
 depends_on: ["WI-015", "WI-017", "WI-021"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-015", "WI-017", "WI-021"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #237；onboarding status：pending。
+GitHub #237；onboarding status：done；WG-010 已完成。

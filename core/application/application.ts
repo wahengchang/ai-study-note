@@ -1,5 +1,5 @@
 import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
-import type { AssetVersionIdentity } from "../media/index.js";
+import type { AssetVersionIdentity, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { PluginHostFailure } from "../plugin-host/index.js";
 import type { PublishedRouteClaimProposal, RouteClaim, RouteClaimReplacementProposal } from "../site-definition/index.js";
 
@@ -12,6 +12,8 @@ import type {
   DomainApplicationResult,
   PublishRevisionRequest,
   PublishRevisionSuccess,
+  RestoreRevisionRequest,
+  RestoreRevisionSuccess,
   SaveRevisionCommandRequest,
   SaveRevisionMediaReferenceReplacementRequest,
   SaveRevisionRequest,
@@ -21,16 +23,19 @@ import type {
 const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_SAVE_REVISION_REQUEST: "請修正 SaveRevision request。",
   INVALID_PUBLISH_REVISION_REQUEST: "請修正 PublishRevision request。",
+  INVALID_RESTORE_REVISION_REQUEST: "請修正 RestoreRevision request。",
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再發布。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
   MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
   SCHEMA_INVALID: "草稿不符合選定的 schema version。",
   MEDIA_UNAVAILABLE: "請先完成所有引用媒體的匯入或復原。",
+  BLOCKED_ARCHIVED_MEDIA_RESTORE: "請先復原所有不可用的 media asset version。",
   ROUTE_CONFLICT: "請選擇未被其他內容占用的 route。",
   ROUTE_CHANGE_REQUIRED: "請改用 ChangeRoute 變更既有 route。",
   STALE_ROUTE_PROPOSAL: "Route graph 已變更，請重新取得 proposal。",
   SAVE_REVISION_FAILED: "草稿未儲存；canonical state 未變更。",
   PUBLISH_REVISION_FAILED: "發布未完成；canonical state 未變更。",
+  RESTORE_REVISION_FAILED: "Revision 尚未完成還原；canonical state 未變更。",
 };
 
 type PreparedPublishedClaim =
@@ -44,8 +49,13 @@ type NormalizedSaveRevisionCommand =
 type CanonicalContent = Readonly<{ value: JsonValue; bytes: Uint8Array; digest: Digest }>;
 type SelectedCurrentClaim = Readonly<{ claim: RouteClaim; snapshotDigest: Digest }>;
 
-function fail<T>(code: DomainApplicationFailureCode, owner: DomainApplicationCommandFailure["owner"] = "DomainApplication", subjectIds: readonly string[] = []): DomainApplicationResult<T> {
-  return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] } } };
+function fail<T>(
+  code: DomainApplicationFailureCode,
+  owner: DomainApplicationCommandFailure["owner"] = "DomainApplication",
+  subjectIds: readonly string[] = [],
+  restoreCommands?: readonly RestoreAssetCommandDescriptor[],
+): DomainApplicationResult<T> {
+  return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] }, ...(restoreCommands === undefined ? {} : { restoreCommands }) } };
 }
 
 function plugin(error: PluginHostFailure): DomainApplicationResult<never> {
@@ -259,6 +269,92 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       return command.kind === "save"
         ? executeSaveRevision(command.request)
         : executeMediaReferenceReplacement(command.request);
+    },
+
+    async restoreRevision(request: RestoreRevisionRequest): Promise<DomainApplicationResult<RestoreRevisionSuccess>> {
+      const restored = normalizeRestoreRevisionRequest(request);
+      if (restored === null) return fail("INVALID_RESTORE_REVISION_REQUEST");
+      const sourceIdentity = { entryId: restored.entryId, revisionId: restored.sourceRevisionId };
+      const source = persistence.getRevision(sourceIdentity);
+      if (!source.ok) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
+      const content = verifiedSourceContent(source.value.contentBytes, source.value.contentDigest);
+      if (content === null) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
+      const schema = persistence.getSchemaVersion(source.value.schemaIdentity);
+      if (!schema.ok) return fail("RESTORE_REVISION_FAILED", "Content", [source.value.schemaIdentity.schemaId]);
+      try {
+        if (!schemaValidator.validate({ schema: schema.value, contentBytes: content.bytes, contentDigest: content.digest }).ok) {
+          return fail("SCHEMA_INVALID", "Content", [source.value.schemaIdentity.schemaId]);
+        }
+      } catch {
+        return fail("RESTORE_REVISION_FAILED");
+      }
+      const references = persistence.getRevisionReferences(sourceIdentity);
+      if (!references.ok) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
+      const assetVersions = references.value.map((reference) => reference.assetVersion);
+      const availability = dataMedia.inspectRestoreAvailability(assetVersions);
+      if (!availability.ok) return fail("RESTORE_REVISION_FAILED", "DataMedia", availability.error.subjectIds);
+      if (availability.value.status === "blocked") {
+        return fail("BLOCKED_ARCHIVED_MEDIA_RESTORE", "DataMedia", restoreCommandSubjects(availability.value.commands), availability.value.commands);
+      }
+      const pointer = persistence.getEntryPointers(restored.entryId);
+      if (!pointer.ok) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId]);
+      const current = siteDefinition.snapshot("current");
+      if (!current.ok) return fail("RESTORE_REVISION_FAILED", "SiteDefinition", [restored.entryId]);
+      const currentClaim = current.value.claims.find((claim) => claim.owner === restored.entryId && claim.sourceRevisionId === pointer.value.currentRevisionId);
+      if (currentClaim === undefined) return fail("RESTORE_REVISION_FAILED", "SiteDefinition", [restored.entryId]);
+      const proposal = siteDefinition.prepareRouteClaimReplacement({
+        graph: "current",
+        owner: restored.entryId,
+        route: currentClaim.normalizedRoute,
+        sourceRevisionId: restored.revisionId,
+      });
+      if (!proposal.ok) return fail("RESTORE_REVISION_FAILED", "SiteDefinition", [restored.entryId]);
+
+      const result = persistence.runTransaction<RestoreRevisionSuccess, DomainApplicationFailure>((transaction) => {
+        const latest = transaction.getEntryPointers(restored.entryId);
+        if (!latest.ok || latest.value.currentRevisionId !== pointer.value.currentRevisionId) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId]);
+        for (const assetVersion of assetVersions) {
+          if (!transaction.getReadyAssetVersion(assetVersion).ok) return fail("RESTORE_REVISION_FAILED", "DataMedia", [assetVersion.assetId, assetVersion.assetVersionId]);
+        }
+        const token = siteDefinition.validateRouteClaimReplacementInTransaction(proposal.value, transaction);
+        if (!token.ok) return fail("RESTORE_REVISION_FAILED", "SiteDefinition", [restored.entryId]);
+        const created = transaction.createRevisionWithReferences({
+          revision: {
+            identity: { entryId: restored.entryId, revisionId: restored.revisionId },
+            schemaIdentity: source.value.schemaIdentity,
+            contentBytes: content.bytes,
+            contentDigest: content.digest,
+            restoredFromRevisionId: restored.sourceRevisionId,
+            lineage: { operationId: restored.operationId, operationKind: "RestoreRevision" },
+          },
+          assetVersions,
+        });
+        if (!created.ok) return fail("RESTORE_REVISION_FAILED");
+        const updated = transaction.setEntryPointers({
+          entryId: restored.entryId,
+          currentRevisionId: restored.revisionId,
+          ...(latest.value.publishedRevisionId === undefined ? {} : { publishedRevisionId: latest.value.publishedRevisionId }),
+          lineage: { revisionId: restored.revisionId, operationId: restored.operationId, operationKind: "RestoreRevision" },
+        });
+        if (!updated.ok) return fail("RESTORE_REVISION_FAILED");
+        const applied = siteDefinition.applyValidatedRouteClaimReplacementInTransaction(token.value, transaction);
+        if (!applied.ok) return fail("RESTORE_REVISION_FAILED", "SiteDefinition", [restored.entryId]);
+        const state = transaction.canonicalState();
+        return !state.ok
+          ? fail("RESTORE_REVISION_FAILED")
+          : {
+              ok: true,
+              value: {
+                revision: created.value.revision,
+                references: created.value.references,
+                currentPointer: updated.value,
+                currentClaim: applied.value.claim,
+                lineageIdentity: { entryId: restored.entryId, revisionId: restored.revisionId, operationId: restored.operationId },
+                stateDigest: state.value.digest,
+              },
+            };
+      });
+      return result.ok ? result : result.error.owner === "Persistence" ? fail("RESTORE_REVISION_FAILED", "DomainApplication", [restored.entryId, restored.sourceRevisionId]) : { ok: false, error: result.error };
     },
 
     async publishRevision(request) {
@@ -478,11 +574,29 @@ function normalizeSaveRevisionCommand(value: unknown): NormalizedSaveRevisionCom
   }
 }
 
+function normalizeRestoreRevisionRequest(value: unknown): RestoreRevisionRequest | null {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const fields = ownEnumerableFields(value, ["entryId", "sourceRevisionId", "revisionId", "operationId"]);
+    if (fields === null || !text(fields.entryId) || !text(fields.sourceRevisionId) || !text(fields.revisionId) || !text(fields.operationId) || fields.revisionId === fields.sourceRevisionId) return null;
+    return {
+      entryId: fields.entryId,
+      sourceRevisionId: fields.sourceRevisionId,
+      revisionId: fields.revisionId,
+      operationId: fields.operationId,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function restoreCommandSubjects(commands: readonly RestoreAssetCommandDescriptor[]): readonly string[] {
+  return commands.flatMap((command) => [command.assetVersion.assetId, command.assetVersion.assetVersionId]);
+}
+
 function ownEnumerableFields(value: object, expected: readonly string[]): Record<string, unknown> | null {
   const keys = Reflect.ownKeys(value);
-  const enumerable = keys.filter((key) => Object.getOwnPropertyDescriptor(value, key)?.enumerable === true);
-  if (enumerable.length !== expected.length || enumerable.some((key) => typeof key !== "string" || !expected.includes(key))) return null;
-
+  if (keys.length !== expected.length || keys.some((key) => typeof key !== "string" || !expected.includes(key))) return null;
   const copied: Record<string, unknown> = {};
   for (const key of expected) {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
