@@ -30,4 +30,4 @@
 ## Branch／PR
 
 - Branch：`cms/media-reference-replacement`
-- PR：尚未建立。
+- PR：https://github.com/wahengchang/ai-study-note/pull/296

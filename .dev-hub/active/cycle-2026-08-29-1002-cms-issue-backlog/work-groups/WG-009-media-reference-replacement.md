@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/media-reference-replacement
 worktree: .dev-hub/worktrees/media-reference-replacement
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/296
 ---
 
 # 透過 SaveRevision 原子替換 current media reference
