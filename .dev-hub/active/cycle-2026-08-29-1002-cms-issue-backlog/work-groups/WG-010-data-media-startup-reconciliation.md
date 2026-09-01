@@ -7,7 +7,7 @@ work_items:
 owner: Main
 branch: cms/data-media-startup-reconciliation
 worktree: .dev-hub/worktrees/data-media-startup-reconciliation
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/298
 ---
 
 # DataMedia 啟動安全收斂中斷匯入

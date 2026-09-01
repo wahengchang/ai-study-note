@@ -34,4 +34,4 @@
 ## 相關 Branch／PR
 
 - Branch：`cms/data-media-startup-reconciliation`
-- PR：尚未建立。
+- PR：https://github.com/wahengchang/ai-study-note/pull/298
