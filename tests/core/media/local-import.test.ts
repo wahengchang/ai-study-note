@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
+import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 
 test("local import persists a ready version and resolves only verified final bytes", () => {
@@ -13,7 +13,8 @@ test("local import persists a ready version and resolves only verified final byt
     const databasePath = path.join(directory, "cms.sqlite"); assert.equal(migrateDatabase({ databasePath }).ok, true);
     const opened = openPersistence({ databasePath }); assert.equal(opened.ok, true); if (!opened.ok) return;
     const objectStore = createLocalMediaObjectStore({ objectsRoot: path.join(directory, "objects") }); assert.equal(objectStore.ok, true); if (!objectStore.ok) return;
-    const media = createDataMedia({ persistence: opened.value, objectStore: objectStore.value });
+    const started = startDataMedia({ persistence: opened.value, objectStore: objectStore.value }); assert.equal(started.ok, true); if (!started.ok) return;
+    const media = started.value;
     const imported = media.importLocal({ importId: "import-1", assetId: "asset-1", assetVersionId: "version-1", bytes: new TextEncoder().encode("media bytes"), metadata: { mime: "text/plain" } });
     assert.equal(imported.ok, true); if (!imported.ok) return;
     assert.equal(imported.value.availability, "ready");

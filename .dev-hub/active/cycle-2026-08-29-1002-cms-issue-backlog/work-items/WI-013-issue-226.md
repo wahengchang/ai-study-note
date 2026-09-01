@@ -1,8 +1,8 @@
 ---
 id: WI-013
-status: pending
+status: done
 title: DataMedia｜啟動時安全收斂中斷匯入
-work_group: null
+work_group: WG-010-data-media-startup-reconciliation
 depends_on: ["WI-006", "WI-010"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-006", "WI-010"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #226；onboarding status：pending。
+GitHub #226；由 WG-010-data-media-startup-reconciliation 於 2026-09-01 認領並完成；實際驗證見 WG-010 與 `logs/2026-09-01-1645-data-media-startup-reconciliation.md`。

@@ -7,7 +7,7 @@ import test from "node:test";
 import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
 import type { DomainApplication, DomainApplicationResult, RevisionSchemaValidator, SaveRevisionRequest } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest, type Digest, type JsonValue } from "../../../core/foundation/index.js";
-import { createDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
+import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import type { PersistenceCanonicalState, PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
@@ -107,7 +107,10 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
   const objects = createLocalMediaObjectStore({ objectsRoot: path.join(directory, "objects") });
   assert.equal(objects.ok, true);
   if (!objects.ok) throw new Error("local media object store failed");
-  const media = createDataMedia({ persistence: store, objectStore: objects.value });
+  const started = startDataMedia({ persistence: store, objectStore: objects.value });
+  assert.equal(started.ok, true);
+  if (!started.ok) throw new Error("startDataMedia failed");
+  const media = started.value;
   assert.equal(media.importLocal({ importId: "import-a", assetId: "asset-a", assetVersionId: "version-a", bytes: new TextEncoder().encode("asset bytes"), metadata: { mime: "text/plain" } }).ok, true);
   assert.equal(media.importLocal({ importId: "import-a-v2", assetId: "asset-a", assetVersionId: "version-b", bytes: new TextEncoder().encode("new asset bytes"), metadata: { mime: "text/plain" } }).ok, true);
 

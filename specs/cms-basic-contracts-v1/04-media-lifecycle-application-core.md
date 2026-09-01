@@ -7,7 +7,7 @@
 
 ## 目前實作 surface
 
-`DataMedia` 先建立 ready asset version；`DomainApplication.SaveRevision` 的 `media-reference-replacement` derived request 從 immutable current revision 派生 schema、content、normalized route 與完整 reference set，只把一個 ready 同 logical asset 的 version 替換為另一 version。成功只移動 current pointer／claim，published pointer／claim 保持 pin 直到明確 `PublishRevision`。target reference 不存在時回傳 `MEDIA_REFERENCE_NOT_FOUND`；source 已引用 replacement version 時回傳 `MEDIA_REFERENCE_CONFLICT`，不靜默去除重複引用。
+`startDataMedia()` 是唯一 operational factory：它先用 immutable Persistence／filesystem snapshots 同步收斂 durable `staged → pending → ready` evidence，任一不安全、歧義或 fault 都不回 instance；完成後只刪未受 canonical asset version 保護的合法 orphan，重跑不改 canonical digests。已啟動的 `DataMedia` 建立 ready asset version；`DomainApplication.SaveRevision` 的 `media-reference-replacement` derived request 從 immutable current revision 派生 schema、content、normalized route 與完整 reference set，只把一個 ready 同 logical asset 的 version 替換為另一 version。成功只移動 current pointer／claim，published pointer／claim 保持 pin 直到明確 `PublishRevision`。target reference 不存在時回傳 `MEDIA_REFERENCE_NOT_FOUND`；source 已引用 replacement version 時回傳 `MEDIA_REFERENCE_CONFLICT`，不靜默去除重複引用。
 
 ## Problem Statement
 
