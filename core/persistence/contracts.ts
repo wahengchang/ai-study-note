@@ -18,10 +18,11 @@ export type SetEntryPointersInput = Readonly<EntryPointerRecord & { lineage: Rea
 export type EntryPointerLineageRecord = Readonly<EntryPointerRecord & { lineageIdentity: OperationLineageIdentity }>;
 export type RouteClaimRecord = Readonly<{ graph: "current" | "published"; normalizedRoute: string; owner: string; sourceRevisionId: string }>;
 export type MediaImportIntent = Readonly<{ importId: string; identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest }>;
-export type MediaAvailability = "ready" | "archived" | "missing";
-export type MediaAssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: MediaAvailability }>;
-export type ReadyAssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: "ready" }>;
-export type MediaStartupSnapshot = Readonly<{ pendingIntents: readonly MediaImportIntent[]; assetVersions: readonly MediaAssetVersionRecord[] }>;
+export type AssetVersionAvailability = "ready" | "archived" | "missing";
+export type AssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: AssetVersionAvailability }>;
+export type ReadyAssetVersionRecord = Readonly<AssetVersionRecord & { availability: "ready" }>;
+export type PublishedAssetReference = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
+export type MediaStartupSnapshot = Readonly<{ pendingIntents: readonly MediaImportIntent[]; assetVersions: readonly AssetVersionRecord[] }>;
 export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
 export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
 
@@ -165,8 +166,10 @@ export interface PersistenceTransaction {
   getMediaImportIntent(importId: string): PersistenceResult<MediaImportIntent>;
   deleteMediaImportIntentExact(input: MediaImportIntent): PersistenceResult<void>;
   commitReadyAssetVersion(input: MediaImportIntent): PersistenceResult<ReadyAssetVersionRecord>;
-  getAssetVersion(identity: AssetVersionIdentity): PersistenceResult<MediaAssetVersionRecord | undefined>;
   getReadyAssetVersion(identity: AssetVersionIdentity): PersistenceResult<ReadyAssetVersionRecord>;
+  getAssetVersion(identity: AssetVersionIdentity): PersistenceResult<AssetVersionRecord>;
+  setAssetVersionAvailability(identity: AssetVersionIdentity, availability: AssetVersionAvailability): PersistenceResult<AssetVersionRecord>;
+  listPublishedAssetReferences(identity: AssetVersionIdentity): PersistenceResult<readonly PublishedAssetReference[]>;
   createRevisionReferences(revision: RevisionIdentity, assetVersions: readonly AssetVersionIdentity[]): PersistenceResult<readonly RevisionReferenceRecord[]>;
   getRevisionReferences(revision: RevisionIdentity): PersistenceResult<readonly RevisionReferenceRecord[]>;
   createRevisionWithReferences(input: CreateRevisionWithReferencesInput): PersistenceResult<Readonly<{ revision: RevisionRecord; references: readonly RevisionReferenceRecord[] }>>;

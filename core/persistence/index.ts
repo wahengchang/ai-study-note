@@ -4,6 +4,8 @@ import { migrateDatabaseWithSources, openCurrentDatabase, shippedMigrationSource
 import { createPersistenceStore } from "./store.js";
 
 export type {
+  AssetVersionAvailability,
+  AssetVersionRecord,
   AssetVersionIdentity,
   CompareAndReplacePluginActivationStateInput,
   CreateRevisionInput,
@@ -11,8 +13,6 @@ export type {
   EntryPointerLineageRecord,
   EntryPointerRecord,
   MediaImportIntent,
-  MediaAssetVersionRecord,
-  MediaAvailability,
   MediaStartupSnapshot,
   MigrationSummary,
   OperationLineageIdentity,
@@ -21,6 +21,7 @@ export type {
   PersistenceCanonicalState,
   PersistenceFailure,
   PersistenceFailureCode,
+  PublishedAssetReference,
   PersistenceResult,
   PersistenceStore,
   PersistenceTransaction,

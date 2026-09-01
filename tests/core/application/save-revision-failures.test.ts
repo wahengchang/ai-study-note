@@ -19,6 +19,9 @@ const noMedia: DataMedia = {
   getReadyAssetVersion: () => ({ ok: false, error: mediaFailure() }),
   requireReadyAssetVersions: () => ({ ok: true, value: [] }),
   resolvePublishedSelection: () => ({ ok: false, error: mediaFailure() }),
+  archiveAsset: () => ({ ok: false, error: mediaFailure() }),
+  restoreAsset: () => ({ ok: false, error: mediaFailure() }),
+  inspectRestoreAvailability: () => ({ ok: false, error: mediaFailure() }),
 };
 
 function mediaFailure() {

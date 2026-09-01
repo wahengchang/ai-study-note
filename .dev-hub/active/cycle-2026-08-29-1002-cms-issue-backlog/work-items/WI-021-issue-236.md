@@ -1,8 +1,8 @@
 ---
 id: WI-021
-status: pending
+status: done
 title: DataMedia｜ArchiveAsset/RestoreAsset 的可用性復原閉環
-work_group: null
+work_group: WG-010
 depends_on: ["WI-010", "WI-018"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-010", "WI-018"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #236；onboarding status：pending。
+GitHub #236；onboarding status：done；WG-010 已完成。

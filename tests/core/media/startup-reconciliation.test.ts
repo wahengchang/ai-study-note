@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, readdirSync, rmSync, unlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
@@ -102,5 +102,47 @@ test("one-shot promotion fault preserves evidence and retries successfully", () 
     const recovered = startDataMedia({ persistence: f.persistence, objectStore: f.objectStore });
     assert.equal(recovered.ok, true);
     assert.equal(f.persistence.getReadyAssetVersion(retry.identity).ok, true);
+  } finally { f.persistence.close(); rmSync(f.directory, { recursive: true, force: true }); }
+});
+
+test("startup keeps two same-bytes pending intents convergent regardless of processing order", () => {
+  const f = fixture();
+  try {
+    const unpaired = f.intent("a-unpaired", "version-a", "shared"), paired = f.intent("b-paired", "version-b", "shared");
+    stage(f, unpaired); const pairedStage = stage(f, paired);
+    assert.equal(f.objectStore.promote(pairedStage, paired).ok, true);
+    assert.equal(f.persistence.createMediaImportIntent(unpaired).ok, true);
+    assert.equal(f.persistence.createMediaImportIntent(paired).ok, true);
+    const started = startDataMedia({ persistence: f.persistence, objectStore: f.objectStore });
+    assert.equal(started.ok, true, started.ok ? "" : started.error.subjectIds.join(","));
+    assert.equal(f.persistence.getReadyAssetVersion(unpaired.identity).ok, true);
+    assert.equal(f.persistence.getReadyAssetVersion(paired.identity).ok, true);
+    const storage = f.objectStore.readStartupSnapshot(); assert.equal(storage.ok, true); if (!storage.ok) return;
+    assert.equal(storage.value.stages.length, 0); assert.equal(storage.value.finals.length, 1);
+  } finally { f.persistence.close(); rmSync(f.directory, { recursive: true, force: true }); }
+});
+
+test("startup demotes a ready version with lost bytes to missing and RestoreAsset recovers it", () => {
+  const f = fixture();
+  try {
+    const first = startDataMedia({ persistence: f.persistence, objectStore: f.objectStore }); assert.equal(first.ok, true); if (!first.ok) return;
+    const bytes = new TextEncoder().encode("recoverable"), metadata = { mime: "text/plain" };
+    const identity = { assetId: "asset", assetVersionId: "lost" };
+    assert.equal(first.value.importLocal({ importId: "lost-import", ...identity, bytes, metadata }).ok, true);
+    const objects = path.join(f.directory, "objects", "objects");
+    for (const entry of readdirSync(objects)) unlinkSync(path.join(objects, entry));
+
+    // 可復原的媒體狀態不得讓 CMS 無法啟動：ready 版本降級為 missing，並保留 RestoreAsset remediation。
+    const restarted = startDataMedia({ persistence: f.persistence, objectStore: f.objectStore });
+    assert.equal(restarted.ok, true, restarted.ok ? "" : restarted.error.subjectIds.join(",")); if (!restarted.ok) return;
+    const demoted = f.persistence.getAssetVersion(identity); assert.equal(demoted.ok, true); if (!demoted.ok) return;
+    assert.equal(demoted.value.availability, "missing");
+    const report = restarted.value.inspectRestoreAvailability([identity]); assert.equal(report.ok, true); if (!report.ok) return;
+    assert.equal(report.value.status, "blocked");
+    if (report.value.status === "blocked") assert.equal(report.value.commands[0]?.recovery, "local-bytes-and-metadata");
+    const restored = restarted.value.restoreAsset({ ...identity, recovery: { bytes, metadata } });
+    assert.equal(restored.ok, true, restored.ok ? "" : restored.error.code); if (!restored.ok) return;
+    assert.equal(restored.value.availability, "ready");
+    assert.equal(startDataMedia({ persistence: f.persistence, objectStore: f.objectStore }).ok, true);
   } finally { f.persistence.close(); rmSync(f.directory, { recursive: true, force: true }); }
 });
