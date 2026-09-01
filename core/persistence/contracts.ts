@@ -18,10 +18,11 @@ export type SetEntryPointersInput = Readonly<EntryPointerRecord & { lineage: Rea
 export type EntryPointerLineageRecord = Readonly<EntryPointerRecord & { lineageIdentity: OperationLineageIdentity }>;
 export type RouteClaimRecord = Readonly<{ graph: "current" | "published"; normalizedRoute: string; owner: string; sourceRevisionId: string }>;
 export type MediaImportIntent = Readonly<{ importId: string; identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest }>;
-export type ReadyAssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: "ready" }>;
 export type AssetVersionAvailability = "ready" | "archived" | "missing";
 export type AssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; objectDigest: Digest; byteLength: number; metadataBytes: Uint8Array; metadataDigest: Digest; availability: AssetVersionAvailability }>;
+export type ReadyAssetVersionRecord = Readonly<AssetVersionRecord & { availability: "ready" }>;
 export type PublishedAssetReference = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
+export type MediaStartupSnapshot = Readonly<{ pendingIntents: readonly MediaImportIntent[]; assetVersions: readonly AssetVersionRecord[] }>;
 export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
 export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
 
@@ -163,6 +164,7 @@ export interface PersistenceTransaction {
   replaceRouteClaim(input: RouteClaimRecord): PersistenceResult<RouteClaimRecord>;
   createMediaImportIntent(input: MediaImportIntent): PersistenceResult<MediaImportIntent>;
   getMediaImportIntent(importId: string): PersistenceResult<MediaImportIntent>;
+  deleteMediaImportIntentExact(input: MediaImportIntent): PersistenceResult<void>;
   commitReadyAssetVersion(input: MediaImportIntent): PersistenceResult<ReadyAssetVersionRecord>;
   getReadyAssetVersion(identity: AssetVersionIdentity): PersistenceResult<ReadyAssetVersionRecord>;
   getAssetVersion(identity: AssetVersionIdentity): PersistenceResult<AssetVersionRecord>;
@@ -177,6 +179,7 @@ export interface PersistenceTransaction {
 export interface PersistenceStore extends PersistenceTransaction {
   readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
   compareAndReplacePluginActivationState(input: CompareAndReplacePluginActivationStateInput): PersistenceResult<boolean>;
+  readMediaStartupSnapshot(): PersistenceResult<MediaStartupSnapshot>;
   runTransaction<T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
   ownsActiveTransaction(transaction: object): boolean;
   close(): void;

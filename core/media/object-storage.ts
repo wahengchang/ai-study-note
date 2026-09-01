@@ -1,192 +1,138 @@
-import {
-  closeSync,
-  constants,
-  copyFileSync,
-  fstatSync,
-  linkSync,
-  lstatSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  realpathSync,
-  unlinkSync,
-  writeFileSync,
-} from "node:fs";
+import { closeSync, constants, copyFileSync, fstatSync, linkSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, unlinkSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 
-import { sha256Digest } from "../foundation/index.js";
-import type { DataMediaResult, MediaEvidence, MediaFinalToken, MediaObjectStore, MediaStageToken } from "./contracts.js";
+import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest } from "../foundation/index.js";
+import type { DataMediaResult, MediaEvidence, MediaFinalCandidate, MediaFinalToken, MediaHardlinkPairToken, MediaObjectStore, MediaStageCandidate, MediaStageToken, MediaStorageSnapshot } from "./contracts.js";
 
-const failures = {
-  MEDIA_ROOT_FAILURE: "Media storage root 無法安全使用。",
-  MEDIA_STAGING_FAILURE: "Media bytes 尚未完成 staging。",
-  MEDIA_PROMOTION_FAILURE: "Media object 尚未完成 promotion。",
-  MEDIA_FINAL_VERIFICATION_FAILURE: "Host 最終 media object 驗證失敗。",
-} as const;
-const digestKey = /^[a-f0-9]{64}$/;
-type RootIdentity = Readonly<{ path: string; dev: number; ino: number }>;
-type Stage = Readonly<{ name: string; evidence: MediaEvidence }>;
-type Final = Readonly<{ name: string; evidence: MediaEvidence }>;
+const failures = { MEDIA_ROOT_FAILURE: "Media storage root 無法安全使用。", MEDIA_STAGING_FAILURE: "Media bytes 尚未完成 staging。", MEDIA_PROMOTION_FAILURE: "Media object 尚未完成 promotion。", MEDIA_FINAL_VERIFICATION_FAILURE: "Host 最終 media object 驗證失敗。" } as const;
+type Kind = "stage" | "final";
+type DirectoryIdentity = Readonly<{ dev: number; ino: number }>;
+type StoredToken = { kind: Kind; key: Digest; path: string; evidence: MediaEvidence; dev: number; ino: number; nlink: number; mtimeMs: number; pair?: object; orphanable: boolean };
+type Inspected = Readonly<{ evidence: MediaEvidence; dev: number; ino: number; nlink: number; mtimeMs: number }>;
 
 export function createLocalMediaObjectStore({ objectsRoot }: Readonly<{ objectsRoot: string }>): DataMediaResult<MediaObjectStore> {
-  const fail = <T>(code: keyof typeof failures): DataMediaResult<T> => ({
-    ok: false,
-    error: { code, owner: "DataMedia", subjectIds: [], remediation: { kind: "message", message: failures[code] } },
-  });
-  if (!path.isAbsolute(objectsRoot)) return fail("MEDIA_ROOT_FAILURE");
-
-  let roots: Readonly<{ root: RootIdentity; staging: RootIdentity; objects: RootIdentity }>;
+  const fail = <T>(code: keyof typeof failures): DataMediaResult<T> => ({ ok: false, error: { code, owner: "DataMedia", subjectIds: [], remediation: { kind: "message", message: failures[code] } } });
   try {
+    if (!path.isAbsolute(objectsRoot)) return fail("MEDIA_ROOT_FAILURE");
     mkdirSync(objectsRoot, { recursive: true, mode: 0o700 });
-    const root = captureDirectory(objectsRoot);
-    const staging = captureDirectory(path.join(root.path, "staging"));
-    const objects = captureDirectory(path.join(root.path, "objects"));
-    roots = { root, staging, objects };
-  } catch {
-    return fail("MEDIA_ROOT_FAILURE");
-  }
-
-  const stages = new WeakMap<object, Stage>();
-  const finals = new WeakMap<object, Final>();
-  const usable = (): boolean => sameDirectory(roots.root) && sameDirectory(roots.staging) && sameDirectory(roots.objects);
-  const stagePath = (name: string): string => path.join(roots.staging.path, name);
-  const finalPath = (name: string): string => path.join(roots.objects.path, name);
-  const inspect = (file: string, evidence: MediaEvidence): "healthy" | "absent" | "unhealthy" => {
-    try {
-      return safeRead(file, evidence) ? "healthy" : "unhealthy";
-    } catch (error) {
-      return errorCode(error) === "ENOENT" ? "absent" : "unhealthy";
-    }
-  };
-
-  return {
-    ok: true,
-    value: {
+    const root = realpathSync(objectsRoot);
+    const staging = path.join(root, "staging"), objects = path.join(root, "objects");
+    mkdirSync(staging, { recursive: true, mode: 0o700 }); mkdirSync(objects, { recursive: true, mode: 0o700 });
+    const pinned = pinDirectories(root, staging, objects); if (pinned === undefined) return fail("MEDIA_ROOT_FAILURE");
+    const stages = new WeakMap<object, StoredToken>(), finals = new WeakMap<object, StoredToken>();
+    const healthyRoot = (): boolean => sameDirectory(root, pinned.root) && sameDirectory(staging, pinned.staging) && sameDirectory(objects, pinned.objects);
+    const tokenFor = (record: StoredToken): MediaStageToken | MediaFinalToken => { const token = {} as MediaStageToken & MediaFinalToken; (record.kind === "stage" ? stages : finals).set(token, record); return token; };
+    const validate = (record: StoredToken, evidence: MediaEvidence): boolean => {
+      if (!healthyRoot() || !sameEvidence(record.evidence, evidence)) return false;
+      const inspected = inspectFile(record.path, record.kind, record.key); if (inspected === undefined) return false;
+      return inspected.dev === record.dev && inspected.ino === record.ino && inspected.nlink === record.nlink && inspected.mtimeMs === record.mtimeMs && sameEvidence(inspected.evidence, evidence) && healthyRoot();
+    };
+    return { ok: true, value: {
       stage(input) {
-        if (!usable() || !validEvidence(input.evidence) || typeof input.importId !== "string" || input.importId.length === 0) return fail("MEDIA_ROOT_FAILURE");
-        const name = `${sha256Digest(new TextEncoder().encode(input.importId)).slice(7)}.partial`;
-        const target = stagePath(name);
-        const existing = inspect(target, input.evidence);
-        if (existing === "healthy") {
-          const token = {} as MediaStageToken;
-          stages.set(token, { name, evidence: input.evidence });
-          return { ok: true, value: token };
-        }
-        if (existing === "unhealthy") return fail("MEDIA_STAGING_FAILURE");
+        if (!healthyRoot() || typeof input.importId !== "string" || input.importId.length === 0 || !(input.bytes instanceof Uint8Array) || !validEvidence(input.evidence) || sha256Digest(input.bytes) !== input.evidence.objectDigest || input.bytes.byteLength !== input.evidence.byteLength) return fail("MEDIA_STAGING_FAILURE");
+        const key = sha256Digest(new TextEncoder().encode(input.importId)); const file = stagePath(staging, key);
         try {
-          const handle = openSync(target, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-          try {
-            writeFileSync(handle, input.bytes);
-          } finally {
-            closeSync(handle);
-          }
-          if (!usable() || inspect(target, input.evidence) !== "healthy") return fail("MEDIA_STAGING_FAILURE");
-          const token = {} as MediaStageToken;
-          stages.set(token, { name, evidence: input.evidence });
+          const handle = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
+          try { writeFileSync(handle, copyBytes(input.bytes)); } finally { closeSync(handle); }
+          const inspected = inspectFile(file, "stage", key); if (inspected === undefined || inspected.nlink !== 1 || !sameEvidence(inspected.evidence, input.evidence) || !healthyRoot()) return fail("MEDIA_STAGING_FAILURE");
+          const token = tokenFor({ kind: "stage", key, path: file, evidence: cloneEvidence(input.evidence), dev: inspected.dev, ino: inspected.ino, nlink: 1, mtimeMs: inspected.mtimeMs, orphanable: false }) as MediaStageToken;
           return { ok: true, value: token };
-        } catch {
-          return fail("MEDIA_STAGING_FAILURE");
-        }
+        } catch { return fail("MEDIA_STAGING_FAILURE"); }
       },
       promote(token, evidence) {
-        const stage = stages.get(token);
-        if (!usable() || stage === undefined || !same(stage.evidence, evidence) || inspect(stagePath(stage.name), evidence) !== "healthy") return fail("MEDIA_PROMOTION_FAILURE");
-        const name = evidence.objectDigest.slice(7);
-        if (!digestKey.test(name)) return fail("MEDIA_PROMOTION_FAILURE");
-        const target = finalPath(name);
+        const stage = stages.get(token); if (stage === undefined || !validEvidence(evidence) || !validate(stage, evidence)) return fail("MEDIA_PROMOTION_FAILURE");
+        const file = finalPath(objects, evidence.objectDigest); let paired = false;
         try {
-          // 既有 final object 只檢查一次；每次 inspect 都是完整讀取與雜湊。
-          const existing = inspect(target, evidence);
-          if (existing === "unhealthy") return fail("MEDIA_PROMOTION_FAILURE");
-          if (existing === "absent") promoteBytes(stagePath(stage.name), target);
-          if (!usable() || inspect(target, evidence) !== "healthy") return fail("MEDIA_PROMOTION_FAILURE");
-          const final = {} as MediaFinalToken;
-          finals.set(final, { name, evidence });
+          try { linkSync(stage.path, file); paired = true; }
+          catch (error) {
+            const code = errorCode(error);
+            if (code === "EEXIST") { /* content-addressed reuse is verified below. */ }
+            else if (code === "EPERM" || code === "ENOSYS" || code === "EXDEV") copyFileSync(stage.path, file, constants.COPYFILE_EXCL);
+            else throw error;
+          }
+          const inspected = inspectFile(file, "final", evidence.objectDigest); if (inspected === undefined || !sameEvidence(inspected.evidence, evidence) || !healthyRoot()) return fail("MEDIA_PROMOTION_FAILURE");
+          if (paired) {
+            const stageNow = inspectFile(stage.path, "stage", stage.key); if (stageNow === undefined || stageNow.nlink !== 2 || inspected.nlink !== 2 || stageNow.dev !== inspected.dev || stageNow.ino !== inspected.ino) return fail("MEDIA_PROMOTION_FAILURE");
+            const pair = {}; stage.pair = pair; stage.nlink = 2; stage.mtimeMs = stageNow.mtimeMs;
+            const final = tokenFor({ kind: "final", key: evidence.objectDigest, path: file, evidence: cloneEvidence(evidence), dev: inspected.dev, ino: inspected.ino, nlink: 2, mtimeMs: inspected.mtimeMs, pair, orphanable: false }) as MediaFinalToken;
+            return { ok: true, value: final };
+          }
+          if (inspected.nlink !== 1) return fail("MEDIA_PROMOTION_FAILURE");
+          const final = tokenFor({ kind: "final", key: evidence.objectDigest, path: file, evidence: cloneEvidence(evidence), dev: inspected.dev, ino: inspected.ino, nlink: 1, mtimeMs: inspected.mtimeMs, orphanable: false }) as MediaFinalToken;
           return { ok: true, value: final };
-        } catch {
-          return fail("MEDIA_PROMOTION_FAILURE");
-        }
+        } catch { return fail("MEDIA_PROMOTION_FAILURE"); }
       },
-      verifyFinal(token, evidence) {
-        const final = finals.get(token);
-        return usable() && final !== undefined && same(final.evidence, evidence) && inspect(finalPath(final.name), evidence) === "healthy"
-          ? { ok: true, value: undefined }
-          : fail("MEDIA_FINAL_VERIFICATION_FAILURE");
-      },
-      releaseStage(token, final) {
-        const stage = stages.get(token);
-        const completed = finals.get(final);
-        if (!usable() || stage === undefined || completed === undefined || !same(stage.evidence, completed.evidence)) return fail("MEDIA_FINAL_VERIFICATION_FAILURE");
+      verifyFinal(token, evidence) { const final = finals.get(token); return final !== undefined && validEvidence(evidence) && validate(final, evidence) ? { ok: true, value: undefined } : fail("MEDIA_FINAL_VERIFICATION_FAILURE"); },
+      releaseStage(stageToken, finalToken) {
+        const stage = stages.get(stageToken), final = finals.get(finalToken);
+        if (stage === undefined || final === undefined || !sameEvidence(stage.evidence, final.evidence) || !validate(stage, stage.evidence) || !validate(final, final.evidence) || stage.pair !== final.pair) return fail("MEDIA_FINAL_VERIFICATION_FAILURE");
         try {
-          if (inspect(finalPath(completed.name), completed.evidence) !== "healthy") return fail("MEDIA_FINAL_VERIFICATION_FAILURE");
-          unlinkSync(stagePath(stage.name));
-          stages.delete(token);
-          return { ok: true, value: undefined };
-        } catch {
-          return fail("MEDIA_FINAL_VERIFICATION_FAILURE");
-        }
+          unlinkSync(stage.path); stages.delete(stageToken);
+          const survivor = inspectFile(final.path, "final", final.key); if (survivor === undefined || survivor.nlink !== 1 || !sameEvidence(survivor.evidence, final.evidence) || !healthyRoot()) return fail("MEDIA_FINAL_VERIFICATION_FAILURE");
+          final.nlink = 1; final.mtimeMs = survivor.mtimeMs; delete final.pair; return { ok: true, value: undefined };
+        } catch { return fail("MEDIA_FINAL_VERIFICATION_FAILURE"); }
       },
-      verifyEvidence(evidence) {
-        return usable() && validEvidence(evidence) && inspect(finalPath(evidence.objectDigest.slice(7)), evidence) === "healthy"
-          ? { ok: true, value: undefined }
-          : fail("MEDIA_FINAL_VERIFICATION_FAILURE");
-      },
+      verifyEvidence(evidence) { if (!validEvidence(evidence) || !healthyRoot()) return fail("MEDIA_FINAL_VERIFICATION_FAILURE"); const inspected = inspectFile(finalPath(objects, evidence.objectDigest), "final", evidence.objectDigest); return inspected !== undefined && sameEvidence(inspected.evidence, evidence) && (inspected.nlink === 1 || inspected.nlink === 2) && healthyRoot() ? { ok: true, value: undefined } : fail("MEDIA_FINAL_VERIFICATION_FAILURE"); },
       inspectFinal(evidence) {
-        if (!usable() || !validEvidence(evidence)) return fail("MEDIA_ROOT_FAILURE");
-        return { ok: true, value: inspect(finalPath(evidence.objectDigest.slice(7)), evidence) };
+        if (!validEvidence(evidence) || !healthyRoot()) return fail("MEDIA_ROOT_FAILURE");
+        const file = finalPath(objects, evidence.objectDigest);
+        if (!exists(file)) return { ok: true, value: "absent" };
+        const inspected = inspectFile(file, "final", evidence.objectDigest);
+        return { ok: true, value: inspected !== undefined && sameEvidence(inspected.evidence, evidence) && healthyRoot() ? "healthy" : "unhealthy" };
       },
-    },
-  };
+      readStartupSnapshot() {
+        if (!healthyRoot()) return fail("MEDIA_ROOT_FAILURE");
+        const scanned = scanSnapshot(staging, objects, tokenFor); if (scanned === undefined || !healthyRoot()) return fail("MEDIA_ROOT_FAILURE");
+        return { ok: true, value: scanned };
+      },
+      removeOrphan(token) {
+        const record = stages.get(token) ?? finals.get(token);
+        if (record === undefined || !record.orphanable || record.nlink !== 1 || !validate(record, record.evidence)) return fail("MEDIA_ROOT_FAILURE");
+        try { unlinkSync(record.path); (record.kind === "stage" ? stages : finals).delete(token); return healthyRoot() ? { ok: true, value: undefined } : fail("MEDIA_ROOT_FAILURE"); } catch { return fail("MEDIA_ROOT_FAILURE"); }
+      },
+    } };
+  } catch { return fail("MEDIA_ROOT_FAILURE"); }
 }
 
-function captureDirectory(candidate: string): RootIdentity {
-  mkdirSync(candidate, { recursive: true, mode: 0o700 });
-  const stat = lstatSync(candidate);
-  const resolved = realpathSync(candidate);
-  if (!stat.isDirectory() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || (stat.mode & 0o022) !== 0) throw new Error("unsafe media root");
-  return { path: resolved, dev: stat.dev, ino: stat.ino };
-}
-function sameDirectory(root: RootIdentity): boolean {
-  try {
-    const stat = lstatSync(root.path);
-    return stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && (stat.mode & 0o022) === 0 && stat.dev === root.dev && stat.ino === root.ino && realpathSync(root.path) === root.path;
-  } catch {
-    return false;
+function scanSnapshot(staging: string, objects: string, tokenFor: (record: StoredToken) => MediaStageToken | MediaFinalToken): MediaStorageSnapshot | undefined {
+  const first = scanNames(staging, objects); if (first === undefined) return undefined;
+  const records: StoredToken[] = [];
+  for (const item of first) { const inspected = inspectFile(item.path, item.kind, item.key); if (inspected === undefined) return undefined; records.push({ kind: item.kind, key: item.key, path: item.path, evidence: cloneEvidence(inspected.evidence), dev: inspected.dev, ino: inspected.ino, nlink: inspected.nlink, mtimeMs: inspected.mtimeMs, orphanable: inspected.nlink === 1 }); }
+  // 第二輪只重掃檔名與 stat metadata；bytes 的 digest 已在第一輪確認，重複雜湊整個媒體庫會讓啟動成本隨資料量線性放大。
+  const second = scanNames(staging, objects); if (second === undefined || second.length !== first.length || second.some((item, index) => item.path !== first[index]?.path)) return undefined;
+  for (const [index, item] of second.entries()) { const stat = statFile(item.path, item.kind), original = records[index]; if (stat === undefined || original === undefined || stat.dev !== original.dev || stat.ino !== original.ino || stat.nlink !== original.nlink || stat.mtimeMs !== original.mtimeMs || stat.size !== original.evidence.byteLength) return undefined; }
+  const groups = new Map<string, StoredToken[]>(); for (const record of records) { const key = `${record.dev}:${record.ino}`; const group = groups.get(key) ?? []; group.push(record); groups.set(key, group); }
+  for (const group of groups.values()) {
+    if (group.length === 1) { if (group[0]?.nlink !== 1) return undefined; continue; }
+    const stage = group.find((record) => record.kind === "stage"), final = group.find((record) => record.kind === "final");
+    if (group.length !== 2 || stage === undefined || final === undefined || stage.nlink !== 2 || final.nlink !== 2 || !sameEvidence(stage.evidence, final.evidence) || final.key !== final.evidence.objectDigest) return undefined;
+    const pair = {}; stage.pair = pair; final.pair = pair; stage.orphanable = false; final.orphanable = false;
   }
-}
-function safeRead(file: string, evidence: MediaEvidence): boolean {
-  const handle = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
-  try {
-    const before = fstatSync(handle);
-    if (!before.isFile() || before.uid !== process.getuid?.() || before.size !== evidence.byteLength) return false;
-    const bytes = readFileSync(handle);
-    const after = fstatSync(handle);
-    return after.isFile() && after.dev === before.dev && after.ino === before.ino && after.size === before.size && sha256Digest(bytes) === evidence.objectDigest;
-  } finally {
-    closeSync(handle);
+  const stages: MediaStageCandidate[] = [], finals: MediaFinalCandidate[] = [];
+  for (const record of records) {
+    const token = tokenFor(record);
+    const candidate = { key: record.key, evidence: cloneEvidence(record.evidence), token, ...(record.pair === undefined ? {} : { hardlinkPair: record.pair as MediaHardlinkPairToken }) };
+    if (record.kind === "stage") stages.push(candidate as MediaStageCandidate); else finals.push(candidate as MediaFinalCandidate);
   }
+  stages.sort((a,b) => compareCodeUnits(a.key,b.key)); finals.sort((a,b) => compareCodeUnits(a.key,b.key));
+  const bytes = canonicalJsonBytes({ contract: "media-storage-snapshot/v1", stages: stages.map((candidate) => ({ key: candidate.key, objectDigest: candidate.evidence.objectDigest, byteLength: candidate.evidence.byteLength, pair: candidate.hardlinkPair === undefined ? null : finalKeyForPair(candidate.hardlinkPair, finals) })), finals: finals.map((candidate) => ({ key: candidate.key, objectDigest: candidate.evidence.objectDigest, byteLength: candidate.evidence.byteLength, pair: candidate.hardlinkPair === undefined ? null : stageKeyForPair(candidate.hardlinkPair, stages) })) });
+  return bytes.ok ? { contract: "media-storage-snapshot/v1", digest: sha256Digest(bytes.value), stages, finals } : undefined;
 }
-function promoteBytes(stage: string, final: string): void {
-  try {
-    linkSync(stage, final);
-    return;
-  } catch (error) {
-    const code = errorCode(error);
-    if (code === "EEXIST") return;
-    if (code !== "EPERM" && code !== "ENOSYS" && code !== "EXDEV") throw error;
-  }
-  try {
-    copyFileSync(stage, final, constants.COPYFILE_EXCL);
-  } catch (error) {
-    if (errorCode(error) !== "EEXIST") throw error;
-  }
-}
-function validEvidence(value: MediaEvidence): boolean {
-  return typeof value.byteLength === "number" && Number.isSafeInteger(value.byteLength) && value.byteLength >= 0 && digestKey.test(value.objectDigest.slice(7));
-}
-function errorCode(error: unknown): string {
-  return error !== null && typeof error === "object" && "code" in error ? String(error.code) : "";
-}
-function same(left: MediaEvidence, right: MediaEvidence): boolean {
-  return left.objectDigest === right.objectDigest && left.byteLength === right.byteLength;
-}
+function scanNames(staging: string, objects: string): readonly Readonly<{ kind: Kind; key: Digest; path: string }>[] | undefined { try { const entries = [...readdirSync(staging), ...readdirSync(objects)].sort(compareCodeUnits); const result: Array<Readonly<{ kind: Kind; key: Digest; path: string }>> = []; for (const name of entries) { const stage = /^[a-f0-9]{64}\.partial$/.exec(name), final = /^[a-f0-9]{64}$/.exec(name); if (stage === null && final === null) return undefined; const kind: Kind = stage === null ? "final" : "stage"; const key = `sha256:${(stage?.[0] ?? final?.[0] ?? "").replace(".partial", "")}` as Digest; result.push({ kind, key, path: kind === "stage" ? stagePath(staging,key) : finalPath(objects,key) }); } return result; } catch { return undefined; } }
+function statFile(file: string, kind: Kind): Readonly<{ dev: number; ino: number; nlink: number; mtimeMs: number; size: number }> | undefined { try { const expected = kind === "stage" ? /^[a-f0-9]{64}\.partial$/ : /^[a-f0-9]{64}$/; if (!expected.test(path.basename(file))) return undefined; const stat = lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || !Number.isSafeInteger(stat.size) || !Number.isSafeInteger(stat.nlink)) return undefined; return { dev: stat.dev, ino: stat.ino, nlink: stat.nlink, mtimeMs: stat.mtimeMs, size: stat.size }; } catch { return undefined; } }
+function exists(file: string): boolean { try { lstatSync(file); return true; } catch { return false; } }
+function inspectFile(file: string, kind: Kind, key: Digest): Inspected | undefined { try { const before = statFile(file, kind); if (before === undefined) return undefined; const handle = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW); try { const opened = fstatSync(handle); if (!opened.isFile() || opened.uid !== process.getuid?.() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size || opened.nlink !== before.nlink || opened.mtimeMs !== before.mtimeMs) return undefined; const hash = createHash("sha256"), buffer = Buffer.allocUnsafe(64 * 1024); let offset = 0; for (;;) { const count = readSync(handle, buffer, 0, buffer.length, offset); if (count === 0) break; hash.update(buffer.subarray(0,count)); offset += count; } const after = fstatSync(handle), lstatAfter = statFile(file, kind); if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.nlink !== opened.nlink || after.mtimeMs !== opened.mtimeMs || lstatAfter === undefined || lstatAfter.dev !== opened.dev || lstatAfter.ino !== opened.ino || lstatAfter.size !== opened.size || lstatAfter.nlink !== opened.nlink || lstatAfter.mtimeMs !== opened.mtimeMs) return undefined; const evidence = { objectDigest: `sha256:${hash.digest("hex")}` as Digest, byteLength: after.size }; if (!validEvidence(evidence) || (kind === "final" && evidence.objectDigest !== key)) return undefined; return { evidence, dev: after.dev, ino: after.ino, nlink: after.nlink, mtimeMs: after.mtimeMs }; } finally { closeSync(handle); } } catch { return undefined; } }
+function pinDirectories(root: string, staging: string, objects: string): Readonly<{ root: DirectoryIdentity; staging: DirectoryIdentity; objects: DirectoryIdentity }> | undefined { const rootId = directoryIdentity(root), stagingId = directoryIdentity(staging), objectsId = directoryIdentity(objects); return rootId === undefined || stagingId === undefined || objectsId === undefined ? undefined : { root: rootId, staging: stagingId, objects: objectsId }; }
+// group/other 可寫的 root 或非本使用者擁有的 root 會讓 immutable object 被他人替換，因此 pin 與每次存取都必須重新檢查擁有者與權限。
+function directoryIdentity(directory: string): DirectoryIdentity | undefined { try { const stat = lstatSync(directory); return stat.isDirectory() && !stat.isSymbolicLink() && stat.uid === process.getuid?.() && (stat.mode & 0o022) === 0 && realpathSync(directory) === directory ? { dev: stat.dev, ino: stat.ino } : undefined; } catch { return undefined; } }
+function sameDirectory(directory: string, expected: DirectoryIdentity): boolean { const current = directoryIdentity(directory); return current !== undefined && current.dev === expected.dev && current.ino === expected.ino; }
+function stagePath(staging: string, key: Digest): string { return path.join(staging, `${key.slice(7)}.partial`); }
+function finalPath(objects: string, key: Digest): string { return path.join(objects, key.slice(7)); }
+function validEvidence(value: MediaEvidence): value is MediaEvidence { return typeof value?.objectDigest === "string" && /^sha256:[a-f0-9]{64}$/.test(value.objectDigest) && Number.isSafeInteger(value.byteLength) && value.byteLength >= 0; }
+function cloneEvidence(value: MediaEvidence): MediaEvidence { return { objectDigest: value.objectDigest, byteLength: value.byteLength }; }
+function sameEvidence(left: MediaEvidence, right: MediaEvidence): boolean { return left.objectDigest === right.objectDigest && left.byteLength === right.byteLength; }
+function compareCodeUnits(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
+function finalKeyForPair(pair: MediaHardlinkPairToken, finals: readonly MediaFinalCandidate[]): string | null { return finals.find((candidate) => candidate.hardlinkPair === pair)?.key ?? null; }
+function stageKeyForPair(pair: MediaHardlinkPairToken, stages: readonly MediaStageCandidate[]): string | null { return stages.find((candidate) => candidate.hardlinkPair === pair)?.key ?? null; }
+function errorCode(error: unknown): string { return error !== null && typeof error === "object" && "code" in error ? String(error.code) : ""; }

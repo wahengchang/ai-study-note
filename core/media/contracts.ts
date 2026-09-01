@@ -1,13 +1,5 @@
 import type { CoreResult, Digest, JsonValue, MessageRemediation } from "../foundation/index.js";
 export type AssetVersionAvailability = "ready" | "archived" | "missing";
-export type AssetVersionRecord = Readonly<{
-  identity: AssetVersionIdentity;
-  objectDigest: Digest;
-  byteLength: number;
-  metadataBytes: Uint8Array;
-  metadataDigest: Digest;
-  availability: AssetVersionAvailability;
-}>;
 export type PublishedAssetReference = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 
@@ -21,11 +13,17 @@ export type AssetVersion = Readonly<{
   metadataDigest: Digest;
   availability: AssetVersionAvailability;
 }>;
+export type AssetVersionRecord = AssetVersion;
 export type ReadyAssetVersion = Readonly<AssetVersion & { availability: "ready" }>;
 export type PublishedMediaSelection = Readonly<{ entryId: string; revisionId: string; assets: readonly ReadyAssetVersion[] }>;
 export type MediaEvidence = Readonly<{ objectDigest: Digest; byteLength: number }>;
+
 export type MediaStageToken = Readonly<{ readonly __mediaStage: unique symbol }>;
 export type MediaFinalToken = Readonly<{ readonly __mediaFinal: unique symbol }>;
+export type MediaHardlinkPairToken = Readonly<{ readonly __mediaHardlinkPair: unique symbol }>;
+export type MediaStageCandidate = Readonly<{ key: Digest; evidence: MediaEvidence; token: MediaStageToken; hardlinkPair?: MediaHardlinkPairToken }>;
+export type MediaFinalCandidate = Readonly<{ key: Digest; evidence: MediaEvidence; token: MediaFinalToken; hardlinkPair?: MediaHardlinkPairToken }>;
+export type MediaStorageSnapshot = Readonly<{ contract: "media-storage-snapshot/v1"; digest: Digest; stages: readonly MediaStageCandidate[]; finals: readonly MediaFinalCandidate[] }>;
 
 export interface MediaObjectStore {
   stage(input: Readonly<{ importId: string; bytes: Uint8Array; evidence: MediaEvidence }>): DataMediaResult<MediaStageToken>;
@@ -34,6 +32,8 @@ export interface MediaObjectStore {
   releaseStage(stage: MediaStageToken, final: MediaFinalToken): DataMediaResult<void>;
   verifyEvidence(evidence: MediaEvidence): DataMediaResult<void>;
   inspectFinal(evidence: MediaEvidence): DataMediaResult<"healthy" | "absent" | "unhealthy">;
+  readStartupSnapshot(): DataMediaResult<MediaStorageSnapshot>;
+  removeOrphan(candidate: MediaStageToken | MediaFinalToken): DataMediaResult<void>;
 }
 
 export type MediaImportIntent = Readonly<{
@@ -44,6 +44,7 @@ export type MediaImportIntent = Readonly<{
   metadataBytes: Uint8Array;
   metadataDigest: Digest;
 }>;
+export type MediaStartupSnapshot = Readonly<{ pendingIntents: readonly MediaImportIntent[]; assetVersions: readonly AssetVersionRecord[] }>;
 export type DataMediaPortResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: unknown }>;
 export type ArchiveAssetImpact = Readonly<{
   contract: "archive-asset-impact/v1";
@@ -69,7 +70,9 @@ export interface DataMediaTransaction {
 }
 export interface DataMediaPersistence extends DataMediaTransaction {
   createMediaImportIntent(input: MediaImportIntent): DataMediaPortResult<MediaImportIntent>;
+  deleteMediaImportIntentExact(input: MediaImportIntent): DataMediaPortResult<void>;
   commitReadyAssetVersion(input: MediaImportIntent): DataMediaPortResult<ReadyAssetVersion>;
+  readMediaStartupSnapshot(): DataMediaPortResult<MediaStartupSnapshot>;
   getEntryPointers(entryId: string): DataMediaPortResult<Readonly<{ entryId: string; currentRevisionId: string; publishedRevisionId?: string }>>;
   runTransaction<T, E>(operation: (transaction: DataMediaTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | unknown>;
   getRevisionReferences(revision: Readonly<{ entryId: string; revisionId: string }>): DataMediaPortResult<readonly Readonly<{ assetVersion: AssetVersionIdentity }>[]>;
@@ -89,7 +92,8 @@ export type DataMediaFailureCode =
   | "MEDIA_ARCHIVE_FAILURE"
   | "MEDIA_RESTORE_REQUIRED"
   | "MEDIA_RESTORE_MISMATCH"
-  | "MEDIA_RESTORE_FAILURE";
+  | "MEDIA_RESTORE_FAILURE"
+  | "MEDIA_RECONCILIATION_FAILURE";
 export type DataMediaFailure = Readonly<{
   code: DataMediaFailureCode;
   owner: "DataMedia";

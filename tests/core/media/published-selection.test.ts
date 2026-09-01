@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { createDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
+import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 
 test("published media selection follows only the published pointer and fails without a complete selection", () => {
@@ -14,7 +14,8 @@ test("published media selection follows only the published pointer and fails wit
     const databasePath = path.join(directory, "cms.sqlite"); assert.equal(migrateDatabase({ databasePath }).ok, true);
     const opened = openPersistence({ databasePath }); assert.equal(opened.ok, true); if (!opened.ok) return;
     const objects = createLocalMediaObjectStore({ objectsRoot: path.join(directory, "objects") }); assert.equal(objects.ok, true); if (!objects.ok) return;
-    const media = createDataMedia({ persistence: opened.value, objectStore: objects.value });
+    const started = startDataMedia({ persistence: opened.value, objectStore: objects.value }); assert.equal(started.ok, true); if (!started.ok) return;
+    const media = started.value;
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes: new TextEncoder().encode("bytes"), metadata: { mime: "text/plain" } }).ok, true);
     const schemaBytes = canonicalJsonBytes({ type: "object" }); assert.equal(schemaBytes.ok, true); if (!schemaBytes.ok) return;
     assert.equal(opened.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schemaBytes.value, schemaDigest: sha256Digest(schemaBytes.value) }).ok, true);

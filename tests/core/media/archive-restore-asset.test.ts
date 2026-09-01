@@ -5,10 +5,18 @@ import test from "node:test";
 import { tmpdir } from "node:os";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { createDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
+import { startDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
 import type { MediaObjectStore } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import type { PersistenceStore } from "../../../core/persistence/index.js";
+
+function start(input: Parameters<typeof startDataMedia>[0]) {
+  const started = startDataMedia(input);
+  assert.equal(started.ok, true, started.ok ? "" : started.error.code);
+  if (!started.ok) throw new Error("startDataMedia");
+  return started.value;
+}
+
 
 function openStore(directory: string) {
   const databasePath = path.join(directory, "cms.sqlite");
@@ -44,7 +52,7 @@ test("ArchiveAsset changes only availability and RestoreAsset re-enables verifie
   const directory = mkdtempSync(path.join(tmpdir(), "archive-restore-"));
   try {
     const { store, objectStore } = openStore(directory);
-    const media = createDataMedia({ persistence: store, objectStore });
+    const media = start({ persistence: store, objectStore });
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes: new Uint8Array([1, 2, 3]), metadata: { type: "image" } }).ok, true);
     const imported = store.getAssetVersion({ assetId: "asset", assetVersionId: "v1" });
     assert.equal(imported.ok, true);
@@ -74,7 +82,7 @@ test("ArchiveAsset refuses a version an active published pointer still reference
   const directory = mkdtempSync(path.join(tmpdir(), "archive-published-"));
   try {
     const { store, objectStore } = openStore(directory);
-    const media = createDataMedia({ persistence: store, objectStore });
+    const media = start({ persistence: store, objectStore });
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes: new Uint8Array([1, 2, 3]), metadata: { type: "image" } }).ok, true);
     publish(store, "entry", "published-1", "v1");
 
@@ -103,7 +111,7 @@ test("RestoreAsset for physically missing bytes only accepts exact recovery and 
   const directory = mkdtempSync(path.join(tmpdir(), "restore-recovery-"));
   try {
     const { store, objectStore, objectsRoot } = openStore(directory);
-    const media = createDataMedia({ persistence: store, objectStore });
+    const media = start({ persistence: store, objectStore });
     const bytes = new Uint8Array([7, 8, 9]);
     const metadata = { type: "image" };
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes, metadata }).ok, true);
@@ -144,7 +152,7 @@ test("a host fault while releasing the restored stage leaves the version unavail
         ? { ok: false, error: { code: "MEDIA_FINAL_VERIFICATION_FAILURE", owner: "DataMedia", subjectIds: [], remediation: { kind: "message", message: "release refused" } } }
         : objectStore.releaseStage(stage, final),
     };
-    const media = createDataMedia({ persistence: store, objectStore: faulted });
+    const media = start({ persistence: store, objectStore: faulted });
     const bytes = new Uint8Array([1, 2, 3]);
     const metadata = { type: "image" };
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes, metadata }).ok, true);
@@ -172,7 +180,7 @@ test("inspectRestoreAvailability reports ordered per-version RestoreAsset descri
   const directory = mkdtempSync(path.join(tmpdir(), "restore-availability-"));
   try {
     const { store, objectStore, objectsRoot } = openStore(directory);
-    const media = createDataMedia({ persistence: store, objectStore });
+    const media = start({ persistence: store, objectStore });
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes: new Uint8Array([1]), metadata: { n: 1 } }).ok, true);
     assert.equal(media.importLocal({ importId: "import-2", assetId: "asset", assetVersionId: "v2", bytes: new Uint8Array([2]), metadata: { n: 2 } }).ok, true);
     assert.equal(media.archiveAsset({ assetId: "asset", assetVersionId: "v2" }).ok, true);

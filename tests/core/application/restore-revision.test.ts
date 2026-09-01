@@ -7,12 +7,20 @@ import test from "node:test";
 import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
 import type { DomainApplication } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { createDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
+import { startDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
 import type { DataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import type { PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
+
+function start(input: Parameters<typeof startDataMedia>[0]) {
+  const started = startDataMedia(input);
+  assert.equal(started.ok, true, started.ok ? "" : started.error.code);
+  if (!started.ok) throw new Error("startDataMedia");
+  return started.value;
+}
+
 
 type Harness = Readonly<{ store: PersistenceStore; media: DataMedia; application: DomainApplication; objectsRoot: string }>;
 
@@ -35,7 +43,7 @@ async function harness(directory: string): Promise<Harness> {
   assert.equal(schemaBytes.ok, true);
   if (!schemaBytes.ok) throw new Error("schema unavailable");
   assert.equal(opened.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schemaBytes.value, schemaDigest: sha256Digest(schemaBytes.value) }).ok, true);
-  const media = createDataMedia({ persistence: opened.value, objectStore: objects.value });
+  const media = start({ persistence: opened.value, objectStore: objects.value });
   const application = createDomainApplication({ persistence: opened.value, siteDefinition: createSiteDefinition({ persistence: opened.value }), dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: plugins.value });
   return { store: opened.value, media, application, objectsRoot };
 }

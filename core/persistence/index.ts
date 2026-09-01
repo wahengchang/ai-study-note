@@ -13,6 +13,7 @@ export type {
   EntryPointerLineageRecord,
   EntryPointerRecord,
   MediaImportIntent,
+  MediaStartupSnapshot,
   MigrationSummary,
   OperationLineageIdentity,
   OperationLineageRecord,

@@ -1,9 +1,11 @@
-export { createDataMedia } from "./service.js";
+export { startDataMedia } from "./service.js";
 export { createLocalMediaObjectStore } from "./object-storage.js";
 export type {
   ArchiveAssetImpact,
   AssetVersion,
+  AssetVersionAvailability,
   AssetVersionIdentity,
+  AssetVersionRecord,
   DataMedia,
   DataMediaFailure,
   DataMediaFailureCode,
@@ -11,7 +13,15 @@ export type {
   DataMediaResult,
   ImportLocalMediaInput,
   MediaEvidence,
+  MediaFinalCandidate,
+  MediaFinalToken,
+  MediaHardlinkPairToken,
+  MediaImportIntent,
   MediaObjectStore,
+  MediaStageCandidate,
+  MediaStageToken,
+  MediaStartupSnapshot,
+  MediaStorageSnapshot,
   PublishedMediaSelection,
   ReadyAssetVersion,
   RestoreAssetCommandDescriptor,

@@ -6,7 +6,7 @@ import test from "node:test";
 
 import { createDomainApplication, createPersistencePluginActivationStatePort, type DomainApplicationDependencies } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { createDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
+import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence, type PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
@@ -21,7 +21,8 @@ test("SaveRevision media replacement copies the complete set, moves only current
     const host = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: opened.value }) }); assert.equal(host.ok, true); if (!host.ok) return;
     const schemaBytes = canonicalJsonBytes({ type: "object" }); assert.equal(schemaBytes.ok, true); if (!schemaBytes.ok) return;
     assert.equal(opened.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schemaBytes.value, schemaDigest: sha256Digest(schemaBytes.value) }).ok, true);
-    const media = createDataMedia({ persistence: opened.value, objectStore: objects.value });
+    const started = startDataMedia({ persistence: opened.value, objectStore: objects.value }); assert.equal(started.ok, true); if (!started.ok) return;
+    const media = started.value;
     for (const [assetId, assetVersionId, importId] of [["asset-a", "v1", "import-a-v1"], ["asset-a", "v2", "import-a-v2"], ["asset-b", "v1", "import-b"], ["asset-c", "v1", "import-c"]] as const) assert.equal(media.importLocal({ assetId, assetVersionId, importId, bytes: new TextEncoder().encode(importId), metadata: { mime: "text/plain" } }).ok, true);
     const site = createSiteDefinition({ persistence: opened.value });
     const app = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host.value });
@@ -72,7 +73,10 @@ async function replacementFixture() {
   assert.equal(schemaBytes.ok, true);
   if (!schemaBytes.ok) throw new Error("canonicalJsonBytes");
   assert.equal(opened.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schemaBytes.value, schemaDigest: sha256Digest(schemaBytes.value) }).ok, true);
-  const media = createDataMedia({ persistence: opened.value, objectStore: objects.value });
+  const started = startDataMedia({ persistence: opened.value, objectStore: objects.value });
+  assert.equal(started.ok, true);
+  if (!started.ok) throw new Error("startDataMedia");
+  const media = started.value;
   for (const assetVersionId of ["v1", "v2"] as const) {
     assert.equal(media.importLocal({ assetId: "asset-a", assetVersionId, importId: `import-${assetVersionId}`, bytes: new TextEncoder().encode(assetVersionId), metadata: { mime: "text/plain" } }).ok, true);
   }
