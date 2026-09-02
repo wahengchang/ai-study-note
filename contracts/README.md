@@ -74,9 +74,9 @@ public Plugin renderer 只接收 published `renderer-input/v1` block；不得讀
 - Present scripts are `typecheck`, `test`, `check:architecture`, and `check`; existing Rulesync scripts remain unchanged. Reserved scripts (`cms:*`, `db:*`, `plugin:*`, `theme:*`, `projection:*`, `preview:*`, `site:*`, `artifact:*`, `release:*`) enter the manifest only with a real entrypoint and contract test. PublishRevision, build, and release remain separate.
 - WordPress informs the separation of [core Plugin API](https://github.com/WordPress/wordpress-develop/blob/trunk/src/wp-includes/plugin.php), installed enumeration/activation, and relocatable [Plugin paths](https://developer.wordpress.org/plugins/plugin-basics/determining-plugin-and-content-directories/); this project does not adopt PHP headers, global mutable hooks, include execution, or `wp-*` naming.
 
-## 7. External Authoring API v1（已核准；runtime 尚未實作）
+## 7. External Authoring API v1（已核准；runtime 部分實作）
 
-`apps/authoring-api` 是唯一的 localhost authoring transport composition root，未來同時服務 `/v1/*`、`/_local/*`、`/cms/*` history fallback 與 built assets；adapter 只能經 `core/application/index.ts` 的 public seam，不得 import Persistence internals。公開訪客僅讀 immutable static artifact，沒有 anonymous authoring API。此節核准 security contract，不代表 Hono、server、CMS 或 CLI client 已存在。
+`apps/authoring-api` 是唯一的 localhost authoring transport composition root，未來同時服務 `/v1/*`、`/_local/*`、`/cms/*` history fallback 與 built assets；adapter 只能經 `core/application/index.ts` 的 public seam，不得 import Persistence internals。公開訪客僅讀 immutable static artifact，沒有 anonymous authoring API。此節核准 security contract。credential lifecycle、fixed-origin listener、`POST /_local/server-proof` 與 authenticated `POST /v1/entries/:entryId/revisions` 已實作；`/_local/browser-tickets`、`/_local/browser-session`、`/cms/*` 與 CMS browser bootstrap 尚未存在。
 
 - listener 只 bind `127.0.0.1:43127`；唯一 origin 是 `http://127.0.0.1:43127`。拒絕 `localhost`、wildcard、IPv6、alternative IP、錯誤 `Host`、`Forwarded` 與任一 `X-Forwarded-*`；不回 CORS header 或 redirect。
 - `/v1/*` 所有 read/mutation 僅接受 exactly one `Authorization: Bearer asn_v1_<43-char-unpadded-base64url>`。key 為 32-byte CSPRNG，拒絕 cookie/query/body/URL/Basic/duplicate header，以 equal-length 後的 `crypto.timingSafeEqual` 比較。

@@ -7,8 +7,9 @@ import { z } from "zod";
 import type { DomainApplication, DomainApplicationFailure, SaveRevisionSuccess } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import type { AuthoringCredentialAuthority } from "./credential-store.js";
+import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, SECRET_TEXT_PATTERN, redactSecrets } from "./origin.js";
 
-const ORIGIN = "http://127.0.0.1:43127";
+const ORIGIN = AUTHORING_ORIGIN;
 const SECURITY_HEADERS = {
   "Cache-Control": "no-store, no-cache",
   Pragma: "no-cache",
@@ -49,7 +50,7 @@ const saveSchema = z.object({
   content: z.unknown(), route: z.string(),
   assetVersions: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()),
 }).strict();
-const proofSchema = z.object({ contract: z.literal("authoring-server-proof-challenge/v1"), generation: z.number().int().safe().positive(), nonce: z.string().regex(/^[A-Za-z0-9_-]{43}$/u) }).strict();
+const proofSchema = z.object({ contract: z.literal("authoring-server-proof-challenge/v1"), generation: z.number().int().safe().positive(), nonce: z.string().regex(SECRET_TEXT_PATTERN) }).strict();
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
   const map = new Map<string, string[]>();
@@ -62,10 +63,12 @@ function headersOf(incoming: IncomingMessage): HeaderMap {
 }
 function values(headers: HeaderMap, name: string): readonly string[] { return headers.get(name) ?? []; }
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
-function routeFor(pathname: string): RouteClass { return pathname === "/_local/server-proof" ? "proof" : /^\/v1\/entries\/[^/]+\/revisions$/u.test(pathname) ? "save" : "unknown"; }
+/** entryId 只接受單一未經 percent-encoding 的 path segment；`%` 會讓 decode 後的 ID 與 URL 不再一一對應。 */
+function routeFor(pathname: string): RouteClass { return pathname === "/_local/server-proof" ? "proof" : /^\/v1\/entries\/[^/%?#]+\/revisions$/u.test(pathname) ? "save" : "unknown"; }
 function templateFor(route: RouteClass): RouteTemplate { return route === "save" ? "/v1/entries/:entryId/revisions" : route === "proof" ? "/_local/server-proof" : "unmatched"; }
 function methodFor(method: string | undefined): AuthoringApiLogEvent["method"] { return method === "POST" ? "POST" : method === "OPTIONS" ? "OPTIONS" : "OTHER"; }
-function response(body: unknown, status: number, extra: Readonly<Record<string, string>> = {}): Response { return new Response(JSON.stringify(body), { status, headers: { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8", ...extra } }); }
+/** 所有 JSON response 在送出前一律 redact；success DTO 也會回吐呼叫端提供的 route／ID。 */
+function response(body: unknown, status: number, extra: Readonly<Record<string, string>> = {}): Response { return new Response(redactSecrets(JSON.stringify(body)), { status, headers: { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8", ...extra } }); }
 function errorResponse(requestId: string, code: TransportCode, status: number, owner: "AuthoringApi" | "AuthoringCredential" = "AuthoringApi", remediation = ERROR_REMEDIATION[code]): Response { return response({ contract: "authoring-error/v1", requestId, code, owner, subjectIds: [], remediation: { kind: "message", message: remediation } }, status); }
 function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
   if (incoming.url === undefined || !incoming.url.startsWith("/") || incoming.url.startsWith("//") || one(headers, "expect") !== undefined || one(headers, "upgrade") !== undefined) return false;
@@ -75,7 +78,7 @@ function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
   if (contentLength.length === 1 && !Number.isSafeInteger(Number(contentLength[0]))) return false;
   return transferEncoding.length === 0 || transferEncoding[0] === "chunked";
 }
-function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === "127.0.0.1:43127" && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
+function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
 function originOk(headers: HeaderMap, route: RouteClass): boolean {
   const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site");
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
@@ -96,13 +99,13 @@ async function boundedJson(request: Request, limit: number): Promise<Readonly<{ 
 }
 function authorization(headers: HeaderMap): Readonly<{ ok: true; candidate: string }> | Readonly<{ ok: false; code: TransportCode }> {
   const all = values(headers, "authorization"); if (all.length === 0) return { ok: false, code: "AUTHORIZATION_REQUIRED" }; if (all.length !== 1) return { ok: false, code: "AUTHORIZATION_DUPLICATE" };
-  const match = /^Bearer (asn_v1_[A-Za-z0-9_-]{43})$/u.exec(all[0] ?? ""); return match?.[1] === undefined ? { ok: false, code: "AUTHORIZATION_MALFORMED" } : { ok: true, candidate: match[1] };
+  const header = all[0] ?? ""; const candidate = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
+  return API_KEY_PATTERN.test(candidate) ? { ok: true, candidate } : { ok: false, code: "AUTHORIZATION_MALFORMED" };
 }
 function credentialError(requestId: string, admission: Awaited<ReturnType<AuthoringCredentialAuthority["openAdmission"]>>): Response {
   if (!admission.ok && admission.error.code === "CREDENTIAL_REVOKED") return errorResponse(requestId, "AUTHORIZATION_REVOKED", 401, "AuthoringCredential");
   return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 503, "AuthoringCredential", "請修復本機 Authoring API credential store 後重試。");
 }
-function redacted(value: string): string { return value.replace(/asn_(?:v1|bt_v1)_[A-Za-z0-9_-]+/gu, "[REDACTED]"); }
 function domainError(requestId: string, error: DomainApplicationFailure): Response {
   const descriptor = Object.getOwnPropertyDescriptors(error); const code = descriptor.code?.value; const owner = descriptor.owner?.value; const subjectIds = descriptor.subjectIds?.value; const remediation = descriptor.remediation?.value;
   if (typeof code !== "string" || typeof owner !== "string" || !Array.isArray(subjectIds) || !subjectIds.every((id) => typeof id === "string") || typeof remediation !== "object" || remediation === null || Object.getPrototypeOf(remediation) !== Object.prototype) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
@@ -110,7 +113,7 @@ function domainError(requestId: string, error: DomainApplicationFailure): Respon
   const conflicts = new Set(["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH"]);
   const invalid = new Set(["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED"]);
   const status = conflicts.has(code) ? 409 : invalid.has(code) ? 422 : 500;
-  return response({ contract: "authoring-error/v1", requestId, code: redacted(code), owner: redacted(owner), subjectIds: subjectIds.map(redacted), remediation: { kind: "message", message: redacted(rem.message.value) } }, status);
+  return response({ contract: "authoring-error/v1", requestId, code, owner, subjectIds, remediation: { kind: "message", message: rem.message.value } }, status);
 }
 function saveSuccess(value: SaveRevisionSuccess): Readonly<Record<string, unknown>> { return {
   contract: "save-revision-success/v1", entryId: value.revision.identity.entryId,
@@ -124,6 +127,7 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   const app = new Hono();
   app.post("/_local/server-proof", async (context) => {
     const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
+    if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
     if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
     const body = await boundedJson(context.req.raw, 4_096); if (!body.ok) return errorResponse(requestId, body.code, 400);
     const parsed = proofSchema.safeParse(body.value); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
@@ -161,7 +165,7 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   server.on("clientError", (_error, socket) => { rawBadRequest(socket, input.logger); });
   server.on("checkContinue", (_request, socket) => { rawBadRequest(socket, input.logger); });
   server.on("upgrade", (_request, socket) => { rawBadRequest(socket, input.logger); });
-  const started = await new Promise<boolean>((resolve) => { server.once("error", () => resolve(false)); server.listen(43127, "127.0.0.1", () => resolve(true)); });
+  const started = await new Promise<boolean>((resolve) => { server.once("error", () => resolve(false)); server.listen(AUTHORING_PORT, AUTHORING_HOST, () => resolve(true)); });
   if (!started) { server.close(); return rejected(); }
   let closed = false;
   return { ok: true, value: { origin: ORIGIN, close: async () => { if (closed) return; closed = true; await new Promise<void>((resolve, reject) => server.close((error) => error === undefined || (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ERR_SERVER_NOT_RUNNING") ? resolve() : reject(new Error("AUTHORING_SERVER_CLOSE_FAILED")))); } } };

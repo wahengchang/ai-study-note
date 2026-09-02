@@ -7,6 +7,16 @@ export type {
   CredentialAdmission,
   CredentialSummary,
 } from "./credential-store.js";
+export { main, runCredentialCli } from "./credential-cli.js";
+export type { CredentialCliIo } from "./credential-cli.js";
+export {
+  API_KEY_PATTERN,
+  AUTHORING_AUTHORITY,
+  AUTHORING_HOST,
+  AUTHORING_ORIGIN,
+  AUTHORING_PORT,
+  redactSecrets,
+} from "./origin.js";
 export { startAuthoringApi } from "./server.js";
 export type {
   AuthoringApiLogEvent,
