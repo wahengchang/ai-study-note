@@ -6,7 +6,7 @@ work_items: ["WI-036", "WI-037"]
 owner: Main
 branch: cms/authoring-credential-save-revision
 worktree: .dev-hub/worktrees/authoring-credential-save-revision
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/299
 ---
 
 # Authoring credential and SaveRevision
