@@ -6,7 +6,7 @@ work_items: ["WI-038"]
 owner: Main
 branch: cms/authoring-cli-client
 worktree: .dev-hub/worktrees/authoring-cli-client
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/301
 ---
 
 # Authoring CLI client

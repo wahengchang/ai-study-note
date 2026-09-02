@@ -3,7 +3,7 @@
 - 完成時間：2026-09-02T16:47:58+08:00
 - Work Group：WG-012-authoring-cli-client
 - Branch：`cms/authoring-cli-client`
-- PR：建立前為 `null`
+- PR：[https://github.com/wahengchang/ai-study-note/pull/301](https://github.com/wahengchang/ai-study-note/pull/301)
 
 ## 交付
 
