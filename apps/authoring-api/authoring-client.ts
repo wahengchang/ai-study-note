@@ -5,13 +5,12 @@ import type { Socket } from "node:net";
 
 import { openLocalAuthoringClientCredential } from "./credential-store.js";
 import type { AuthoringCredentialFailureCode, LocalAuthoringCredentialInput } from "./credential-store.js";
-import { AUTHORING_HOST, AUTHORING_PORT } from "./origin.js";
+import { AUTHORING_HOST, AUTHORING_PORT, ENTRY_ID_PATTERN } from "./origin.js";
 import { authoringErrorSchema, authoringErrorStatuses, saveRevisionRequestSchema, saveRevisionSuccessSchema, serverProofSchema } from "./transport-contracts.js";
 import type { AuthoringRemoteErrorCode, SaveRevisionRequestDto, SaveRevisionSuccessDto } from "./transport-contracts.js";
 
 const proofLimit = 64 * 1024;
 const saveSuccessLimit = 16 * 1024 * 1024;
-const entryIdPattern = /^[A-Za-z0-9._~-]+$/u;
 
 export type AuthoringClientFailureCode = AuthoringCredentialFailureCode | AuthoringRemoteErrorCode | "INVALID_CLIENT_REQUEST" | "AUTHORING_CONNECTION_FAILED" | "AUTHORING_PROOF_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_SERVER_PROOF_INVALID" | "AUTHORING_CONNECTION_CHANGED" | "INVALID_SERVER_RESPONSE";
 export type AuthoringClientResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: AuthoringClientFailureCode }> }>;
@@ -100,8 +99,9 @@ function requestSave(agent: Agent, proofSocket: Socket, header: string, pathname
     const deadline = setTimeout(() => { req.destroy(); response?.destroy(); finish({ ok: false, code: "AUTHORING_SAVE_TIMEOUT" }); }, 30_000);
     req.once("socket", (socket) => {
       if (socket !== proofSocket || !req.reusedSocket || socket.destroyed) { req.destroy(); finish({ ok: false, code: "AUTHORING_CONNECTION_CHANGED" }); return; }
-      req.setHeader("Authorization", header);
-      req.end(body);
+      // header 尚未 flush 時 setHeader 才合法；一旦不合法就必須 fail closed，
+      // 不能讓 listener 內的 throw 逃成 uncaught exception 而讓 CLI 直接崩潰。
+      try { req.setHeader("Authorization", header); req.end(body); } catch { req.destroy(); finish({ ok: false, code: "AUTHORING_CONNECTION_CHANGED" }); }
     });
     req.once("error", () => finish({ ok: false, code: "AUTHORING_CONNECTION_FAILED" }));
   });
@@ -110,7 +110,7 @@ function requestSave(agent: Agent, proofSocket: Socket, header: string, pathname
 export function createLocalAuthoringClient(location: LocalAuthoringCredentialInput): LocalAuthoringClient {
   return {
     async saveRevision(input) {
-      if (!entryIdPattern.test(input.entryId) || !saveRevisionRequestSchema.safeParse(input.request).success) return failed("INVALID_CLIENT_REQUEST");
+      if (!ENTRY_ID_PATTERN.test(input.entryId) || !saveRevisionRequestSchema.safeParse(input.request).success) return failed("INVALID_CLIENT_REQUEST");
       const body = JSON.stringify(input.request);
       const savePath = `/v1/entries/${input.entryId}/revisions`;
       for (let attempt = 0; attempt < 2; attempt += 1) {
@@ -130,7 +130,7 @@ export function createLocalAuthoringClient(location: LocalAuthoringCredentialInp
           const parsedProof = serverProofSchema.safeParse(rawProof);
           if (!parsedProof.success || parsedProof.data.generation !== credential.value.generation || parsedProof.data.nonce !== challengeNonce || !credential.value.verifyServerProof(challengeNonce, parsedProof.data.mac)) return failed("AUTHORING_SERVER_PROOF_INVALID");
           const header = credential.value.authorizationHeader();
-          if (header === "") return failed("AUTHORING_CONNECTION_FAILED");
+          if (header === "") return failed("CREDENTIAL_NOT_PROVISIONED");
           const saved = await requestSave(agent, proof.value.socket, header, savePath, body);
           if (!saved.ok) return failed(saved.code);
           if (saved.value.status !== 200) return failed(remoteCode(saved.value.status, saved.value.text) ?? "INVALID_SERVER_RESPONSE");

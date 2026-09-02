@@ -4,11 +4,11 @@ import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 import { createLocalAuthoringClient } from "./authoring-client.js";
+import { ENTRY_ID_PATTERN } from "./origin.js";
 import { saveRevisionRequestSchema } from "./transport-contracts.js";
 import type { SaveRevisionRequestDto } from "./transport-contracts.js";
 
 const inputLimit = 4 * 1024 * 1024;
-const entryIdPattern = /^[A-Za-z0-9._~-]+$/u;
 
 export type SaveRevisionCliIo = Readonly<{ stdout(text: string): void; stderr(text: string): void }>;
 export type SaveRevisionCliEnvironment = Readonly<{ cwd: string; homeDirectory: string; xdgConfigHome?: string }>;
@@ -32,7 +32,7 @@ function parse(argv: readonly string[]): ParsedArguments | undefined {
     const parsed = parseArgs({ args: argv, strict: true, allowPositionals: false, options: { "entry-id": { type: "string" }, input: { type: "string" } } });
     const entryId = parsed.values["entry-id"];
     const input = parsed.values.input;
-    return typeof entryId === "string" && typeof input === "string" && entryIdPattern.test(entryId) && input.length > 0 ? { entryId, input } : undefined;
+    return typeof entryId === "string" && typeof input === "string" && ENTRY_ID_PATTERN.test(entryId) && input.length > 0 ? { entryId, input } : undefined;
   } catch { return undefined; }
 }
 async function readRequestFile(path: string): Promise<Readonly<{ ok: true; value: SaveRevisionRequestDto }> | Readonly<{ ok: false; code: "INPUT_READ_FAILED" | "INVALID_REQUEST_FILE" }>> {

@@ -7,6 +7,13 @@ import { SECRET_TEXT_PATTERN } from "./origin.js";
 const positiveInteger = z.number().int().safe().positive();
 const stringArray = z.array(z.string());
 const messageRemediationSchema = z.object({ kind: z.literal("message"), message: z.string() }).strict();
+/**
+ * wire 上的 `content` 一定來自 `JSON.parse`，因此 `undefined` 不可能出現；但
+ * `z.unknown()` 會放行 in-process caller 傳進來的 explicit `undefined`，而
+ * `JSON.stringify` 又會把該 key 整個丟掉。若不擋在 client 端，caller 會拿到
+ * listener 回來的 `INVALID_REQUEST_BODY`，而不是本地的 `INVALID_CLIENT_REQUEST`。
+ */
+const jsonContent = z.unknown().refine((value) => value !== undefined);
 
 export const serverProofChallengeSchema = z.object({
   contract: z.literal("authoring-server-proof-challenge/v1"),
@@ -26,7 +33,7 @@ export const saveRevisionRequestSchema = z.object({
   revisionId: z.string(),
   operationId: z.string(),
   schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(),
-  content: z.unknown(),
+  content: jsonContent,
   route: z.string(),
   assetVersions: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()),
 }).strict();

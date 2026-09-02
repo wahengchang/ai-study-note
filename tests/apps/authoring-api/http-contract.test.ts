@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
+import { createServer } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request as nodeRequest } from "node:http";
 import { tmpdir } from "node:os";
@@ -20,14 +21,14 @@ import type { AuthoringApiLogEvent, AuthoringCredentialAuthority } from "../../.
 const origin = "http://127.0.0.1:43127";
 const authority = "127.0.0.1:43127";
 type Headers = Readonly<Record<string, string | readonly string[]>>;
-type RawResponse = Readonly<{ status: number; body: string }>;
+type RawResponse = Readonly<{ status: number; body: string; headers: Readonly<Record<string, string | readonly string[] | undefined>> }>;
 
 function send(method: string, pathname: string, headers: Headers, body?: string): Promise<RawResponse> {
   const deferred = Promise.withResolvers<RawResponse>();
   const request = nodeRequest({ host: "127.0.0.1", port: 43127, path: pathname, method, headers: headers as Record<string, string | string[]> }, (response) => {
     const chunks: Buffer[] = [];
     response.on("data", (chunk: Buffer) => chunks.push(chunk));
-    response.on("end", () => deferred.resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8") }));
+    response.on("end", () => deferred.resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8"), headers: response.headers }));
   });
   request.on("error", deferred.reject);
   request.end(body);
@@ -38,6 +39,14 @@ function saveBody(revisionId: string, route: string): string {
   return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [] });
 }
 function failureCode(response: RawResponse): string { return (JSON.parse(response.body) as { code: string }).code; }
+/** contract §7：每個 response 都必須帶四個固定 security header，且不得回任何 CORS header。 */
+function assertResponseHeaders(response: RawResponse, label: string): void {
+  assert.equal(response.headers["cache-control"], "no-store, no-cache", `${label} cache-control`);
+  assert.equal(response.headers.pragma, "no-cache", `${label} pragma`);
+  assert.equal(response.headers["x-content-type-options"], "nosniff", `${label} nosniff`);
+  assert.equal(response.headers["referrer-policy"], "no-referrer", `${label} referrer-policy`);
+  assert.equal(Object.keys(response.headers).some((name) => name.startsWith("access-control-") || name === "location"), false, `${label} 不得回 CORS header 或 redirect`);
+}
 
 function shippedSaveRevision(args: readonly string[], environment: NodeJS.ProcessEnv): Promise<Readonly<{ code: number | null; stdout: string; stderr: string }>> {
   return new Promise((resolve, reject) => {
@@ -90,6 +99,7 @@ test("actual listener proves current credential and saves a revision", async () 
     const body = JSON.parse(saved.body) as { contract: string; entryId: string; revision: { revisionId: string }; pointer: { currentRevisionId: string } };
     assert.equal(body.contract, "save-revision-success/v1"); assert.equal(body.entryId, "entry");
     assert.equal(body.revision.revisionId, "revision-1"); assert.equal(body.pointer.currentRevisionId, "revision-1");
+    assertResponseHeaders(saved, "save success");
   });
 });
 
@@ -150,6 +160,7 @@ test("every rejected transport shape fails closed with its contract status and m
       assert.equal(response.status, item.status, `${item.name} status`);
       assert.equal(failureCode(response), item.code, `${item.name} code`);
       assert.equal(response.body.includes("asn_"), false, `${item.name} 不得回吐 credential 形狀字串`);
+      assertResponseHeaders(response, item.name);
     }
     assert.equal(digest(), before, "被拒絕的 request 不得執行任何 canonical mutation");
     assert.equal(log.length, cases.length);
@@ -194,4 +205,78 @@ test("no response or log echoes a credential-shaped string", async () => {
     assert.equal(conflict.body.includes("asn_v1_"), false, "error DTO 不得回吐 credential 形狀字串");
     assert.equal(JSON.stringify(log).includes("asn_"), false);
   });
+});
+
+type RogueRequest = Readonly<{ method: string; url: string; authorization: string | undefined; body: string }>;
+type RogueReply = Readonly<{ status: number; headers?: Readonly<Record<string, string>>; body: string }>;
+
+/** 佔用 fixed origin 的假 listener：用來證明 client 在 proof 通過前不會送出 Bearer。 */
+async function withRogueListener(reply: (received: RogueRequest) => RogueReply, run: (seen: readonly RogueRequest[]) => Promise<void>): Promise<void> {
+  const seen: RogueRequest[] = [];
+  const server = createServer((incoming, outgoing) => {
+    const chunks: Buffer[] = [];
+    incoming.on("data", (chunk: Buffer) => chunks.push(chunk));
+    incoming.on("end", () => {
+      const received: RogueRequest = { method: incoming.method ?? "", url: incoming.url ?? "", authorization: incoming.headers.authorization, body: Buffer.concat(chunks).toString("utf8") };
+      seen.push(received);
+      const answer = reply(received);
+      outgoing.writeHead(answer.status, { "Content-Type": "application/json", ...answer.headers });
+      outgoing.end(answer.body);
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(43127, "127.0.0.1", resolve));
+  try { await run(seen); } finally { server.closeAllConnections(); await new Promise<void>((resolve) => server.close(() => resolve())); }
+}
+
+function credentialLocation(directory: string): Readonly<{ homeDirectory: string; xdgConfigHome: string }> {
+  return { homeDirectory: directory, xdgConfigHome: path.join(directory, "config") };
+}
+async function provisionedDirectory(): Promise<Readonly<{ directory: string; apiKey: string }>> {
+  const directory = mkdtempSync(path.join(tmpdir(), "authoring-client-"));
+  assert.equal((await createLocalAuthoringCredentialAuthority(credentialLocation(directory)).transition("provision")).ok, true);
+  return { directory, apiKey: JSON.parse(readFileSync(path.join(directory, "config", "ai-study-note", "local-authoring-v1.json"), "utf8")).apiKey as string };
+}
+
+test("a rogue listener on the fixed origin never receives the Bearer credential", async () => {
+  const { directory } = await provisionedDirectory();
+  try {
+    const forged = { contract: "authoring-server-proof/v1", generation: 1, nonce: "a".repeat(43), mac: "A".repeat(43) };
+    await withRogueListener((received) => received.url === "/_local/server-proof"
+      ? { status: 200, body: JSON.stringify({ ...forged, nonce: (JSON.parse(received.body) as { nonce: string }).nonce }) }
+      : { status: 200, body: "{}" }, async (seen) => {
+      const result = await createLocalAuthoringClient(credentialLocation(directory)).saveRevision({ entryId: "entry", request: JSON.parse(saveBody("rogue-revision", "/rogue")) });
+      assert.deepEqual(result, { ok: false, error: { code: "AUTHORING_SERVER_PROOF_INVALID" } });
+      assert.deepEqual(seen.map((item) => item.url), ["/_local/server-proof"], "偽造 proof 之後不得再送出 SaveRevision request");
+      assert.equal(seen.every((item) => item.authorization === undefined), true, "任何 request 都不得帶 Authorization header");
+      assert.equal(JSON.stringify(seen).includes("asn_"), false, "rogue listener 不得看到 credential 形狀字串");
+    });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("a replaced connection between server proof and SaveRevision fails closed without the Bearer", async () => {
+  const { directory, apiKey } = await provisionedDirectory();
+  try {
+    await withRogueListener((received) => {
+      if (received.url !== "/_local/server-proof") return { status: 200, body: "{}" };
+      const challenge = JSON.parse(received.body) as { generation: number; nonce: string };
+      const mac = createHmac("sha256", apiKey).update(`authoring-server-proof/v1\0${origin}\0${challenge.generation}\0${challenge.nonce}`).digest("base64url");
+      // proof 本身有效，但 listener 立刻關掉 connection：SaveRevision 只能落在新 socket 上。
+      return { status: 200, headers: { Connection: "close" }, body: JSON.stringify({ contract: "authoring-server-proof/v1", generation: challenge.generation, nonce: challenge.nonce, mac }) };
+    }, async (seen) => {
+      const result = await createLocalAuthoringClient(credentialLocation(directory)).saveRevision({ entryId: "entry", request: JSON.parse(saveBody("changed-revision", "/changed")) });
+      assert.deepEqual(result, { ok: false, error: { code: "AUTHORING_CONNECTION_CHANGED" } });
+      assert.deepEqual(seen.map((item) => item.url), ["/_local/server-proof"]);
+      assert.equal(seen.every((item) => item.authorization === undefined), true);
+    });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("the client rejects an in-process request whose serialized body the listener would reject", async () => {
+  const { directory } = await provisionedDirectory();
+  try {
+    const request = { ...(JSON.parse(saveBody("undefined-content", "/undefined")) as Record<string, unknown>), content: undefined };
+    const result = await createLocalAuthoringClient(credentialLocation(directory)).saveRevision({ entryId: "entry", request: request as never });
+    assert.deepEqual(result, { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } }, "JSON.stringify 會丟掉 undefined content，必須在送出前擋下");
+    assert.deepEqual(await createLocalAuthoringClient(credentialLocation(directory)).saveRevision({ entryId: "a/b", request: JSON.parse(saveBody("r", "/a")) }), { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } });
+  } finally { rmSync(directory, { recursive: true, force: true }); }
 });
