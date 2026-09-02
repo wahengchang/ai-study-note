@@ -1,8 +1,8 @@
 ---
 id: WI-037
-status: pending
+status: done
 title: Bearer envelope 與 authenticated SaveRevision
-work_group: null
+work_group: WG-011-authoring-credential-save-revision
 depends_on: ["WI-015"]
 ---
 

@@ -1,8 +1,8 @@
 ---
 id: WI-036
-status: pending
+status: done
 title: Local credential lifecycle
-work_group: null
+work_group: WG-011-authoring-credential-save-revision
 depends_on: ["WI-015"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-015"]
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #276；由 #241 planning parent 建立，status：planned。
+GitHub #276；本次 Owner scope split：API-02 完成 credential generation、admission reload、old/new-key boundary；browser ticket generation invalidation、mint/consume/expiry/session 由 #280 完整交付。Issue persistent note：https://github.com/wahengchang/ai-study-note/issues/276#issuecomment-5503302136
