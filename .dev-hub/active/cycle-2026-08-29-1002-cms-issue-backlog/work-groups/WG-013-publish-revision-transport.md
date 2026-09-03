@@ -6,7 +6,7 @@ work_items: ["WI-039"]
 owner: Main
 branch: cms/publish-revision-transport
 worktree: .dev-hub/worktrees/publish-revision-transport
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/302
 ---
 
 # PublishRevision transport
