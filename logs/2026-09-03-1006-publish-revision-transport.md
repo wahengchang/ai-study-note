@@ -32,4 +32,4 @@
 ## Branch／PR
 
 - branch：`cms/publish-revision-transport`
-- PR：尚未建立（第一個 commit 時 `pr: null`）。
+- PR：[#302](https://github.com/wahengchang/ai-study-note/pull/302)（第一個 commit 時 `pr: null`）。

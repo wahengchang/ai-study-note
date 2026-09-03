@@ -123,7 +123,7 @@ test("same client connection completes server proof before authenticated SaveRev
 });
 
 test("actual listener publishes the current revision with a safe receipt and rejects stale current", async () => {
-  await withAuthoringApi(async ({ apiKey, persistence, digest, publishCalls }) => {
+  await withAuthoringApi(async ({ apiKey, persistence, digest, publishCalls, log }) => {
     assert.equal((await post("/v1/entries/entry/revisions", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, saveBody("draft-1", "/published"))).status, 200);
     const beforePublish = digest();
     const canaryOperationId = `asn_bt_v1_${"B".repeat(43)}`;
@@ -142,6 +142,8 @@ test("actual listener publishes the current revision with a safe receipt and rej
     assert.equal(publishCalls(), 1);
     assert.notEqual(digest(), beforePublish);
     assert.deepEqual(persistence.getEntryPointers("entry"), { ok: true, value: { entryId: "entry", currentRevisionId: "draft-1", publishedRevisionId: "draft-1" } });
+    assert.deepEqual(log.at(-1), { requestId: log.at(-1)?.requestId ?? "", stableEventCode: "AUTHORING_REQUEST_OK", method: "POST", routeTemplate: "/v1/entries/:entryId/publish", status: 200 });
+    assert.equal(JSON.stringify(log).includes("asn_"), false, "log 不得回吐 credential／ticket 形狀字串");
 
     const beforeStale = digest();
     const stale = await post("/v1/entries/entry/publish", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, publishBody("stale", "publish-stale"));
@@ -165,36 +167,57 @@ test("typed client proves then publishes and fails closed before connecting", as
 });
 
 test("publish rejections stay outside the command seam and canonical state", async () => {
-  await withAuthoringApi(async ({ apiKey, credentials, digest, publishCalls }) => {
-    const bearer = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}` } as const;
-    const cases: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string }>[] = [
-      { name: "missing key", headers: { "Content-Type": "application/json" }, body: publishBody("draft") , status: 401, code: "AUTHORIZATION_REQUIRED" },
-      { name: "malformed key", headers: { "Content-Type": "application/json", Authorization: "Bearer invalid" }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_MALFORMED" },
-      { name: "duplicate key", headers: { "Content-Type": "application/json", Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_DUPLICATE" },
-      { name: "invalid key", headers: { "Content-Type": "application/json", Authorization: `Bearer asn_v1_${"C".repeat(43)}` }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_INVALID" },
-      { name: "cookie", headers: { ...bearer, Cookie: "session=1" }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
-      { name: "evil host", headers: { ...bearer, Host: "localhost:43127" }, body: publishBody("draft"), status: 421, code: "MISDIRECTED_REQUEST" },
+  await withAuthoringApi(async ({ apiKey, credentials, digest, publishCalls, log }) => {
+    const json = { "Content-Type": "application/json" } as const;
+    const bearer = { ...json, Authorization: `Bearer ${apiKey}` } as const;
+    const oversized = JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: "draft", operationId: "x".repeat(4_096) });
+    const cases: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string; template?: AuthoringApiLogEvent["routeTemplate"]; remediation?: string }>[] = [
+      { name: "missing key", headers: json, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_REQUIRED" },
+      { name: "malformed scheme", headers: { ...json, Authorization: "Basic abc" }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_MALFORMED" },
+      { name: "malformed key shape", headers: { ...json, Authorization: "Bearer invalid" }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_MALFORMED" },
+      { name: "duplicate key", headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_DUPLICATE" },
+      { name: "invalid key", headers: { ...json, Authorization: `Bearer asn_v1_${"C".repeat(43)}` }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_INVALID" },
+      { name: "cookie transport", headers: { ...bearer, Cookie: "session=1" }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+      { name: "query transport", path: "/v1/entries/entry/publish?key=1", headers: bearer, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+      // Host 不符時 request URL 不落在核准 origin，route 無法歸屬，log 只能記 `unmatched`。
+      { name: "evil host", headers: { ...bearer, Host: "localhost:43127" }, body: publishBody("draft"), status: 421, code: "MISDIRECTED_REQUEST", template: "unmatched" },
+      { name: "x-forwarded-for", headers: { ...bearer, "X-Forwarded-For": "203.0.113.1" }, body: publishBody("draft"), status: 421, code: "MISDIRECTED_REQUEST" },
       { name: "forwarded", headers: { ...bearer, Forwarded: "for=203.0.113.1" }, body: publishBody("draft"), status: 421, code: "MISDIRECTED_REQUEST" },
       { name: "evil origin", headers: { ...bearer, Origin: "https://evil.test", "Sec-Fetch-Site": "cross-site" }, body: publishBody("draft"), status: 403, code: "ORIGIN_FORBIDDEN" },
+      { name: "exact origin without same-origin fetch metadata", headers: { ...bearer, Origin: origin, "Sec-Fetch-Site": "cross-site" }, body: publishBody("draft"), status: 403, code: "ORIGIN_FORBIDDEN" },
       { name: "OPTIONS", method: "OPTIONS", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
-      { name: "wrong media", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/plain" }, body: publishBody("draft"), status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
+      { name: "GET", method: "GET", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
+      { name: "unsupported media type", headers: { ...bearer, "Content-Type": "text/plain" }, body: publishBody("draft"), status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
       { name: "invalid schema", headers: bearer, body: JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: "draft", operationId: "op", extra: true }), status: 400, code: "INVALID_REQUEST_BODY" },
-      { name: "oversized body", headers: bearer, body: JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: "draft", operationId: "x".repeat(4_096) }), status: 400, code: "REQUEST_BODY_TOO_LARGE" },
-      { name: "encoded entry", path: "/v1/entries/a%2Fb/publish", headers: bearer, body: publishBody("draft"), status: 404, code: "ROUTE_NOT_FOUND" },
+      { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },
+      // publish 的 body 上限是 save 的 1/1024；remediation 必須指出這個 route 自己的上限。
+      { name: "oversized body", headers: bearer, body: oversized, status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "PublishRevision request 不得超過 4 KiB。" },
+      { name: "percent-encoded entryId", path: "/v1/entries/a%2Fb/publish", headers: bearer, body: publishBody("draft"), status: 404, code: "ROUTE_NOT_FOUND", template: "unmatched" },
     ];
     const before = digest();
     for (const item of cases) {
       const response = await send(item.method ?? "POST", item.path ?? "/v1/entries/entry/publish", item.headers, item.body);
       assert.equal(response.status, item.status, `${item.name} status`);
       assert.equal(failureCode(response), item.code, `${item.name} code`);
+      assert.equal(response.body.includes("asn_"), false, `${item.name} 不得回吐 credential 形狀字串`);
+      if (item.remediation !== undefined) assert.equal((JSON.parse(response.body) as { remediation: { message: string } }).remediation.message, item.remediation, `${item.name} remediation`);
+      assert.equal(log.at(-1)?.routeTemplate, item.template ?? "/v1/entries/:entryId/publish", `${item.name} routeTemplate`);
       assertResponseHeaders(response, item.name);
     }
     assert.equal(publishCalls(), 0, "所有 transport rejection 都不得執行 PublishRevision");
     assert.equal(digest(), before, "所有 transport rejection 都不得改變 canonical state");
+    assert.equal(JSON.stringify(log).includes("asn_"), false, "log 不得回吐 credential 形狀字串");
+
+    // contract §7：rotate 之後舊 key 一律 401，且不得抵達 command seam。
+    assert.deepEqual(await credentials.transition("rotate"), { ok: true, value: { generation: 2, status: "active" } });
+    const rotated = await post("/v1/entries/entry/publish", bearer, publishBody("draft"));
+    assert.equal(rotated.status, 401); assert.equal(failureCode(rotated), "AUTHORIZATION_INVALID");
+
     assert.equal((await credentials.transition("revoke")).ok, true);
     const revoked = await post("/v1/entries/entry/publish", bearer, publishBody("draft"));
     assert.equal(revoked.status, 401); assert.equal(failureCode(revoked), "AUTHORIZATION_REVOKED");
     assert.equal(publishCalls(), 0);
+    assert.equal(digest(), before, "old／revoked key 的 401 不得改變 canonical state");
   });
 });
 
@@ -214,7 +237,7 @@ test("every rejected transport shape fails closed with its contract status and m
     const json = { "Content-Type": "application/json" } as const;
     const bearer = { ...json, Authorization: `Bearer ${apiKey}` } as const;
     const oversized = JSON.stringify({ contract: "save-revision-request/v1", content: "x".repeat(4_194_305) });
-    const cases: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string }>[] = [
+    const cases: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string; remediation?: string }>[] = [
       { name: "missing key", headers: json, body: saveBody("r", "/a"), status: 401, code: "AUTHORIZATION_REQUIRED" },
       { name: "malformed scheme", headers: { ...json, Authorization: "Basic abc" }, body: saveBody("r", "/a"), status: 401, code: "AUTHORIZATION_MALFORMED" },
       { name: "malformed key shape", headers: { ...json, Authorization: "Bearer asn_v1_short" }, body: saveBody("r", "/a"), status: 401, code: "AUTHORIZATION_MALFORMED" },
@@ -230,12 +253,14 @@ test("every rejected transport shape fails closed with its contract status and m
       { name: "OPTIONS", method: "OPTIONS", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
       { name: "GET", method: "GET", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
       { name: "unsupported media type", headers: { ...bearer, "Content-Type": "text/plain" }, body: saveBody("r", "/a"), status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
-      { name: "oversized body", headers: bearer, body: oversized, status: 400, code: "REQUEST_BODY_TOO_LARGE" },
+      { name: "oversized body", headers: bearer, body: oversized, status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "SaveRevision request 不得超過 4 MiB。" },
       { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },
       { name: "percent-encoded entryId", path: "/v1/entries/a%2Fb/revisions", headers: bearer, body: saveBody("r", "/a"), status: 404, code: "ROUTE_NOT_FOUND" },
       { name: "unlisted /_local route", path: "/_local/browser-tickets", headers: bearer, body: "{}", status: 404, code: "ROUTE_NOT_FOUND" },
       { name: "server proof rejects cookie", path: "/_local/server-proof", headers: { ...json, Cookie: "session=1" }, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       { name: "server proof rejects query", path: "/_local/server-proof?key=1", headers: json, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+      // proof route 的上限是 4 KiB；remediation 不得沿用 SaveRevision 的 4 MiB 說明。
+      { name: "server proof rejects oversized challenge", path: "/_local/server-proof", headers: json, body: JSON.stringify({ contract: "authoring-server-proof-challenge/v1", generation: 1, nonce: "a".repeat(4_096) }), status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "server-proof challenge 不得超過 4 KiB。" },
     ];
 
     const before = digest();
@@ -244,6 +269,7 @@ test("every rejected transport shape fails closed with its contract status and m
       assert.equal(response.status, item.status, `${item.name} status`);
       assert.equal(failureCode(response), item.code, `${item.name} code`);
       assert.equal(response.body.includes("asn_"), false, `${item.name} 不得回吐 credential 形狀字串`);
+      if (item.remediation !== undefined) assert.equal((JSON.parse(response.body) as { remediation: { message: string } }).remediation.message, item.remediation, `${item.name} remediation`);
       assertResponseHeaders(response, item.name);
     }
     assert.equal(digest(), before, "被拒絕的 request 不得執行任何 canonical mutation");

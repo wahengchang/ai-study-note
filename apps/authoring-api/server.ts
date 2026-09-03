@@ -9,7 +9,7 @@ import type { Context } from "hono";
 import type { AuthoringCredentialAuthority } from "./credential-store.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, redactSecrets } from "./origin.js";
 import { authoringErrorStatuses, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
-import type { TransportCode } from "./transport-contracts.js";
+import type { PublishRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
 const SECURITY_HEADERS = {
@@ -30,12 +30,19 @@ const ERROR_REMEDIATION: Record<TransportCode, string> = {
   AUTHORIZATION_REVOKED: "請提供目前有效的本機 Authoring API credential。",
   SERVER_PROOF_GENERATION_MISMATCH: "請提供目前有效的本機 Authoring API credential。",
   INVALID_REQUEST_BODY: "請修正 versioned JSON request。",
-  REQUEST_BODY_TOO_LARGE: "SaveRevision request 不得超過 4 MiB。",
+  REQUEST_BODY_TOO_LARGE: "請縮小 request body 至該 route 允許的上限。",
   ROUTE_NOT_FOUND: "請使用已核准的 Authoring API route。",
   METHOD_NOT_ALLOWED: "請使用 route 核准的 HTTP method。",
   UNSUPPORTED_MEDIA_TYPE: "請使用 application/json UTF-8 request body。",
   INTERNAL_SERVER_ERROR: "Authoring API 暫時無法完成 request，請稍後重試。",
 };
+/** 每個 route 的 body 上限與其 remediation 綁在同一處，避免上限與訊息各自漂移。 */
+const SAVE_BODY_LIMIT = 4_194_304;
+const PUBLISH_BODY_LIMIT = 4_096;
+const PROOF_BODY_LIMIT = 4_096;
+const SAVE_BODY_LIMIT_REMEDIATION = "SaveRevision request 不得超過 4 MiB。";
+const PUBLISH_BODY_LIMIT_REMEDIATION = "PublishRevision request 不得超過 4 KiB。";
+const PROOF_BODY_LIMIT_REMEDIATION = "server-proof challenge 不得超過 4 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
 export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/_local/server-proof" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
@@ -115,7 +122,7 @@ function domainError(requestId: string, error: DomainApplicationFailure): Respon
   if (status === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   return response({ contract: "authoring-error/v1", requestId, code, owner, subjectIds, remediation: { kind: "message", message: rem.message.value } }, status);
 }
-function saveSuccess(value: SaveRevisionSuccess): Readonly<Record<string, unknown>> { return {
+function saveSuccess(value: SaveRevisionSuccess): SaveRevisionSuccessDto { return {
   contract: "save-revision-success/v1", entryId: value.revision.identity.entryId,
   revision: { revisionId: value.revision.identity.revisionId, schemaIdentity: value.revision.schemaIdentity, contentDigest: value.revision.contentDigest, lineage: value.revision.lineage },
   references: value.references.map((item) => ({ assetId: item.assetVersion.assetId, assetVersionId: item.assetVersion.assetVersionId })).sort((a, b) => a.assetId === b.assetId ? a.assetVersionId < b.assetVersionId ? -1 : a.assetVersionId > b.assetVersionId ? 1 : 0 : a.assetId < b.assetId ? -1 : 1),
@@ -123,13 +130,22 @@ function saveSuccess(value: SaveRevisionSuccess): Readonly<Record<string, unknow
   currentRoute: { normalizedRoute: value.currentClaim.normalizedRoute, owner: value.currentClaim.owner, sourceRevisionId: value.currentClaim.sourceRevisionId }, lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest, activePluginStateDigest: value.activePluginStateDigest,
 }; }
 
-function publishSuccess(value: PublishRevisionSuccess): Readonly<Record<string, unknown>> { return {
-  contract: "publish-revision-success/v1", entryId: value.revision.identity.entryId,
-  revision: { revisionId: value.revision.identity.revisionId, schemaIdentity: value.revision.schemaIdentity, contentDigest: value.revision.contentDigest, lineage: value.revision.lineage },
-  publishedPointer: { currentRevisionId: value.publishedPointer.currentRevisionId, publishedRevisionId: value.publishedPointer.publishedRevisionId },
-  publishedRoute: { normalizedRoute: value.publishedClaim.normalizedRoute, owner: value.publishedClaim.owner, sourceRevisionId: value.publishedClaim.sourceRevisionId },
-  lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest,
-}; }
+/**
+ * receipt 以 DTO type 標註，client 的 strict schema 與 server 投影一旦漂移就是 compile
+ * error，而不是 runtime 的 `INVALID_SERVER_RESPONSE`。`publishedRevisionId` 在
+ * `EntryPointerRecord` 上是 optional，缺值時只能 fail closed，不得送出缺欄位的 receipt。
+ */
+function publishSuccess(value: PublishRevisionSuccess): PublishRevisionSuccessDto | undefined {
+  const publishedRevisionId = value.publishedPointer.publishedRevisionId;
+  if (publishedRevisionId === undefined) return undefined;
+  return {
+    contract: "publish-revision-success/v1", entryId: value.revision.identity.entryId,
+    revision: { revisionId: value.revision.identity.revisionId, schemaIdentity: value.revision.schemaIdentity, contentDigest: value.revision.contentDigest, lineage: value.revision.lineage },
+    publishedPointer: { currentRevisionId: value.publishedPointer.currentRevisionId, publishedRevisionId },
+    publishedRoute: { normalizedRoute: value.publishedClaim.normalizedRoute, owner: value.publishedClaim.owner, sourceRevisionId: value.publishedClaim.sourceRevisionId },
+    lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest,
+  };
+}
 
 async function authenticatedJson(context: Context, input: StartAuthoringApiInput, bodyLimit: number, oversizedRemediation: string, handle: (requestId: string, entryId: string, body: unknown) => Promise<Response>): Promise<Response> {
   const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
@@ -153,22 +169,24 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
     if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
     if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
-    const body = await boundedJson(context.req.raw, 4_096); if (!body.ok) return errorResponse(requestId, body.code, 400);
+    const body = await boundedJson(context.req.raw, PROOF_BODY_LIMIT); if (!body.ok) return errorResponse(requestId, body.code, 400, "AuthoringApi", body.code === "REQUEST_BODY_TOO_LARGE" ? PROOF_BODY_LIMIT_REMEDIATION : ERROR_REMEDIATION.INVALID_REQUEST_BODY);
     const parsed = serverProofChallengeSchema.safeParse(body.value); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
     try { if (admission.value.generation !== parsed.data.generation) return errorResponse(requestId, "SERVER_PROOF_GENERATION_MISMATCH", 401, "AuthoringCredential"); return response({ contract: "authoring-server-proof/v1", generation: admission.value.generation, nonce: parsed.data.nonce, mac: admission.value.createServerProof(parsed.data.nonce) }, 200); } finally { admission.value.dispose(); }
   });
-  app.post("/v1/entries/:entryId/revisions", async (context) => authenticatedJson(context, input, 4_194_304, "SaveRevision request 不得超過 4 MiB。", async (requestId, entryId, body) => {
+  app.post("/v1/entries/:entryId/revisions", async (context) => authenticatedJson(context, input, SAVE_BODY_LIMIT, SAVE_BODY_LIMIT_REMEDIATION, async (requestId, entryId, body) => {
     const parsed = saveRevisionRequestSchema.safeParse(body);
     if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const command = await input.domainApplication.saveRevision({ entryId, ...parsed.data, content: parsed.data.content as JsonValue });
     return command.ok ? response(saveSuccess(command.value), 200) : domainError(requestId, command.error);
   }));
-  app.post("/v1/entries/:entryId/publish", async (context) => authenticatedJson(context, input, 4_096, "PublishRevision request 不得超過 4 KiB。", async (requestId, entryId, body) => {
+  app.post("/v1/entries/:entryId/publish", async (context) => authenticatedJson(context, input, PUBLISH_BODY_LIMIT, PUBLISH_BODY_LIMIT_REMEDIATION, async (requestId, entryId, body) => {
     const parsed = publishRevisionRequestSchema.safeParse(body);
     if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const command = await input.domainApplication.publishRevision({ entryId, expectedCurrentRevisionId: parsed.data.expectedCurrentRevisionId, operationId: parsed.data.operationId });
-    return command.ok ? response(publishSuccess(command.value), 200) : domainError(requestId, command.error);
+    if (!command.ok) return domainError(requestId, command.error);
+    const receipt = publishSuccess(command.value);
+    return receipt === undefined ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : response(receipt, 200);
   }));
 
   const server = createAdaptorServer({ fetch: async (request, env) => {
