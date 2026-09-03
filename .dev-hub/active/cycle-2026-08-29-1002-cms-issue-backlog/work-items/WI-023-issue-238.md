@@ -1,8 +1,8 @@
 ---
 id: WI-023
-status: pending
+status: done
 title: ChangeRoute｜原子套用 SiteDefinition plan 並防止 stale/競爭提交
-work_group: null
+work_group: WG-014
 depends_on: ["WI-015", "WI-017"]
 ---
 

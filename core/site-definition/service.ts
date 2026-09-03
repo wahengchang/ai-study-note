@@ -88,7 +88,8 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
       if (!persistence.ownsActiveTransaction(transaction)) return fail("STALE_ROUTE_PROPOSAL");
       const current = graphSnapshot("current", transaction);
       const published = graphSnapshot("published", transaction);
-      if (!current.ok || !published.ok || current.value.digest !== state.baselineDigests.current || published.value.digest !== state.baselineDigests.published) return fail("STALE_ROUTE_PROPOSAL");
+      if (!current.ok || !published.ok) return fail("SITE_DEFINITION_STORAGE_FAILURE");
+      if (current.value.digest !== state.baselineDigests.current || published.value.digest !== state.baselineDigests.published) return fail("STALE_ROUTE_PROPOSAL");
       const token = {};
       tokens.set(token, { transaction, state, used: false });
       return { ok: true, value: token };
@@ -100,7 +101,8 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
       if (tokenState === undefined || tokenState.used) return fail("STALE_ROUTE_PROPOSAL");
       if (!persistence.ownsActiveTransaction(transaction) || tokenState.transaction !== transaction || tokenState.state.operation !== operation || tokenState.state.targetGraph !== targetGraph) return fail("STALE_ROUTE_PROPOSAL");
       const before = snapshots(transaction);
-      if (!before.ok || before.value.current.digest !== tokenState.state.baselineDigests.current || before.value.published.digest !== tokenState.state.baselineDigests.published) return fail("STALE_ROUTE_PROPOSAL");
+      if (!before.ok) return fail("SITE_DEFINITION_STORAGE_FAILURE");
+      if (before.value.current.digest !== tokenState.state.baselineDigests.current || before.value.published.digest !== tokenState.state.baselineDigests.published) return fail("STALE_ROUTE_PROPOSAL");
       tokenState.used = true;
       const replaced = transaction.replaceRouteClaim({ ...tokenState.state.claim });
       if (!replaced.ok) return fail("SITE_DEFINITION_STORAGE_FAILURE");
@@ -167,11 +169,13 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
       return { ok: true, value: proposal };
     },
     validateRouteClaimReplacementInTransaction(proposal, transaction) {
-      if (!isObject(proposal)) return fail("STALE_ROUTE_PROPOSAL");
-      const graph = isObject(proposal.claim) && isRouteGraph(proposal.claim.graph) ? proposal.claim.graph : undefined;
-      if (graph === undefined) return fail("STALE_ROUTE_PROPOSAL");
-      const validated = validateClaim(proposal, transaction, graph, "replacement");
-      return validated.ok ? { ok: true, value: validated.value as ValidatedRouteClaimReplacement } : validated;
+      try {
+        if (!isObject(proposal)) return fail("STALE_ROUTE_PROPOSAL");
+        const graph = isObject(proposal.claim) && isRouteGraph(proposal.claim.graph) ? proposal.claim.graph : undefined;
+        if (graph === undefined) return fail("STALE_ROUTE_PROPOSAL");
+        const validated = validateClaim(proposal, transaction, graph, "replacement");
+        return validated.ok ? { ok: true, value: validated.value as ValidatedRouteClaimReplacement } : validated;
+      } catch { return fail("STALE_ROUTE_PROPOSAL"); }
     },
     applyValidatedRouteClaimReplacementInTransaction(token, transaction) {
       const state = tokens.get(token);
