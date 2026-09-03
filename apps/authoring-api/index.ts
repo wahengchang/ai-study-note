@@ -36,6 +36,8 @@ export type {
 export {
   authoringErrorSchema,
   authoringErrorStatuses,
+  publishRevisionRequestSchema,
+  publishRevisionSuccessSchema,
   saveRevisionRequestSchema,
   saveRevisionSuccessSchema,
   serverProofChallengeSchema,
@@ -44,6 +46,8 @@ export {
 export type {
   AuthoringErrorDto,
   AuthoringRemoteErrorCode,
+  PublishRevisionRequestDto,
+  PublishRevisionSuccessDto,
   SaveRevisionRequestDto,
   SaveRevisionSuccessDto,
   ServerProofChallengeDto,

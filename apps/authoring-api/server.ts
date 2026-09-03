@@ -3,11 +3,12 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { DomainApplication, DomainApplicationFailure, SaveRevisionSuccess } from "../../core/application/index.js";
+import type { DomainApplication, DomainApplicationFailure, PublishRevisionSuccess, SaveRevisionSuccess } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
+import type { Context } from "hono";
 import type { AuthoringCredentialAuthority } from "./credential-store.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, redactSecrets } from "./origin.js";
-import { authoringErrorStatuses, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
+import { authoringErrorStatuses, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
 import type { TransportCode } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
@@ -36,14 +37,14 @@ const ERROR_REMEDIATION: Record<TransportCode, string> = {
   INTERNAL_SERVER_ERROR: "Authoring API 暫時無法完成 request，請稍後重試。",
 };
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/v1/entries/:entryId/revisions" | "/_local/server-proof" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/_local/server-proof" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
 export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; logger: (event: AuthoringApiLogEvent) => void }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "save" | "proof" | "unknown";
+type RouteClass = "save" | "publish" | "proof" | "unknown";
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
   const map = new Map<string, string[]>();
@@ -57,8 +58,14 @@ function headersOf(incoming: IncomingMessage): HeaderMap {
 function values(headers: HeaderMap, name: string): readonly string[] { return headers.get(name) ?? []; }
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
 /** entryId 只接受單一未經 percent-encoding 的 path segment；`%` 會讓 decode 後的 ID 與 URL 不再一一對應。 */
-function routeFor(pathname: string): RouteClass { return pathname === "/_local/server-proof" ? "proof" : /^\/v1\/entries\/[^/%?#]+\/revisions$/u.test(pathname) ? "save" : "unknown"; }
-function templateFor(route: RouteClass): RouteTemplate { return route === "save" ? "/v1/entries/:entryId/revisions" : route === "proof" ? "/_local/server-proof" : "unmatched"; }
+function routeFor(pathname: string): RouteClass {
+  if (pathname === "/_local/server-proof") return "proof";
+  if (/^\/v1\/entries\/[^/%?#]+\/revisions$/u.test(pathname)) return "save";
+  return /^\/v1\/entries\/[^/%?#]+\/publish$/u.test(pathname) ? "publish" : "unknown";
+}
+function templateFor(route: RouteClass): RouteTemplate {
+  return route === "save" ? "/v1/entries/:entryId/revisions" : route === "publish" ? "/v1/entries/:entryId/publish" : route === "proof" ? "/_local/server-proof" : "unmatched";
+}
 function methodFor(method: string | undefined): AuthoringApiLogEvent["method"] { return method === "POST" ? "POST" : method === "OPTIONS" ? "OPTIONS" : "OTHER"; }
 /** 所有 JSON response 在送出前一律 redact；success DTO 也會回吐呼叫端提供的 route／ID。 */
 function response(body: unknown, status: number, extra: Readonly<Record<string, string>> = {}): Response { return new Response(redactSecrets(JSON.stringify(body)), { status, headers: { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8", ...extra } }); }
@@ -75,7 +82,7 @@ function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === A
 function originOk(headers: HeaderMap, route: RouteClass): boolean {
   const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site");
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
-  if (route !== "save") return true;
+  if (route !== "save" && route !== "publish") return true;
   const browser = origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin";
   const cli = origin.length === 0 && fetchSite.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
   return browser || cli;
@@ -116,6 +123,30 @@ function saveSuccess(value: SaveRevisionSuccess): Readonly<Record<string, unknow
   currentRoute: { normalizedRoute: value.currentClaim.normalizedRoute, owner: value.currentClaim.owner, sourceRevisionId: value.currentClaim.sourceRevisionId }, lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest, activePluginStateDigest: value.activePluginStateDigest,
 }; }
 
+function publishSuccess(value: PublishRevisionSuccess): Readonly<Record<string, unknown>> { return {
+  contract: "publish-revision-success/v1", entryId: value.revision.identity.entryId,
+  revision: { revisionId: value.revision.identity.revisionId, schemaIdentity: value.revision.schemaIdentity, contentDigest: value.revision.contentDigest, lineage: value.revision.lineage },
+  publishedPointer: { currentRevisionId: value.publishedPointer.currentRevisionId, publishedRevisionId: value.publishedPointer.publishedRevisionId },
+  publishedRoute: { normalizedRoute: value.publishedClaim.normalizedRoute, owner: value.publishedClaim.owner, sourceRevisionId: value.publishedClaim.sourceRevisionId },
+  lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest,
+}; }
+
+async function authenticatedJson(context: Context, input: StartAuthoringApiInput, bodyLimit: number, oversizedRemediation: string, handle: (requestId: string, entryId: string, body: unknown) => Promise<Response>): Promise<Response> {
+  const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
+  if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
+  const parsedAuthorization = authorization(headers); if (!parsedAuthorization.ok) return errorResponse(requestId, parsedAuthorization.code, 401);
+  const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
+  try {
+    if (!admission.value.verifyBearer(parsedAuthorization.candidate)) return errorResponse(requestId, "AUTHORIZATION_INVALID", 401, "AuthoringCredential");
+    if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
+    const body = await boundedJson(context.req.raw, bodyLimit);
+    if (!body.ok) return errorResponse(requestId, body.code, 400, "AuthoringApi", body.code === "REQUEST_BODY_TOO_LARGE" ? oversizedRemediation : ERROR_REMEDIATION.INVALID_REQUEST_BODY);
+    const entryId = context.req.param("entryId");
+    if (entryId === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+    return handle(requestId, entryId, body.value);
+  } finally { admission.value.dispose(); }
+}
+
 export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<AuthoringApiResult<RunningAuthoringApi>> {
   const app = new Hono();
   app.post("/_local/server-proof", async (context) => {
@@ -127,20 +158,18 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
     try { if (admission.value.generation !== parsed.data.generation) return errorResponse(requestId, "SERVER_PROOF_GENERATION_MISMATCH", 401, "AuthoringCredential"); return response({ contract: "authoring-server-proof/v1", generation: admission.value.generation, nonce: parsed.data.nonce, mac: admission.value.createServerProof(parsed.data.nonce) }, 200); } finally { admission.value.dispose(); }
   });
-  app.post("/v1/entries/:entryId/revisions", async (context) => {
-    const requestId = randomUUID(); const incoming = (context.env as { incoming: IncomingMessage }).incoming; const headers = headersOf(incoming);
-    if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
-    const parsedAuthorization = authorization(headers); if (!parsedAuthorization.ok) return errorResponse(requestId, parsedAuthorization.code, 401);
-    const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
-    try {
-      if (!admission.value.verifyBearer(parsedAuthorization.candidate)) return errorResponse(requestId, "AUTHORIZATION_INVALID", 401, "AuthoringCredential");
-      if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
-      const body = await boundedJson(context.req.raw, 4_194_304); if (!body.ok) return errorResponse(requestId, body.code, 400);
-      const parsed = saveRevisionRequestSchema.safeParse(body.value); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-      const command = await input.domainApplication.saveRevision({ entryId: context.req.param("entryId"), ...parsed.data, content: parsed.data.content as JsonValue });
-      return command.ok ? response(saveSuccess(command.value), 200) : domainError(requestId, command.error);
-    } finally { admission.value.dispose(); }
-  });
+  app.post("/v1/entries/:entryId/revisions", async (context) => authenticatedJson(context, input, 4_194_304, "SaveRevision request 不得超過 4 MiB。", async (requestId, entryId, body) => {
+    const parsed = saveRevisionRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const command = await input.domainApplication.saveRevision({ entryId, ...parsed.data, content: parsed.data.content as JsonValue });
+    return command.ok ? response(saveSuccess(command.value), 200) : domainError(requestId, command.error);
+  }));
+  app.post("/v1/entries/:entryId/publish", async (context) => authenticatedJson(context, input, 4_096, "PublishRevision request 不得超過 4 KiB。", async (requestId, entryId, body) => {
+    const parsed = publishRevisionRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const command = await input.domainApplication.publishRevision({ entryId, expectedCurrentRevisionId: parsed.data.expectedCurrentRevisionId, operationId: parsed.data.operationId });
+    return command.ok ? response(publishSuccess(command.value), 200) : domainError(requestId, command.error);
+  }));
 
   const server = createAdaptorServer({ fetch: async (request, env) => {
     const incoming = env.incoming as IncomingMessage; const headers = headersOf(incoming); const requestId = randomUUID(); const parsed = request.url.startsWith(ORIGIN) ? new URL(request.url) : undefined; const pathname = parsed?.pathname ?? ""; const route = routeFor(pathname); let result: Response;

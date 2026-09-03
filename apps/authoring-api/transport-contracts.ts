@@ -55,6 +55,27 @@ export const saveRevisionSuccessSchema = z.object({
   activePluginStateDigest: z.string(),
 }).strict();
 
+export const publishRevisionRequestSchema = z.object({
+  contract: z.literal("publish-revision-request/v1"),
+  expectedCurrentRevisionId: z.string(),
+  operationId: z.string(),
+}).strict();
+
+export const publishRevisionSuccessSchema = z.object({
+  contract: z.literal("publish-revision-success/v1"),
+  entryId: z.string(),
+  revision: z.object({
+    revisionId: z.string(),
+    schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(),
+    contentDigest: z.string(),
+    lineage: z.object({ operationId: z.string(), operationKind: z.string() }).strict(),
+  }).strict(),
+  publishedPointer: z.object({ currentRevisionId: z.string(), publishedRevisionId: z.string() }).strict(),
+  publishedRoute: z.object({ normalizedRoute: z.string(), owner: z.string(), sourceRevisionId: z.string() }).strict(),
+  lineageIdentity: z.object({ entryId: z.string(), revisionId: z.string(), operationId: z.string() }).strict(),
+  stateDigest: z.string(),
+}).strict();
+
 export type TransportCode =
   | "INVALID_REQUEST_FRAMING"
   | "MISDIRECTED_REQUEST"
@@ -133,4 +154,6 @@ export type ServerProofChallengeDto = Readonly<z.infer<typeof serverProofChallen
 export type ServerProofDto = Readonly<z.infer<typeof serverProofSchema>>;
 export type SaveRevisionRequestDto = Readonly<z.infer<typeof saveRevisionRequestSchema>>;
 export type SaveRevisionSuccessDto = Readonly<z.infer<typeof saveRevisionSuccessSchema>>;
+export type PublishRevisionRequestDto = Readonly<z.infer<typeof publishRevisionRequestSchema>>;
+export type PublishRevisionSuccessDto = Readonly<z.infer<typeof publishRevisionSuccessSchema>>;
 export type AuthoringErrorDto = Readonly<z.infer<typeof authoringErrorSchema>>;
