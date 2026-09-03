@@ -4,6 +4,8 @@ import type { PluginHostFailure } from "../plugin-host/index.js";
 import type { PublishedRouteClaimProposal, RouteClaim, RouteClaimReplacementProposal } from "../site-definition/index.js";
 
 import type {
+  ChangeRouteRequest,
+  ChangeRouteSuccess,
   DomainApplication,
   DomainApplicationCommandFailure,
   DomainApplicationDependencies,
@@ -24,7 +26,8 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_SAVE_REVISION_REQUEST: "請修正 SaveRevision request。",
   INVALID_PUBLISH_REVISION_REQUEST: "請修正 PublishRevision request。",
   INVALID_RESTORE_REVISION_REQUEST: "請修正 RestoreRevision request。",
-  CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再發布。",
+  INVALID_CHANGE_ROUTE_REQUEST: "請修正 ChangeRoute request。",
+  CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
   MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
   SCHEMA_INVALID: "草稿不符合選定的 schema version。",
@@ -36,6 +39,7 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   SAVE_REVISION_FAILED: "草稿未儲存；canonical state 未變更。",
   PUBLISH_REVISION_FAILED: "發布未完成；canonical state 未變更。",
   RESTORE_REVISION_FAILED: "Revision 尚未完成還原；canonical state 未變更。",
+  CHANGE_ROUTE_FAILED: "Route 尚未完成變更；canonical state 未變更。",
 };
 
 type PreparedPublishedClaim =
@@ -48,7 +52,7 @@ type NormalizedSaveRevisionCommand =
 
 type CanonicalContent = Readonly<{ value: JsonValue; bytes: Uint8Array; digest: Digest }>;
 type SelectedCurrentClaim = Readonly<{ claim: RouteClaim; snapshotDigest: Digest }>;
-type CommandOperation = "SaveRevision" | "PublishRevision" | "RestoreRevision";
+type CommandOperation = "SaveRevision" | "PublishRevision" | "RestoreRevision" | "ChangeRoute";
 
 function fail<T>(
   code: DomainApplicationFailureCode,
@@ -270,6 +274,57 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       return command.kind === "save"
         ? executeSaveRevision(command.request)
         : executeMediaReferenceReplacement(command.request);
+    },
+
+    async changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>> {
+      const change = normalizeChangeRouteRequest(request);
+      if (change === null) return fail("INVALID_CHANGE_ROUTE_REQUEST");
+
+      const result = persistence.runTransaction<ChangeRouteSuccess, DomainApplicationFailure>((transaction) => {
+        const token = siteDefinition.validateRouteClaimReplacementInTransaction(change.proposal, transaction);
+        if (!token.ok) return changeRouteFailure(token.error.code);
+
+        // token 驗證後不可再讀取呼叫端 proposal；只使用 SiteDefinition apply 的權威 claim。
+        const applied = siteDefinition.applyValidatedRouteClaimReplacementInTransaction(token.value, transaction);
+        if (!applied.ok) return changeRouteFailure(applied.error.code);
+        const { claim } = applied.value;
+        const pointer = transaction.getEntryPointers(claim.owner);
+        if (!pointer.ok) {
+          return pointer.error.code === "ENTRY_POINTER_NOT_FOUND"
+            ? fail("CURRENT_REVISION_MISMATCH", "Content", [claim.owner])
+            : fail("CHANGE_ROUTE_FAILED");
+        }
+        const selectedRevisionId = claim.graph === "current"
+          ? pointer.value.currentRevisionId
+          : pointer.value.publishedRevisionId;
+        if (selectedRevisionId === undefined || selectedRevisionId !== claim.sourceRevisionId) {
+          return fail("CURRENT_REVISION_MISMATCH", "Content", [claim.owner]);
+        }
+        const unchanged = transaction.setEntryPointers({
+          entryId: claim.owner,
+          currentRevisionId: pointer.value.currentRevisionId,
+          ...(pointer.value.publishedRevisionId === undefined ? {} : { publishedRevisionId: pointer.value.publishedRevisionId }),
+          lineage: { revisionId: claim.sourceRevisionId, operationId: change.operationId, operationKind: "ChangeRoute" },
+        });
+        if (!unchanged.ok) return fail("CHANGE_ROUTE_FAILED");
+        const state = transaction.canonicalState();
+        return !state.ok
+          ? fail("CHANGE_ROUTE_FAILED")
+          : {
+              ok: true,
+              value: {
+                ...applied.value,
+                entryPointer: unchanged.value,
+                lineageIdentity: { entryId: claim.owner, revisionId: claim.sourceRevisionId, operationId: change.operationId },
+                stateDigest: state.value.digest,
+              },
+            };
+      });
+      return result.ok
+        ? result
+        : result.error.owner === "Persistence"
+          ? fail("CHANGE_ROUTE_FAILED")
+          : { ok: false, error: result.error };
     },
 
     async restoreRevision(request: RestoreRevisionRequest): Promise<DomainApplicationResult<RestoreRevisionSuccess>> {
@@ -514,7 +569,14 @@ const operationFailure: Readonly<Record<CommandOperation, DomainApplicationFailu
   SaveRevision: "SAVE_REVISION_FAILED",
   PublishRevision: "PUBLISH_REVISION_FAILED",
   RestoreRevision: "RESTORE_REVISION_FAILED",
+  ChangeRoute: "CHANGE_ROUTE_FAILED",
 };
+
+function changeRouteFailure<T>(code: string): DomainApplicationResult<T> {
+  return code === "STALE_ROUTE_PROPOSAL"
+    ? fail("STALE_ROUTE_PROPOSAL", "SiteDefinition")
+    : fail("CHANGE_ROUTE_FAILED");
+}
 
 function route<T>(code: string, entryId: string, operation: CommandOperation): DomainApplicationResult<T> {
   return code === "ROUTE_CONFLICT" || code === "ROUTE_CHANGE_REQUIRED" || code === "STALE_ROUTE_PROPOSAL"
@@ -531,6 +593,25 @@ function validPublish(value: unknown): value is PublishRevisionRequest {
     && (value as PublishRevisionRequest).expectedCurrentRevisionId.length > 0
     && typeof (value as PublishRevisionRequest).operationId === "string"
     && (value as PublishRevisionRequest).operationId.length > 0;
+}
+
+function normalizeChangeRouteRequest(value: unknown): ChangeRouteRequest | null {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const fields = ownEnumerableFields(value, ["operationId", "proposal"]);
+    if (
+      fields === null
+      || !text(fields.operationId)
+      || typeof fields.proposal !== "object"
+      || fields.proposal === null
+      || Array.isArray(fields.proposal)
+    ) {
+      return null;
+    }
+    return { operationId: fields.operationId, proposal: fields.proposal as RouteClaimReplacementProposal };
+  } catch {
+    return null;
+  }
 }
 
 function normalizeSaveRevisionCommand(value: unknown): NormalizedSaveRevisionCommand | null {
