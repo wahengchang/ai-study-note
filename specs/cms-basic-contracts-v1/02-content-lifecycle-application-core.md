@@ -11,6 +11,8 @@
 
 `RestoreRevision` 以 exact own-data request 從已驗證 immutable source 建立新 current revision，保留 published pointer、標記 `restoredFromRevisionId`，並在寫入前以 ordered `RestoreAsset` descriptors 阻擋 unavailable media；revision、references、pointer、current claim 與 lineage 均在單一 transaction 寫入。未知的 source revision 回傳 `INVALID_RESTORE_REVISION_REQUEST`；transaction 內 current pointer 已前進回傳 `CURRENT_REVISION_MISMATCH`，route replacement proposal 過期回傳 `STALE_ROUTE_PROPOSAL`。所有命令的拒絕都維持 canonical write-set 不變。
 
+`ChangeRoute` 是唯一不建立 revision 的 command。它不接受自由 route 輸入，只接受 `SiteDefinition.prepareRouteClaimReplacement` 發出、綁定 current 與 published 兩圖 digest 與 retained impact 的同一個 proposal object；proposal 一經 clone、mutate 或由其他 SiteDefinition instance 發出即回傳 `STALE_ROUTE_PROPOSAL`。command 在單一 transaction 內重驗 proposal 並套用 claim，之後只採用 SiteDefinition 回傳的權威 claim 執行 pointer gate：target graph 的 selected pointer revision 必須仍等於 claim 的 `sourceRevisionId`，否則回傳 `CURRENT_REVISION_MISMATCH` 並 rollback。成功時 current 與 published pointer 皆不移動，只寫入 `operationKind` 為 `ChangeRoute`、`createsRevision` 為 false 的 lineage。ChangeRoute 的 schema、media 與 revision/reference applicable set 為空：內容 bytes 未變更，且 published pointer 未移動時其 media 仍受 archive 的 active published reference gate 保護，因此 command 不讀取 schema validator、DataMedia 或 PluginHost。SiteDefinition 的 snapshot storage fault 與 stale digest／token 分開處理：前者收斂為 `CHANGE_ROUTE_FAILED`（`SaveRevision`／`PublishRevision`／`RestoreRevision` 則收斂為各自的 `*_FAILED`），只有真正的 digest 前進才回報 `STALE_ROUTE_PROPOSAL`。
+
 ## Problem Statement
 
 內容管理者需要一個可信任且可預期的入口，將草稿內容儲存、發布、還原與變更路由。若各功能各自寫資料，schema 驗證、媒體可用性、路由衝突檢查和 error handling 將不一致，失敗時更可能留下新 revision、pointer 或 route claim 的部分狀態。

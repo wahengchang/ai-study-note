@@ -169,13 +169,12 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
       return { ok: true, value: proposal };
     },
     validateRouteClaimReplacementInTransaction(proposal, transaction) {
-      try {
-        if (!isObject(proposal)) return fail("STALE_ROUTE_PROPOSAL");
-        const graph = isObject(proposal.claim) && isRouteGraph(proposal.claim.graph) ? proposal.claim.graph : undefined;
-        if (graph === undefined) return fail("STALE_ROUTE_PROPOSAL");
-        const validated = validateClaim(proposal, transaction, graph, "replacement");
-        return validated.ok ? { ok: true, value: validated.value as ValidatedRouteClaimReplacement } : validated;
-      } catch { return fail("STALE_ROUTE_PROPOSAL"); }
+      // target graph 只由 issuer 自己保存的 prepared state 決定；不讀取 caller-owned proposal 的欄位，
+      // 避免 accessor 在 identity 檢查前改寫 graph 或 throw。
+      const graph = isObject(proposal) ? prepared.get(proposal)?.targetGraph : undefined;
+      if (graph === undefined) return fail("STALE_ROUTE_PROPOSAL");
+      const validated = validateClaim(proposal, transaction, graph, "replacement");
+      return validated.ok ? { ok: true, value: validated.value as ValidatedRouteClaimReplacement } : validated;
     },
     applyValidatedRouteClaimReplacementInTransaction(token, transaction) {
       const state = tokens.get(token);

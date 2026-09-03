@@ -323,3 +323,32 @@ test("ChangeRoute competition admits exactly one same-graph owner and rolls back
     assertUnchanged(value, before);
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
+
+test("ChangeRoute reports a SiteDefinition snapshot storage fault as CHANGE_ROUTE_FAILED and leaves the proposal reusable", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "change-route-storage-"));
+  try {
+    const value = await harness(directory);
+    await seedPublished(value);
+    const app = changeOnlyApplication(value);
+    const proposal = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/storage-fault", sourceRevisionId: "r2" });
+    assert.equal(proposal.ok, true);
+    if (!proposal.ok) return;
+    const before = canonical(value.store);
+
+    const hidden = openSqliteAdapter(value.databasePath);
+    hidden.exec("ALTER TABLE route_claims RENAME TO route_claims_hidden");
+    hidden.close();
+    const failed = await app.changeRoute({ operationId: "storage-fault", proposal: proposal.value });
+    const restored = openSqliteAdapter(value.databasePath);
+    restored.exec("ALTER TABLE route_claims_hidden RENAME TO route_claims");
+    restored.close();
+
+    // snapshot 讀取 fault 不是 staleness：它必須收斂為 CHANGE_ROUTE_FAILED，不得偽裝成可重取 proposal 的 STALE_ROUTE_PROPOSAL。
+    assertFailure(failed, "CHANGE_ROUTE_FAILED", "DomainApplication", []);
+    assertUnchanged(value, before);
+    const retried = await app.changeRoute({ operationId: "storage-fault-retry", proposal: proposal.value });
+    assert.equal(retried.ok, true, retried.ok ? "" : retried.error.code);
+    if (!retried.ok) return;
+    assert.equal(retried.value.claim.normalizedRoute, "/storage-fault");
+  } finally { rmSync(directory, { recursive: true, force: true }); }
+});

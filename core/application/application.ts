@@ -584,7 +584,6 @@ function route<T>(code: string, entryId: string, operation: CommandOperation): D
     : fail(operationFailure[operation]);
 }
 
-
 function validPublish(value: unknown): value is PublishRevisionRequest {
   return typeof value === "object"
     && value !== null
