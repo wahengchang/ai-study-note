@@ -6,7 +6,7 @@ work_items: ["WI-028"]
 owner: Main
 branch: cms/projection-preview
 worktree: .dev-hub/worktrees/projection-preview
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/305
 ---
 
 # Projection & Preview renderer input
