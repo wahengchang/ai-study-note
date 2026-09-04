@@ -1,4 +1,5 @@
 import { lstatSync, readdirSync, realpathSync, type Dirent } from "node:fs";
+import { builtinModules } from "node:module";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -15,6 +16,7 @@ export type ArchitectureRule =
   | "RENDERER_THEME_ISOLATION"
   | "EXTENSION_TYPE_ONLY"
   | "RUNTIME_SELF_CONTAINED"
+  | "THEME_HOST_EXTERNAL"
   | "CATCH_ALL_ROOT"
   | "LEGACY_FLAT_ROOT"
   | "NAMING"
@@ -139,6 +141,8 @@ const ownerDependencies: Readonly<Record<string, readonly ArchitectureOwner[]>> 
 /** Foundation 唯一允許的外部 runtime 套件。 */
 const foundationExternals = new Set(["json-canonicalize"]);
 
+const themeHostExternals = new Set(["semver", "es-module-lexer"]);
+
 const kebabCase = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const migrationName = /^[0-9]{4}-[a-z0-9]+(?:-[a-z0-9]+)*\.sql$/;
 
@@ -212,6 +216,7 @@ function isTypeOnlyEdge(node: ts.Node): boolean {
       bindings.elements.every((item) => item.isTypeOnly)
     );
   }
+  if (ts.isImportEqualsDeclaration(node)) return node.isTypeOnly;
   if (!ts.isImportDeclaration(node)) return false;
   const clause = node.importClause;
   if (clause === undefined) return false; // side-effect import 一定是 runtime value 邊
@@ -419,13 +424,22 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
     }
 
     const visit = (node: ts.Node): void => {
-      const module = ts.isImportDeclaration(node) || ts.isExportDeclaration(node)
-        ? node.moduleSpecifier
-        : ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)
-          ? node.moduleReference.expression
-          : ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword
-            ? node.arguments[0]
-            : undefined;
+      let module: ts.Expression | undefined;
+      let typeOnly = isTypeOnlyEdge(node);
+      if (ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) {
+        module = node.moduleSpecifier;
+      } else if (ts.isImportEqualsDeclaration(node) && ts.isExternalModuleReference(node.moduleReference)) {
+        module = node.moduleReference.expression;
+      } else if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
+        module = node.arguments[0];
+      } else if (ts.isImportTypeNode(node)) {
+        typeOnly = true;
+        if (ts.isLiteralTypeNode(node.argument) && ts.isStringLiteralLike(node.argument.literal)) {
+          module = node.argument.literal;
+        } else {
+          violations.push(violation("UNRESOLVED_IMPORT", file, null, importer, null, source, node.getStart(source)));
+        }
+      }
 
       if (module !== undefined) {
         // PluginHost 唯一例外：`url` 是由已驗證的 entry bytes 與 manifest hash 組成的 data URL，
@@ -449,6 +463,14 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
               !foundationExternals.has(specifier)
             ) {
               violations.push(violation("FOUNDATION_ISOLATION", file, specifier, importer, "external", source, start));
+            } else if (
+              importer === "core/theme-host" &&
+              !(builtinModules.includes(specifier) || (specifier.startsWith("node:") && builtinModules.includes(specifier.slice("node:".length)))) &&
+              !themeHostExternals.has(specifier)
+            ) {
+              violations.push(violation("THEME_HOST_EXTERNAL", file, specifier, importer, "external", source, start));
+            } else if (isExtension(importer)) {
+              violations.push(violation(typeOnly ? "EXTENSION_TYPE_ONLY" : "RUNTIME_SELF_CONTAINED", file, specifier, importer, "external", source, start));
             }
           } else {
             const resolved = ts.resolveModuleName(specifier, fileName, program.getCompilerOptions(), ts.sys)
@@ -474,7 +496,7 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
                   importedFile,
                   imported,
                   importedUnit: unitOf(importedFile),
-                  typeOnly: isTypeOnlyEdge(node),
+                  typeOnly,
                 });
                 if (ruleId !== null) {
                   violations.push(violation(ruleId, file, specifier, importer, imported, source, start));
