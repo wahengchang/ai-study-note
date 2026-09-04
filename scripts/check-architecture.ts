@@ -428,14 +428,14 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
             : undefined;
 
       if (module !== undefined) {
-        // PluginHost 唯一例外：`url` 是由已驗證的 entry bytes 與 manifest hash 組成的 data URL，
+        // PluginHost 與 Renderer 的唯一例外：`url` 由已驗證的 entry bytes 與 manifest hash 組成，
         // 不能以 static specifier 表示，且不得重新開啟 installed pathname。
-        const verifiedPluginModuleLoad =
-          file === "core/plugin-host/module-loader.ts" &&
+        const verifiedRuntimeModuleLoad =
+          (file === "core/plugin-host/module-loader.ts" || file === "core/renderer/module-loader.ts") &&
           ts.isIdentifier(module) &&
           module.text === "url";
         if (!ts.isStringLiteralLike(module)) {
-          if (!verifiedPluginModuleLoad) {
+          if (!verifiedRuntimeModuleLoad) {
             violations.push(violation("UNRESOLVED_IMPORT", file, null, importer, null, source, node.getStart(source)));
           }
         } else {

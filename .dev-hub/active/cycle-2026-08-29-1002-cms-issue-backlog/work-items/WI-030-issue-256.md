@@ -1,8 +1,8 @@
 ---
 id: WI-030
-status: pending
+status: done
 title: Plugin Host｜renderer/assets callback 與 published build isolation
-work_group: null
+work_group: WG-015
 depends_on: ["WI-028"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-028"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #256；onboarding status：pending。
+GitHub #256；WG-015 已完成 active-only verified public source、immutable `renderer-input/v1` callback input、staged output、priority／Plugin ID ordering 與 sanitized callback fault。

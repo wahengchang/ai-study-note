@@ -5,8 +5,9 @@ import type { PluginHostFailure } from "./failures.js";
 export const PluginHookContract = "plugin-hooks/v1";
 export type PluginHookContract = typeof PluginHookContract;
 
-export type PluginHookId = "save-revision/validate" | "cms/editor-block/resolve";
-export type PluginCapability = "save-revision-validator" | "cms-editor-block-resolution";
+export type PluginPublicHookId = "public/block/render" | "public/assets/emit";
+export type PluginHookId = "save-revision/validate" | "cms/editor-block/resolve" | PluginPublicHookId;
+export type PluginCapability = "save-revision-validator" | "cms-editor-block-resolution" | "public-block-renderer" | "public-assets-emitter";
 
 export type PluginManifestEntry = Readonly<{ file: string; digest: Digest }>;
 export type PluginManifestResource = Readonly<{ file: string; digest: Digest }>;
@@ -77,6 +78,14 @@ export type SaveRevisionContentGuard = (input: Readonly<{ contentBytes: Uint8Arr
 declare const pluginOperationToken: unique symbol;
 export type PreparedSaveRevisionValidators = Readonly<{ activeStateDigest: Digest; readonly __pluginOperationToken: typeof pluginOperationToken }>;
 export type ValidatedSaveRevisionContent = Readonly<{ content: JsonValue; contentBytes: Uint8Array; contentDigest: Digest; activeStateDigest: Digest }>;
+export type VerifiedPluginResource = Readonly<{ file: string; bytes: Uint8Array; digest: Digest }>;
+export type ActivePublicPluginRenderer = Readonly<{
+  identity: PluginActivationIdentity;
+  activeStateDigest: Digest;
+  entryBytes: Uint8Array;
+  resources: readonly VerifiedPluginResource[];
+  callbacks: readonly Readonly<{ hook: PluginPublicHookId; exportName: string; priority: number }>[];
+}>;
 
 export type PluginHostResult<T> = CoreResult<T> | Readonly<{ ok: false; error: PluginHostFailure }>;
 export type PluginHost = Readonly<{
@@ -86,6 +95,7 @@ export type PluginHost = Readonly<{
   getActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>>;
   resolveCmsEditorBlock(input: CmsEditorBlockSource): Promise<PluginHostResult<CmsEditorBlockResolution>>;
   prepareSaveRevisionValidators(input: Readonly<{ entryId: string }>): Promise<PluginHostResult<PreparedSaveRevisionValidators>>;
+  resolveActivePublicRenderers(): Promise<PluginHostResult<readonly ActivePublicPluginRenderer[]>>;
   runPreparedSaveRevisionValidators(token: PreparedSaveRevisionValidators, input: SaveRevisionValidatorInput, guard: SaveRevisionContentGuard): PluginHostResult<ValidatedSaveRevisionContent>;
 }>;
 export type CreatePluginHostInput = Readonly<{ repositoryRoot: string; installedPluginsRoot: string; activationState: PluginActivationStatePort }>;
