@@ -6,7 +6,7 @@ work_items: ["WI-027"]
 owner: Main
 branch: cms/theme-host
 worktree: .dev-hub/worktrees/theme-host
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/304
 ---
 
 # Theme Host 可信 identity 與驗證 host
