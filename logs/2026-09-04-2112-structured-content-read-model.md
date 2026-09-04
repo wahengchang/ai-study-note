@@ -28,4 +28,4 @@
 ## 相關 Branch／PR
 
 - Branch：`feature/preview-public-ui-release`
-- PR：尚未建立
+- PR：https://github.com/wahengchang/ai-study-note/pull/310

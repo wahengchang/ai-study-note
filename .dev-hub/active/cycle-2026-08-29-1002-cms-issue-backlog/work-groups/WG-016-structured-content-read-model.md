@@ -6,7 +6,7 @@ work_items: ["WI-052"]
 owner: Main
 branch: feature/preview-public-ui-release
 worktree: .dev-hub/worktrees/preview-public-ui-release
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/310
 ---
 
 # Structured Content Read Model
