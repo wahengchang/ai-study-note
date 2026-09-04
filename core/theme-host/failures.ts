@@ -44,7 +44,3 @@ export function themeHostFailure(code: ThemeHostFailureCode, subjectId?: unknown
     remediation: Object.freeze({ kind: "message", message: messages[code] }),
   });
 }
-
-export function themeHostError(code: ThemeHostFailureCode, subjectId?: unknown): Readonly<{ ok: false; error: ThemeHostFailure }> {
-  return Object.freeze({ ok: false, error: themeHostFailure(code, subjectId) });
-}

@@ -17,7 +17,7 @@ function sameIdentity(left: TrustedIdentity, right: TrustedIdentity): boolean {
   return left.path === right.path && left.dev === right.dev && left.ino === right.ino && left.uid === right.uid && left.mode === right.mode;
 }
 
-export function isSafeOwnedMetadata(metadata: Pick<Stats, "isDirectory" | "isFile" | "dev" | "ino" | "uid" | "mode">, kind: "directory" | "file"): boolean {
+function isSafeOwnedMetadata(metadata: Pick<Stats, "isDirectory" | "isFile" | "dev" | "ino" | "uid" | "mode">, kind: "directory" | "file"): boolean {
   const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
   return uid !== undefined && metadata.uid === uid && (metadata.mode & 0o022) === 0 && (kind === "directory" ? metadata.isDirectory() : metadata.isFile());
 }
@@ -70,7 +70,7 @@ export async function installedThemeSlots(roots: TrustedRoots): Promise<readonly
   return Object.freeze(entries.map((entry) => entry.name).sort(compareCodeUnits));
 }
 
-async function packageSlot(roots: TrustedRoots, slot: string): Promise<TrustedIdentity | null> {
+export async function validateThemeSlot(roots: TrustedRoots, slot: string): Promise<TrustedIdentity | null> {
   if (slot.length === 0 || slot.includes("/") || slot.includes("\\") || slot.includes("\0")) return null;
   const candidate = path.join(roots.installedThemesRoot, slot);
   try {
@@ -82,11 +82,6 @@ async function packageSlot(roots: TrustedRoots, slot: string): Promise<TrustedId
   } catch {
     return null;
   }
-}
-
-export async function validateThemeSlot(roots: TrustedRoots, slot: string): Promise<TrustedIdentity | null> {
-  const identity = await packageSlot(roots, slot);
-  return identity;
 }
 
 async function safeFilePath(directory: string, file: string): Promise<string | null> {
@@ -151,7 +146,7 @@ export async function readTrustedThemeFile(roots: TrustedRoots, slot: string, sl
       const bytes = await readBounded(handle, maximumBytes);
       if (bytes === null) return Object.freeze({ ok: false, reason: "too-large" });
       const after = await handle.stat();
-      const slotAfter = await packageSlot(roots, slot);
+      const slotAfter = await validateThemeSlot(roots, slot);
       if (!isSafeOwnedMetadata(after, "file") || after.dev !== opened.dev || after.ino !== opened.ino || slotAfter === null || !sameIdentity(slotIdentity, slotAfter)) return Object.freeze({ ok: false, reason: "unsafe" });
       return Object.freeze({ ok: true, bytes });
     } finally {

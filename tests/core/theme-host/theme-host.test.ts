@@ -156,3 +156,130 @@ test("rejects symlinked evidence and every executable runtime import without exe
   if (symlinkRead.ok) throw new Error("expected evidence failure");
   assert.equal(symlinkRead.error.code, "THEME_EVIDENCE_MISMATCH");
 });
+
+async function installManifestBytes(root: string, slot: string, manifest: unknown): Promise<void> {
+  const directory = path.join(root, slot);
+  await mkdir(directory, { recursive: true, mode: 0o700 });
+  await writeFile(path.join(directory, "runtime.mjs"), "export const theme = 'ok';\n", { mode: 0o600 });
+  const canonical = canonicalJsonBytes(manifest);
+  assert.equal(canonical.ok, true);
+  await writeFile(path.join(directory, "theme.json"), canonical.value, { mode: 0o600 });
+}
+
+test("rejects malformed caller input before touching the installed root", async (context) => {
+  const roots = await fixture();
+  context.after(() => cleanup(roots));
+  const identity = await installTheme({ root: roots.installedThemesRoot, slot: "input", id: "input-theme", version: "1.0.0" });
+  const extraKey = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, extra: 1 } as unknown as Readonly<{ repositoryRoot: string; installedThemesRoot: string }>);
+  assert.equal(extraKey.ok, false);
+  if (extraKey.ok) throw new Error("expected failure");
+  assert.equal(extraKey.error.code, "INVALID_THEME_HOST_INPUT");
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  assert.equal(created.ok, true);
+  const malformed: readonly unknown[] = [
+    null,
+    { identity: { ...identity, extra: 1 } },
+    { identity: { id: "Input-Theme", version: identity.version, manifestHash: identity.manifestHash } },
+    { identity: { id: identity.id, version: "1.0", manifestHash: identity.manifestHash } },
+    { identity: { id: identity.id, version: identity.version, manifestHash: "sha256" } },
+  ];
+  for (const input of malformed) {
+    const resolved = await created.value.resolveExact(input as Readonly<{ identity: ThemeIdentity }>);
+    assert.equal(resolved.ok, false);
+    if (resolved.ok) throw new Error("expected failure");
+    assert.equal(resolved.error.code, "INVALID_THEME_HOST_INPUT");
+    assert.deepEqual(resolved.error.subjectIds, []);
+  }
+  const unnamedFile = await created.value.readVerifiedFile({ identity, file: 1 } as unknown as Readonly<{ identity: ThemeIdentity; file: string }>);
+  assert.equal(unnamedFile.ok, false);
+  if (unnamedFile.ok) throw new Error("expected failure");
+  assert.equal(unnamedFile.error.code, "INVALID_THEME_HOST_INPUT");
+});
+
+test("separates unknown identity from same id/version evidence drift", async (context) => {
+  const roots = await fixture();
+  context.after(() => cleanup(roots));
+  const identity = await installTheme({ root: roots.installedThemesRoot, slot: "known", id: "known-theme", version: "1.0.0" });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  assert.equal(created.ok, true);
+  const absent = await created.value.resolveExact({ identity: { id: "absent-theme", version: "1.0.0", manifestHash: identity.manifestHash } });
+  assert.equal(absent.ok, false);
+  if (absent.ok) throw new Error("expected failure");
+  assert.equal(absent.error.code, "THEME_NOT_FOUND");
+  assert.deepEqual(absent.error.subjectIds, ["absent-theme"]);
+  const otherVersion = await created.value.resolveExact({ identity: { ...identity, version: "9.9.9" } });
+  assert.equal(otherVersion.ok, false);
+  if (otherVersion.ok) throw new Error("expected failure");
+  assert.equal(otherVersion.error.code, "THEME_NOT_FOUND");
+  const wrongHash = await created.value.resolveExact({ identity: { ...identity, manifestHash: sha256Digest(new TextEncoder().encode("other")) } });
+  assert.equal(wrongHash.ok, false);
+  if (wrongHash.ok) throw new Error("expected failure");
+  assert.equal(wrongHash.error.code, "THEME_EVIDENCE_MISMATCH");
+  assert.deepEqual(wrongHash.error.subjectIds, ["known-theme"]);
+});
+
+test("rejects every non-canonical or unsafe manifest shape", async (context) => {
+  const roots = await fixture();
+  context.after(() => cleanup(roots));
+  const digest = sha256Digest(new TextEncoder().encode("export const theme = 'ok';\n"));
+  const base = { contract: "theme-manifest/v1", id: "shape-theme", version: "1.0.0", runtime: { file: "runtime.mjs", digest }, resources: [] };
+  await installManifestBytes(roots.installedThemesRoot, "unknown-key", { ...base, id: "unknown-key-theme", extra: 1 });
+  await installManifestBytes(roots.installedThemesRoot, "bad-version", { ...base, id: "bad-version-theme", version: "1.0" });
+  await installManifestBytes(roots.installedThemesRoot, "escaping-file", { ...base, id: "escaping-theme", resources: [{ file: "../escape.css", digest }] });
+  await installManifestBytes(roots.installedThemesRoot, "unsorted", { ...base, id: "unsorted-theme", resources: [{ file: "b.css", digest }, { file: "a.css", digest }] });
+  await installManifestBytes(roots.installedThemesRoot, "non-module", { ...base, id: "non-module-theme", runtime: { file: "runtime.js", digest } });
+  await mkdir(path.join(roots.installedThemesRoot, "non-canonical"), { recursive: true, mode: 0o700 });
+  await writeFile(path.join(roots.installedThemesRoot, "non-canonical", "theme.json"), '{"id":"canonical-theme","contract":"theme-manifest/v1"}\n', { mode: 0o600 });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  assert.equal(created.ok, true);
+  const discovery = await created.value.discover();
+  assert.equal(discovery.ok, true);
+  assert.deepEqual(discovery.value.candidates, []);
+  assert.deepEqual(
+    discovery.value.rejections.map((rejection) => [rejection.code, rejection.subjectIds]),
+    [
+      ["INVALID_THEME_MANIFEST", []],
+      ["INVALID_THEME_MANIFEST", ["bad-version-theme"]],
+      ["INVALID_THEME_MANIFEST", ["escaping-theme"]],
+      ["INVALID_THEME_MANIFEST", ["non-module-theme"]],
+      ["INVALID_THEME_MANIFEST", ["unsorted-theme"]],
+    ],
+  );
+  assert.equal(discovery.value.rejections.every((rejection) => rejection.owner === "ThemeHost"), true);
+});
+
+test("fails discovery closed when the installed root exceeds the slot bound", async (context) => {
+  const roots = await fixture();
+  context.after(() => cleanup(roots));
+  await Promise.all(Array.from({ length: 257 }, (_unused, index) => mkdir(path.join(roots.installedThemesRoot, `slot-${index}`), { recursive: true, mode: 0o700 })));
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  assert.equal(created.ok, true);
+  const discovery = await created.value.discover();
+  assert.equal(discovery.ok, false);
+  if (discovery.ok) throw new Error("expected failure");
+  assert.equal(discovery.error.code, "THEME_DISCOVERY_FAILED");
+  assert.deepEqual(discovery.error.subjectIds, []);
+});
+
+test("resolves a healthy Theme without depending on unrelated package evidence", async (context) => {
+  const roots = await fixture();
+  context.after(() => cleanup(roots));
+  const healthy = await installTheme({ root: roots.installedThemesRoot, slot: "healthy", id: "healthy-theme", version: "1.0.0" });
+  await installTheme({ root: roots.installedThemesRoot, slot: "broken", id: "broken-theme", version: "1.0.0" });
+  await writeFile(path.join(roots.installedThemesRoot, "broken", "assets/site.css"), "drift\n", { mode: 0o600 });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  assert.equal(created.ok, true);
+  const resolved = await created.value.resolveExact({ identity: healthy });
+  assert.equal(resolved.ok, true);
+  if (!resolved.ok) throw new Error("expected success");
+  assert.deepEqual(resolved.value.identity, healthy);
+  const bytes = await created.value.readVerifiedFile({ identity: healthy, file: "assets/site.css" });
+  assert.equal(bytes.ok, true);
+  if (!bytes.ok) throw new Error("expected success");
+  assert.equal(new TextDecoder().decode(bytes.value), "body{}\n");
+  const discovery = await created.value.discover();
+  assert.equal(discovery.ok, true);
+  if (!discovery.ok) throw new Error("expected success");
+  assert.deepEqual(discovery.value.candidates, [healthy]);
+  assert.deepEqual(discovery.value.rejections.map((rejection) => rejection.code), ["THEME_EVIDENCE_MISMATCH"]);
+});
