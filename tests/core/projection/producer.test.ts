@@ -1,15 +1,23 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
+import { createPublishedContentReadModel } from "../../../core/content/index.js";
 import { createProjection } from "../../../core/projection/index.js";
+import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 
 function digest(value: Uint8Array | string): `sha256:${string}` {
   return sha256Digest(typeof value === "string" ? new TextEncoder().encode(value) : value);
 }
 
+function contentReadModel() {
+  const model = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
+  assert.equal(model.ok, true);
+  if (!model.ok) throw new Error();
+  return model.value;
+}
+
 test("Projection 封存已啟用 Theme 與公開 Plugin 的完整 verified bytes", async () => {
-  const contentBytes = canonicalJsonBytes({ title: "公開內容" });
+  const contentBytes = canonicalJsonBytes({ contract: "site-content/v1", title: "公開內容", blocks: [] });
   assert.equal(contentBytes.ok, true);
   if (!contentBytes.ok) return;
   const routeDigest = digest("route");
@@ -29,6 +37,7 @@ test("Projection 封存已啟用 Theme 與公開 Plugin 的完整 verified bytes
     dataMedia: {
       resolvePublishedSelection: () => ({ ok: true, value: { entryId: "entry", revisionId: "rev", assets: [] } }),
     } as never,
+    contentReadModel: contentReadModel(),
     themeHost: {
       resolveActiveRendererSource: async () => ({ ok: true, value: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1", manifestHash: themeManifestHash }, activeStateDigest: digest("theme-state"), entryBytes: new TextEncoder().encode(themeSource), entryDigest: digest(themeSource), resources: [] } }),
       getActiveSnapshot: async () => ({ ok: true, value: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1", manifestHash: themeManifestHash }, digest: digest("theme-state") } }),
@@ -52,7 +61,7 @@ test("Projection 封存已啟用 Theme 與公開 Plugin 的完整 verified bytes
 });
 
 test("沒有 public renderer Plugin 時，期間的 activation 變更仍讓 published projection 失效", async () => {
-  const contentBytes = canonicalJsonBytes({ title: "公開內容" });
+  const contentBytes = canonicalJsonBytes({ contract: "site-content/v1", title: "公開內容", blocks: [] });
   assert.equal(contentBytes.ok, true);
   if (!contentBytes.ok) return;
   const themeSource = "export function render() { return { contract: 'theme-render-output/v1', files: [] }; }";
@@ -67,6 +76,7 @@ test("沒有 public renderer Plugin 時，期間的 activation 變更仍讓 publ
       snapshot: () => ({ ok: true, value: { contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: [{ graph: "published", normalizedRoute: "/guide", owner: "entry", sourceRevisionId: "rev" }], bytes: new Uint8Array(), digest: digest("route") } }),
     } as never,
     dataMedia: { resolvePublishedSelection: () => ({ ok: true, value: { entryId: "entry", revisionId: "rev", assets: [] } }) } as never,
+    contentReadModel: contentReadModel(),
     themeHost: {
       resolveActiveRendererSource: async () => ({ ok: true, value: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1", manifestHash: digest("theme-manifest") }, activeStateDigest: themeState, entryBytes: new TextEncoder().encode(themeSource), entryDigest: digest(themeSource), resources: [] } }),
       getActiveSnapshot: async () => ({ ok: true, value: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1", manifestHash: digest("theme-manifest") }, digest: themeState } }),
