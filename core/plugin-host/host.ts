@@ -1,14 +1,14 @@
 import { readFile } from "node:fs/promises";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
-import type { ActivePluginSnapshot, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CreatePluginHostInput, PluginActivationIdentity, PluginActivationState, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PreparedSaveRevisionValidators, SaveRevisionContentGuard, SaveRevisionValidatorInput, ValidatedSaveRevisionContent } from "./contracts.js";
+import type { ActivePluginSnapshot, ActivePublicPluginRenderer, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CreatePluginHostInput, PluginActivationIdentity, PluginActivationState, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PluginPublicHookId, PreparedSaveRevisionValidators, SaveRevisionContentGuard, SaveRevisionValidatorInput, ValidatedSaveRevisionContent, VerifiedPluginResource } from "./contracts.js";
 import { isCanonicalPluginId, pluginHostError, pluginHostFailure, type PluginDiagnosticDetail, type PluginHostFailure } from "./failures.js";
 import { isExactSemver, readManifest } from "./manifest.js";
 import { loadVerifiedPluginModule } from "./module-loader.js";
 import { compareCodeUnits } from "./ordering.js";
 import { installedPluginDirectories, resolvePluginDirectory, resolvePluginFile, revalidateTrustedRoots, type TrustedRoots, validateTrustedRoots } from "./trusted-root.js";
 
-type Installed = Readonly<{ manifest: PluginManifestV1; manifestHash: Digest; entryBytes: Uint8Array }>;
+type Installed = Readonly<{ manifest: PluginManifestV1; manifestHash: Digest; entryBytes: Uint8Array; resources: readonly VerifiedPluginResource[] }>;
 type InstalledLookup = Readonly<{ status: "available"; value: Installed }> | Readonly<{ status: "invalid-root" }> | Readonly<{ status: "source-missing" }> | Readonly<{ status: "evidence-mismatch" }>;
 type State = Readonly<{ state: PluginActivationState; digest: Digest }>;
 type Prepared = Readonly<{ entryId: string; digest: Digest; callbacks: readonly Readonly<{ identity: PluginActivationIdentity; priority: number; callback: (input: unknown, facade: unknown) => unknown }>[] }>;
@@ -141,6 +141,7 @@ async function installed(roots: TrustedRoots, id: string): Promise<InstalledLook
         result = Object.freeze({ status: "evidence-mismatch" });
       } else {
         let entryBytes: Uint8Array | null = null;
+        const resources: VerifiedPluginResource[] = [];
         let failure: "source-missing" | "evidence-mismatch" | null = null;
         for (const item of [parsed.value.manifest.entry, ...parsed.value.manifest.resources]) {
           const file = await resolvePluginFile(directory.path, item.file);
@@ -159,13 +160,14 @@ async function installed(roots: TrustedRoots, id: string): Promise<InstalledLook
               break;
             }
             if (item.file === parsed.value.manifest.entry.file) entryBytes = copyBytes(fileBytes);
+            else resources.push(Object.freeze({ file: item.file, bytes: copyBytes(fileBytes), digest: item.digest }));
           } catch {
             failure = "evidence-mismatch";
             break;
           }
         }
         result = failure === null && entryBytes !== null
-          ? Object.freeze({ status: "available", value: Object.freeze({ manifest: parsed.value.manifest, manifestHash: parsed.value.manifestHash, entryBytes }) })
+          ? Object.freeze({ status: "available", value: Object.freeze({ manifest: parsed.value.manifest, manifestHash: parsed.value.manifestHash, entryBytes, resources: Object.freeze(resources) }) })
           : Object.freeze({ status: failure ?? "evidence-mismatch" });
       }
     }
@@ -330,6 +332,32 @@ class Host implements PluginHost {
       const resolved = json((output as CmsEditorBlockResolverOutput).block);
       if (resolved === null) return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", wanted.id, editorDetail(wanted.id, evidence.entryId, "invalid-result"));
       return { ok: true, value: Object.freeze({ status: "active", source: evidence, output: resolved.value, outputBytes: resolved.bytes, outputDigest: resolved.digest, activeStateDigest: afterModule.value.digest }) };
+    });
+  }
+
+  resolveActivePublicRenderers(): Promise<PluginHostResult<readonly ActivePublicPluginRenderer[]>> {
+    return this.serial(async () => {
+      const current = await this.state();
+      if (!current.ok) return current;
+      const validated = await this.validateActiveEvidence(current.value);
+      if (!validated.ok) return validated;
+      const sources: ActivePublicPluginRenderer[] = [];
+      for (const identity of validated.value.state.active) {
+        const lookup = await installed(this.roots, identity.id);
+        if (lookup.status === "invalid-root") return pluginHostError("INVALID_TRUSTED_ROOT");
+        if (lookup.status === "source-missing") return pluginHostError("ACTIVE_PLUGIN_SOURCE_MISSING", identity.id);
+        if (lookup.status !== "available" || !same(identity, evidenceIdentity(lookup.value)!)) return pluginHostError("ACTIVE_PLUGIN_IDENTITY_MISMATCH", identity.id);
+        const callbacks = lookup.value.manifest.callbacks.filter((callback): callback is Readonly<{ hook: PluginPublicHookId; exportName: string; priority: number }> => callback.hook === "public/block/render" || callback.hook === "public/assets/emit");
+        if (callbacks.length === 0) continue;
+        sources.push(Object.freeze({
+          identity: Object.freeze({ ...identity }),
+          activeStateDigest: validated.value.digest,
+          entryBytes: copyBytes(lookup.value.entryBytes),
+          resources: Object.freeze(lookup.value.resources.map((resource) => Object.freeze({ file: resource.file, bytes: copyBytes(resource.bytes), digest: resource.digest }))),
+          callbacks: Object.freeze(callbacks.map((callback) => Object.freeze({ ...callback }))),
+        }));
+      }
+      return Object.freeze({ ok: true, value: Object.freeze(sources) });
     });
   }
 

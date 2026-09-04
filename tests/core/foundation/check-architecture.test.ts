@@ -219,11 +219,13 @@ test("rejects unresolved and non-literal module specifiers", async () => {
   );
 });
 
-test("allows Plugin Host's verified runtime module URL only", async () => {
+test("只允許 Plugin Host 與 Renderer 的已驗證 runtime module URL", async () => {
   assert.deepEqual(
     await rules({
       "core/plugin-host/index.ts": "export {};\n",
       "core/plugin-host/module-loader.ts": "const url = 'data:text/javascript;base64,ZXhwb3J0IHt9';\nexport const module = import(url);\n",
+      "core/renderer/index.ts": "export {};\n",
+      "core/renderer/module-loader.ts": "const url = 'data:text/javascript;base64,ZXhwb3J0IHt9';\nexport const module = import(url);\n",
       ...contentEntry,
     }),
     [],

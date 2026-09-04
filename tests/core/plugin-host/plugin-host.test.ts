@@ -788,3 +788,32 @@ test("validator prepare verifies all evidence before imports and rejects replace
     rmSync(value.directory, { recursive: true, force: true });
   }
 });
+
+test("公開 renderer source 只對 active Plugin 提供已驗證 immutable bytes", async () => {
+  const value = fixture();
+  try {
+    const sourceBytes = "export function renderBlock() { return { contract: 'public-block-render-output/v1', html: '' }; }";
+    writeFileSync(path.join(value.pluginDirectory, "index.mjs"), sourceBytes);
+    writeManifest(value.pluginDirectory, {
+      capabilities: ["public-block-renderer"],
+      callbacks: [{ hook: "public/block/render", exportName: "renderBlock", priority: 0 }],
+    });
+    const pluginHost = await host(value);
+    const inactive = await pluginHost.resolveActivePublicRenderers();
+    assert.deepEqual(inactive, { ok: true, value: [] });
+    const activation = await activate(pluginHost);
+    assert.equal(activation.ok, true);
+    const active = await pluginHost.resolveActivePublicRenderers();
+    assert.equal(active.ok, true);
+    if (!active.ok) return;
+    assert.equal(active.value.length, 1);
+    assert.equal(new TextDecoder().decode(active.value[0]?.entryBytes), sourceBytes);
+    assert.deepEqual(active.value[0]?.callbacks, [{ hook: "public/block/render", exportName: "renderBlock", priority: 0 }]);
+    if (!activation.ok) return;
+    const deactivation = await pluginHost.deactivate({ identity: activation.value.identities[0]! });
+    assert.equal(deactivation.ok, true);
+    assert.deepEqual(await pluginHost.resolveActivePublicRenderers(), { ok: true, value: [] });
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});

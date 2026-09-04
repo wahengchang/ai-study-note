@@ -1,8 +1,8 @@
 ---
 id: WI-027
-status: pending
+status: done
 title: Theme Host｜可信 Theme identity 與 renderer source boundary
-work_group: null
+work_group: WG-015
 depends_on: []
 ---
 
@@ -15,4 +15,4 @@ depends_on: []
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #253；onboarding status：pending。
+GitHub #253；WG-015 已完成 external root、exact identity、verified source snapshot 與 Renderer self-contained runtime boundary。

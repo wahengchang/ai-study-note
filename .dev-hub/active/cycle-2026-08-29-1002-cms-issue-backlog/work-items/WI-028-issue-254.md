@@ -1,8 +1,8 @@
 ---
 id: WI-028
-status: pending
+status: in_progress
 title: Projection & Preview｜renderer-input/v1 與 current/published 隔離
-work_group: null
+work_group: WG-015
 depends_on: ["WI-018", "WI-020", "WI-027"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-018", "WI-020", "WI-027"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #254；onboarding status：pending。
+GitHub #254；WG-015 已完成 published-only immutable producer、unresolved fail-closed 與 current/published selection isolation；Preview transport／零 canonical mutation 仍待對應 API 工作項。

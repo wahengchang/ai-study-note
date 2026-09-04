@@ -21,11 +21,15 @@ const manifestKeys = ["manifestVersion", "id", "version", "trustedLocal", "hookC
 const hookCapabilities: Readonly<Record<PluginHookId, PluginCapability>> = {
   "save-revision/validate": "save-revision-validator",
   "cms/editor-block/resolve": "cms-editor-block-resolution",
+  "public/block/render": "public-block-renderer",
+  "public/assets/emit": "public-assets-emitter",
 };
 const hookIds = Object.keys(hookCapabilities) as PluginHookId[];
 const capabilityCatalog: Readonly<Record<PluginCapability, true>> = {
   "save-revision-validator": true,
   "cms-editor-block-resolution": true,
+  "public-block-renderer": true,
+  "public-assets-emitter": true,
 };
 const identifier = /^[$A-Z_a-z][$0-9A-Z_a-z]*$/;
 

@@ -1,8 +1,8 @@
 ---
 id: WI-029
-status: pending
+status: in_progress
 title: Renderer、Public UI 與 Release｜deterministic artifact 到 GitHub Pages
-work_group: null
+work_group: WG-015
 depends_on: ["WI-027", "WI-028", "WI-030"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-027", "WI-028", "WI-030"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #255；onboarding status：pending。
+GitHub #255；WG-015 已完成 static renderer、immutable artifact manifest 與 byte-identical re-delivery；repository-subpath-safe Public UI、release 與 GitHub Pages 仍待對應 UI／release 工作項。
