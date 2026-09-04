@@ -6,7 +6,7 @@ work_items: ["WI-027", "WI-028", "WI-030", "WI-029"]
 owner: Main
 branch: feature/deterministic-public-delivery
 worktree: .dev-hub/worktrees/deterministic-public-delivery
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/309
 ---
 
 # Deterministic Public Delivery
