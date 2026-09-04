@@ -2,6 +2,7 @@ import type { ThemeHost, ThemeHostResult } from "./contracts.js";
 import { themeHost } from "./host.js";
 import { themeHostFailure } from "./failures.js";
 import { validateTrustedRoots } from "./trusted-root.js";
+export { parseThemeManifest } from "./manifest.js";
 
 export type {
   ThemeCandidate,

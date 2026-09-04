@@ -22,6 +22,7 @@ export type {
   PersistenceFailure,
   PersistenceFailureCode,
   PublishedAssetReference,
+  PersistenceReadSnapshot,
   PersistenceResult,
   PersistenceStore,
   PersistenceTransaction,

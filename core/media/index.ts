@@ -25,6 +25,7 @@ export type {
   PublishedMediaSelection,
   ReadyAssetVersion,
   RestoreAssetCommandDescriptor,
+  VerifiedReadyMediaObject,
   RestoreAssetInput,
   RestoreAvailabilityReport,
 } from "./contracts.js";

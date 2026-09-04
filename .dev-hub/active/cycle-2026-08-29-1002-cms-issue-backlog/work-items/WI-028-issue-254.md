@@ -1,8 +1,8 @@
 ---
 id: WI-028
-status: pending
+status: done
 title: Projection & Preview｜renderer-input/v1 與 current/published 隔離
-work_group: null
+work_group: WG-016
 depends_on: ["WI-018", "WI-020", "WI-027"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-018", "WI-020", "WI-027"]
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #254；onboarding status：pending。
+GitHub #254；onboarding status：done；由 WG-016 完成，verification 見 Work Group。

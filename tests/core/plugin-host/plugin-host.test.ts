@@ -788,3 +788,24 @@ test("validator prepare verifies all evidence before imports and rejects replace
     rmSync(value.directory, { recursive: true, force: true });
   }
 });
+
+test("inspectActiveSnapshot verifies exact active evidence without durable drift latch", async () => {
+  const value = fixture();
+  try {
+    const pluginHost = await host(value);
+    const activated = await activate(pluginHost);
+    assert.equal(activated.ok, true);
+    if (!activated.ok) return;
+    const writes = value.port.writes;
+    const healthy = await pluginHost.inspectActiveSnapshot();
+    assert.equal(healthy.ok, true);
+    assert.equal(value.port.writes, writes);
+    rmSync(path.join(value.pluginDirectory, "resources", "contract.json"));
+    const drift = await pluginHost.inspectActiveSnapshot();
+    assertFailure(drift, "ACTIVE_PLUGIN_SOURCE_MISSING");
+    assert.equal(value.port.writes, writes);
+    assert.deepEqual(value.port.state.active, [activated.value.identities[0]!]);
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});

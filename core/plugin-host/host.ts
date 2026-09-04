@@ -23,9 +23,14 @@ function exact(value: unknown, keys: readonly string[]): value is Record<string,
   }
 }
 
+export function validatePluginActivationIdentity(value: unknown): PluginHostResult<PluginActivationIdentity> {
+  if (!exact(value, ["id", "version", "hookContract", "manifestHash"]) || !isCanonicalPluginId(value.id) || typeof value.version !== "string" || !isExactSemver(value.version) || value.hookContract !== "plugin-hooks/v1" || typeof value.manifestHash !== "string" || !isDigest(value.manifestHash)) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+  return { ok: true, value: Object.freeze({ id: value.id, version: value.version, hookContract: value.hookContract, manifestHash: value.manifestHash }) };
+}
+
 function identity(value: unknown): PluginActivationIdentity | null {
-  if (!exact(value, ["id", "version", "hookContract", "manifestHash"]) || !isCanonicalPluginId(value.id) || typeof value.version !== "string" || !isExactSemver(value.version) || value.hookContract !== "plugin-hooks/v1" || typeof value.manifestHash !== "string" || !isDigest(value.manifestHash)) return null;
-  return Object.freeze({ id: value.id, version: value.version, hookContract: value.hookContract, manifestHash: value.manifestHash });
+  const validated = validatePluginActivationIdentity(value);
+  return validated.ok ? validated.value : null;
 }
 
 function same(left: PluginActivationIdentity, right: PluginActivationIdentity): boolean {
@@ -269,6 +274,24 @@ class Host implements PluginHost {
       if (!current.ok) return current;
       const validated = await this.validateActiveEvidence(current.value);
       return validated.ok ? { ok: true, value: snapshot(validated.value.state, validated.value.digest) } : validated;
+    });
+  }
+  inspectActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>> {
+    return this.serial(async () => {
+      const current = await this.state();
+      if (!current.ok) return current;
+      if (current.value.state.reactivationRequired.length > 0) return pluginHostError("ACTIVE_PLUGIN_REACTIVATION_REQUIRED", current.value.state.reactivationRequired[0]!.id);
+      for (const entry of current.value.state.active) {
+        const lookup = await installed(this.roots, entry.id);
+        if (lookup.status === "invalid-root") return pluginHostError("INVALID_TRUSTED_ROOT");
+        if (lookup.status === "source-missing") return pluginHostError("ACTIVE_PLUGIN_SOURCE_MISSING", entry.id);
+        if (lookup.status !== "available") return pluginHostError("ACTIVE_PLUGIN_IDENTITY_MISMATCH", entry.id);
+        const actual = evidenceIdentity(lookup.value);
+        if (actual === null || !same(entry, actual)) return pluginHostError("ACTIVE_PLUGIN_IDENTITY_MISMATCH", entry.id);
+      }
+      const after = await this.state();
+      if (!after.ok) return after;
+      return after.value.digest === current.value.digest ? { ok: true, value: snapshot(after.value.state, after.value.digest) } : pluginHostError("ACTIVATION_STATE_CONFLICT");
     });
   }
 

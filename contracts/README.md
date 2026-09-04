@@ -46,6 +46,8 @@ Import 採 durable `staged → pending → ready` state。startup reconciliation
 
 `Preview(selection: current|published, subject)` 是唯讀：current 可見 draft、published 不可見；兩者的 canonical state digest 在呼叫前後相同。CMS raw article preview 受 sandbox；公開 raw article code 具 Owner 核准的 full-page privilege，兩者都含 static fallback。Interactive Demo Plugin 的 CMS/public output 都使用不含 `allow-same-origin` 的 sandbox；其 source HTML/CSS/JS 都必須進 sandbox document。
 
+`core/projection/index.ts` 是唯一 Projection public entrypoint：`createProjectionPreview({persistence, siteDefinition, dataMedia, pluginHost, themeHost})` 發布 `produceRendererInput({themeIdentity})`、`preview({selection, subject:{entryId}, themeIdentity})`，並提供 strict `parseRendererInput`／`parsePreviewInput`。renderer 固定 published-only；Preview 只輸出單一 subject。兩份 payload 均採 JCS，body digest（排除 `inputDigest`／`previewDigest`）與 final `bytesDigest` 分離，內嵌 bytes 使用無 padding base64url。讀取必須在同一 Persistence read snapshot 捕捉 route／revision／media／Plugin activation evidence，materialize exact Theme／Media bytes 後重讀 guard；任何差異 fail closed。單一 media object 上限 64 MiB，Theme 與 deduplicated media aggregate 上限 256 MiB。
+
 `PublicDelivery` 產出 immutable artifact directory 與 `artifact-manifest.json`。manifest 包含 renderer-input digest、published selection IDs、Theme id/version/manifest hash、active Plugin id/version/manifest hash、逐檔 hash 與 total digest。相同 inputs 的 manifest/artifact 必須 byte-identical；任何 input 改變都改變 provenance。re-delivery 只複製既有 immutable artifact bytes。
 
 ## 4. Plugin host

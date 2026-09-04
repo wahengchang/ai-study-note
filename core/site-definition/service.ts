@@ -3,7 +3,7 @@ import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest } from "../fou
 import type {
   CurrentRouteClaimProposal, PublishedRouteClaimProposal, RouteClaim, RouteClaimImpact,
   RouteClaimReplacementProposal, RouteClaimReplacementResult, RouteGraph, RouteGraphSnapshot, SiteDefinition,
-  SiteDefinitionFailure, SiteDefinitionPersistence, SiteDefinitionResult, SiteDefinitionTransaction,
+  SiteDefinitionFailure, SiteDefinitionPersistence, SiteDefinitionReadSnapshot, SiteDefinitionResult, SiteDefinitionTransaction,
   ValidatedCurrentRouteClaim, ValidatedPublishedRouteClaim, ValidatedRouteClaimReplacement,
 } from "./contracts.js";
 import { normalizeRoute } from "./normalization.js";
@@ -37,7 +37,7 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
   const prepared = new WeakMap<object, PreparedState>();
   const tokens = new WeakMap<object, TokenState>();
   const fail = <T>(code: keyof typeof messages, subjectIds: readonly string[] = []): SiteDefinitionResult<T> => ({ ok: false, error: { code, owner: "SiteDefinition", subjectIds, remediation: { kind: "message", message: messages[code] } } });
-  const graphSnapshot = (graph: RouteGraph, transaction: SiteDefinitionTransaction = persistence): SiteDefinitionResult<RouteGraphSnapshot> => {
+  const graphSnapshot = (graph: RouteGraph, transaction: SiteDefinitionReadSnapshot = persistence): SiteDefinitionResult<RouteGraphSnapshot> => {
     try {
       const listed = transaction.listRouteClaims(graph);
       if (!listed.ok) return fail("SITE_DEFINITION_STORAGE_FAILURE");
@@ -47,7 +47,7 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
       return { ok: true, value: { contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph, claims, bytes: copyBytes(encoded.value), digest: sha256Digest(encoded.value) } };
     } catch { return fail("SITE_DEFINITION_STORAGE_FAILURE"); }
   };
-  const snapshots = (transaction: SiteDefinitionTransaction = persistence): SiteDefinitionResult<Readonly<{ current: RouteGraphSnapshot; published: RouteGraphSnapshot }>> => {
+  const snapshots = (transaction: SiteDefinitionReadSnapshot = persistence): SiteDefinitionResult<Readonly<{ current: RouteGraphSnapshot; published: RouteGraphSnapshot }>> => {
     const current = graphSnapshot("current", transaction);
     const published = graphSnapshot("published", transaction);
     if (!current.ok || !published.ok) return fail("SITE_DEFINITION_STORAGE_FAILURE");
@@ -128,6 +128,11 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
   };
   return {
     snapshot(graph) { return graph === "current" || graph === "published" ? graphSnapshot(graph) : fail("INVALID_SITE_DEFINITION_INPUT"); },
+    snapshotInReadSnapshot(graph, snapshot) {
+      if (graph !== "current" && graph !== "published") return fail("INVALID_SITE_DEFINITION_INPUT");
+      if (snapshot === null || typeof snapshot !== "object" || !persistence.ownsActiveReadSnapshot(snapshot)) return fail("SITE_DEFINITION_STORAGE_FAILURE");
+      return graphSnapshot(graph, snapshot);
+    },
     prepareCurrentClaim(input) {
       const state = prepareClaim("current", input, "create");
       if (!state.ok) return state;
