@@ -29,4 +29,4 @@
 ## 相關 Branch／PR
 
 - Branch：`feature/preview-core`
-- PR：尚未建立
+- PR：https://github.com/wahengchang/ai-study-note/pull/311

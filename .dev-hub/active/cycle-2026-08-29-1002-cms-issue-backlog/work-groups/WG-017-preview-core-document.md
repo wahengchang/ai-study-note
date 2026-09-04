@@ -6,7 +6,7 @@ work_items: ["WI-053"]
 owner: Main
 branch: feature/preview-core
 worktree: .dev-hub/worktrees/preview-core
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/311
 ---
 
 # Projection Preview Core Document
