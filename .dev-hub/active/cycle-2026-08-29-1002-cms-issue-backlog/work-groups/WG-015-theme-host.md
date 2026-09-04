@@ -1,0 +1,20 @@
+---
+id: WG-015
+status: completed
+title: Theme Host 可信 identity 與驗證 host
+work_items: ["WI-027"]
+owner: Main
+branch: cms/theme-host
+worktree: .dev-hub/worktrees/theme-host
+pr: null
+---
+
+# Theme Host 可信 identity 與驗證 host
+
+## Delivery
+
+以 `origin/site-reset` 為 base，完成 Theme Host v1 的公開 seam、repository-external evidence validation、self-contained runtime import-graph scan 與對應 architecture checker／contract tests；不執行 Theme runtime，不建立 activation、callback 或 Renderer/CMS UI。
+
+## Verification
+
+`node --import tsx --test tests/core/theme-host/theme-host.test.ts tests/core/foundation/check-architecture.test.ts`：28/28 通過。`npm run typecheck && npm run check:architecture` 通過。`npm run check`：175/175 通過。實際 runtime 為 Node `v22.22.0`／npm `10.9.4`，與 contract Node `24.20.0`／npm `11.19.0` 不同；完整紀錄見 `logs/2026-09-04-1050-theme-host.md`。

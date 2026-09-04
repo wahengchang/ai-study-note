@@ -77,6 +77,26 @@ test("allows Foundation to use Node builtins and json-canonicalize", async () =>
   );
 });
 
+test("allows Theme Host Node builtins and exact external dependencies", async () => {
+  assert.deepEqual(
+    await rules({
+      "core/theme-host/index.ts": "import 'fs';\nimport 'node:fs';\nimport 'semver';\nimport 'es-module-lexer';\nexport const host = 1;\n",
+      ...contentEntry,
+    }),
+    [],
+  );
+});
+
+test("rejects unauthorized Theme Host externals before extension rules", async () => {
+  assert.deepEqual(
+    await rules({
+      "core/theme-host/index.ts": "import 'left-pad';\nimport 'semver/functions';\nimport 'node:not-a-builtin';\nexport const host = 1;\n",
+      ...contentEntry,
+    }),
+    ["THEME_HOST_EXTERNAL", "THEME_HOST_EXTERNAL", "THEME_HOST_EXTERNAL"],
+  );
+});
+
 test("rejects cross-owner deep imports that bypass the public entrypoint", async () => {
   assert.deepEqual(
     await rules({
@@ -171,6 +191,17 @@ test("rejects extension value imports and imports of the wrong contract entry", 
   );
 });
 
+test("rejects bare extension imports by value or type and accepts Theme Renderer import types", async () => {
+  assert.deepEqual(
+    await rules({
+      "core/renderer/index.ts": "export type RenderInput = { id: string };\n",
+      "extensions/themes/demo-theme/index.ts":
+        "import 'node:fs';\nimport type { Stats } from 'node:fs';\ntype Runtime = import('node:fs').Stats;\ntype Input = import('../../../core/renderer/index.js').RenderInput;\nexport const input: Input = { id: 'demo' };\nexport type { Runtime, Stats };\n",
+    }),
+    ["RUNTIME_SELF_CONTAINED", "EXTENSION_TYPE_ONLY", "EXTENSION_TYPE_ONLY"],
+  );
+});
+
 test("requires every unit to publish a root index.ts", async () => {
   assert.deepEqual(await rules({ "core/content/store.ts": "export const store = 1;\n" }), ["PUBLIC_ENTRYPOINT"]);
 });
@@ -214,6 +245,15 @@ test("rejects unresolved and non-literal module specifiers", async () => {
   assert.deepEqual(
     await rules({
       "core/content/index.ts": "export const content = await import(`./${globalThis.name}.js`);\n",
+    }),
+    ["UNRESOLVED_IMPORT"],
+  );
+});
+
+test("rejects non-literal import type specifiers", async () => {
+  assert.deepEqual(
+    await rules({
+      "core/content/index.ts": "type Name = 'node:fs';\ntype Dynamic = import(Name).Stats;\nexport type { Dynamic };\n",
     }),
     ["UNRESOLVED_IMPORT"],
   );
