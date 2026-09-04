@@ -25,6 +25,15 @@
 - `node --import tsx --test tests/core/theme-host/theme-host.test.ts`：9/9 通過。
 - `node --import tsx --test tests/core/projection/preview-isolation.test.ts`：1/1 通過。
 - `npm run typecheck`、`npm run check:architecture`、`npm run check`：通過；全套 `187/187` 通過。
+- 複審收斂後 `npm run check` 重跑通過；全套 `190/190` 通過。
+
+## 複審收斂（2026-09-04）
+
+- `capture()` 原本把 read snapshot 內產生的 Projection failure 全部改寫成 `PROJECTION_STORAGE_FAILURE`，使 `SUBJECT_NOT_FOUND`、`UNRESOLVED_ROUTE_REFERENCE` 等診斷與 `subjectIds` 無法傳到 caller；改為只改寫 `PersistenceFailure`。current 模式缺少 current pointer 也改回報 `SUBJECT_NOT_FOUND`。
+- `renderer-input/v1` 的 `routeGraphDigest` 原本在 guard 之外另外讀一次 route graph，claims 與 digest 可能來自兩個 canonical state；改由 snapshot A 的同一次 route 讀取取得，同時省下一次 route 讀取與 canonical 編碼。
+- `parseRendererInput`／`parsePreviewInput` 原本只檢查 top-level key 與自洽 digest 便 cast 成型別；由於 digest 只由 payload 自身推導、無法認證來源，任何 canonical document 都能冒充。改為完整結構驗證並重算所有 evidence digest，Theme manifest 重用 `parseThemeManifest` seam、route 重用 `normalizeRoute`、Plugin identity 重用 `validatePluginActivationIdentity`。
+- 共用的 `exact`／`freeze`／`equalBytes` 與 `mediaSelectionDigest`／`routeSelectionDigest` 收斂到 `core/projection/canonical.ts`，producer 與 parser 由同一份定義推導，`exact` 也不再對敵意 proxy 拋出。
+- 新增 `tests/core/projection/strict-parse.test.ts`：capture 診斷、含 media 的 producer round-trip，以及 12 種重新簽章後的竄改 payload 全數被拒。
 
 ## 已知限制／後續
 

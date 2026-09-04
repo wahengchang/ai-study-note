@@ -5,6 +5,7 @@ import type { PluginActivationIdentity, PluginHostFailure } from "../plugin-host
 import type { RouteClaim } from "../site-definition/index.js";
 import type { ThemeHostFailure, ThemeIdentity } from "../theme-host/index.js";
 
+import { equalBytes, exact, freeze, mediaSelectionDigest, routeSelectionDigest } from "./canonical.js";
 import type { PreviewInput, PreviewInputArtifact, ProjectionDependencies, ProjectionPreview, ProjectionResult, RendererEntry, RendererInput, RendererInputArtifact, RendererMedia, RendererMediaAsset, RendererMediaReference, RendererTheme, RendererThemeFile } from "./contracts.js";
 import { projectionFailure } from "./failures.js";
 
@@ -18,28 +19,18 @@ type Captured = Readonly<{
   claims: readonly RouteClaim[];
   references: readonly RendererMediaReference[];
   assets: readonly RendererMediaAsset[];
+  routeGraphDigest: Digest;
   pluginDigest: Digest;
   guard: Digest;
 }>;
 
 function compare(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
-function equalBytes(left: Uint8Array, right: Uint8Array): boolean { return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]); }
-function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return false;
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  return Object.keys(descriptors).length === keys.length && keys.every((key) => key in descriptors && "value" in descriptors[key]!);
-}
 function validThemeIdentity(value: unknown): value is ThemeIdentity {
   return exact(value, ["id", "version", "manifestHash"]) && typeof value.id === "string" && typeof value.version === "string" && typeof value.manifestHash === "string";
 }
 function validProducerInput(value: unknown): value is Readonly<{ themeIdentity: ThemeIdentity }> { return exact(value, ["themeIdentity"]) && validThemeIdentity(value.themeIdentity); }
 function validPreviewInput(value: unknown): value is Readonly<{ selection: "current" | "published"; subject: Readonly<{ entryId: string }>; themeIdentity: ThemeIdentity }> {
   return exact(value, ["selection", "subject", "themeIdentity"]) && (value.selection === "current" || value.selection === "published") && exact(value.subject, ["entryId"]) && typeof value.subject.entryId === "string" && value.subject.entryId.length > 0 && validThemeIdentity(value.themeIdentity);
-}
-function freeze<T>(value: T): T {
-  if (value === null || typeof value !== "object") return value;
-  if (Array.isArray(value)) return Object.freeze(value.map((item) => freeze(item))) as T;
-  return Object.freeze(Object.fromEntries(Object.entries(value).map(([key, item]) => [key, freeze(item)]))) as T;
 }
 function decodeCanonical(bytes: Uint8Array, digest: Digest): JsonValue | null {
   try {
@@ -65,6 +56,7 @@ function guardBody(captured: Omit<Captured, "guard">): unknown {
     claims: captured.claims.map((value) => ({ normalizedRoute: value.normalizedRoute, owner: value.owner, sourceRevisionId: value.sourceRevisionId })),
     references: captured.references,
     assets: captured.assets.map((value) => ({ identity: value.identity, objectDigest: value.objectDigest, byteLength: value.byteLength, metadataDigest: value.metadataDigest })),
+    routeGraphDigest: captured.routeGraphDigest,
     pluginDigest: captured.pluginDigest,
   };
 }
@@ -78,7 +70,11 @@ function externalFailure<T>(error: unknown): ProjectionResult<T> {
 }
 function capture(input: Readonly<{ dependencies: ProjectionDependencies; mode: "current" | "published"; subject?: string }>): ProjectionResult<Captured> {
   const result = input.dependencies.persistence.runReadSnapshot((snapshot) => captureInSnapshot(input, snapshot));
-  return result.ok ? { ok: true, value: result.value } : { ok: false, error: projectionFailure("PROJECTION_STORAGE_FAILURE") };
+  if (result.ok) return { ok: true, value: result.value };
+  // PersistenceFailure 不屬於 Projection 的 public failure 聯集，只有它需要改寫成 storage failure；
+  // Projection 自己的 failure 必須原樣傳出，否則 SUBJECT_NOT_FOUND 這類 caller-actionable 診斷
+  // 與 subjectIds 都會被壓成無法區分的 PROJECTION_STORAGE_FAILURE。
+  return result.error.owner === "Persistence" ? { ok: false, error: projectionFailure("PROJECTION_STORAGE_FAILURE") } : { ok: false, error: result.error };
 }
 function captureInSnapshot(input: Readonly<{ dependencies: ProjectionDependencies; mode: "current" | "published"; subject?: string }>, snapshot: PersistenceReadSnapshot): ProjectionResult<Captured> {
   const selected: Selected[] = [];
@@ -90,7 +86,8 @@ function captureInSnapshot(input: Readonly<{ dependencies: ProjectionDependencie
     const pointers = snapshot.getEntryPointers(input.subject);
     if (!pointers.ok) return { ok: false, error: projectionFailure("SUBJECT_NOT_FOUND", [input.subject]) };
     const revisionId = input.mode === "current" ? pointers.value.currentRevisionId : pointers.value.publishedRevisionId;
-    if (revisionId === undefined) return { ok: false, error: projectionFailure("SUBJECT_NOT_PUBLISHED", [input.subject]) };
+    // current 模式缺少 current pointer 代表 subject 沒有可預覽的 revision，與「尚未發布」是不同診斷。
+    if (revisionId === undefined) return { ok: false, error: projectionFailure(input.mode === "current" ? "SUBJECT_NOT_FOUND" : "SUBJECT_NOT_PUBLISHED", [input.subject]) };
     selected.push({ entryId: input.subject, revisionId });
   }
   selected.sort((left, right) => compare(left.entryId, right.entryId) || compare(left.revisionId, right.revisionId));
@@ -133,7 +130,7 @@ function captureInSnapshot(input: Readonly<{ dependencies: ProjectionDependencie
   entries.sort((left, right) => compare(left.entryId, right.entryId) || compare(left.revisionId, right.revisionId));
   references.sort((left, right) => compare(referenceKey(left), referenceKey(right)));
   const sortedAssets = [...assets.values()].sort((left, right) => compare(assetKey(left.identity), assetKey(right.identity)));
-  const bare = { selected: Object.freeze(selected.map((value) => Object.freeze({ ...value }))), entries: Object.freeze(entries), claims: Object.freeze(routes.value.claims.map((value) => Object.freeze({ ...value }))), references: Object.freeze(references), assets: Object.freeze(sortedAssets), pluginDigest: activation.value.digest };
+  const bare = { selected: Object.freeze(selected.map((value) => Object.freeze({ ...value }))), entries: Object.freeze(entries), claims: Object.freeze(routes.value.claims.map((value) => Object.freeze({ ...value }))), references: Object.freeze(references), assets: Object.freeze(sortedAssets), routeGraphDigest: routes.value.digest, pluginDigest: activation.value.digest };
   const guardBytes = canonicalJsonBytes(guardBody(bare));
   return !guardBytes.ok ? { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") } : { ok: true, value: Object.freeze({ ...bare, guard: sha256Digest(guardBytes.value) }) };
 }
@@ -168,10 +165,6 @@ async function materialize(input: Readonly<{ dependencies: ProjectionDependencie
   const theme: RendererTheme = Object.freeze({ identity: Object.freeze({ ...resolved.value.identity }), manifest: freeze(resolved.value.manifest), files: Object.freeze(files) });
   return { ok: true, value: Object.freeze({ media, theme, identities: Object.freeze(inspected.value.identities.map((value) => Object.freeze({ ...value }))) }) };
 }
-function mediaDigest(media: RendererMedia): Digest | null {
-  const bytes = canonicalJsonBytes({ contract: "renderer-media-selection/v1", references: media.references, assets: media.assets.map((asset) => ({ identity: asset.identity, objectDigest: asset.objectDigest, byteLength: asset.byteLength, metadata: asset.metadata, metadataDigest: asset.metadataDigest })), objects: media.objects.map((object) => ({ objectDigest: object.objectDigest, byteLength: object.byteLength })) });
-  return bytes.ok ? sha256Digest(bytes.value) : null;
-}
 function rendererArtifact(input: Omit<RendererInput, "inputDigest">): ProjectionResult<RendererInputArtifact> {
   const unsigned = canonicalJsonBytes(input);
   if (!unsigned.ok) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
@@ -203,11 +196,11 @@ export function createProjectionPreview(dependencies: ProjectionDependencies): P
       const second = capture({ dependencies, mode: "published" });
       if (!second.ok) return second;
       if (second.value.guard !== first.value.guard) return { ok: false, error: projectionFailure("PROJECTION_STATE_CHANGED") };
-      const digest = mediaDigest(materialized.value.media);
+      const digest = mediaSelectionDigest(materialized.value.media);
       if (digest === null) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
-      const routeSnapshot = dependencies.siteDefinition.snapshot("published");
-      if (!routeSnapshot.ok) return { ok: false, error: projectionFailure("PROJECTION_STORAGE_FAILURE") };
-      return rendererArtifact({ contract: "renderer-input/v1", selection: Object.freeze({ publishedRevisionIds: first.value.selected, routeGraphDigest: sha256Digest(routeSnapshot.value.bytes), mediaSelectionDigest: digest }), entries: first.value.entries, routes: Object.freeze({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: first.value.claims.map(({ normalizedRoute, owner, sourceRevisionId }) => Object.freeze({ normalizedRoute, owner, sourceRevisionId })) }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities }) });
+      // routeGraphDigest 取自 snapshot A 的同一次 route 讀取；另外再讀一次 route graph 會落在 guard 之外，
+      // 讓 artifact 內的 claims 與 digest 可能來自兩個不同的 canonical state。
+      return rendererArtifact({ contract: "renderer-input/v1", selection: Object.freeze({ publishedRevisionIds: first.value.selected, routeGraphDigest: first.value.routeGraphDigest, mediaSelectionDigest: digest }), entries: first.value.entries, routes: Object.freeze({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: first.value.claims.map(({ normalizedRoute, owner, sourceRevisionId }) => Object.freeze({ normalizedRoute, owner, sourceRevisionId })) }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities }) });
     },
     async preview(input: Readonly<{ selection: "current" | "published"; subject: Readonly<{ entryId: string }>; themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<PreviewInputArtifact>> {
       if (!validPreviewInput(input)) return { ok: false, error: projectionFailure("INVALID_PROJECTION_INPUT") };
@@ -221,11 +214,11 @@ export function createProjectionPreview(dependencies: ProjectionDependencies): P
       const second = capture({ dependencies, mode: input.selection, subject: input.subject.entryId });
       if (!second.ok || inspected.value.digest !== first.value.pluginDigest || second.value.guard !== first.value.guard) return { ok: false, error: projectionFailure("PROJECTION_STATE_CHANGED") };
       const route = first.value.claims.find((value) => value.owner === input.subject.entryId);
-      const digest = mediaDigest(materialized.value.media);
+      const digest = mediaSelectionDigest(materialized.value.media);
       if (route === undefined || digest === null) return { ok: false, error: projectionFailure(route === undefined ? "UNRESOLVED_ROUTE_REFERENCE" : "PROJECTION_ENCODING_FAILED") };
-      const routeSelection = canonicalJsonBytes({ contract: "preview-route-selection/v1", graph: input.selection, claim: { normalizedRoute: route.normalizedRoute, owner: route.owner, sourceRevisionId: route.sourceRevisionId } });
-      if (!routeSelection.ok) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
-      return previewArtifact({ contract: "preview-input/v1", subject: Object.freeze({ entryId: input.subject.entryId }), selection: Object.freeze({ mode: input.selection, selectedRevision: first.value.selected[0]!, routeSelectionDigest: sha256Digest(routeSelection.value), mediaSelectionDigest: digest }), entry: first.value.entries[0]!, route: Object.freeze({ normalizedRoute: route.normalizedRoute, owner: route.owner, sourceRevisionId: route.sourceRevisionId }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities }) });
+      const routeSelection = routeSelectionDigest(input.selection, route);
+      if (routeSelection === null) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
+      return previewArtifact({ contract: "preview-input/v1", subject: Object.freeze({ entryId: input.subject.entryId }), selection: Object.freeze({ mode: input.selection, selectedRevision: first.value.selected[0]!, routeSelectionDigest: routeSelection, mediaSelectionDigest: digest }), entry: first.value.entries[0]!, route: Object.freeze({ normalizedRoute: route.normalizedRoute, owner: route.owner, sourceRevisionId: route.sourceRevisionId }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities }) });
     },
   });
 }
