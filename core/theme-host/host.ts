@@ -64,7 +64,9 @@ async function resolvedFile(directory: string, file: string): Promise<string | n
   if (!safeFile(file)) return null;
   try { const resolved = await realpath(path.join(directory, file)); return inside(directory, resolved) && (await stat(resolved)).isFile() ? resolved : null; } catch { return null; }
 }
-function manifest(bytes: Uint8Array): ThemeManifestV1 | null {
+type ParsedThemeManifest = Readonly<Omit<ThemeManifestV1, "rendererContract"> & { rendererContract: string }>;
+/** rendererContract 只檢查型別，contract 不符由 `load` 以 `UNSUPPORTED_RENDERER_CONTRACT` 分開回報。 */
+function manifest(bytes: Uint8Array): ParsedThemeManifest | null {
   let value: unknown;
   try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch { return null; }
   const canonical = canonicalJsonBytes(value);
@@ -73,7 +75,7 @@ function manifest(bytes: Uint8Array): ThemeManifestV1 | null {
   const source = value as Readonly<Record<string, unknown>>;
   const id = source.id as string;
   const version = source.version as string;
-  if (source.manifestVersion !== "theme-manifest/v1" || !isCanonicalThemeId(id) || version.length === 0 || source.trustedLocal !== true || source.rendererContract !== ThemeRendererContract || !exact(source.entry, ["file", "digest"]) || !Array.isArray(source.resources)) return null;
+  if (source.manifestVersion !== "theme-manifest/v1" || !isCanonicalThemeId(id) || version.length === 0 || source.trustedLocal !== true || typeof source.rendererContract !== "string" || source.rendererContract.length === 0 || !exact(source.entry, ["file", "digest"]) || !Array.isArray(source.resources)) return null;
   const entry = source.entry as Readonly<{ file: string; digest: Digest }>;
   if (!safeFile(entry.file) || !isDigest(entry.digest)) return null;
   const resources: Array<Readonly<{ file: string; digest: Digest }>> = [];
@@ -86,7 +88,7 @@ function manifest(bytes: Uint8Array): ThemeManifestV1 | null {
     resources.push(Object.freeze({ file: item.file, digest: item.digest }));
   }
   resources.sort((left, right) => compareCodeUnits(left.file, right.file));
-  return Object.freeze({ manifestVersion: "theme-manifest/v1", id, version, trustedLocal: true, rendererContract: ThemeRendererContract, entry: Object.freeze({ file: entry.file, digest: entry.digest }), resources: Object.freeze(resources) });
+  return Object.freeze({ manifestVersion: "theme-manifest/v1", id, version, trustedLocal: true, rendererContract: source.rendererContract, entry: Object.freeze({ file: entry.file, digest: entry.digest }), resources: Object.freeze(resources) });
 }
 
 async function load(root: TrustedRoot, id: string): Promise<ThemeHostResult<InstalledTheme>> {
@@ -98,8 +100,10 @@ async function load(root: TrustedRoot, id: string): Promise<ThemeHostResult<Inst
   if (manifestPath === null) return themeHostError("INVALID_THEME_MANIFEST", id);
   let manifestBytes: Uint8Array;
   try { manifestBytes = new Uint8Array(await readFile(manifestPath)); } catch { return themeHostError("THEME_EVIDENCE_MISMATCH", id); }
-  const parsed = manifest(manifestBytes);
-  if (parsed === null || parsed.id !== id) return themeHostError("INVALID_THEME_MANIFEST", id);
+  const declared = manifest(manifestBytes);
+  if (declared === null || declared.id !== id) return themeHostError("INVALID_THEME_MANIFEST", id);
+  if (declared.rendererContract !== ThemeRendererContract) return themeHostError("UNSUPPORTED_RENDERER_CONTRACT", id);
+  const parsed: ThemeManifestV1 = Object.freeze({ ...declared, rendererContract: ThemeRendererContract });
   const entryPath = await resolvedFile(directory, parsed.entry.file);
   if (entryPath === null) return themeHostError("THEME_EVIDENCE_MISMATCH", id);
   let entryBytes: Uint8Array;

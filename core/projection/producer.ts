@@ -21,9 +21,13 @@ class Producer implements Projection {
   public async producePublishedRendererInput(): Promise<ProjectionResult<RendererInputArtifact>> {
     const routes = this.input.siteDefinition.snapshot("published");
     if (!routes.ok) return failure("PUBLISHED_SELECTION_UNRESOLVED");
+    // Plugin activation state 必須在 resolve 前後各取一次；只比對已解析 renderer 的 digest 會在
+    // 沒有任何 public renderer plugin 時退化成恆真式，讓期間的 activation 變更無法偵測。
+    const pluginsBefore = await this.input.pluginHost.getActiveSnapshot();
     const theme = await this.input.themeHost.resolveActiveRendererSource();
     const plugins = await this.input.pluginHost.resolveActivePublicRenderers();
-    if (!theme.ok || !plugins.ok) return failure("PUBLISHED_SELECTION_UNRESOLVED");
+    if (!theme.ok || !plugins.ok || !pluginsBefore.ok) return failure("PUBLISHED_SELECTION_UNRESOLVED");
+    if (plugins.value.some((plugin) => plugin.activeStateDigest !== pluginsBefore.value.digest)) return failure("PUBLISHED_SELECTION_STALE");
     const entries: RendererInputV1["entries"][number][] = [];
     const selectedRoutes: RendererInputV1["routes"][number][] = [];
     const media: RendererInputV1["media"][number][] = [];
@@ -48,7 +52,7 @@ class Producer implements Projection {
     const pluginsAfter = await this.input.pluginHost.getActiveSnapshot();
     const mediaBytes = canonicalJsonBytes(media);
     if (!mediaBytes.ok) return failure("PROJECTION_CANONICALIZATION_FAILED");
-    if (!routeAfter.ok || !themeAfter.ok || !pluginsAfter.ok || routeAfter.value.digest !== routes.value.digest || themeAfter.value.digest !== theme.value.activeStateDigest || pluginsAfter.value.digest !== (plugins.value[0]?.activeStateDigest ?? pluginsAfter.value.digest)) return failure("PUBLISHED_SELECTION_STALE");
+    if (!routeAfter.ok || !themeAfter.ok || !pluginsAfter.ok || routeAfter.value.digest !== routes.value.digest || themeAfter.value.digest !== theme.value.activeStateDigest || pluginsAfter.value.digest !== pluginsBefore.value.digest) return failure("PUBLISHED_SELECTION_STALE");
     const selection = Object.freeze({ publishedRevisionIds: Object.freeze(entries.map((entry) => Object.freeze({ entryId: entry.entryId, revisionId: entry.revisionId }))), routeGraphDigest: routes.value.digest, mediaSelectionDigest: sha256Digest(mediaBytes.value) });
     const payload = Object.freeze({
       contract: "renderer-input/v1" as const,

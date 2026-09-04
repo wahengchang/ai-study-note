@@ -1,7 +1,12 @@
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } from "../foundation/index.js";
 import type { RendererInputArtifact, RendererInputV1 } from "../projection/index.js";
+import { isArtifactFilePath } from "./contracts.js";
 import type { PublicAssetsEmitOutput, PublicBlockRenderOutput, RenderedFile, RendererFailure, RendererOutput, RendererResult, StaticRenderer, ThemeRenderOutput } from "./contracts.js";
 import { loadVerifiedRendererModule } from "./module-loader.js";
+
+// Renderer 只讀 Foundation/Projection，因此以 renderer-input/v1 已宣告的 literal 收斂 extension contract。
+const ThemeRendererContract = "theme-renderer/v1";
+const PluginHookContract = "plugin-hooks/v1";
 
 type PluginSource = RendererInputV1["plugins"][number];
 type PluginCallback = Readonly<{ id: string; priority: number; callback: (input: unknown, facade: unknown) => unknown; resources: PluginSource["resources"] }>;
@@ -11,15 +16,20 @@ function exact(value: unknown, keys: readonly string[]): value is Readonly<Recor
 function thenable(value: unknown): boolean { return (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as Readonly<{ then?: unknown }>).then === "function"; }
 function compare(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
 function routePath(route: string): string | null { if (route === "/") return "index.html"; if (!/^\/[a-z0-9][a-z0-9/-]*$/u.test(route) || route.includes("//") || route.endsWith("/")) return null; return `${route.slice(1)}/index.html`; }
-function outputPath(path: unknown): path is string { return typeof path === "string" && /^[a-z0-9][a-z0-9._/-]*$/u.test(path) && !path.includes("//") && !path.includes("..") && !path.endsWith("/"); }
-function verifiedBytes(base64: unknown, digest: unknown): Uint8Array | null {
-  if (typeof base64 !== "string" || typeof digest !== "string" || !isDigest(digest)) return null;
+const outputPath = isArtifactFilePath;
+function canonicalBase64(value: unknown): Uint8Array | null {
+  if (typeof value !== "string") return null;
   try {
-    const bytes = new Uint8Array(Buffer.from(base64, "base64"));
-    return Buffer.from(bytes).toString("base64") === base64 && sha256Digest(bytes) === digest ? bytes : null;
+    const bytes = new Uint8Array(Buffer.from(value, "base64"));
+    return Buffer.from(bytes).toString("base64") === value ? bytes : null;
   } catch {
     return null;
   }
+}
+function verifiedBytes(base64: unknown, digest: unknown): Uint8Array | null {
+  if (typeof digest !== "string" || !isDigest(digest)) return null;
+  const bytes = canonicalBase64(base64);
+  return bytes !== null && sha256Digest(bytes) === digest ? bytes : null;
 }
 function publicDeclarations(value: unknown): readonly Readonly<{ hook: "public/block/render" | "public/assets/emit"; exportName: string; priority: number }>[] | null {
   if (!Array.isArray(value)) return null;
@@ -54,7 +64,7 @@ function assetOutput(value: unknown): readonly Readonly<{ path: string; bytes: U
   const files: Array<Readonly<{ path: string; bytes: Uint8Array }>> = [];
   for (const candidate of (value as PublicAssetsEmitOutput).files) {
     if (!exact(candidate, ["path", "bytesBase64"]) || !outputPath(candidate.path) || typeof candidate.bytesBase64 !== "string") return null;
-    const bytes = verifiedBytes(candidate.bytesBase64, sha256Digest(new Uint8Array(Buffer.from(candidate.bytesBase64, "base64"))));
+    const bytes = canonicalBase64(candidate.bytesBase64);
     if (bytes === null) return null;
     files.push(Object.freeze({ path: candidate.path, bytes }));
   }
@@ -95,6 +105,7 @@ class Renderer implements StaticRenderer {
 
     const themeBytes = verifiedBytes(input.theme?.entrySourceBase64, input.theme?.entryDigest);
     if (input.theme === null || typeof input.theme !== "object" || themeBytes === null || !isDigest(input.theme.identity?.manifestHash) || !Array.isArray(input.theme.resources)) return error("INVALID_RENDERER_INPUT");
+    if (input.theme.identity.rendererContract !== ThemeRendererContract) return error("UNSUPPORTED_EXTENSION_CONTRACT");
     for (const resource of input.theme.resources) if (verifiedBytes(resource.bytesBase64, resource.digest) === null) return error("INVALID_RENDERER_INPUT");
     const themeModule = await module({ bytes: themeBytes, manifestHash: input.theme.identity.manifestHash, requiredExports: ["render"] });
     if (themeModule === null) return error("RENDERER_MODULE_INVALID");
@@ -105,6 +116,7 @@ class Renderer implements StaticRenderer {
       const bytes = verifiedBytes(plugin.entrySourceBase64, plugin.entryDigest);
       const declarations = publicDeclarations(plugin.callbacks);
       if (bytes === null || !isDigest(plugin.identity?.manifestHash) || !Array.isArray(plugin.resources) || declarations === null) return error("INVALID_RENDERER_INPUT");
+      if (plugin.identity.hookContract !== PluginHookContract) return error("UNSUPPORTED_EXTENSION_CONTRACT");
       for (const resource of plugin.resources) if (verifiedBytes(resource.bytesBase64, resource.digest) === null) return error("INVALID_RENDERER_INPUT");
       const namespace = await module({ bytes, manifestHash: plugin.identity.manifestHash, requiredExports: declarations.map((callback) => callback.exportName) });
       if (namespace === null) return error("RENDERER_MODULE_INVALID");

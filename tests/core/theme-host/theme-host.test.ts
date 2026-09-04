@@ -110,3 +110,30 @@ test("Theme Host rejects a repository-contained installed root", async () => {
   assert.equal(result.ok, false);
   if (!result.ok) assert.equal(result.error.code, "INVALID_TRUSTED_ROOT");
 });
+
+test("Theme Host 以 UNSUPPORTED_RENDERER_CONTRACT 分開回報不受支援的 renderer contract", async () => {
+  const value = fixture();
+  try {
+    const entry = new TextEncoder().encode("export function render() { return []; }");
+    const resource = new TextEncoder().encode("body{color:black}");
+    writeFileSync(path.join(value.theme, "theme-manifest.json"), bytes({
+      manifestVersion: "theme-manifest/v1",
+      id: "basic-theme",
+      version: "1.0.0",
+      trustedLocal: true,
+      rendererContract: "theme-renderer/v2",
+      entry: { file: "index.mjs", digest: sha256Digest(entry) },
+      resources: [{ file: "resources/site.css", digest: sha256Digest(resource) }],
+    }));
+    const created = await createThemeHost({ repositoryRoot: process.cwd(), installedThemesRoot: value.installed, activationState: value.state });
+    assert.equal(created.ok, true);
+    if (!created.ok) return;
+    const discovered = await created.value.discover();
+    assert.equal(discovered.ok, true);
+    if (!discovered.ok) return;
+    assert.deepEqual(discovered.value.candidates, []);
+    assert.deepEqual(discovered.value.rejections.map((rejection) => [rejection.code, rejection.subjectIds]), [["UNSUPPORTED_RENDERER_CONTRACT", ["basic-theme"]]]);
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});

@@ -50,3 +50,35 @@ test("Projection 封存已啟用 Theme 與公開 Plugin 的完整 verified bytes
   assert.equal(input.plugins[0].entryDigest, digest(pluginSource));
   assert.deepEqual(input.plugins[0].callbacks, [{ hook: "public/block/render", exportName: "renderBlock", priority: 0 }]);
 });
+
+test("沒有 public renderer Plugin 時，期間的 activation 變更仍讓 published projection 失效", async () => {
+  const contentBytes = canonicalJsonBytes({ title: "公開內容" });
+  assert.equal(contentBytes.ok, true);
+  if (!contentBytes.ok) return;
+  const themeSource = "export function render() { return { contract: 'theme-render-output/v1', files: [] }; }";
+  const themeState = digest("theme-state");
+  let pluginStateReads = 0;
+  const projection = createProjection({
+    persistence: {
+      getEntryPointers: () => ({ ok: true, value: { entryId: "entry", currentRevisionId: "rev", publishedRevisionId: "rev" } }),
+      getRevision: () => ({ ok: true, value: { identity: { entryId: "entry", revisionId: "rev" }, schemaIdentity: { schemaId: "schema", version: 1 }, contentBytes: contentBytes.value, contentDigest: digest(contentBytes.value), lineage: { operationId: "operation", operationKind: "publish" } } }),
+    } as never,
+    siteDefinition: {
+      snapshot: () => ({ ok: true, value: { contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: [{ graph: "published", normalizedRoute: "/guide", owner: "entry", sourceRevisionId: "rev" }], bytes: new Uint8Array(), digest: digest("route") } }),
+    } as never,
+    dataMedia: { resolvePublishedSelection: () => ({ ok: true, value: { entryId: "entry", revisionId: "rev", assets: [] } }) } as never,
+    themeHost: {
+      resolveActiveRendererSource: async () => ({ ok: true, value: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1", manifestHash: digest("theme-manifest") }, activeStateDigest: themeState, entryBytes: new TextEncoder().encode(themeSource), entryDigest: digest(themeSource), resources: [] } }),
+      getActiveSnapshot: async () => ({ ok: true, value: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1", manifestHash: digest("theme-manifest") }, digest: themeState } }),
+    } as never,
+    pluginHost: {
+      resolveActivePublicRenderers: async () => ({ ok: true, value: [] }),
+      getActiveSnapshot: async () => { pluginStateReads += 1; return { ok: true, value: { identities: [], digest: digest(`plugin-state-${pluginStateReads}`) } }; },
+    } as never,
+  });
+  assert.equal(projection.ok, true);
+  if (!projection.ok) return;
+  const result = await projection.value.producePublishedRendererInput();
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "PUBLISHED_SELECTION_STALE");
+});

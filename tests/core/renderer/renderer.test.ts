@@ -98,3 +98,27 @@ test("同 priority 的 Plugin callback 依 Plugin ID 穩定排序", async () => 
   if (!rendered.ok) return;
   assert.equal(new TextDecoder().decode(rendered.value.files.find((file) => file.path === "guide/index.html")?.bytes), "<h1>公開</h1><aside>alpha</aside><aside>公開</aside>");
 });
+
+test("Renderer 拒絕宣告不受支援 extension contract 的封存輸入", async () => {
+  const renderer = createStaticRenderer();
+  const themeContract = JSON.parse(new TextDecoder().decode(artifact().bytes)) as Record<string, unknown>;
+  ((themeContract.theme as Record<string, unknown>).identity as Record<string, unknown>).rendererContract = "theme-renderer/v2";
+  const rejectedTheme = await renderer.render(seal(themeContract));
+  assert.equal(rejectedTheme.ok, false);
+  if (!rejectedTheme.ok) assert.equal(rejectedTheme.error.code, "UNSUPPORTED_EXTENSION_CONTRACT");
+  const pluginContract = JSON.parse(new TextDecoder().decode(artifact().bytes)) as Record<string, unknown>;
+  (((pluginContract.plugins as Record<string, unknown>[])[0] as Record<string, unknown>).identity as Record<string, unknown>).hookContract = "plugin-hooks/v2";
+  const rejectedPlugin = await renderer.render(seal(pluginContract));
+  assert.equal(rejectedPlugin.ok, false);
+  if (!rejectedPlugin.ok) assert.equal(rejectedPlugin.error.code, "UNSUPPORTED_EXTENSION_CONTRACT");
+});
+
+test("Renderer 的 staged output path profile 拒絕 dot segment 與隱藏檔", async () => {
+  const renderer = createStaticRenderer();
+  for (const emitted of ["guide/./index.html", "assets/.hidden.css", "assets/trailing.", "../escape.html", "Assets/upper.css"]) {
+    const source = `export function block() { return { contract: 'public-block-render-output/v1', html: '' }; } export function assets() { return { contract: 'public-assets-emit-output/v1', files: [{ path: ${JSON.stringify(emitted)}, bytesBase64: 'cGx1Z2lu' }] }; }`;
+    const rejected = await renderer.render(artifact({ pluginSource: source }));
+    assert.equal(rejected.ok, false, emitted);
+    if (!rejected.ok) assert.equal(rejected.error.code, "RENDERER_CALLBACK_RESULT_INVALID", emitted);
+  }
+});
