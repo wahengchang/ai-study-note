@@ -1,15 +1,13 @@
 import { valid as semverValid } from "semver";
 
 import { canonicalJsonBytes, isDigest, sha256Digest, type Digest } from "../foundation/index.js";
-import type { ThemeIdentity, ThemeManifestFile, ThemeManifestV1 } from "./contracts.js";
-import { isCanonicalThemeId, themeHostFailure, type ThemeHostFailure } from "./failures.js";
+import type { ThemeHostResult, ThemeManifestFile, VerifiedThemePackage } from "./contracts.js";
+import { isCanonicalThemeId, themeHostFailure } from "./failures.js";
 import { compareCodeUnits } from "./ordering.js";
 import { isSafeRelativeFile } from "./trusted-root.js";
 
 const manifestKeys = ["contract", "id", "version", "runtime", "resources"];
 
-type ParsedManifest = Readonly<{ manifest: ThemeManifestV1; identity: ThemeIdentity }>;
-export type ManifestResult = Readonly<{ ok: true; value: ParsedManifest }> | Readonly<{ ok: false; error: ThemeHostFailure }>;
 
 function byteEqual(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
@@ -34,11 +32,11 @@ function manifestFile(value: unknown): ThemeManifestFile | null {
   return Object.freeze({ file: item.file, digest: item.digest });
 }
 
-function invalid(subjectId?: unknown): ManifestResult {
+function invalid(subjectId?: unknown): ThemeHostResult<VerifiedThemePackage> {
   return Object.freeze({ ok: false, error: themeHostFailure("INVALID_THEME_MANIFEST", subjectId) });
 }
 
-export function parseThemeManifest(bytes: Uint8Array): ManifestResult {
+export function parseThemeManifest(bytes: Uint8Array): ThemeHostResult<VerifiedThemePackage> {
   let source: unknown;
   try {
     source = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));

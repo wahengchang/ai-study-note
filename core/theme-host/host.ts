@@ -99,7 +99,7 @@ async function parseSlot(roots: TrustedRoots, slot: string): Promise<Readonly<{ 
   const manifestBytes = await readTrustedThemeFile(roots, slot, slotIdentity, "theme.json", maximumManifestBytes);
   if (!manifestBytes.ok) return Object.freeze({ ok: false, outcome: rejected(themeHostFailure("THEME_EVIDENCE_MISMATCH"), null) });
   const parsed = parseThemeManifest(manifestBytes.bytes);
-  if (!parsed.ok) return Object.freeze({ ok: false, outcome: rejected(parsed.error, null) });
+  if (!parsed.ok) return Object.freeze({ ok: false, outcome: rejected(parsed.error.owner === "ThemeHost" ? parsed.error : themeHostFailure("INVALID_THEME_MANIFEST"), null) });
   const { identity, manifest } = parsed.value;
   if (manifest.resources.length > maximumResources) {
     return Object.freeze({ ok: false, outcome: rejected(themeHostFailure("INVALID_THEME_MANIFEST", identity.id), identity) });

@@ -84,6 +84,7 @@ export type PluginHost = Readonly<{
   activate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>>;
   deactivate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>>;
   getActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>>;
+  inspectActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>>;
   resolveCmsEditorBlock(input: CmsEditorBlockSource): Promise<PluginHostResult<CmsEditorBlockResolution>>;
   prepareSaveRevisionValidators(input: Readonly<{ entryId: string }>): Promise<PluginHostResult<PreparedSaveRevisionValidators>>;
   runPreparedSaveRevisionValidators(token: PreparedSaveRevisionValidators, input: SaveRevisionValidatorInput, guard: SaveRevisionContentGuard): PluginHostResult<ValidatedSaveRevisionContent>;

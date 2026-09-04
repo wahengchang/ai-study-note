@@ -19,6 +19,7 @@ import type {
   RestoreAssetCommandDescriptor,
   RestoreAssetInput,
   RestoreAvailabilityReport,
+  VerifiedReadyMediaObject,
 } from "./contracts.js";
 
 const messages: Readonly<Record<DataMediaFailureCode, string>> = {
@@ -155,6 +156,13 @@ function createDataMedia({ persistence, objectStore }: Readonly<{ persistence: D
     const healthy = objectHealth(record.value, true);
     return healthy.ok ? { ok: true, value: healthy.value as ReadyAssetVersion } : healthy;
   };
+  const readReadyObject = (identity: AssetVersionIdentity): DataMediaResult<VerifiedReadyMediaObject> => {
+    const record = persistence.getReadyAssetVersion(identity);
+    if (!record.ok || !validMetadata(record.value)) return fail("MEDIA_VERSION_UNAVAILABLE", identitySubjects(identity));
+    const object = objectStore.readEvidence({ objectDigest: record.value.objectDigest, byteLength: record.value.byteLength });
+    if (!object.ok || object.value.byteLength !== record.value.byteLength || sha256Digest(object.value) !== record.value.objectDigest) return fail("MEDIA_VERSION_UNAVAILABLE", identitySubjects(identity));
+    return { ok: true, value: { asset: cloneAsset(record.value) as ReadyAssetVersion, bytes: copyBytes(object.value) } };
+  };
   // object 的讀取與雜湊已在 transaction 外完成；交易內只重新確認 immutable evidence 未變，避免整份 object I/O 持有 write lock。
   const commitReady = (identity: AssetVersionIdentity, verified: AssetVersion): DataMediaResult<ReadyAssetVersion> => {
     const result = persistence.runTransaction<ReadyAssetVersion, DataMediaResult<never>>((transaction) => {
@@ -214,6 +222,7 @@ function createDataMedia({ persistence, objectStore }: Readonly<{ persistence: D
       return ready.ok ? { ok: true, value: cloneAsset(ready.value) as ReadyAssetVersion } : fail("MEDIA_READY_COMMIT_FAILURE");
     },
     getReadyAssetVersion: resolve,
+    readReadyObject,
     requireReadyAssetVersions(identities) {
       if (!Array.isArray(identities)) return fail("INVALID_MEDIA_INPUT");
       const values: ReadyAssetVersion[] = [];

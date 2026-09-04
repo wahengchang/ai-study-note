@@ -151,35 +151,41 @@ export type PersistenceResult<T> =
   | Readonly<{ ok: true; value: T }>
   | Readonly<{ ok: false; error: PersistenceFailure }>;
 
-export interface PersistenceTransaction {
+export interface PersistenceReadSnapshot {
+  getRevision(identity: RevisionIdentity): PersistenceResult<RevisionRecord>;
+  getEntryPointers(entryId: string): PersistenceResult<EntryPointerRecord>;
+  listPublishedRevisionSelections(): PersistenceResult<readonly RevisionIdentity[]>;
+  listRouteClaims(graph: "current" | "published"): PersistenceResult<readonly RouteClaimRecord[]>;
+  getReadyAssetVersion(identity: AssetVersionIdentity): PersistenceResult<ReadyAssetVersionRecord>;
+  getRevisionReferences(revision: RevisionIdentity): PersistenceResult<readonly RevisionReferenceRecord[]>;
+  readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
+}
+
+export interface PersistenceTransaction extends PersistenceReadSnapshot {
   registerSchemaVersion(input: RegisterSchemaVersionInput): PersistenceResult<SchemaVersionRecord>;
   getSchemaVersion(identity: SchemaVersionIdentity): PersistenceResult<SchemaVersionRecord>;
   createRevision(input: CreateRevisionInput): PersistenceResult<RevisionRecord>;
-  getRevision(identity: RevisionIdentity): PersistenceResult<RevisionRecord>;
-  getEntryPointers(entryId: string): PersistenceResult<EntryPointerRecord>;
   setEntryPointers(input: SetEntryPointersInput): PersistenceResult<EntryPointerRecord>;
   getOperationLineage(identity: OperationLineageIdentity): PersistenceResult<OperationLineageRecord>;
   getEntryPointerLineage(identity: OperationLineageIdentity): PersistenceResult<EntryPointerLineageRecord>;
-  listRouteClaims(graph: "current" | "published"): PersistenceResult<readonly RouteClaimRecord[]>;
   replaceRouteClaim(input: RouteClaimRecord): PersistenceResult<RouteClaimRecord>;
   createMediaImportIntent(input: MediaImportIntent): PersistenceResult<MediaImportIntent>;
   getMediaImportIntent(importId: string): PersistenceResult<MediaImportIntent>;
   deleteMediaImportIntentExact(input: MediaImportIntent): PersistenceResult<void>;
   commitReadyAssetVersion(input: MediaImportIntent): PersistenceResult<ReadyAssetVersionRecord>;
-  getReadyAssetVersion(identity: AssetVersionIdentity): PersistenceResult<ReadyAssetVersionRecord>;
   getAssetVersion(identity: AssetVersionIdentity): PersistenceResult<AssetVersionRecord>;
   setAssetVersionAvailability(identity: AssetVersionIdentity, availability: AssetVersionAvailability): PersistenceResult<AssetVersionRecord>;
   listPublishedAssetReferences(identity: AssetVersionIdentity): PersistenceResult<readonly PublishedAssetReference[]>;
   createRevisionReferences(revision: RevisionIdentity, assetVersions: readonly AssetVersionIdentity[]): PersistenceResult<readonly RevisionReferenceRecord[]>;
-  getRevisionReferences(revision: RevisionIdentity): PersistenceResult<readonly RevisionReferenceRecord[]>;
   createRevisionWithReferences(input: CreateRevisionWithReferencesInput): PersistenceResult<Readonly<{ revision: RevisionRecord; references: readonly RevisionReferenceRecord[] }>>;
   canonicalState(): PersistenceResult<PersistenceCanonicalState>;
 }
 
 export interface PersistenceStore extends PersistenceTransaction {
-  readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
   compareAndReplacePluginActivationState(input: CompareAndReplacePluginActivationStateInput): PersistenceResult<boolean>;
   readMediaStartupSnapshot(): PersistenceResult<MediaStartupSnapshot>;
+  runReadSnapshot<T, E>(operation: (snapshot: PersistenceReadSnapshot) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
+  ownsActiveReadSnapshot(snapshot: object): boolean;
   runTransaction<T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
   ownsActiveTransaction(transaction: object): boolean;
   close(): void;
