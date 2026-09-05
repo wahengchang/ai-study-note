@@ -72,12 +72,39 @@ test("Preview 將 raw 與 Interactive Demo 的所有 source 放入 sandbox srcdo
   const preview = projection.value.preview({ selection: "current", subject: { entryId: "note" } });
   assert.equal(preview.ok, true);
   if (!preview.ok) return;
-  assert.equal((preview.value.document.match(/<iframe sandbox /g) ?? []).length, 2);
+  assert.equal((preview.value.document.match(/<iframe sandbox/g) ?? []).length, 2);
   assert.doesNotMatch(preview.value.document, /allow-same-origin/);
-  assert.match(preview.value.document, /raw fallback|demo fallback/);
+  assert.match(preview.value.document, /raw fallback/);
+  assert.match(preview.value.document, /demo fallback/);
   assert.match(preview.value.document, /srcdoc="&lt;main&gt;raw source&lt;\/main&gt;"/);
   assert.match(preview.value.document, /srcdoc="&lt;!doctype html/);
   assert.doesNotMatch(preview.value.document, /<button>run<\/button>/);
+  // raw article preview 只需 sandbox；Interactive Demo 必須真的執行 source，因此只加 allow-scripts。
+  assert.match(preview.value.document, /<iframe sandbox srcdoc="&lt;main/);
+  assert.match(preview.value.document, /<iframe sandbox="allow-scripts" srcdoc="&lt;!doctype html/);
+});
+
+test("Preview 保留 demo source 的 raw text，`</script>` 不會提前關閉 sandbox document", () => {
+  const projection = previewProjection({
+    current: revision("draft", {
+      contract: "site-content/v1",
+      title: "Raw text",
+      blocks: [
+        { kind: "interactive-demo", pluginIdentity: { id: "demo", version: "1.0.0", hookContract: "plugin-hooks/v1", manifestHash: sha256Digest(new TextEncoder().encode("demo")) }, source: { html: "<p>x</p>", css: 'p::after{content:"</style>"}', javascript: 'document.title = "</script>";' }, staticFallback: "demo fallback" },
+      ],
+    }),
+  });
+  assert.equal(projection.ok, true);
+  if (!projection.ok) return;
+  const preview = projection.value.preview({ selection: "current", subject: { entryId: "note" } });
+  assert.equal(preview.ok, true);
+  if (!preview.ok) return;
+  const srcdoc = /srcdoc="([^"]*)"/u.exec(preview.value.document)?.[1] ?? "";
+  const source = srcdoc.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#39;", "'").replaceAll("&amp;", "&");
+  assert.equal((source.match(/<\/style>/g) ?? []).length, 1);
+  assert.equal((source.match(/<\/script>/g) ?? []).length, 1);
+  assert.match(source, /content:"<\\\/style>"/);
+  assert.match(source, /document\.title = "<\\\/script>";/);
 });
 
 test("Preview 對未發布、unresolved content 與 state race fail closed，不回 partial document", () => {
@@ -97,4 +124,15 @@ test("Preview 對未發布、unresolved content 與 state race fail closed，不
   const raced = stateRace.value.preview({ selection: "current", subject: { entryId: "note" } });
   assert.equal(raced.ok, false);
   if (!raced.ok) assert.equal(raced.error.code, "PREVIEW_STATE_STALE");
+});
+
+test("Preview 對無效 selection 與 subject 回 INVALID_PREVIEW_INPUT", () => {
+  const projection = previewProjection({ current: revision("draft", { contract: "site-content/v1", title: "草稿", blocks: [] }) });
+  assert.equal(projection.ok, true);
+  if (!projection.ok) return;
+  for (const invalid of [{ selection: "draft", subject: { entryId: "note" } }, { selection: "current", subject: { entryId: "" } }, { selection: "current", subject: null }]) {
+    const rejected = projection.value.preview(invalid as never);
+    assert.equal(rejected.ok, false, JSON.stringify(invalid));
+    if (!rejected.ok) assert.equal(rejected.error.code, "INVALID_PREVIEW_INPUT", JSON.stringify(invalid));
+  }
 });
