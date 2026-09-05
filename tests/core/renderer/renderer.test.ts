@@ -11,7 +11,7 @@ function artifact(sources: Readonly<{ themeSource?: string; pluginSource?: strin
   const payload = {
     contract: "renderer-input/v1" as const,
     selection: { publishedRevisionIds: [{ entryId: "entry", revisionId: "r1" }], routeGraphDigest: digest("route"), mediaSelectionDigest: digest("media") },
-    entries: [{ entryId: "entry", revisionId: "r1", content: { title: "公開" }, contentDigest: digest("content") }],
+    entries: [{ entryId: "entry", revisionId: "r1", content: { contract: "site-content/v1" as const, title: "公開", blocks: [{ kind: "article" as const, text: "公開內容" }] }, contentDigest: digest("content") }],
     routes: [{ route: "/guide", entryId: "entry", revisionId: "r1" }],
     media: [],
     theme: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1" as const, manifestHash: digest("theme") }, entrySourceBase64: Buffer.from(themeSource).toString("base64"), entryDigest: digest(themeSource), resources: [] },
@@ -120,5 +120,16 @@ test("Renderer 的 staged output path profile 拒絕 dot segment 與隱藏檔", 
     const rejected = await renderer.render(artifact({ pluginSource: source }));
     assert.equal(rejected.ok, false, emitted);
     if (!rejected.ok) assert.equal(rejected.error.code, "RENDERER_CALLBACK_RESULT_INVALID", emitted);
+  }
+});
+
+test("Renderer 拒絕 entries content 不是 site-content/v1 的封存輸入", async () => {
+  const renderer = createStaticRenderer();
+  for (const content of [{ title: "公開" }, { contract: "site-content/v1", title: "公開", blocks: [{ kind: "unknown" }] }, { contract: "site-content/v2", title: "公開", blocks: [] }]) {
+    const payload = JSON.parse(new TextDecoder().decode(artifact().bytes)) as Record<string, unknown>;
+    (payload.entries as Record<string, unknown>[])[0]!.content = content;
+    const rejected = await renderer.render(seal(payload));
+    assert.equal(rejected.ok, false, JSON.stringify(content));
+    if (!rejected.ok) assert.equal(rejected.error.code, "INVALID_RENDERER_INPUT", JSON.stringify(content));
   }
 });

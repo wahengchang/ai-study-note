@@ -1,4 +1,4 @@
-import { canonicalJsonBytes, copyBytes, sha256Digest } from "../foundation/index.js";
+import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest } from "../foundation/index.js";
 import type { StructuredContent } from "../content/index.js";
 
 import type { CreateProjectionInput, PreviewDocument, Projection, ProjectionFailure, ProjectionResult, RendererInputArtifact, RendererInputV1 } from "./contracts.js";
@@ -9,18 +9,37 @@ function failure(code: ProjectionFailure["code"], subjectIds: readonly string[] 
 function compare(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
 function base64(bytes: Uint8Array): string { return Buffer.from(bytes).toString("base64"); }
 function escapeHtml(value: string): string { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
+// sandbox document 內的 <style>／<script> 是 raw text element：css／javascript 裡的 `</` 會提前關閉元素並截斷 source。
+// `<\/` 在 CSS string、JS string／regex／註解裡與 `</` 同意，因此可在不改變語意下保留完整 source。
+function escapeRawText(value: string): string { return value.replaceAll("</", "<\\/"); }
+function demoDocument(source: Readonly<{ html: string; css: string; javascript: string }>): string {
+  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><style>${escapeRawText(source.css)}</style></head><body>${source.html}<script>${escapeRawText(source.javascript)}</script></body></html>`;
+}
 function previewHtml(content: StructuredContent): string {
-  const blocks = content.blocks.map((block, index) => {
+  let demo = 0;
+  const blocks = content.blocks.map((block) => {
     if (block.kind === "article") return `<p>${escapeHtml(block.text)}</p>`;
     if (block.kind === "raw-full-page") return `<section aria-label="原始文章預覽"><iframe sandbox srcdoc="${escapeHtml(block.html)}" title="原始文章預覽"></iframe><p>${escapeHtml(block.staticFallback)}</p></section>`;
-    const source = `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><style>${block.source.css}</style></head><body>${block.source.html}<script>${block.source.javascript}</script></body></html>`;
-    return `<section aria-label="互動示範 ${index + 1}"><iframe sandbox srcdoc="${escapeHtml(source)}" title="互動示範 ${index + 1}"></iframe><p>${escapeHtml(block.staticFallback)}</p></section>`;
+    // 空值 sandbox 會連 script 一起禁止，Interactive Demo 將永遠退化成 static fallback；
+    // allow-scripts 讓 source 實際執行，且因不含 allow-same-origin，frame 仍停在 opaque origin。
+    demo += 1;
+    const label = `互動示範 ${demo}`;
+    return `<section aria-label="${label}"><iframe sandbox="allow-scripts" srcdoc="${escapeHtml(demoDocument(block.source))}" title="${label}"></iframe><p>${escapeHtml(block.staticFallback)}</p></section>`;
   }).join("");
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(content.title)}</title></head><body><main><article><h1>${escapeHtml(content.title)}</h1>${blocks}</article></main></body></html>`;
 }
 
 class Producer implements Projection {
   public constructor(private readonly input: CreateProjectionInput) {}
+
+  // published projection 與 preview 共用同一條 revision → structured content 驗證鏈：
+  // 先確認 revision bytes 與其宣告 digest 相符，再由 Content 解讀 canonical bytes；任一步不成立都不回 partial 結果。
+  private resolveContent(entryId: string, revisionId: string): Readonly<{ content: StructuredContent; contentDigest: Digest }> | null {
+    const revision = this.input.persistence.getRevision({ entryId, revisionId });
+    if (!revision.ok || revision.value.contentDigest !== sha256Digest(revision.value.contentBytes)) return null;
+    const content = this.input.contentReadModel.read({ schemaIdentity: revision.value.schemaIdentity, contentBytes: revision.value.contentBytes, contentDigest: revision.value.contentDigest });
+    return content.ok ? Object.freeze({ content: content.value.content, contentDigest: revision.value.contentDigest }) : null;
+  }
 
   public async producePublishedRendererInput(): Promise<ProjectionResult<RendererInputArtifact>> {
     const routes = this.input.siteDefinition.snapshot("published");
@@ -38,11 +57,9 @@ class Producer implements Projection {
     for (const claim of routes.value.claims) {
       const pointer = this.input.persistence.getEntryPointers(claim.owner);
       if (!pointer.ok || pointer.value.publishedRevisionId !== claim.sourceRevisionId) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
-      const revision = this.input.persistence.getRevision({ entryId: claim.owner, revisionId: claim.sourceRevisionId });
-      if (!revision.ok || revision.value.contentDigest !== sha256Digest(revision.value.contentBytes)) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
-      const content = this.input.contentReadModel.read({ schemaIdentity: revision.value.schemaIdentity, contentBytes: revision.value.contentBytes, contentDigest: revision.value.contentDigest });
-      if (!content.ok) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
-      entries.push(Object.freeze({ entryId: claim.owner, revisionId: claim.sourceRevisionId, content: content.value.content, contentDigest: revision.value.contentDigest }));
+      const resolved = this.resolveContent(claim.owner, claim.sourceRevisionId);
+      if (resolved === null) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
+      entries.push(Object.freeze({ entryId: claim.owner, revisionId: claim.sourceRevisionId, content: resolved.content, contentDigest: resolved.contentDigest }));
       selectedRoutes.push(Object.freeze({ route: claim.normalizedRoute, entryId: claim.owner, revisionId: claim.sourceRevisionId }));
       const selection = this.input.dataMedia.resolvePublishedSelection(claim.owner);
       if (!selection.ok || selection.value.revisionId !== claim.sourceRevisionId) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
@@ -93,10 +110,8 @@ class Producer implements Projection {
     const pointer = this.input.persistence.getEntryPointers(input.subject.entryId);
     const revisionId = pointer.ok ? input.selection === "current" ? pointer.value.currentRevisionId : pointer.value.publishedRevisionId : undefined;
     if (revisionId === undefined) return failure("PREVIEW_SELECTION_UNRESOLVED", [input.subject.entryId]);
-    const revision = this.input.persistence.getRevision({ entryId: input.subject.entryId, revisionId });
-    if (!revision.ok || revision.value.contentDigest !== sha256Digest(revision.value.contentBytes)) return failure("PREVIEW_SELECTION_UNRESOLVED", [input.subject.entryId]);
-    const content = this.input.contentReadModel.read({ schemaIdentity: revision.value.schemaIdentity, contentBytes: revision.value.contentBytes, contentDigest: revision.value.contentDigest });
-    if (!content.ok) return failure("PREVIEW_SELECTION_UNRESOLVED", [input.subject.entryId]);
+    const resolved = this.resolveContent(input.subject.entryId, revisionId);
+    if (resolved === null) return failure("PREVIEW_SELECTION_UNRESOLVED", [input.subject.entryId]);
     const after = this.input.persistence.canonicalState();
     if (!after.ok || after.value.digest !== before.value.digest) return failure("PREVIEW_STATE_STALE", [input.subject.entryId]);
     return Object.freeze({
@@ -106,8 +121,8 @@ class Producer implements Projection {
         selection: input.selection,
         subject: Object.freeze({ entryId: input.subject.entryId }),
         revisionId,
-        contentDigest: revision.value.contentDigest,
-        document: previewHtml(content.value.content),
+        contentDigest: resolved.contentDigest,
+        document: previewHtml(resolved.content),
       }),
     });
   }

@@ -14,7 +14,7 @@ function artifact(sources: Readonly<{ pluginSource?: string }> = {}) {
   const payload = {
     contract: "renderer-input/v1" as const,
     selection: { publishedRevisionIds: [{ entryId: "note", revisionId: "published" }], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media") },
-    entries: [{ entryId: "note", revisionId: "published", content: { title: "公開內容" }, contentDigest: digest("content") }],
+    entries: [{ entryId: "note", revisionId: "published", content: { contract: "site-content/v1" as const, title: "公開內容", blocks: [] }, contentDigest: digest("content") }],
     routes: [{ route: "/guide", entryId: "note", revisionId: "published" }],
     media: [],
     theme: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1" as const, manifestHash: digest("theme") }, entrySourceBase64: Buffer.from(themeSource).toString("base64"), entryDigest: digest(themeSource), resources: [] },

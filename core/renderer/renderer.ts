@@ -40,6 +40,27 @@ function publicDeclarations(value: unknown): readonly Readonly<{ hook: "public/b
   }
   return Object.freeze(declarations);
 }
+// Renderer 依 owner 依賴矩陣不可 import core/content，但 renderer-input bytes 是不受信任輸入，
+// 而 entries[].content 已宣告為 site-content/v1。這裡在 boundary 重驗同一 shape，
+// 避免未經驗證的 content 形狀直接進入 Theme／Plugin callback。
+function structuredSource(value: unknown): boolean {
+  return exact(value, ["html", "css", "javascript"]) && typeof value.html === "string" && typeof value.css === "string" && typeof value.javascript === "string";
+}
+function structuredBlock(value: unknown): boolean {
+  if (exact(value, ["kind", "text"])) return value.kind === "article" && typeof value.text === "string";
+  if (exact(value, ["kind", "html", "staticFallback"])) return value.kind === "raw-full-page" && typeof value.html === "string" && typeof value.staticFallback === "string";
+  return exact(value, ["kind", "pluginIdentity", "source", "staticFallback"])
+    && value.kind === "interactive-demo"
+    && exact(value.pluginIdentity, ["id", "version", "hookContract", "manifestHash"])
+    && typeof value.pluginIdentity.id === "string" && typeof value.pluginIdentity.version === "string"
+    && value.pluginIdentity.hookContract === PluginHookContract
+    && typeof value.pluginIdentity.manifestHash === "string" && isDigest(value.pluginIdentity.manifestHash)
+    && structuredSource(value.source) && typeof value.staticFallback === "string";
+}
+function structuredContent(value: unknown): boolean {
+  return exact(value, ["contract", "title", "blocks"]) && value.contract === "site-content/v1" && typeof value.title === "string" && value.title.length > 0
+    && Array.isArray(value.blocks) && value.blocks.every((block) => structuredBlock(block));
+}
 function frozen<T>(value: T): T {
   if (value !== null && typeof value === "object") {
     for (const child of Object.values(value as Record<string, unknown>)) frozen(child);
@@ -135,7 +156,7 @@ class Renderer implements StaticRenderer {
 
     const entries = new Map<string, RendererInputV1["entries"][number]>();
     for (const entry of input.entries) {
-      if (typeof entry.entryId !== "string" || typeof entry.revisionId !== "string" || !isDigest(entry.contentDigest) || entries.has(`${entry.entryId}\0${entry.revisionId}`)) return error("INVALID_RENDERER_INPUT");
+      if (typeof entry.entryId !== "string" || typeof entry.revisionId !== "string" || !isDigest(entry.contentDigest) || !structuredContent(entry.content) || entries.has(`${entry.entryId}\0${entry.revisionId}`)) return error("INVALID_RENDERER_INPUT");
       entries.set(`${entry.entryId}\0${entry.revisionId}`, entry);
     }
     const blocks = new Map<string, string[]>();
