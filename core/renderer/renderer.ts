@@ -15,7 +15,11 @@ function error(code: RendererFailure["code"]): RendererResult<never> { return Ob
 function exact(value: unknown, keys: readonly string[]): value is Readonly<Record<string, unknown>> { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)); }
 function thenable(value: unknown): boolean { return (typeof value === "object" || typeof value === "function") && value !== null && typeof (value as Readonly<{ then?: unknown }>).then === "function"; }
 function compare(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
-function routePath(route: string): string | null { if (route === "/") return "index.html"; if (!/^\/[a-z0-9][a-z0-9/-]*$/u.test(route) || route.includes("//") || route.endsWith("/")) return null; return `${route.slice(1)}/index.html`; }
+function routePath(route: string): string | null {
+  if (route === "/") return `pages/${sha256Digest(new TextEncoder().encode(route)).slice("sha256:".length)}/index.html`;
+  if (!route.startsWith("/") || route.includes("//") || route.endsWith("/") || route.includes("\\") || route.includes("%") || /[\u0000-\u001f\u007f]/u.test(route)) return null;
+  return `pages/${sha256Digest(new TextEncoder().encode(route)).slice("sha256:".length)}/index.html`;
+}
 const outputPath = isArtifactFilePath;
 function canonicalBase64(value: unknown): Uint8Array | null {
   if (typeof value !== "string") return null;
@@ -91,14 +95,17 @@ function assetOutput(value: unknown): readonly Readonly<{ path: string; bytes: U
   }
   return Object.freeze(files);
 }
-function themeOutput(value: unknown): readonly Readonly<{ path: string; bytes: Uint8Array }>[] | null {
-  if (thenable(value) || !exact(value, ["contract", "files"]) || value.contract !== "theme-render-output/v1" || !Array.isArray(value.files)) return null;
-  const files: Array<Readonly<{ path: string; bytes: Uint8Array }>> = [];
-  for (const file of (value as ThemeRenderOutput).files) {
-    if (!exact(file, ["path", "html"]) || !outputPath(file.path) || typeof file.html !== "string") return null;
-    files.push(Object.freeze({ path: file.path, bytes: new TextEncoder().encode(file.html) }));
+function themeOutput(value: unknown, expectedRoutes: readonly string[]): readonly Readonly<{ path: string; bytes: Uint8Array; route: string }>[] | null {
+  if (thenable(value) || !exact(value, ["contract", "pages"]) || value.contract !== "theme-render-output/v1" || !Array.isArray(value.pages)) return null;
+  const expected = new Set(expectedRoutes);
+  const pages: Array<Readonly<{ path: string; bytes: Uint8Array; route: string }>> = [];
+  for (const page of (value as ThemeRenderOutput).pages) {
+    if (!exact(page, ["route", "html"]) || typeof page.route !== "string" || typeof page.html !== "string" || !expected.delete(page.route)) return null;
+    const path = routePath(page.route);
+    if (path === null) return null;
+    pages.push(Object.freeze({ route: page.route, path, bytes: new TextEncoder().encode(page.html) }));
   }
-  return Object.freeze(files);
+  return expected.size === 0 ? Object.freeze(pages) : null;
 }
 async function module(input: Readonly<{ bytes: Uint8Array; manifestHash: Digest; requiredExports: readonly string[] }>): Promise<Readonly<Record<string, unknown>> | null> {
   const loaded = await loadVerifiedRendererModule({ entryBytes: input.bytes, manifestHash: input.manifestHash, requiredExports: input.requiredExports });
@@ -201,8 +208,10 @@ class Renderer implements StaticRenderer {
     } catch {
       return error("RENDERER_CALLBACK_FAILED");
     }
-    const themeFiles = themeOutput(themed);
+    const themeFiles = themeOutput(themed, routes.map((route) => route.route));
     if (themeFiles === null) return error("RENDERER_CALLBACK_RESULT_INVALID");
+    const routeFiles = themeFiles.map((file) => Object.freeze({ route: file.route, filePath: file.path })).sort((left, right) => compare(left.route, right.route));
+    if (new Set(routeFiles.map((file) => file.route)).size !== routeFiles.length || new Set(routeFiles.map((file) => file.filePath)).size !== routeFiles.length) return error("RENDER_OUTPUT_CONFLICT");
     const files: RenderedFile[] = [];
     const paths = new Set<string>();
     if (!outputFiles(pluginFiles, files, paths) || !outputFiles(themeFiles, files, paths)) return error("RENDER_OUTPUT_CONFLICT");
@@ -214,9 +223,9 @@ class Renderer implements StaticRenderer {
       theme: Object.freeze({ id: input.theme.identity.id, version: input.theme.identity.version, manifestHash: input.theme.identity.manifestHash }),
       plugins: Object.freeze(input.plugins.map((plugin) => Object.freeze({ id: plugin.identity.id, version: plugin.identity.version, manifestHash: plugin.identity.manifestHash }))),
     });
-    const evidence = canonicalJsonBytes({ provenance, files: files.map((file) => ({ path: file.path, digest: file.digest })) });
+    const evidence = canonicalJsonBytes({ provenance, routes: routeFiles, files: files.map((file) => ({ path: file.path, digest: file.digest })) });
     if (!evidence.ok) return error("RENDER_OUTPUT_CONFLICT");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "renderer-output/v1", rendererInputDigest: artifact.inputDigest, provenance, files: Object.freeze(files), outputDigest: sha256Digest(evidence.value) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "renderer-output/v1", rendererInputDigest: artifact.inputDigest, provenance, routes: Object.freeze(routeFiles), files: Object.freeze(files), outputDigest: sha256Digest(evidence.value) }) });
   }
 }
 export function createStaticRenderer(): StaticRenderer { return new Renderer(); }
