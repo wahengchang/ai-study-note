@@ -41,6 +41,9 @@ function renderArticle(text) {
 
 function renderBlocks(blocks, pluginBlocks) {
   const output = [];
+  // 同一頁可含多個 Interactive Demo：id 必須逐個唯一，否則 aria-labelledby／aria-describedby
+  // 會全部指向第一個 section，輔助技術讀到的標題與 static fallback 與實際 iframe 不符。
+  let demo = 0;
   for (const block of blocks) {
     if (!record(block) || typeof block.kind !== "string") throw new Error("invalid site content block");
     if (block.kind === "article" && typeof block.text === "string") {
@@ -48,7 +51,11 @@ function renderBlocks(blocks, pluginBlocks) {
       continue;
     }
     if (block.kind === "interactive-demo" && typeof block.staticFallback === "string" && record(block.source) && typeof block.source.html === "string" && typeof block.source.css === "string" && typeof block.source.javascript === "string") {
-      output.push(`<section class="embedded-content" aria-labelledby="interactive-demo-title"><h2 id="interactive-demo-title">互動示範</h2><iframe title="互動示範" sandbox="allow-scripts" aria-describedby="interactive-demo-fallback" srcdoc="${escapeHtml(sourceDocument(block.source))}"></iframe><p class="embedded-fallback" id="interactive-demo-fallback"><strong>靜態替代內容：</strong>${escapeHtml(block.staticFallback)}</p></section>`);
+      demo += 1;
+      const label = `互動示範 ${demo}`;
+      const titleId = `interactive-demo-${demo}-title`;
+      const fallbackId = `interactive-demo-${demo}-fallback`;
+      output.push(`<section class="embedded-content" aria-labelledby="${titleId}"><h2 id="${titleId}">${escapeHtml(label)}</h2><iframe title="${escapeHtml(label)}" sandbox="allow-scripts" aria-describedby="${fallbackId}" srcdoc="${escapeHtml(sourceDocument(block.source))}"></iframe><p class="embedded-fallback" id="${fallbackId}"><strong>靜態替代內容：</strong>${escapeHtml(block.staticFallback)}</p></section>`);
       continue;
     }
     throw new Error("raw full-page content requires its own route document");

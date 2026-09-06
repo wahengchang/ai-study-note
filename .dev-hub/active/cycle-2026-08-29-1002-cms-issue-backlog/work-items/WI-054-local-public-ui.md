@@ -21,3 +21,5 @@ depends_on: ["WI-053"]
 GitHub #255 的 local Public UI 切片。WG-017 的 Preview core document 已在本 branch 以 recovered commits 接回並通過 `npm run check`（195 tests）。
 
 **Owner 決策（2026-09-06）**：GitHub Pages 與 release 必須留至整個專案最後階段；本 Work Item 只持續完善與驗證本機 Public UI，不得加入 workflow、deploy 或 remote release 行為。
+
+**複審修正（2026-09-06）**：修正 `Delivery.deliver()` 並行交付會刪除既有 immutable artifact 的迴歸、預設 Theme 多個 Interactive Demo 的重複 `id`，並補上本機 server 的無斜線 route redirect 與資產 content type。詳見 `logs/2026-09-06-2343-local-public-ui-review-fixes.md`。

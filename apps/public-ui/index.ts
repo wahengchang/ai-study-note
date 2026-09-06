@@ -28,9 +28,21 @@ function failure(code: PublicUiFailure["code"]): PublicUiResult<never> {
 
 function validBasePath(value: unknown): value is string { return typeof value === "string" && /^\/(?:[a-z0-9][a-z0-9_-]*\/)*$/u.test(value); }
 function validPort(value: unknown): value is number { return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 65_535; }
-function contentType(file: string): string { if (file.endsWith(".html")) return "text/html; charset=utf-8"; if (file.endsWith(".css")) return "text/css; charset=utf-8"; if (file.endsWith(".js")) return "text/javascript; charset=utf-8"; if (file.endsWith(".json")) return "application/json; charset=utf-8"; if (file.endsWith(".svg")) return "image/svg+xml"; if (file.endsWith(".png")) return "image/png"; if (file.endsWith(".webp")) return "image/webp"; return "application/octet-stream"; }
+// Renderer 的 artifact path profile 不限制副檔名，Plugin 可經 `public/assets/emit` 產出字型與影像；
+// 落到 octet-stream 的資產會被瀏覽器當成下載而不是頁面資源，因此已知型別必須逐一宣告。
+const CONTENT_TYPES: Readonly<Record<string, string>> = Object.freeze({
+  ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "text/javascript; charset=utf-8",
+  ".json": "application/json; charset=utf-8", ".txt": "text/plain; charset=utf-8", ".xml": "application/xml; charset=utf-8",
+  ".svg": "image/svg+xml", ".png": "image/png", ".webp": "image/webp", ".avif": "image/avif",
+  ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".ico": "image/x-icon",
+  ".woff2": "font/woff2", ".woff": "font/woff", ".ttf": "font/ttf",
+});
+function contentType(file: string): string { const dot = file.lastIndexOf("."); return (dot === -1 ? undefined : CONTENT_TYPES[file.slice(dot)]) ?? "application/octet-stream"; }
 
 function respond(response: ServerResponse, status: number, body: string, headers: Readonly<Record<string, string>> = {}): void { response.writeHead(status, { ...ERROR_HEADERS, "Content-Type": "text/plain; charset=utf-8", "Content-Length": Buffer.byteLength(body), ...headers }); response.end(body); }
+// Location 只由已驗證的 basePath 與 rawPath 收斂後的 pathname 組成（不含 `//`、反斜線、`%`、`..`），
+// 因此永遠是本站相對路徑，不會變成 open redirect。
+function redirect(response: ServerResponse, location: string): void { response.writeHead(302, { ...ERROR_HEADERS, Location: location, "Content-Length": 0 }); response.end(); }
 function rawPath(requestUrl: string | undefined): string | undefined { if (requestUrl === undefined || !requestUrl.startsWith("/") || requestUrl.startsWith("//")) return undefined; const pathname = requestUrl.split(/[?#]/u, 1)[0] ?? ""; return pathname.includes("%") || pathname.includes("\\") || pathname.includes("//") || pathname.includes("..") ? undefined : pathname; }
 
 function routeFor(basePath: string, pathname: string): string | undefined {
@@ -43,11 +55,14 @@ function routeFor(basePath: string, pathname: string): string | undefined {
 function serve(request: IncomingMessage, response: ServerResponse, input: Readonly<{ basePath: string; snapshot: Snapshot }>): void {
   if (request.method !== "GET" && request.method !== "HEAD") return respond(response, 405, "Method Not Allowed\n", { Allow: "GET, HEAD" });
   const pathname = rawPath(request.url);
-  if (pathname === undefined || !pathname.startsWith(input.basePath)) return respond(response, 404, "Not Found\n");
+  if (pathname === undefined) return respond(response, 404, "Not Found\n");
+  // 部署目標對 route 會補上結尾斜線；本機直接回 404 會讓手打的 /base 或 /base/guide
+  // 與最終公開行為不一致，也會讓 Theme 產出的相對 URL 在錯誤的基準下被解析。
+  if (!pathname.startsWith(input.basePath)) return `${pathname}/` === input.basePath ? redirect(response, input.basePath) : respond(response, 404, "Not Found\n");
   const route = routeFor(input.basePath, pathname);
   const asset = route === undefined ? (() => { const relative = pathname.slice(input.basePath.length); return isArtifactFilePath(relative) ? input.snapshot.assets.get(relative) : undefined; })() : undefined;
   const file = route === undefined ? asset : input.snapshot.routes.get(route);
-  if (file === undefined) return respond(response, 404, "Not Found\n");
+  if (file === undefined) return route === undefined && input.snapshot.routes.has(`/${pathname.slice(input.basePath.length)}`) ? redirect(response, `${pathname}/`) : respond(response, 404, "Not Found\n");
   const etag = `"${file.digest}"`;
   if (request.headers["if-none-match"] === etag) { response.writeHead(304, { ...SUCCESS_HEADERS, ETag: etag }); response.end(); return; }
   response.writeHead(200, { ...SUCCESS_HEADERS, "Content-Type": contentType(file.path), "Content-Length": file.bytes.byteLength, ETag: etag });

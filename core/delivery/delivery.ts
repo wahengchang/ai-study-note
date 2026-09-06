@@ -97,10 +97,13 @@ class Delivery implements PublicDelivery {
     try {
       for (const file of files) { const target = path.join(temporary, file.path); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, file.bytes, { flag: "wx" }); }
       writeFileSync(path.join(temporary, manifestFile), bytes, { flag: "wx" });
-      mkdirSync(directory);
-      renameSync(temporary, directory);
-      return { ok: true, value: { artifactDigest: manifest.totalDigest, directory, manifest } };
-    } catch { rmSync(temporary, { recursive: true, force: true }); rmSync(directory, { recursive: true, force: true }); return fail("ARTIFACT_WRITE_FAILED"); }
+    } catch { rmSync(temporary, { recursive: true, force: true }); return fail("ARTIFACT_WRITE_FAILED"); }
+    // 以 non-recursive mkdir 原子取得 digest 目錄，避免 existsSync 與 rename 之間的並行覆蓋。
+    // 落敗的並行交付只能清掉自己的 staging：一併刪除 digest 目錄會摧毀勝出者已回報成功的 immutable artifact。
+    try { mkdirSync(directory); } catch { rmSync(temporary, { recursive: true, force: true }); return fail("ARTIFACT_IMMUTABILITY_CONFLICT"); }
+    // rename 失敗時 digest 目錄由本次交付建立且仍為空，回收它不會動到其他交付的 bytes。
+    try { renameSync(temporary, directory); } catch { rmSync(temporary, { recursive: true, force: true }); rmSync(directory, { recursive: true, force: true }); return fail("ARTIFACT_WRITE_FAILED"); }
+    return { ok: true, value: { artifactDigest: manifest.totalDigest, directory, manifest } };
   }
 
   public loadVerifiedArtifact(input: Readonly<{ artifactDigest: Digest }>): DeliveryResult<VerifiedDeliveredArtifact> {
