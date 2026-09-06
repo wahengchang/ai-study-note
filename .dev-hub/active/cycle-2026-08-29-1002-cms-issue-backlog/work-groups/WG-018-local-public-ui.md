@@ -6,7 +6,7 @@ work_items: ["WI-054"]
 owner: Main
 branch: feature/local-public-ui
 worktree: .dev-hub/worktrees/local-public-ui
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/312
 ---
 
 # Local Subpath-safe Public UI
