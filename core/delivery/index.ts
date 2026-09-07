@@ -1,2 +1,2 @@
 export { createPublicDelivery } from "./delivery.js";
-export type { ArtifactManifest, CreatePublicDeliveryInput, DeliveryFailure, DeliveryResult, PublicDelivery } from "./contracts.js";
+export type { ArtifactFileSnapshot, ArtifactManifest, CreatePublicDeliveryInput, DeliveryFailure, DeliveryResult, PublicDelivery, VerifiedDeliveredArtifact } from "./contracts.js";

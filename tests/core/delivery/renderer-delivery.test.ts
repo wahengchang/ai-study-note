@@ -10,11 +10,11 @@ import { createStaticRenderer } from "../../../core/renderer/index.js";
 
 function digest(value: string): string { return sha256Digest(new TextEncoder().encode(value)); }
 function artifact(sources: Readonly<{ pluginSource?: string }> = {}) {
-  const themeSource = "export function render(input) { return { contract: 'theme-render-output/v1', files: input.routes.map((route) => { const entry = input.entries.find((item) => item.entryId === route.entryId && item.revisionId === route.revisionId); return { path: route.route.slice(1) + '/index.html', html: '<h1>' + entry.content.title + '</h1>' }; }) }; }";
+  const themeSource = "export function render(input) { return { contract: 'theme-render-output/v1', pages: input.routes.map((route) => { const entry = input.entries.find((item) => item.entryId === route.entryId && item.revisionId === route.revisionId); return { route: route.route, html: '<h1>' + entry.content.title + '</h1>' }; }) }; }";
   const payload = {
     contract: "renderer-input/v1" as const,
     selection: { publishedRevisionIds: [{ entryId: "note", revisionId: "published" }], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media") },
-    entries: [{ entryId: "note", revisionId: "published", content: { title: "公開內容" }, contentDigest: digest("content") }],
+    entries: [{ entryId: "note", revisionId: "published", content: { contract: "site-content/v1" as const, title: "公開內容", blocks: [] }, contentDigest: digest("content") }],
     routes: [{ route: "/guide", entryId: "note", revisionId: "published" }],
     media: [],
     theme: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1" as const, manifestHash: digest("theme") }, entrySourceBase64: Buffer.from(themeSource).toString("base64"), entryDigest: digest(themeSource), resources: [] },
@@ -51,7 +51,7 @@ test("相同 immutable renderer input 會交付相同的 Theme artifact", async 
     const result = delivery.value.deliver(first.value);
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(readFileSync(path.join(result.value.directory, "guide/index.html"), "utf8"), "<h1>公開內容</h1>");
+    assert.equal(readFileSync(path.join(result.value.directory, first.value.routes[0]?.filePath ?? ""), "utf8"), "<h1>公開內容</h1>");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
@@ -64,7 +64,8 @@ test("Plugin 發出的非 HTML asset 會通過 Renderer 與 Delivery 的同一 p
     const rendered = await createStaticRenderer().render(artifact({ pluginSource }));
     assert.equal(rendered.ok, true);
     if (!rendered.ok) return;
-    assert.deepEqual(rendered.value.files.map((file) => file.path), ["assets/site.css", "guide/index.html"]);
+    assert.equal(rendered.value.files.some((file) => file.path === "assets/site.css"), true);
+    assert.equal(rendered.value.files.some((file) => file.path === rendered.value.routes[0]?.filePath), true);
     const delivery = createPublicDelivery({ artifactsRoot: root });
     assert.equal(delivery.ok, true);
     if (!delivery.ok) return;
