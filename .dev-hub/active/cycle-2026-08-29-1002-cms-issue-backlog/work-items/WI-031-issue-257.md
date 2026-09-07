@@ -1,9 +1,9 @@
 ---
 id: WI-031
-status: pending
+status: done
 title: CMS Workspace｜單一管理者 authoring、preview 與 release diagnostics
-work_group: null
-depends_on: ["WI-018", "WI-019", "WI-021", "WI-022", "WI-023", "WI-025", "WI-028", "WI-029"]
+work_group: WG-019
+depends_on: ["WI-018", "WI-019", "WI-021", "WI-022", "WI-023", "WI-025", "WI-053", "WI-054"]
 ---
 
 # CMS Workspace｜單一管理者 authoring、preview 與 release diagnostics
@@ -12,7 +12,7 @@ depends_on: ["WI-018", "WI-019", "WI-021", "WI-022", "WI-023", "WI-025", "WI-028
 完成 [GitHub Issue #257](https://github.com/wahengchang/ai-study-note/issues/257) 的核准結果。
 
 ## Acceptance
-GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
+GitHub #257 已拆為 eight CMS surface Issues/Work Items，固定 canonical path、browser outcome 與 a11y gate；Entry article-first vertical slice 明確交由後續獨立 Work Group。
 
 ## Notes
-GitHub #257；onboarding status：pending。
+GitHub #257；WG-019 已完成 router 與 contract correction。舊 WI-028／WI-029 umbrella 前置已改用已完成的 WI-053 Preview core 與 WI-054 Local Public UI；release diagnostics 維持 blocked，等待 Owner final-phase 決策。
