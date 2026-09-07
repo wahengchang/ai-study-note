@@ -6,7 +6,7 @@ work_items: ["WI-001"]
 owner: Main
 branch: docs/seo-plugin-contract
 worktree: .dev-hub/worktrees/seo-plugin-contract
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/313
 ---
 
 # SEO Plugin contract
