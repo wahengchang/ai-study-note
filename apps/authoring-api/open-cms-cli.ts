@@ -29,9 +29,8 @@ export async function runOpenCmsCli(argv: readonly string[], io: OpenCmsCliIo, e
       io.stderr("CMS_OPEN_FAILED code=CMS_BROWSER_NAVIGATION_FAILED\n");
       return 1;
     }
-    const watchedBrowser = browser;
-    if (watchedBrowser === undefined) throw new Error("CMS_BROWSER_MISSING");
-    await new Promise<void>((resolve) => watchedBrowser.once("disconnected", () => resolve()));
+    const watched = browser;
+    await new Promise<void>((resolve) => watched.once("disconnected", () => resolve()));
     return 0;
   } catch {
     if (browser !== undefined && browser.isConnected()) await browser.close();

@@ -31,7 +31,11 @@ function contentMetadata(file: string): Readonly<{ contentType: string; destinat
   }
 }
 
-/** 僅信任 Vite manifest 列出的 hashed outputs；絕不由 request path 拼接檔案系統路徑。 */
+/**
+ * 僅信任 Vite manifest 列出的 hashed outputs；絕不由 request path 拼接檔案系統路徑。
+ * bytes 在 load 時一次讀完並常駐：request path 不再觸發 synchronous filesystem I/O，
+ * 且 listener 啟動後被替換的檔案不會混進已驗證的 manifest allowlist。
+ */
 export function loadCmsAssets(distRoot: string): CmsAssets | undefined {
   const root = resolve(distRoot);
   let manifest: unknown;
@@ -52,15 +56,20 @@ export function loadCmsAssets(distRoot: string): CmsAssets | undefined {
   }
   if (bootstrapPath === undefined || contentMetadata(bootstrapPath)?.destination !== "script") return undefined;
 
+  const loaded = new Map<string, CmsAsset>();
+  for (const file of files) {
+    const metadata = contentMetadata(file);
+    if (metadata === undefined) return undefined;
+    let bytes: Uint8Array;
+    try { bytes = readFileSync(resolve(root, file)); } catch { return undefined; }
+    loaded.set(file, Object.freeze({ bytes, ...metadata }));
+  }
+
   return {
     bootstrapPath,
     read(pathname) {
-      const match = ASSET_REQUEST_PATTERN.exec(pathname);
-      const file = match?.[1];
-      if (file === undefined || !files.has(file)) return undefined;
-      const metadata = contentMetadata(file);
-      if (metadata === undefined) return undefined;
-      try { return { bytes: readFileSync(resolve(root, file)), ...metadata }; } catch { return undefined; }
+      const file = ASSET_REQUEST_PATTERN.exec(pathname)?.[1];
+      return file === undefined ? undefined : loaded.get(file);
     },
   };
 }

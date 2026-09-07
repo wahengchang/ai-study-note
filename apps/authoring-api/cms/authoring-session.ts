@@ -18,6 +18,7 @@ export async function openAuthoringSession(ticket: string, onLock: Lock): Promis
     method: "POST",
     credentials: "omit",
     cache: "no-store",
+    redirect: "error",
     referrerPolicy: "no-referrer",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket }),
@@ -31,10 +32,14 @@ export async function openAuthoringSession(ticket: string, onLock: Lock): Promis
   const lock = (): void => {
     if (key === undefined) return;
     key = undefined;
+    removeEventListener("pagehide", lock);
     for (const controller of inFlight) controller.abort();
     inFlight.clear();
     onLock();
   };
+  // pagehide 是 bfcache 也會經過的最後同步時機；不清 key 會讓還原的 page 帶著
+  // 已離開的 session 繼續持有 bearer。
+  addEventListener("pagehide", lock);
   return {
     async authorizedFetch(path, init = {}) {
       if (key === undefined) throw new Error("CMS_LOCKED");
@@ -43,12 +48,14 @@ export async function openAuthoringSession(ticket: string, onLock: Lock): Promis
       const controller = new AbortController();
       const externalSignal = init.signal;
       const abortExternal = (): void => controller.abort();
-      externalSignal?.addEventListener("abort", abortExternal, { once: true });
+      // 已 abort 的 signal 不會再送出 abort event，只掛 listener 會讓 request 照送。
+      if (externalSignal?.aborted === true) controller.abort(externalSignal.reason);
+      else externalSignal?.addEventListener("abort", abortExternal, { once: true });
       inFlight.add(controller);
       try {
         const headers = new Headers(init.headers);
         headers.set("Authorization", `Bearer ${key}`);
-        const response = await fetch(target, { ...init, headers, signal: controller.signal, credentials: "omit", cache: "no-store", referrerPolicy: "no-referrer" });
+        const response = await fetch(target, { ...init, headers, signal: controller.signal, credentials: "omit", cache: "no-store", redirect: "error", referrerPolicy: "no-referrer" });
         if (response.status === 401) lock();
         return response;
       } finally {

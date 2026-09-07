@@ -16,7 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test": "node --import tsx --test \"tests/**/*.test.ts\"",
     "check:architecture": "node --import tsx scripts/check-architecture.ts",
-    "check": "npm run typecheck && npm run check:architecture && npm test",
+    "check": "npm run typecheck && npm run check:architecture && npm run cms:build && npm test",
     "db:migrate": "node --disable-warning=ExperimentalWarning --import tsx apps/cli/db-migrate.ts",
     "cms:credential": "node --import tsx apps/authoring-api/credential-cli.ts",
     "cms:save-revision": "node --import tsx apps/authoring-api/save-revision-cli.ts",
