@@ -30,4 +30,4 @@
 ## 相關 Branch／PR
 
 - Branch：`feature/cms-workspace-router`
-- PR：建立後回填。
+- PR：https://github.com/wahengchang/ai-study-note/pull/322

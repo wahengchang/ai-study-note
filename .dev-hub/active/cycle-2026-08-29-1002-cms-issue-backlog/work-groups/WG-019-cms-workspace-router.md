@@ -6,7 +6,7 @@ work_items: ["WI-031"]
 owner: Main
 branch: feature/cms-workspace-router
 worktree: .dev-hub/worktrees/cms-workspace-router
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/322
 ---
 
 # CMS workspace router
