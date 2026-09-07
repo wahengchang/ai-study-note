@@ -16,6 +16,8 @@ export const SECRET_TEXT_LENGTH = 43;
 export const API_KEY_PATTERN = /^asn_v1_[A-Za-z0-9_-]{43}$/u;
 /** 單獨的 43-char unpadded base64url（lock token、server-proof nonce）。 */
 export const SECRET_TEXT_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
+/** `asn_bt_v1_<43-char-unpadded-base64url>` browser bootstrap ticket。 */
+export const BROWSER_TICKET_PATTERN = /^asn_bt_v1_[A-Za-z0-9_-]{43}$/u;
 /**
  * `/v1/entries/:entryId/revisions` 與 `/v1/entries/:entryId/publish` 的 entryId
  * 字面格式：單一 unreserved path segment。client 與 CLI 共用同一份常數，否則兩邊

@@ -17,14 +17,21 @@ export { main, runCredentialCli } from "./credential-cli.js";
 export type { CredentialCliIo } from "./credential-cli.js";
 export { runSaveRevisionCli, saveRevisionMain } from "./save-revision-cli.js";
 export type { SaveRevisionCliEnvironment, SaveRevisionCliIo } from "./save-revision-cli.js";
+export { openCmsMain, runOpenCmsCli } from "./open-cms-cli.js";
+export type { OpenCmsCliEnvironment, OpenCmsCliIo } from "./open-cms-cli.js";
 export {
   API_KEY_PATTERN,
   AUTHORING_AUTHORITY,
   AUTHORING_HOST,
   AUTHORING_ORIGIN,
   AUTHORING_PORT,
+  BROWSER_TICKET_PATTERN,
   redactSecrets,
 } from "./origin.js";
+export { createBrowserBootstrapState } from "./browser-bootstrap.js";
+export { loadCmsAssets } from "./cms-assets.js";
+export type { CmsAsset, CmsAssets } from "./cms-assets.js";
+export type { BrowserBootstrapFailure, BrowserBootstrapState, BrowserTicketMint } from "./browser-bootstrap.js";
 export { startAuthoringApi } from "./server.js";
 export type {
   AuthoringApiLogEvent,
@@ -36,6 +43,10 @@ export type {
 export {
   authoringErrorSchema,
   authoringErrorStatuses,
+  browserSessionExchangeSchema,
+  browserSessionSchema,
+  browserTicketMintRequestSchema,
+  browserTicketSchema,
   publishRevisionRequestSchema,
   publishRevisionSuccessSchema,
   saveRevisionRequestSchema,
@@ -46,6 +57,10 @@ export {
 export type {
   AuthoringErrorDto,
   AuthoringRemoteErrorCode,
+  BrowserSessionDto,
+  BrowserSessionExchangeDto,
+  BrowserTicketDto,
+  BrowserTicketMintRequestDto,
   PublishRevisionRequestDto,
   PublishRevisionSuccessDto,
   SaveRevisionRequestDto,
