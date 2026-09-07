@@ -6,7 +6,7 @@ work_items: ["WI-040"]
 owner: Main
 branch: feature/cms-browser-bootstrap
 worktree: .dev-hub/worktrees/cms-browser-bootstrap
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/323
 ---
 
 # CMS browser bootstrap
