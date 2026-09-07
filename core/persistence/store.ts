@@ -6,6 +6,7 @@ import type {
   AssetVersionRecord,
   CompareAndReplacePluginActivationStateInput,
   CreateRevisionInput,
+  EntryPointerLineageRecord,
   EntryPointerRecord,
   MediaImportIntent,
   MediaStartupSnapshot,
@@ -222,6 +223,15 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       if (row === undefined) return refused("SCHEMA_VERSION_NOT_FOUND"); if (bytes === null || digest === null) return refused("STORAGE_FAILURE");
       return { ok: true, value: schemaRecord(identity, bytes, digest) };
     }); },
+    listSchemaVersions() { return reading(() => {
+      const items: SchemaVersionRecord[] = [];
+      for (const row of database.all("SELECT schema_id,version,schema_bytes,schema_digest FROM schema_versions")) {
+        const schemaId = text(row, "schema_id"), version = positive(row.version), bytes = byte(row, "schema_bytes"), digest = digestField(row, "schema_digest");
+        if (schemaId === null || version === null || bytes === null || digest === null) return refused("STORAGE_FAILURE");
+        items.push(schemaRecord({ schemaId, version }, bytes, digest));
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.identity.schemaId, right.identity.schemaId) || left.identity.version - right.identity.version) };
+    }); },
     createRevision(input) { return revision(input); },
     getRevision(identity) { return reading(() => {
       if (!validRevisionIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT");
@@ -230,6 +240,16 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       const schemaId = text(row, "schema_id"), version = positive(row.schema_version), bytes = byte(row, "content_bytes"), digest = digestField(row, "content_digest"), operationId = text(row, "operation_id"), operationKind = text(row, "operation_kind"), restored = nullableText(row, "restored_from_revision_id");
       if (schemaId === null || version === null || bytes === null || digest === null || operationId === null || operationKind === null || restored === undefined) return refused("STORAGE_FAILURE");
       return { ok: true, value: revisionRecord({ identity, schemaIdentity: { schemaId, version }, contentBytes: bytes, contentDigest: digest, ...(restored === null ? {} : { restoredFromRevisionId: restored }), lineage: { operationId, operationKind } }, bytes, digest) };
+    }); },
+    listEntryRevisions(entryId) { return reading(() => {
+      if (!validText(entryId)) return refused("INVALID_PERSISTENCE_INPUT");
+      const items: RevisionRecord[] = [];
+      for (const row of database.all("SELECT r.revision_id,r.schema_id,r.schema_version,r.content_bytes,r.content_digest,r.restored_from_revision_id,l.operation_id,l.operation_kind FROM revisions r JOIN operation_lineage l ON l.entry_id=r.entry_id AND l.revision_id=r.revision_id AND l.creates_revision=1 WHERE r.entry_id=?", entryId)) {
+        const revisionId = text(row, "revision_id"), schemaId = text(row, "schema_id"), version = positive(row.schema_version), bytes = byte(row, "content_bytes"), digest = digestField(row, "content_digest"), operationId = text(row, "operation_id"), operationKind = text(row, "operation_kind"), restored = nullableText(row, "restored_from_revision_id");
+        if (revisionId === null || schemaId === null || version === null || bytes === null || digest === null || operationId === null || operationKind === null || restored === undefined) return refused("STORAGE_FAILURE");
+        items.push(revisionRecord({ identity: { entryId, revisionId }, schemaIdentity: { schemaId, version }, contentBytes: bytes, contentDigest: digest, ...(restored === null ? {} : { restoredFromRevisionId: restored }), lineage: { operationId, operationKind } }, bytes, digest));
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.identity.revisionId, right.identity.revisionId)) };
     }); },
     getEntryPointers(entryId) { return reading(() => pointer(database.get("SELECT current_revision_id, published_revision_id FROM entry_pointers WHERE entry_id=?", entryId), entryId, refused)); },
     listPublishedRevisionSelections() { return reading(() => {
@@ -242,6 +262,26 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       }
       selections.sort((left, right) => compareCodeUnits(left.entryId, right.entryId) || compareCodeUnits(left.revisionId, right.revisionId));
       return { ok: true, value: Object.freeze(selections.map((selection) => Object.freeze({ ...selection }))) };
+    }); },
+    listEntryPointers() { return reading(() => {
+      const items: EntryPointerRecord[] = [];
+      for (const row of database.all("SELECT entry_id,current_revision_id,published_revision_id FROM entry_pointers")) {
+        const entryId = text(row, "entry_id");
+        const item = entryId === null ? undefined : pointer(row, entryId, refused);
+        if (item === undefined || !item.ok) return refused("STORAGE_FAILURE");
+        items.push(item.value);
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.entryId, right.entryId)) };
+    }); },
+    listEntryPointerLineage(entryId) { return reading(() => {
+      if (!validText(entryId)) return refused("INVALID_PERSISTENCE_INPUT");
+      const items: EntryPointerLineageRecord[] = [];
+      for (const row of database.all("SELECT operation_revision_id,operation_id,current_revision_id,published_revision_id FROM entry_pointer_lineage WHERE entry_id=?", entryId)) {
+        const revisionId = text(row, "operation_revision_id"), operationId = text(row, "operation_id"), currentRevisionId = text(row, "current_revision_id"), publishedRevisionId = nullableText(row, "published_revision_id");
+        if (revisionId === null || operationId === null || currentRevisionId === null || publishedRevisionId === undefined) return refused("STORAGE_FAILURE");
+        items.push({ entryId, currentRevisionId, ...(publishedRevisionId === null ? {} : { publishedRevisionId }), lineageIdentity: { entryId, revisionId, operationId } });
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.lineageIdentity.revisionId, right.lineageIdentity.revisionId) || compareCodeUnits(left.lineageIdentity.operationId, right.lineageIdentity.operationId)) };
     }); },
     setEntryPointers(input) { return guarded(() => {
       if (!validPointers(input)) return failed("INVALID_PERSISTENCE_INPUT");

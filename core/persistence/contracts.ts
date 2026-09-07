@@ -164,7 +164,13 @@ export interface PersistenceReadSnapshot {
 export interface PersistenceTransaction extends PersistenceReadSnapshot {
   registerSchemaVersion(input: RegisterSchemaVersionInput): PersistenceResult<SchemaVersionRecord>;
   getSchemaVersion(identity: SchemaVersionIdentity): PersistenceResult<SchemaVersionRecord>;
+  listSchemaVersions(): PersistenceResult<readonly SchemaVersionRecord[]>;
   createRevision(input: CreateRevisionInput): PersistenceResult<RevisionRecord>;
+  getRevision(identity: RevisionIdentity): PersistenceResult<RevisionRecord>;
+  listEntryRevisions(entryId: string): PersistenceResult<readonly RevisionRecord[]>;
+  getEntryPointers(entryId: string): PersistenceResult<EntryPointerRecord>;
+  listEntryPointers(): PersistenceResult<readonly EntryPointerRecord[]>;
+  listEntryPointerLineage(entryId: string): PersistenceResult<readonly EntryPointerLineageRecord[]>;
   setEntryPointers(input: SetEntryPointersInput): PersistenceResult<EntryPointerRecord>;
   getOperationLineage(identity: OperationLineageIdentity): PersistenceResult<OperationLineageRecord>;
   getEntryPointerLineage(identity: OperationLineageIdentity): PersistenceResult<EntryPointerLineageRecord>;

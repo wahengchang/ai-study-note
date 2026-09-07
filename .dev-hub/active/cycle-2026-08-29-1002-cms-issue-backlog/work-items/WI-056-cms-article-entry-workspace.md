@@ -1,8 +1,8 @@
 ---
 id: WI-056
-status: pending
+status: in_progress
 title: CMS article entry workspace
-work_group: null
+work_group: WG-023
 depends_on: ["WI-040", "WI-035", "WI-041", "WI-044", "WI-049"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-041", "WI-044", "WI-049"]
 
 ## Notes
 
-GitHub #315；本計畫唯一進入 UI 實作的 Work Item。
+GitHub #315；由 WG-023 認領，Article-first CMS Workspace 進行中。
