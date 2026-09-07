@@ -187,6 +187,18 @@ test("rejects non-kebab-case names and malformed migration names", async () => {
   );
 });
 
+test("scans TSX while preserving SQL migration checks", async () => {
+  assert.deepEqual(
+    await rules({
+      "apps/authoring-api/index.ts": "export const api = 1;\n",
+      "apps/authoring-api/workspace.tsx": "export const workspace = <main />;\n",
+      "apps/authoring-api/BadWorkspace.tsx": "export const bad = <main />;\n",
+      "db/migrations/0001-create-cms.sql": "select 1;\n",
+    }),
+    ["NAMING"],
+  );
+});
+
 test("rejects legacy flat roots and cross-owner catch-all roots", async () => {
   assert.deepEqual(
     await rules({ ...contentEntry, "plugins/legacy.ts": "export const legacy = 1;\n" }),

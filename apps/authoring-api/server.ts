@@ -7,9 +7,11 @@ import type { DomainApplication, DomainApplicationFailure, PublishRevisionSucces
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import type { Context } from "hono";
 import type { AuthoringCredentialAuthority } from "./credential-store.js";
+import { createBrowserBootstrapState } from "./browser-bootstrap.js";
+import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, redactSecrets } from "./origin.js";
-import { authoringErrorStatuses, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
-import type { PublishRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
+import { authoringErrorStatuses, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
+import type { BrowserSessionDto, BrowserTicketDto, PublishRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
 const SECURITY_HEADERS = {
@@ -17,6 +19,10 @@ const SECURITY_HEADERS = {
   Pragma: "no-cache",
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "no-referrer",
+} as const;
+const CMS_DOCUMENT_HEADERS = {
+  ...SECURITY_HEADERS,
+  "Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'",
 } as const;
 const ERROR_REMEDIATION: Record<TransportCode, string> = {
   INVALID_REQUEST_FRAMING: "請修正 HTTP request framing。",
@@ -29,6 +35,7 @@ const ERROR_REMEDIATION: Record<TransportCode, string> = {
   AUTHORIZATION_INVALID: "請提供目前有效的本機 Authoring API credential。",
   AUTHORIZATION_REVOKED: "請提供目前有效的本機 Authoring API credential。",
   SERVER_PROOF_GENERATION_MISMATCH: "請提供目前有效的本機 Authoring API credential。",
+  BROWSER_BOOTSTRAP_INVALID: "請重新由本機 CMS launcher 建立 browser session。",
   INVALID_REQUEST_BODY: "請修正 versioned JSON request。",
   REQUEST_BODY_TOO_LARGE: "請縮小 request body 至該 route 允許的上限。",
   ROUTE_NOT_FOUND: "請使用已核准的 Authoring API route。",
@@ -44,14 +51,15 @@ const SAVE_BODY_LIMIT_REMEDIATION = "SaveRevision request 不得超過 4 MiB。"
 const PUBLISH_BODY_LIMIT_REMEDIATION = "PublishRevision request 不得超過 4 KiB。";
 const PROOF_BODY_LIMIT_REMEDIATION = "server-proof challenge 不得超過 4 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/_local/server-proof" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/assets/:asset" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
-export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; logger: (event: AuthoringApiLogEvent) => void }>;
+export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "save" | "publish" | "proof" | "unknown";
+type RouteClass = "cms-document" | "cms-asset" | "save" | "publish" | "proof" | "browser-ticket" | "browser-session" | "unknown";
+
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
   const map = new Map<string, string[]>();
@@ -64,19 +72,36 @@ function headersOf(incoming: IncomingMessage): HeaderMap {
 }
 function values(headers: HeaderMap, name: string): readonly string[] { return headers.get(name) ?? []; }
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
-/** entryId 只接受單一未經 percent-encoding 的 path segment；`%` 會讓 decode 後的 ID 與 URL 不再一一對應。 */
+/** dynamic ID 與 asset path 都不接受 percent encoding，防止 URL 與 canonical identity 脫節。 */
 function routeFor(pathname: string): RouteClass {
+  if (pathname === "/cms" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || /^\/cms\/entries\/[^/%?#]+$/u.test(pathname)) return "cms-document";
+  if (/^\/cms\/assets\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(pathname)) return "cms-asset";
   if (pathname === "/_local/server-proof") return "proof";
+  if (pathname === "/_local/browser-tickets") return "browser-ticket";
+  if (pathname === "/_local/browser-session") return "browser-session";
   if (/^\/v1\/entries\/[^/%?#]+\/revisions$/u.test(pathname)) return "save";
   return /^\/v1\/entries\/[^/%?#]+\/publish$/u.test(pathname) ? "publish" : "unknown";
 }
-function templateFor(route: RouteClass): RouteTemplate {
-  return route === "save" ? "/v1/entries/:entryId/revisions" : route === "publish" ? "/v1/entries/:entryId/publish" : route === "proof" ? "/_local/server-proof" : "unmatched";
+function templateFor(route: RouteClass, pathname: string): RouteTemplate {
+  if (route === "cms-document") return pathname === "/cms" ? "/cms" : pathname === "/cms/entries" ? "/cms/entries" : pathname === "/cms/entries/new" ? "/cms/entries/new" : "/cms/entries/:entryId";
+  if (route === "cms-asset") return "/cms/assets/:asset";
+  return route === "save" ? "/v1/entries/:entryId/revisions" : route === "publish" ? "/v1/entries/:entryId/publish" : route === "proof" ? "/_local/server-proof" : route === "browser-ticket" ? "/_local/browser-tickets" : route === "browser-session" ? "/_local/browser-session" : "unmatched";
 }
-function methodFor(method: string | undefined): AuthoringApiLogEvent["method"] { return method === "POST" ? "POST" : method === "OPTIONS" ? "OPTIONS" : "OTHER"; }
+function methodFor(method: string | undefined): AuthoringApiLogEvent["method"] { return method === "GET" ? "GET" : method === "POST" ? "POST" : method === "OPTIONS" ? "OPTIONS" : "OTHER"; }
 /** 所有 JSON response 在送出前一律 redact；success DTO 也會回吐呼叫端提供的 route／ID。 */
 function response(body: unknown, status: number, extra: Readonly<Record<string, string>> = {}): Response { return new Response(redactSecrets(JSON.stringify(body)), { status, headers: { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8", ...extra } }); }
 function errorResponse(requestId: string, code: TransportCode, status: number, owner: "AuthoringApi" | "AuthoringCredential" = "AuthoringApi", remediation = ERROR_REMEDIATION[code]): Response { return response({ contract: "authoring-error/v1", requestId, code, owner, subjectIds: [], remediation: { kind: "message", message: remediation } }, status); }
+/** 僅 bootstrap success DTO 可繞過通用 redact；呼叫端必須先以 strict schema 驗證。 */
+function bootstrapSecretResponse(body: BrowserTicketDto | BrowserSessionDto, status: 200 | 201): Response {
+  return new Response(JSON.stringify(body), { status, headers: { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8" } });
+}
+function cmsDocumentResponse(assets: CmsAssets): Response {
+  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>CMS Workspace</title></head><body><div id="root"><main><h1>CMS 工作台已鎖定</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`;
+  return new Response(html, { status: 200, headers: { ...CMS_DOCUMENT_HEADERS, "Content-Type": "text/html; charset=utf-8" } });
+}
+function cmsAssetResponse(asset: CmsAsset): Response {
+  return new Response(asset.bytes as unknown as BodyInit, { status: 200, headers: { ...SECURITY_HEADERS, "Content-Type": asset.contentType } });
+}
 function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
   if (incoming.url === undefined || !incoming.url.startsWith("/") || incoming.url.startsWith("//") || one(headers, "expect") !== undefined || one(headers, "upgrade") !== undefined) return false;
   const contentLength = values(headers, "content-length"); const transferEncoding = values(headers, "transfer-encoding");
@@ -86,9 +111,13 @@ function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
   return transferEncoding.length === 0 || transferEncoding[0] === "chunked";
 }
 function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
-function originOk(headers: HeaderMap, route: RouteClass): boolean {
+function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAsset["destination"] | undefined): boolean {
   const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site");
+  if (route === "cms-document") return origin.length === 0 && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && (fetchSite[0] === "none" || fetchSite[0] === "same-origin") && one(headers, "sec-fetch-mode") === "navigate" && one(headers, "sec-fetch-dest") === "document";
+  if (route === "cms-asset") return origin.length === 0 && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && fetchSite[0] === "same-origin" && assetDestination !== undefined && one(headers, "sec-fetch-dest") === assetDestination;
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
+  if (route === "browser-ticket") return origin.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
+  if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin" && values(headers, "authorization").length === 0;
   if (route !== "save" && route !== "publish") return true;
   const browser = origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin";
   const cli = origin.length === 0 && fetchSite.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
@@ -165,6 +194,7 @@ async function authenticatedJson(context: Context, input: StartAuthoringApiInput
 
 export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<AuthoringApiResult<RunningAuthoringApi>> {
   const app = new Hono();
+  const bootstrap = createBrowserBootstrapState();
   app.post("/_local/server-proof", async (context) => {
     const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
     if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
@@ -172,7 +202,53 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const body = await boundedJson(context.req.raw, PROOF_BODY_LIMIT); if (!body.ok) return errorResponse(requestId, body.code, 400, "AuthoringApi", body.code === "REQUEST_BODY_TOO_LARGE" ? PROOF_BODY_LIMIT_REMEDIATION : ERROR_REMEDIATION.INVALID_REQUEST_BODY);
     const parsed = serverProofChallengeSchema.safeParse(body.value); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
-    try { if (admission.value.generation !== parsed.data.generation) return errorResponse(requestId, "SERVER_PROOF_GENERATION_MISMATCH", 401, "AuthoringCredential"); return response({ contract: "authoring-server-proof/v1", generation: admission.value.generation, nonce: parsed.data.nonce, mac: admission.value.createServerProof(parsed.data.nonce) }, 200); } finally { admission.value.dispose(); }
+    try {
+      if (admission.value.generation !== parsed.data.generation) return errorResponse(requestId, "SERVER_PROOF_GENERATION_MISMATCH", 401, "AuthoringCredential");
+      const socket = (context.env as { incoming: IncomingMessage }).incoming.socket;
+      bootstrap.grantProof(socket, { generation: admission.value.generation, proofNonce: parsed.data.nonce });
+      return response({ contract: "authoring-server-proof/v1", generation: admission.value.generation, nonce: parsed.data.nonce, mac: admission.value.createServerProof(parsed.data.nonce) }, 200);
+    } finally { admission.value.dispose(); }
+  });
+  app.post("/_local/browser-tickets", async (context) => {
+    const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
+    if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
+    const parsedAuthorization = authorization(headers);
+    if (!parsedAuthorization.ok) return errorResponse(requestId, "BROWSER_BOOTSTRAP_INVALID", 401);
+    if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
+    const body = await boundedJson(context.req.raw, PROOF_BODY_LIMIT);
+    if (!body.ok) return errorResponse(requestId, body.code, 400, "AuthoringApi");
+    const parsed = browserTicketMintRequestSchema.safeParse(body.value);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const admission = await input.credentialAuthority.openAdmission();
+    if (!admission.ok) return credentialError(requestId, admission);
+    try {
+      if (!admission.value.verifyBearer(parsedAuthorization.candidate) || admission.value.generation !== parsed.data.generation) return errorResponse(requestId, "BROWSER_BOOTSTRAP_INVALID", 401);
+      const socket = (context.env as { incoming: IncomingMessage }).incoming.socket;
+      const ticket = bootstrap.mint(socket, parsed.data);
+      if (ticket === undefined) return errorResponse(requestId, "BROWSER_BOOTSTRAP_INVALID", 401);
+      const dto = { contract: "browser-ticket/v1" as const, ...ticket };
+      if (!browserTicketSchema.safeParse(dto).success) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+      return bootstrapSecretResponse(dto, 201);
+    } finally { admission.value.dispose(); }
+  });
+  app.post("/_local/browser-session", async (context) => {
+    const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
+    if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0 || values(headers, "authorization").length > 0) return errorResponse(requestId, "BROWSER_BOOTSTRAP_INVALID", 401);
+    if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
+    const body = await boundedJson(context.req.raw, PROOF_BODY_LIMIT);
+    if (!body.ok) return errorResponse(requestId, body.code, 400, "AuthoringApi");
+    const parsed = browserSessionExchangeSchema.safeParse(body.value);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const admission = await input.credentialAuthority.openAdmission();
+    if (!admission.ok) return credentialError(requestId, admission);
+    try {
+      if (!bootstrap.consume({ ticket: parsed.data.ticket, generation: admission.value.generation })) return errorResponse(requestId, "BROWSER_BOOTSTRAP_INVALID", 401);
+      const apiKey = admission.value.takeBrowserSessionApiKey();
+      if (apiKey === undefined) return errorResponse(requestId, "BROWSER_BOOTSTRAP_INVALID", 401);
+      const dto = { contract: "browser-session/v1" as const, generation: admission.value.generation, apiKey };
+      if (!browserSessionSchema.safeParse(dto).success) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+      return bootstrapSecretResponse(dto, 200);
+    } finally { admission.value.dispose(); }
   });
   app.post("/v1/entries/:entryId/revisions", async (context) => authenticatedJson(context, input, SAVE_BODY_LIMIT, SAVE_BODY_LIMIT_REMEDIATION, async (requestId, entryId, body) => {
     const parsed = saveRevisionRequestSchema.safeParse(body);
@@ -190,14 +266,26 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   }));
 
   const server = createAdaptorServer({ fetch: async (request, env) => {
-    const incoming = env.incoming as IncomingMessage; const headers = headersOf(incoming); const requestId = randomUUID(); const parsed = request.url.startsWith(ORIGIN) ? new URL(request.url) : undefined; const pathname = parsed?.pathname ?? ""; const route = routeFor(pathname); let result: Response;
+    const incoming = env.incoming as IncomingMessage;
+    const headers = headersOf(incoming);
+    const requestId = randomUUID();
+    const parsed = request.url.startsWith(ORIGIN) ? new URL(request.url) : undefined;
+    const pathname = parsed?.pathname ?? "";
+    const route = routeFor(pathname);
+    const asset = route === "cms-asset" ? input.cmsAssets.read(pathname) : undefined;
+    let result: Response;
     if (!framingOk(headers, incoming)) { result = errorResponse(requestId, "INVALID_REQUEST_FRAMING", 400, "AuthoringApi"); result.headers.set("Connection", "close"); }
     else if (!hostOk(headers)) result = errorResponse(requestId, "MISDIRECTED_REQUEST", 421);
-    else if (!originOk(headers, route)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
+    else if ((route === "cms-document" || route === "cms-asset") && (parsed?.search.length !== 0 || values(headers, "cookie").length !== 0 || values(headers, "authorization").length !== 0)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
+    else if (route === "cms-asset" && asset === undefined) result = errorResponse(requestId, "ROUTE_NOT_FOUND", 404);
+    else if (!originOk(headers, route, asset?.destination)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
     else if (route === "unknown") result = errorResponse(requestId, "ROUTE_NOT_FOUND", 404);
+    else if ((route === "cms-document" || route === "cms-asset") && request.method !== "GET") result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405);
+    else if (route === "cms-document") result = cmsDocumentResponse(input.cmsAssets);
+    else if (route === "cms-asset" && asset !== undefined) result = cmsAssetResponse(asset);
     else if (request.method !== "POST") result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405, "AuthoringApi", ERROR_REMEDIATION.METHOD_NOT_ALLOWED);
     else result = await app.fetch(request, env);
-    const event: AuthoringApiLogEvent = { requestId, stableEventCode: result.status >= 500 ? "AUTHORING_REQUEST_FAILED" : result.status >= 400 ? "AUTHORING_REQUEST_REJECTED" : "AUTHORING_REQUEST_OK", method: methodFor(incoming.method), routeTemplate: templateFor(route), status: result.status };
+    const event: AuthoringApiLogEvent = { requestId, stableEventCode: result.status >= 500 ? "AUTHORING_REQUEST_FAILED" : result.status >= 400 ? "AUTHORING_REQUEST_REJECTED" : "AUTHORING_REQUEST_OK", method: methodFor(incoming.method), routeTemplate: templateFor(route, pathname), status: result.status };
     try { input.logger(event); } catch { /* sink fault 不得影響 transport */ }
     return result;
   }, overrideGlobalObjects: false, autoCleanupIncoming: true }) as Server;
@@ -208,7 +296,7 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   const started = await new Promise<boolean>((resolve) => { server.once("error", () => resolve(false)); server.listen(AUTHORING_PORT, AUTHORING_HOST, () => resolve(true)); });
   if (!started) { server.close(); return rejected(); }
   let closed = false;
-  return { ok: true, value: { origin: ORIGIN, close: async () => { if (closed) return; closed = true; await new Promise<void>((resolve, reject) => server.close((error) => error === undefined || (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ERR_SERVER_NOT_RUNNING") ? resolve() : reject(new Error("AUTHORING_SERVER_CLOSE_FAILED")))); } } };
+  return { ok: true, value: { origin: ORIGIN, close: async () => { if (closed) return; closed = true; bootstrap.clear(); await new Promise<void>((resolve, reject) => server.close((error) => error === undefined || (typeof error === "object" && error !== null && "code" in error && (error as { code?: unknown }).code === "ERR_SERVER_NOT_RUNNING") ? resolve() : reject(new Error("AUTHORING_SERVER_CLOSE_FAILED")))); } } };
 }
 type RawResponder = Readonly<{ writable: boolean; end(data: string): unknown; destroy?(): unknown }>;
 function rawBadRequest(socket: RawResponder, logger: StartAuthoringApiInput["logger"]): void { const requestId = randomUUID(); try { logger({ requestId, stableEventCode: "AUTHORING_REQUEST_REJECTED", method: "UNPARSED", routeTemplate: "unmatched", status: 400 }); } catch { /* sink fault 已隔離 */ } if (socket.writable) socket.end(`HTTP/1.1 400 Bad Request\r\nContent-Type: application/json; charset=utf-8\r\nCache-Control: no-store, no-cache\r\nPragma: no-cache\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n\r\n${JSON.stringify({ contract: "authoring-error/v1", requestId, code: "INVALID_REQUEST_FRAMING", owner: "AuthoringApi", subjectIds: [], remediation: { kind: "message", message: ERROR_REMEDIATION.INVALID_REQUEST_FRAMING } })}`); else socket.destroy?.(); }

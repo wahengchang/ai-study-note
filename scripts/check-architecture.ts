@@ -76,7 +76,7 @@ export type ArchitectureIo = Readonly<{
 
 // 掃描整個 repository，否則 semantic root 以外的檔案不會被讀到，
 // ROOT_TREE／LEGACY_FLAT_ROOT／CATCH_ALL_ROOT 將永遠無法觸發。
-const defaultIncludes = ["**/*.ts", "**/*.sql"];
+const defaultIncludes = ["**/*.ts", "**/*.tsx", "**/*.sql"];
 
 const defaultExcludes = [
   "node_modules",
@@ -233,8 +233,8 @@ function checkNaming(file: string): boolean {
     if (!kebabCase.test(segment)) return false;
   }
   if (basename.endsWith(".sql")) return migrationName.test(basename);
-  if (parts[0] === "tests") return /^[a-z0-9]+(?:-[a-z0-9]+)*\.test\.ts$/.test(basename);
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*\.ts$/.test(basename);
+  if (parts[0] === "tests") return /^[a-z0-9]+(?:-[a-z0-9]+)*\.test\.tsx?$/u.test(basename);
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*\.tsx?$/u.test(basename);
 }
 
 /** 掃描 semantic root 下的 symlink，回報 realpath 逃出 repository 的項目。 */
@@ -361,13 +361,13 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
   }
 
   const files = ts.sys
-    .readDirectory(root, [".ts", ".sql"], input.exclude ?? defaultExcludes, input.include ?? defaultIncludes)
+    .readDirectory(root, [".ts", ".tsx", ".sql"], input.exclude ?? defaultExcludes, input.include ?? defaultIncludes)
     .filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`));
 
   const violations: ArchitectureViolation[] = [...collectSymlinkEscapes(root, rootReal)];
 
   const program = ts.createProgram(
-    files.filter((file) => file.endsWith(".ts")),
+    files.filter((file) => /\.tsx?$/u.test(file)),
     {
       target: ts.ScriptTarget.ES2024,
       module: ts.ModuleKind.NodeNext,
@@ -406,11 +406,11 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
     if (!checkNaming(file)) violations.push(violation("NAMING", file, null, importer, null));
 
     const unit = unitOf(file);
-    if (unit !== null && file.endsWith(".ts")) {
+    if (unit !== null && /\.tsx?$/u.test(file)) {
       scannedUnits.set(unit, (scannedUnits.get(unit) ?? false) || file === `${unit}/index.ts`);
     }
 
-    if (!fileName.endsWith(".ts")) continue;
+    if (!/\.tsx?$/u.test(fileName)) continue;
     const source = program.getSourceFile(fileName);
     if (source === undefined) continue;
 
@@ -454,7 +454,10 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
             const resolved = ts.resolveModuleName(specifier, fileName, program.getCompilerOptions(), ts.sys)
               .resolvedModule?.resolvedFileName;
             if (resolved === undefined) {
-              violations.push(violation("UNRESOLVED_IMPORT", file, specifier, importer, null, source, start));
+              // Vite 的 app-local stylesheet 是 bundled asset，不是 TypeScript module。
+              if (!(importer === "apps" && specifier.startsWith(".") && specifier.endsWith(".css"))) {
+                violations.push(violation("UNRESOLVED_IMPORT", file, specifier, importer, null, source, start));
+              }
             } else {
               let resolvedReal = resolved;
               try {
@@ -494,7 +497,7 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
   }
 
   const production = files.filter(
-    (file) => /^(core|apps|extensions)\//.test(relative(root, file)) && file.endsWith(".ts"),
+    (file) => /^(core|apps|extensions)\//.test(relative(root, file)) && /\.tsx?$/u.test(file),
   );
   if (production.length === 0) violations.push(violation("EMPTY_PRODUCTION_SOURCE", ".", null, null, null));
 
