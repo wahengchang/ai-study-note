@@ -35,6 +35,8 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_RESTORE_REVISION_REQUEST: "請修正 RestoreRevision request。",
   INVALID_CHANGE_ROUTE_REQUEST: "請修正 ChangeRoute request。",
   INVALID_SEO_ANALYSIS_REQUEST: "請修正 CMS SEO analysis request。",
+  INVALID_PLUGIN_ACTIVATION_REQUEST: "請修正 Plugin activation request。",
+  INVALID_PLUGIN_SETTINGS_REQUEST: "請修正 Plugin settings request。",
   ENTRY_NOT_FOUND: "找不到指定的 entry。",
   READ_CURRENT_ENTRY_FAILED: "無法讀取目前 entry。",
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
@@ -377,7 +379,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
 
   const replacePluginSettings = async (request: PluginSettingsReplaceRequestV1): Promise<DomainApplicationResult<Readonly<{ settingsStateDigest: Digest }>>> => {
     const settings = normalizePluginSettingsReplaceRequest(request);
-    if (settings === null) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+    if (settings === null) return fail("INVALID_PLUGIN_SETTINGS_REQUEST");
     const replaced = await pluginHost.replaceSettings(settings);
     return replaced.ok
       ? { ok: true, value: { settingsStateDigest: replaced.value.digest } }
@@ -412,7 +414,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
 
   const activatePlugin = async (request: PluginActivationRequestV1): Promise<DomainApplicationResult<Readonly<{ activationStateDigest: Digest }>>> => {
     const activation = normalizePluginActivationRequest(request);
-    if (activation === null) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+    if (activation === null) return fail("INVALID_PLUGIN_ACTIVATION_REQUEST");
     const activated = await pluginHost.activate(activation);
     return activated.ok
       ? { ok: true, value: { activationStateDigest: activated.value.digest } }

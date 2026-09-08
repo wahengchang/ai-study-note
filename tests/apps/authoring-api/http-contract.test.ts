@@ -16,7 +16,7 @@ import { migrateDatabase, openPersistence } from "../../../core/persistence/inde
 import type { PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
-import { createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi } from "../../../apps/authoring-api/index.js";
+import { authoringErrorStatuses, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -436,4 +436,13 @@ test("same proof-bound socket mints one browser ticket and exchange never redact
       assert.equal(replay.status, 401); assert.equal(failureCode(replay), "AUTHORIZATION_INVALID");
     } finally { agent.destroy(); }
   });
+});
+
+/** 漏掉 status mapping 會讓 transport 把明確的 domain 拒絕悄悄轉成 500。 */
+test("every domain rejection code carries its contract status instead of degrading to 500", () => {
+  for (const code of ["INVALID_SAVE_REVISION_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST"]) {
+    assert.deepEqual(authoringErrorStatuses(code), [422], code);
+  }
+  assert.deepEqual(authoringErrorStatuses("ENTRY_NOT_FOUND"), [404]);
+  assert.equal(authoringErrorStatuses("NOT_A_CODE"), undefined);
 });

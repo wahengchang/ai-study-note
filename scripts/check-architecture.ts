@@ -1,4 +1,4 @@
-import { lstatSync, readdirSync, realpathSync, type Dirent } from "node:fs";
+import { lstatSync, readdirSync, realpathSync, statSync, type Dirent } from "node:fs";
 import path from "node:path";
 import { parseArgs } from "node:util";
 import { pathToFileURL } from "node:url";
@@ -76,7 +76,14 @@ export type ArchitectureIo = Readonly<{
 
 // 掃描整個 repository，否則 semantic root 以外的檔案不會被讀到，
 // ROOT_TREE／LEGACY_FLAT_ROOT／CATCH_ALL_ROOT 將永遠無法觸發。
-const defaultIncludes = ["**/*.ts", "**/*.sql"];
+// `.tsx` 與 `.ts` 同屬 TypeScript source：漏掉它等於讓 CMS React source
+// 可以繞過整份 import edge 矩陣而不被回報。
+const defaultIncludes = ["**/*.ts", "**/*.tsx", "**/*.sql"];
+const sourceExtensions = [".ts", ".tsx"] as const;
+
+function isTypeScriptSource(file: string): boolean {
+  return sourceExtensions.some((extension) => file.endsWith(extension));
+}
 
 const defaultExcludes = [
   "node_modules",
@@ -233,8 +240,8 @@ function checkNaming(file: string): boolean {
     if (!kebabCase.test(segment)) return false;
   }
   if (basename.endsWith(".sql")) return migrationName.test(basename);
-  if (parts[0] === "tests") return /^[a-z0-9]+(?:-[a-z0-9]+)*\.test\.ts$/.test(basename);
-  return /^[a-z0-9]+(?:-[a-z0-9]+)*\.ts$/.test(basename);
+  if (parts[0] === "tests") return /^[a-z0-9]+(?:-[a-z0-9]+)*\.test\.tsx?$/.test(basename);
+  return /^[a-z0-9]+(?:-[a-z0-9]+)*\.tsx?$/.test(basename);
 }
 
 /** 掃描 semantic root 下的 symlink，回報 realpath 逃出 repository 的項目。 */
@@ -283,6 +290,24 @@ function matchesExcludePattern(pattern: string, name: string): boolean {
   if (!pattern.includes("*")) return pattern === name;
   const prefix = pattern.slice(0, pattern.indexOf("*"));
   return name.startsWith(prefix);
+}
+
+/**
+ * Vite bundler asset 的 side-effect import（例如 `./tokens.css`）不是 TypeScript module，
+ * `resolveModuleName` 解不出來。以實際檔案讓它走同一組 edge 規則，
+ * 既不會誤報 UNRESOLVED_IMPORT，也不讓 asset import 成為跨 unit 的隱藏後門。
+ */
+const bundlerAssetExtensions = new Set([".css", ".svg", ".png", ".jpg", ".jpeg", ".webp", ".woff", ".woff2"]);
+
+function resolveBundlerAsset(specifier: string, importerFile: string): string | undefined {
+  const withoutQuery = specifier.split("?")[0] ?? specifier;
+  if (!bundlerAssetExtensions.has(path.extname(withoutQuery).toLowerCase())) return undefined;
+  const candidate = path.resolve(path.dirname(importerFile), withoutQuery);
+  try {
+    return statSync(candidate).isFile() ? candidate : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 function isInside(rootReal: string, candidate: string): boolean {
@@ -361,20 +386,18 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
   }
 
   const files = ts.sys
-    .readDirectory(root, [".ts", ".sql"], input.exclude ?? defaultExcludes, input.include ?? defaultIncludes)
+    .readDirectory(root, [...sourceExtensions, ".sql"], input.exclude ?? defaultExcludes, input.include ?? defaultIncludes)
     .filter((file) => !file.includes(`${path.sep}node_modules${path.sep}`));
 
   const violations: ArchitectureViolation[] = [...collectSymlinkEscapes(root, rootReal)];
 
-  const program = ts.createProgram(
-    files.filter((file) => file.endsWith(".ts")),
-    {
-      target: ts.ScriptTarget.ES2024,
-      module: ts.ModuleKind.NodeNext,
-      moduleResolution: ts.ModuleResolutionKind.NodeNext,
-      noEmit: true,
-    },
-  );
+  const program = ts.createProgram(files.filter(isTypeScriptSource), {
+    target: ts.ScriptTarget.ES2024,
+    module: ts.ModuleKind.NodeNext,
+    moduleResolution: ts.ModuleResolutionKind.NodeNext,
+    jsx: ts.JsxEmit.ReactJSX,
+    noEmit: true,
+  });
 
   const scannedUnits = new Map<string, boolean>();
 
@@ -406,11 +429,11 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
     if (!checkNaming(file)) violations.push(violation("NAMING", file, null, importer, null));
 
     const unit = unitOf(file);
-    if (unit !== null && file.endsWith(".ts")) {
+    if (unit !== null && isTypeScriptSource(file)) {
       scannedUnits.set(unit, (scannedUnits.get(unit) ?? false) || file === `${unit}/index.ts`);
     }
 
-    if (!fileName.endsWith(".ts")) continue;
+    if (!isTypeScriptSource(fileName)) continue;
     const source = program.getSourceFile(fileName);
     if (source === undefined) continue;
 
@@ -452,7 +475,8 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
             }
           } else {
             const resolved = ts.resolveModuleName(specifier, fileName, program.getCompilerOptions(), ts.sys)
-              .resolvedModule?.resolvedFileName;
+              .resolvedModule?.resolvedFileName
+              ?? resolveBundlerAsset(specifier, fileName);
             if (resolved === undefined) {
               violations.push(violation("UNRESOLVED_IMPORT", file, specifier, importer, null, source, start));
             } else {
@@ -494,7 +518,7 @@ export async function checkArchitecture(input: ArchitectureCheckInput): Promise<
   }
 
   const production = files.filter(
-    (file) => /^(core|apps|extensions)\//.test(relative(root, file)) && file.endsWith(".ts"),
+    (file) => /^(core|apps|extensions)\//.test(relative(root, file)) && isTypeScriptSource(file),
   );
   if (production.length === 0) violations.push(violation("EMPTY_PRODUCTION_SOURCE", ".", null, null, null));
 

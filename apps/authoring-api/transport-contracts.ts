@@ -135,13 +135,14 @@ const conflictCodes = [
 ] as const;
 const invalidCodes = [
   "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST",
+  "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST",
   "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE",
   "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING",
   "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED",
   "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED",
 ] as const;
 const domainCodes = [
-  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "ENTRY_NOT_FOUND", "READ_CURRENT_ENTRY_FAILED",
+  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "ENTRY_NOT_FOUND", "READ_CURRENT_ENTRY_FAILED",
   "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "SCHEMA_INVALID",
   "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED",
   "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED",
@@ -155,6 +156,15 @@ const pluginCodes = [
   "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "PLUGIN_VALIDATION_SERVICE_FAILED",
   "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED", "INVALID_PLUGIN_SETTINGS", "PLUGIN_SETTINGS_MISMATCH", "PLUGIN_SETTINGS_STATE_CONFLICT", "PLUGIN_SETTINGS_STATE_FAILURE", "SEO_ANALYSIS_CONFLICT",
 ] as const satisfies readonly PluginHostFailureCode[];
+
+/**
+ * `satisfies` 只保證列出的 code 合法，不保證列全；漏掉一個 code 會讓 `authoringErrorStatuses`
+ * 在 runtime 回 undefined，transport 便把明確的 domain 拒絕悄悄轉成 500。
+ * 下面兩行把「漏列」提前成編譯錯誤。
+ */
+const domainCodesAreExhaustive: Exclude<DomainApplicationFailureCode, (typeof domainCodes)[number]> extends never ? true : never = true;
+const pluginCodesAreExhaustive: Exclude<PluginHostFailureCode, (typeof pluginCodes)[number]> extends never ? true : never = true;
+void domainCodesAreExhaustive; void pluginCodesAreExhaustive;
 
 const domainStatuses: Readonly<Record<DomainApplicationFailureCode, readonly number[]>> = Object.fromEntries(domainCodes.map((code) => [code, code === "ENTRY_NOT_FOUND" ? [404] : conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<DomainApplicationFailureCode, readonly number[]>>;
 const pluginStatuses: Readonly<Record<PluginHostFailureCode, readonly number[]>> = Object.fromEntries(pluginCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<PluginHostFailureCode, readonly number[]>>;

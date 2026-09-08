@@ -187,6 +187,57 @@ test("rejects non-kebab-case names and malformed migration names", async () => {
   );
 });
 
+test("scans .tsx source so CMS React files stay inside the import-edge matrix", async () => {
+  assert.deepEqual(
+    await rules({
+      "core/content/index.ts": "export const content = 1;\n",
+      "core/content/internal/store.ts": "export const store = 1;\n",
+      "apps/cms/index.ts": "export { view } from './view.js';\n",
+      "apps/cms/view.tsx": "import { store } from '../../core/content/internal/store.js';\nexport const view = store;\n",
+    }),
+    ["DEEP_IMPORT"],
+  );
+});
+
+test("applies the naming rule to .tsx source", async () => {
+  assert.deepEqual(
+    await rules({
+      ...contentEntry,
+      "apps/cms/index.ts": "export const cms = 1;\n",
+      "apps/cms/SessionGate.tsx": "export const gate = 1;\n",
+      "apps/cms/session-gate.tsx": "export const ok = 1;\n",
+    }),
+    ["NAMING"],
+  );
+});
+
+test("classifies bundler asset imports by the same unit boundary as module edges", async () => {
+  assert.deepEqual(
+    await rules({
+      ...contentEntry,
+      "apps/cms/index.ts": "import './tokens.css';\nexport const cms = 1;\n",
+      "apps/cms/tokens.css": ":root { color: black; }\n",
+    }),
+    [],
+  );
+  assert.deepEqual(
+    await rules({
+      ...contentEntry,
+      "apps/cms/index.ts": "import './missing.css';\nexport const cms = 1;\n",
+    }),
+    ["UNRESOLVED_IMPORT"],
+  );
+  assert.deepEqual(
+    await rules({
+      ...contentEntry,
+      "apps/cms/index.ts": "import '../public-ui/tokens.css';\nexport const cms = 1;\n",
+      "apps/public-ui/index.ts": "export const ui = 1;\n",
+      "apps/public-ui/tokens.css": ":root { color: black; }\n",
+    }),
+    ["DEEP_IMPORT"],
+  );
+});
+
 test("rejects legacy flat roots and cross-owner catch-all roots", async () => {
   assert.deepEqual(
     await rules({ ...contentEntry, "plugins/legacy.ts": "export const legacy = 1;\n" }),

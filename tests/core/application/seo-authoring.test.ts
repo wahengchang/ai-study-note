@@ -72,9 +72,27 @@ test("Plugin settings rejects malformed requests and delegates an exact settings
   const app = application(host);
   const invalid = await app.replacePluginSettings({} as never);
   assert.equal(invalid.ok, false);
+  if (!invalid.ok) assert.equal(invalid.error.code, "INVALID_PLUGIN_SETTINGS_REQUEST");
   const identity = { id: "seo-basics", version: "1.0.0", hookContract: "plugin-hooks/v1" as const, manifestHash: digest({ manifest: 1 }), capabilities: ["cms-seo-analysis"] as const };
   const settings = { contract: "seo-plugin-settings/v1" as const, publicSiteUrl: "https://example.test/", indexing: "allow" as const };
   const valid = await app.replacePluginSettings({ contract: "plugin-settings-replace-request/v1", identity, expectedSettingsStateDigest: digest({ state: 1 }), settingsContract: "seo-plugin-settings/v1", settings });
   assert.equal(valid.ok, true);
   assert.deepEqual(captured, { contract: "plugin-settings-replace-request/v1", identity, expectedSettingsStateDigest: digest({ state: 1 }), settingsContract: "seo-plugin-settings/v1", settings });
+});
+
+test("每個 request 家族回報自己的拒絕 code，不再共用 SEO analysis 的 code", async () => {
+  const host = {
+    activate: async () => ({ ok: true, value: { digest: digest({ activationState: 2 }) } }),
+    replaceSettings: async () => ({ ok: true, value: { digest: digest({ settingsState: 2 }), state: { contract: "plugin-settings-state/v1", records: [] } } }),
+  } as unknown as PluginHost;
+  const app = application(host);
+  const activation = await app.activatePlugin({} as never);
+  assert.equal(activation.ok, false);
+  if (!activation.ok) assert.equal(activation.error.code, "INVALID_PLUGIN_ACTIVATION_REQUEST");
+  const settings = await app.replacePluginSettings({} as never);
+  assert.equal(settings.ok, false);
+  if (!settings.ok) assert.equal(settings.error.code, "INVALID_PLUGIN_SETTINGS_REQUEST");
+  const analysis = await app.analyzeCmsSeo({} as never);
+  assert.equal(analysis.ok, false);
+  if (!analysis.ok) assert.equal(analysis.error.code, "INVALID_SEO_ANALYSIS_REQUEST");
 });
