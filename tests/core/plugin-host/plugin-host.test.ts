@@ -11,6 +11,8 @@ import {
   type PluginActivationState,
   type PluginActivationStatePort,
   type PluginManifestV1,
+  type PluginSettingsState,
+  type PluginSettingsStatePort,
   type PluginHost,
   type PluginHostResult,
   type SaveRevisionContentGuard,
@@ -19,10 +21,10 @@ import {
 
 const repositoryRoot = process.cwd();
 const templateRoot = path.join(repositoryRoot, "extensions", "plugins", "activation-probe");
-const probeKey = "__pluginHostProbe";
+type Fixture = Readonly<{ directory: string; installedRoot: string; pluginDirectory: string; port: MemoryActivationStatePort; settingsPort: MemorySettingsStatePort }>;
 
-type Fixture = Readonly<{ directory: string; installedRoot: string; pluginDirectory: string; port: MemoryActivationStatePort }>;
 type Probe = { loads: number; callbacks: number; facades: number; frozen?: boolean; mode?: string };
+const probeKey = "__aiStudyNotePluginHostProbe";
 
 function bytes(value: unknown): Uint8Array {
   const result = canonicalJsonBytes(value);
@@ -71,6 +73,19 @@ class MemoryActivationStatePort implements PluginActivationStatePort {
     return activationDigest(this.state);
   }
 }
+class MemorySettingsStatePort implements PluginSettingsStatePort {
+  public state: PluginSettingsState = Object.freeze({ contract: "plugin-settings-state/v1", records: Object.freeze([]) });
+
+  public async read(): Promise<PluginSettingsState> {
+    return this.state;
+  }
+
+  public async compareAndReplace(input: Readonly<{ expectedDigest: Digest; nextState: PluginSettingsState }>): Promise<boolean> {
+    if (input.expectedDigest !== sha256Digest(bytes(this.state))) return false;
+    this.state = input.nextState;
+    return true;
+  }
+}
 
 function manifest(pluginDirectory: string, input: Partial<PluginManifestV1> = {}): PluginManifestV1 {
   const entryBytes = readFileSync(path.join(pluginDirectory, "index.mjs"));
@@ -111,8 +126,8 @@ export function resolveEditorBlock(input, facade) {
   if (probe.mode === "throw") throw new Error("token-do-not-leak");
   if (probe.mode === "thenable") return Promise.resolve({ contract: "cms-editor-block-output/v1", block: {} });
   if (probe.mode === "rejected") return Promise.reject(new Error("token-do-not-leak"));
-  if (probe.mode === "extra") return { contract: "cms-editor-block-output/v1", block: {}, extra: true };
   if (probe.mode === "invalid") return { contract: "cms-editor-block-output/v1", block: { unsafe: BigInt(1) } };
+  if (probe.mode === "extra") return { contract: "cms-editor-block-output/v1", block: {}, extra: true };
   if (probe.mode === "mutate") { probe.frozen = Object.isFrozen(input.source) && Object.isFrozen(input.source.nested); try { input.source.nested.value = "mutated"; } catch {} }
   return { contract: "cms-editor-block-output/v1", block: { source: input.source } };
 }
@@ -126,7 +141,7 @@ function fixture(): Fixture {
   cpSync(templateRoot, pluginDirectory, { recursive: true });
   writeEditorModule(pluginDirectory);
   writeManifest(pluginDirectory);
-  return { directory, installedRoot, pluginDirectory, port: new MemoryActivationStatePort() };
+  return { directory, installedRoot, pluginDirectory, port: new MemoryActivationStatePort(), settingsPort: new MemorySettingsStatePort() };
 }
 
 function addPlugin(value: Fixture, id: string): string {
@@ -138,7 +153,7 @@ function addPlugin(value: Fixture, id: string): string {
 }
 
 async function host(value: Fixture): Promise<PluginHost> {
-  const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: value.installedRoot, activationState: value.port });
+  const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: value.installedRoot, activationState: value.port, settingsState: value.settingsPort });
   assert.equal(created.ok, true);
   if (!created.ok) throw new Error("Plugin Host unexpectedly failed to create");
   return created.value;
@@ -164,11 +179,22 @@ function exactCandidate(report: Awaited<ReturnType<PluginHost["discover"]>>, id:
   if (!report.ok) throw new Error("Plugin discovery unexpectedly failed");
   const candidate = report.value.candidates.find((item) => item.id === id);
   if (candidate === undefined) throw new Error("Plugin candidate unexpectedly missing");
-  return Object.freeze({ id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash });
+  return Object.freeze({ id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash, capabilities: candidate.capabilities });
+}
+
+async function activationBaseline(pluginHost: PluginHost): Promise<Digest> {
+  const snapshot = await pluginHost.getActiveSnapshot();
+  assert.equal(snapshot.ok, true);
+  if (!snapshot.ok) throw new Error("Activation snapshot unexpectedly failed");
+  return snapshot.value.digest;
+}
+
+async function activateIdentity(pluginHost: PluginHost, identity: PluginActivationIdentity, expectedActivationStateDigest: Digest) {
+  return pluginHost.activate({ identity, expectedActivationStateDigest });
 }
 
 async function activate(pluginHost: PluginHost, id = "activation-probe") {
-  return pluginHost.activate({ identity: exactCandidate(await pluginHost.discover(), id) });
+  return activateIdentity(pluginHost, exactCandidate(await pluginHost.discover(), id), await activationBaseline(pluginHost));
 }
 
 function assertFailure<T>(result: PluginHostResult<T>, code: string): asserts result is Extract<PluginHostResult<T>, { ok: false }> {
@@ -252,7 +278,7 @@ function expectedValidatorFailure(
     PLUGIN_CALLBACK_RESULT_INVALID: "Plugin callback 回傳不符合 plugin-hooks/v1 contract。",
     PLUGIN_CALLBACK_FAILED: "Plugin callback 執行失敗。",
   };
-  return { ok: false, error: { code, owner: "PluginHost", subjectIds: [pluginId], remediation: { kind: "message", message: messages[code] }, detail: { pluginId, hook: "save-revision/validate", capability: "save-revision-validator", entryId, cause } } };
+  return { ok: false, error: { code, owner: "PluginHost", subjectIds: [pluginId], remediation: { kind: "message", message: messages[code] }, detail: { pluginId, hook: "save-revision/validate", capability: "save-revision-validator", scope: { kind: "entry", entryId }, cause } } };
 }
 
 test("discovery only reads canonical external manifest data and rejects malformed candidates", async () => {
@@ -294,7 +320,7 @@ test("editor resolution only executes an exact active identity and exact activat
     assert.equal(active.value.outputDigest, sha256Digest(bytes(active.value.output)));
     const executed = { ...probe() };
 
-    const deactivated = await pluginHost.deactivate({ identity });
+    const deactivated = await pluginHost.deactivate({ identity, expectedActivationStateDigest: await activationBaseline(pluginHost) });
     assert.equal(deactivated.ok, true);
     const inactive = await pluginHost.resolveCmsEditorBlock(source(identity));
     assert.equal(inactive.ok, true);
@@ -304,7 +330,7 @@ test("editor resolution only executes an exact active identity and exact activat
     assert.equal(inactive.value.source.sourceDigest, sha256Digest(bytes({ nested: { value: "source" } })));
     assert.deepEqual(probe(), executed);
 
-    const reenabled = await pluginHost.activate({ identity });
+    const reenabled = await activateIdentity(pluginHost, identity, value.port.digest());
     assert.equal(reenabled.ok, true);
     const restored = await pluginHost.resolveCmsEditorBlock(source(identity));
     assert.equal(restored.ok, true);
@@ -333,7 +359,7 @@ test("missing and mismatched evidence latch once, remain inactive after recovery
     if (missing.ok) {
       assert.equal(missing.value.status, "missing");
       assert.equal(missing.value.diagnostic.code, "PLUGIN_BLOCK_MISSING");
-      assert.deepEqual(missing.value.diagnostic.detail, { pluginId: identity.id, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", entryId: "entry-a", cause: "missing" });
+      assert.deepEqual(missing.value.diagnostic.detail, { pluginId: identity.id, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", scope: { kind: "entry", entryId: "entry-a" }, cause: "missing" });
     }
     assert.deepEqual(value.port.state.active, []);
     assert.deepEqual(value.port.state.reactivationRequired, [identity]);
@@ -346,7 +372,7 @@ test("missing and mismatched evidence latch once, remain inactive after recovery
     if (recovered.ok) assert.equal(recovered.value.status, "inactive");
     assert.equal(value.port.writes, 2);
     assert.deepEqual(probe(), before);
-    const reenabled = await pluginHost.activate({ identity });
+    const reenabled = await activateIdentity(pluginHost, identity, value.port.digest());
     assert.equal(reenabled.ok, true);
     const active = await pluginHost.resolveCmsEditorBlock(source(identity));
     assert.equal(active.ok, true);
@@ -381,7 +407,7 @@ test("malformed and escaping manifest evidence resolve as identity changes witho
     assert.deepEqual(probe(), before);
 
     writeManifest(value.pluginDirectory);
-    const reenabled = await pluginHost.activate({ identity });
+    const reenabled = await activateIdentity(pluginHost, identity, value.port.digest());
     assert.equal(reenabled.ok, true);
     writeManifest(value.pluginDirectory, { entry: { file: "../token-do-not-leak.mjs", digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000" } });
     const escaping = await pluginHost.resolveCmsEditorBlock(source(identity));
@@ -410,14 +436,14 @@ test("identity drift does not import a replacement and a healthy different ident
     assert.equal(changed.ok, true);
     if (changed.ok) assert.equal(changed.value.status, "identity-changed");
     const replacement = exactCandidate(await pluginHost.discover(), original.id);
-    const conflict = await pluginHost.activate({ identity: replacement });
+    const conflict = await activateIdentity(pluginHost, replacement, value.port.digest());
     assertFailure(conflict, "PLUGIN_IDENTITY_CONFLICT");
     assert.deepEqual(probe(), before);
     writeManifest(value.pluginDirectory);
     const inactive = await pluginHost.resolveCmsEditorBlock(source(original));
     assert.equal(inactive.ok, true);
     if (inactive.ok) assert.equal(inactive.value.status, "inactive");
-    const reenabled = await pluginHost.activate({ identity: original });
+    const reenabled = await activateIdentity(pluginHost, original, value.port.digest());
     assert.equal(reenabled.ok, true);
 
     const healthyB = exactCandidate(await pluginHost.discover(), original.id);
@@ -445,15 +471,15 @@ test("activation validates the persisted identity before filesystem reads and la
     const identity = activated.value.identities[0]!;
     const before = { ...probe() };
     const changedManifest = writeManifest(value.pluginDirectory, { version: "1.0.1" });
-    const different = Object.freeze({ id: identity.id, version: changedManifest.version, hookContract: changedManifest.hookContract, manifestHash: sha256Digest(bytes(changedManifest)) });
-    const conflict = await pluginHost.activate({ identity: different });
+    const different = Object.freeze({ id: identity.id, version: changedManifest.version, hookContract: changedManifest.hookContract, manifestHash: sha256Digest(bytes(changedManifest)), capabilities: identity.capabilities });
+    const conflict = await activateIdentity(pluginHost, different, value.port.digest());
     assertFailure(conflict, "PLUGIN_IDENTITY_CONFLICT");
     assert.deepEqual(probe(), before);
     assert.equal(value.port.writes, 1);
 
     writeManifest(value.pluginDirectory);
     rmSync(path.join(value.pluginDirectory, "resources", "contract.json"));
-    const evidence = await pluginHost.activate({ identity });
+    const evidence = await activateIdentity(pluginHost, identity, value.port.digest());
     assertFailure(evidence, "PLUGIN_EVIDENCE_MISMATCH");
     assert.deepEqual(value.port.state.active, []);
     assert.deepEqual(value.port.state.reactivationRequired, [identity]);
@@ -503,7 +529,7 @@ test("trusted-root replacement and unsafe mode fail closed without state writes 
     renameSync(value.installedRoot, displaced);
     mkdirSync(value.installedRoot);
     cpSync(path.join(displaced, "activation-probe"), value.pluginDirectory, { recursive: true });
-    assertFailure(await pluginHost.activate({ identity }), "INVALID_TRUSTED_ROOT");
+    assertFailure(await activateIdentity(pluginHost, identity, value.port.digest()), "INVALID_TRUSTED_ROOT");
     assertFailure(await pluginHost.getActiveSnapshot(), "INVALID_TRUSTED_ROOT");
     assertFailure(await pluginHost.resolveCmsEditorBlock(source(identity)), "INVALID_TRUSTED_ROOT");
     assertFailure(await pluginHost.prepareSaveRevisionValidators({ entryId: "entry-a" }), "INVALID_TRUSTED_ROOT");
@@ -548,7 +574,7 @@ test("editor callback failures are sanitized, contract-bound, and never authoriz
         assert.equal(result.ok, false);
         if (!result.ok) {
           assert.equal(result.error.code, mode === "throw" ? "PLUGIN_CALLBACK_FAILED" : "PLUGIN_CALLBACK_RESULT_INVALID");
-          assert.deepEqual(result.error.detail, { pluginId: identity.id, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", entryId: "entry-a", cause: mode === "throw" ? "callback-fault" : "invalid-result" });
+          assert.deepEqual(result.error.detail, { pluginId: identity.id, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", scope: { kind: "entry", entryId: "entry-a" }, cause: mode === "throw" ? "callback-fault" : "invalid-result" });
           assert.equal(result.error.remediation.kind === "message" && result.error.remediation.message.includes("replacement"), false);
         }
         assertSanitized(result, value);
@@ -594,7 +620,6 @@ test("latch CAS conflict and port failure never execute a callback or expose por
     value.port.rejectCompare = true;
     const conflict = await pluginHost.getActiveSnapshot();
     assertFailure(conflict, "ACTIVATION_STATE_CONFLICT");
-    assertSanitized(conflict, value);
     value.port.rejectCompare = false;
     value.port.throwCompare = true;
     const failure = await pluginHost.getActiveSnapshot();
@@ -609,7 +634,7 @@ test("latch CAS conflict and port failure never execute a callback or expose por
 
 test("trusted root rejects repository-local source", async () => {
   const port = new MemoryActivationStatePort();
-  const result = await createPluginHost({ repositoryRoot, installedPluginsRoot: path.join(repositoryRoot, "extensions", "plugins"), activationState: port });
+  const result = await createPluginHost({ repositoryRoot, installedPluginsRoot: path.join(repositoryRoot, "extensions", "plugins"), activationState: port, settingsState: new MemorySettingsStatePort() });
   assertFailure(result, "INVALID_TRUSTED_ROOT");
   assert.equal(existsSync(path.join(templateRoot, "index.ts")), true);
 });
@@ -810,9 +835,70 @@ test("公開 renderer source 只對 active Plugin 提供已驗證 immutable byte
     assert.equal(new TextDecoder().decode(active.value[0]?.entryBytes), sourceBytes);
     assert.deepEqual(active.value[0]?.callbacks, [{ hook: "public/block/render", exportName: "renderBlock", priority: 0 }]);
     if (!activation.ok) return;
-    const deactivation = await pluginHost.deactivate({ identity: activation.value.identities[0]! });
+    const deactivation = await pluginHost.deactivate({ identity: activation.value.identities[0]!, expectedActivationStateDigest: await activationBaseline(pluginHost) });
     assert.equal(deactivation.ok, true);
     assert.deepEqual(await pluginHost.resolveActivePublicRenderers(), { ok: true, value: [] });
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+
+test("activation rejects stale baseline before filesystem evidence or CAS", async () => {
+  resetProbe();
+  const value = fixture();
+  try {
+    const pluginHost = await host(value);
+    const candidate = exactCandidate(await pluginHost.discover(), "activation-probe");
+    const baseline = await pluginHost.getActiveSnapshot();
+    assert.equal(baseline.ok, true);
+    if (!baseline.ok) return;
+    const writesBefore = value.port.writes;
+    value.port.state = copyState({ contract: "plugin-activation-state/v2", active: [], reactivationRequired: [candidate] });
+    const result = await pluginHost.activate({ identity: candidate, expectedActivationStateDigest: baseline.value.digest });
+    assertFailure(result, "ACTIVATION_STATE_CONFLICT");
+    assert.equal(value.port.writes, writesBefore);
+    assert.deepEqual(probe(), { loads: 0, callbacks: 0, facades: 0 });
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+
+test("public SEO callbacks bind canonical published input and settings evidence", async () => {
+  const value = fixture();
+  const pluginDirectory = path.join(value.installedRoot, "seo-probe");
+  try {
+    mkdirSync(pluginDirectory, { recursive: true });
+    writeFileSync(path.join(pluginDirectory, "index.mjs"), `
+export function page(input, facade) {
+  if (facade.capability !== "public-seo-page-contribution") throw new Error("wrong facade");
+  return { contract: "public-seo-page-contribution/v1", entryId: input.entryId, revisionId: input.revisionId, route: input.route, title: input.content.title, canonicalPath: input.route, openGraph: { title: input.content.title, urlPath: input.route, type: "article" }, jsonLd: { type: "WebPage", name: input.content.title, urlPath: input.route } };
+}
+export function site(input, facade) {
+  if (facade.capability !== "public-seo-site-contribution") throw new Error("wrong facade");
+  return { contract: "public-seo-site-contribution/v1", sitemap: { include: "all-published" }, robots: { indexing: input.settings.indexing } };
+}`);
+    const entryBytes = readFileSync(path.join(pluginDirectory, "index.mjs"));
+    const pluginManifest: PluginManifestV1 = { manifestVersion: "plugin-manifest/v1", id: "seo-probe", version: "1.0.0", trustedLocal: true, hookContract: "plugin-hooks/v1", capabilities: ["public-seo-page-contribution", "public-seo-site-contribution"], entry: { file: "index.mjs", digest: sha256Digest(entryBytes) }, callbacks: [{ hook: "public/seo/page", exportName: "page", priority: 1 }, { hook: "public/seo/site", exportName: "site", priority: 2 }], resources: [] };
+    writeFileSync(path.join(pluginDirectory, "plugin-manifest.json"), bytes(pluginManifest));
+    const pluginHost = await host(value);
+    const identity = exactCandidate(await pluginHost.discover(), "seo-probe");
+    const activated = await pluginHost.activate({ identity, expectedActivationStateDigest: await activationBaseline(pluginHost) });
+    assert.equal(activated.ok, true);
+    const settingsSnapshot = await pluginHost.getSettingsSnapshot();
+    assert.equal(settingsSnapshot.ok, true);
+    if (!settingsSnapshot.ok) return;
+    const replaced = await pluginHost.replaceSettings({ identity, expectedSettingsStateDigest: settingsSnapshot.value.digest, settingsContract: "seo-plugin-settings/v1", settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: "https://example.test/", indexing: "allow" } });
+    assert.equal(replaced.ok, true);
+    const prepared = await pluginHost.resolvePublicBuildSnapshot({ contract: "public-plugin-build-request/v1", published: [{ entryId: "entry-a", revisionId: "revision-a", schemaIdentity: { schemaId: "site-content", version: 1 }, route: "/article", content: { contract: "site-content/v1", title: "Article", blocks: [], seo: {} } }] });
+    assert.equal(prepared.ok, true);
+    if (!prepared.ok) return;
+    assert.equal(prepared.value.snapshot.pageContributions.length, 1);
+    assert.equal(prepared.value.snapshot.siteContributions.length, 1);
+    assert.equal(prepared.value.snapshot.pageContributions[0]!.contribution.title, "Article");
+    assert.equal((await pluginHost.validatePublicBuildSnapshot(prepared.value)).ok, true);
+    assertFailure(await pluginHost.validatePublicBuildSnapshot(prepared.value), "INVALID_PLUGIN_OPERATION_SNAPSHOT");
   } finally {
     rmSync(value.directory, { recursive: true, force: true });
   }

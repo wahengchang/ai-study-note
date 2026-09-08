@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
-import type { ActivePluginSnapshot, ActivePublicPluginRenderer, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CreatePluginHostInput, PluginActivationIdentity, PluginActivationState, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PluginPublicHookId, PreparedSaveRevisionValidators, SaveRevisionContentGuard, SaveRevisionValidatorInput, ValidatedSaveRevisionContent, VerifiedPluginResource } from "./contracts.js";
+import type { ActivePluginSnapshot, ActivePublicPluginRenderer, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CmsSeoAnalysisInputV1, CmsSeoAnalysisOutputV1, CreatePluginHostInput, PluginActivationIdentity, PluginActivationManagementSnapshot, PluginActivationState, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PluginSeoAnalysisResult, PluginSettingsRecord, PluginSettingsState, PreparedPublicBuildSnapshot, PreparedSaveRevisionValidators, PublicPluginBuildSnapshotV1, PublicSeoContributionRecord, PublicSeoEvidence, PublicSeoPageContributionV1, PublicSeoSiteContributionV1, ResolvePublicBuildSnapshotInput, SaveRevisionContentGuard, SaveRevisionValidatorInput, SeoPluginSettingsV1, ValidatedSaveRevisionContent, VerifiedPluginResource } from "./contracts.js";
 import { isCanonicalPluginId, pluginHostError, pluginHostFailure, type PluginDiagnosticDetail, type PluginHostFailure } from "./failures.js";
 import { isExactSemver, readManifest } from "./manifest.js";
 import { loadVerifiedPluginModule } from "./module-loader.js";
@@ -23,17 +23,32 @@ function exact(value: unknown, keys: readonly string[]): value is Record<string,
   }
 }
 
+function capabilities(value: unknown): readonly PluginActivationIdentity["capabilities"][number][] | null {
+  if (!Array.isArray(value) || value.length === 0 || !value.every((item) => typeof item === "string")) return null;
+  const known = new Set(["save-revision-validator", "cms-editor-block-resolution", "cms-seo-analysis", "public-block-renderer", "public-assets-emitter", "public-seo-page-contribution", "public-seo-site-contribution"]);
+  if (new Set(value).size !== value.length || value.some((item) => !known.has(item))) return null;
+  const result = [...value] as PluginActivationIdentity["capabilities"][number][];
+  if (result.some((item, index) => index > 0 && compareCodeUnits(result[index - 1]!, item) >= 0)) return null;
+  return Object.freeze(result);
+}
+
 function identity(value: unknown): PluginActivationIdentity | null {
-  if (!exact(value, ["id", "version", "hookContract", "manifestHash"]) || !isCanonicalPluginId(value.id) || typeof value.version !== "string" || !isExactSemver(value.version) || value.hookContract !== "plugin-hooks/v1" || typeof value.manifestHash !== "string" || !isDigest(value.manifestHash)) return null;
-  return Object.freeze({ id: value.id, version: value.version, hookContract: value.hookContract, manifestHash: value.manifestHash });
+  if (!exact(value, ["id", "version", "hookContract", "manifestHash", "capabilities"]) || !isCanonicalPluginId(value.id) || typeof value.version !== "string" || !isExactSemver(value.version) || value.hookContract !== "plugin-hooks/v1" || typeof value.manifestHash !== "string" || !isDigest(value.manifestHash)) return null;
+  const capabilitySet = capabilities(value.capabilities);
+  return capabilitySet === null ? null : Object.freeze({ id: value.id, version: value.version, hookContract: value.hookContract, manifestHash: value.manifestHash, capabilities: capabilitySet });
 }
 
 function same(left: PluginActivationIdentity, right: PluginActivationIdentity): boolean {
-  return left.id === right.id && left.version === right.version && left.hookContract === right.hookContract && left.manifestHash === right.manifestHash;
+  return left.id === right.id
+    && left.version === right.version
+    && left.hookContract === right.hookContract
+    && left.manifestHash === right.manifestHash
+    && left.capabilities.length === right.capabilities.length
+    && left.capabilities.every((capability, index) => capability === right.capabilities[index]);
 }
 
 function ordered(values: readonly PluginActivationIdentity[]): readonly PluginActivationIdentity[] {
-  return Object.freeze([...values].map((item) => Object.freeze({ ...item })).sort((left, right) => compareCodeUnits(left.id, right.id)));
+  return Object.freeze([...values].map((item) => Object.freeze({ ...item, capabilities: Object.freeze([...item.capabilities]) })).sort((left, right) => compareCodeUnits(left.id, right.id)));
 }
 
 function parseState(value: unknown): PluginActivationState | null {
@@ -56,9 +71,79 @@ function snapshot(state: PluginActivationState, stateDigest: Digest): ActivePlug
 }
 
 function evidenceIdentity(item: Installed): PluginActivationIdentity | null {
-  return identity({ id: item.manifest.id, version: item.manifest.version, hookContract: item.manifest.hookContract, manifestHash: item.manifestHash });
+  return identity({
+    id: item.manifest.id,
+    version: item.manifest.version,
+    hookContract: item.manifest.hookContract,
+    manifestHash: item.manifestHash,
+    capabilities: item.manifest.capabilities,
+  });
 }
 
+function settings(value: unknown): SeoPluginSettingsV1 | null {
+  if (!exact(value, ["contract", "publicSiteUrl", "indexing"]) || value.contract !== "seo-plugin-settings/v1" || typeof value.publicSiteUrl !== "string" || value.publicSiteUrl.length === 0 || (value.indexing !== "allow" && value.indexing !== "disallow")) return null;
+  try {
+    const url = new URL(value.publicSiteUrl);
+    if (url.href !== value.publicSiteUrl || url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || url.port !== "" || !url.pathname.startsWith("/") || (url.pathname !== "/" && !url.pathname.endsWith("/")) || /%2f|%5c/i.test(url.pathname)) return null;
+  } catch { return null; }
+  return Object.freeze({ contract: "seo-plugin-settings/v1", publicSiteUrl: value.publicSiteUrl, indexing: value.indexing });
+}
+
+function settingsState(value: unknown): PluginSettingsState | null {
+  if (!exact(value, ["contract", "records"]) || value.contract !== "plugin-settings-state/v1" || !Array.isArray(value.records)) return null;
+  const records: PluginSettingsRecord[] = [];
+  for (const candidate of value.records) {
+    if (!exact(candidate, ["identity", "settingsContract", "settings", "settingsDigest"]) || candidate.settingsContract !== "seo-plugin-settings/v1" || typeof candidate.settingsDigest !== "string" || !isDigest(candidate.settingsDigest)) return null;
+    const recordIdentity = identity(candidate.identity);
+    const recordSettings = settings(candidate.settings);
+    if (recordIdentity === null || recordSettings === null || recordSettings.contract !== candidate.settingsContract) return null;
+    const bytes = canonicalJsonBytes(recordSettings);
+    if (!bytes.ok || sha256Digest(bytes.value) !== candidate.settingsDigest) return null;
+    records.push(Object.freeze({ identity: recordIdentity, settingsContract: "seo-plugin-settings/v1", settings: recordSettings, settingsDigest: candidate.settingsDigest }));
+  }
+  if (new Set(records.map((record) => record.identity.id)).size !== records.length || records.some((record, index) => index > 0 && compareCodeUnits(records[index - 1]!.identity.id, record.identity.id) >= 0)) return null;
+  return Object.freeze({ contract: "plugin-settings-state/v1", records: Object.freeze(records) });
+}
+
+function settingsDigest(state: PluginSettingsState): Digest | null {
+  const bytes = canonicalJsonBytes(state);
+  return bytes.ok ? sha256Digest(bytes.value) : null;
+}
+
+function cmsSeoOutput(value: unknown): Readonly<{ output: CmsSeoAnalysisOutputV1; digest: Digest }> | null {
+  if (!exact(value, ["contract", "preview", "suggestions"]) || value.contract !== "cms-seo-analysis-output/v1" || !exact(value.preview, ["title", "description", "canonicalPath"]) && !exact(value.preview, ["title", "canonicalPath"]) || !Array.isArray(value.suggestions)) return null;
+  const preview = value.preview;
+  if (typeof preview.title !== "string" || preview.title.length === 0 || typeof preview.canonicalPath !== "string" || preview.canonicalPath.length === 0 || (preview.description !== undefined && (typeof preview.description !== "string" || preview.description.length === 0))) return null;
+  if (!value.suggestions.every((suggestion) => exact(suggestion, ["code", "field"]) && ((suggestion.code === "SEO_TITLE_MISSING" && suggestion.field === "title") || (suggestion.code === "SEO_DESCRIPTION_MISSING" && suggestion.field === "description")))) return null;
+  const canonical = json(value);
+  return canonical === null ? null : Object.freeze({ output: canonical.value as unknown as CmsSeoAnalysisOutputV1, digest: canonical.digest });
+}
+
+function publicPageContribution(value: unknown, input: ResolvePublicBuildSnapshotInput["published"][number]): Readonly<{ contribution: PublicSeoPageContributionV1; digest: Digest }> | null {
+  if (!exact(value, ["contract", "entryId", "revisionId", "route", "title", "description", "canonicalPath", "openGraph", "jsonLd"]) && !exact(value, ["contract", "entryId", "revisionId", "route", "title", "canonicalPath", "openGraph", "jsonLd"])) return null;
+  if (value.contract !== "public-seo-page-contribution/v1" || value.entryId !== input.entryId || value.revisionId !== input.revisionId || value.route !== input.route || typeof value.title !== "string" || value.title.length === 0 || typeof value.canonicalPath !== "string" || value.canonicalPath.length === 0 || (value.description !== undefined && (typeof value.description !== "string" || value.description.length === 0))) return null;
+  if (!exact(value.openGraph, value.description === undefined ? ["title", "urlPath", "type"] : ["title", "description", "urlPath", "type"]) || value.openGraph.title !== value.title || value.openGraph.description !== value.description || value.openGraph.urlPath !== value.canonicalPath || value.openGraph.type !== "article") return null;
+  if (!exact(value.jsonLd, value.description === undefined ? ["type", "name", "urlPath"] : ["type", "name", "description", "urlPath"]) || value.jsonLd.type !== "WebPage" || value.jsonLd.name !== value.title || value.jsonLd.description !== value.description || value.jsonLd.urlPath !== value.canonicalPath) return null;
+  const canonical = json(value);
+  return canonical === null ? null : Object.freeze({ contribution: canonical.value as unknown as PublicSeoPageContributionV1, digest: canonical.digest });
+}
+
+function publicSiteContribution(value: unknown, indexing: SeoPluginSettingsV1["indexing"]): Readonly<{ contribution: PublicSeoSiteContributionV1; digest: Digest }> | null {
+  if (!exact(value, ["contract", "sitemap", "robots"]) || value.contract !== "public-seo-site-contribution/v1" || !exact(value.sitemap, ["include"]) || value.sitemap.include !== "all-published" || !exact(value.robots, ["indexing"]) || value.robots.indexing !== indexing) return null;
+  const canonical = json(value);
+  return canonical === null ? null : Object.freeze({ contribution: canonical.value as unknown as PublicSeoSiteContributionV1, digest: canonical.digest });
+}
+
+function publicInput(value: unknown): ResolvePublicBuildSnapshotInput | null {
+  if (!exact(value, ["contract", "published"]) || value.contract !== "public-plugin-build-request/v1" || !Array.isArray(value.published)) return null;
+  const published: ResolvePublicBuildSnapshotInput["published"][number][] = [];
+  for (const entry of value.published) {
+    if (!exact(entry, ["entryId", "revisionId", "schemaIdentity", "route", "content"]) || typeof entry.entryId !== "string" || entry.entryId.length === 0 || typeof entry.revisionId !== "string" || entry.revisionId.length === 0 || typeof entry.route !== "string" || entry.route.length === 0 || !exact(entry.schemaIdentity, ["schemaId", "version"]) || typeof entry.schemaIdentity.schemaId !== "string" || !Number.isSafeInteger(entry.schemaIdentity.version) || json(entry.content) === null) return null;
+    published.push(Object.freeze({ entryId: entry.entryId, revisionId: entry.revisionId, schemaIdentity: Object.freeze({ schemaId: entry.schemaIdentity.schemaId, version: entry.schemaIdentity.version as number }), route: entry.route, content: json(entry.content)!.value }));
+  }
+  if (new Set(published.map((entry) => entry.route)).size !== published.length || new Set(published.map((entry) => entry.entryId)).size !== published.length || published.some((entry, index) => index > 0 && `${published[index - 1]!.route} ${published[index - 1]!.entryId} ${published[index - 1]!.revisionId}` >= `${entry.route} ${entry.entryId} ${entry.revisionId}`)) return null;
+  return Object.freeze({ contract: "public-plugin-build-request/v1", published: Object.freeze(published) });
+}
 function freezeJson(value: JsonValue): JsonValue {
   if (value === null || typeof value !== "object") return value;
   if (Array.isArray(value)) return Object.freeze(value.map((item) => freezeJson(item)));
@@ -77,11 +162,11 @@ function json(value: unknown): Readonly<{ value: JsonValue; bytes: Uint8Array; d
 }
 
 function editorDetail(pluginId: string, entryId: string, cause: PluginDiagnosticDetail["cause"]): PluginDiagnosticDetail {
-  return Object.freeze({ pluginId, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", entryId, cause });
+  return Object.freeze({ pluginId, hook: "cms/editor-block/resolve", capability: "cms-editor-block-resolution", scope: Object.freeze({ kind: "entry", entryId }), cause });
 }
 
 function validatorDetail(pluginId: string, entryId: string, cause: "rejected" | "invalid-result" | "callback-fault"): PluginDiagnosticDetail {
-  return Object.freeze({ pluginId, hook: "save-revision/validate", capability: "save-revision-validator", entryId, cause });
+  return Object.freeze({ pluginId, hook: "save-revision/validate", capability: "save-revision-validator", scope: Object.freeze({ kind: "entry", entryId }), cause });
 }
 
 function outputValues(value: unknown, keys: readonly string[]): readonly unknown[] | null {
@@ -178,8 +263,13 @@ async function installed(roots: TrustedRoots, id: string): Promise<InstalledLook
 class Host implements PluginHost {
   #queue = Promise.resolve();
   #prepared = new WeakMap<PreparedSaveRevisionValidators, Prepared>();
+  #publicPrepared = new WeakMap<PreparedPublicBuildSnapshot, Readonly<{ activationDigest: Digest; settingsDigest: Digest }>>();
 
-  constructor(private readonly roots: TrustedRoots, private readonly port: CreatePluginHostInput["activationState"]) {}
+  constructor(
+    private readonly roots: TrustedRoots,
+    private readonly port: CreatePluginHostInput["activationState"],
+    private readonly settingsPort: CreatePluginHostInput["settingsState"],
+  ) {}
 
   async discover(): Promise<PluginHostResult<PluginDiscoveryReport>> {
     if (!(await revalidateTrustedRoots(this.roots))) return pluginHostError("INVALID_TRUSTED_ROOT");
@@ -202,12 +292,14 @@ class Host implements PluginHost {
     }
   }
 
-  activate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
+  activate(input: Readonly<{ identity: PluginActivationIdentity; expectedActivationStateDigest: Digest }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
     return this.serial(async () => {
-      const wanted = identity(input?.identity);
+      if (!exact(input, ["identity", "expectedActivationStateDigest"]) || typeof input.expectedActivationStateDigest !== "string" || !isDigest(input.expectedActivationStateDigest)) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+      const wanted = identity(input.identity);
       if (wanted === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
       const current = await this.state();
       if (!current.ok) return current;
+      if (current.value.digest !== input.expectedActivationStateDigest) return pluginHostError("ACTIVATION_STATE_CONFLICT");
       const existing = [...current.value.state.active, ...current.value.state.reactivationRequired].find((entry) => entry.id === wanted.id);
       if (existing !== undefined && !same(existing, wanted)) return pluginHostError("PLUGIN_IDENTITY_CONFLICT", wanted.id);
 
@@ -249,12 +341,14 @@ class Host implements PluginHost {
     });
   }
 
-  deactivate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
+  deactivate(input: Readonly<{ identity: PluginActivationIdentity; expectedActivationStateDigest: Digest }>): Promise<PluginHostResult<ActivePluginSnapshot>> {
     return this.serial(async () => {
-      const wanted = identity(input?.identity);
+      if (!exact(input, ["identity", "expectedActivationStateDigest"]) || typeof input.expectedActivationStateDigest !== "string" || !isDigest(input.expectedActivationStateDigest)) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+      const wanted = identity(input.identity);
       const current = await this.state();
       if (wanted === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
       if (!current.ok) return current;
+      if (current.value.digest !== input.expectedActivationStateDigest) return pluginHostError("ACTIVATION_STATE_CONFLICT");
       if (![...current.value.state.active, ...current.value.state.reactivationRequired].some((entry) => same(entry, wanted))) return pluginHostError("PLUGIN_NOT_ACTIVE", wanted.id);
       const next: PluginActivationState = Object.freeze({
         contract: "plugin-activation-state/v2",
@@ -271,6 +365,20 @@ class Host implements PluginHost {
       if (!current.ok) return current;
       const validated = await this.validateActiveEvidence(current.value);
       return validated.ok ? { ok: true, value: snapshot(validated.value.state, validated.value.digest) } : validated;
+    });
+  }
+  getActivationManagementSnapshot(): Promise<PluginHostResult<PluginActivationManagementSnapshot>> {
+    return this.serial(async () => {
+      const current = await this.state();
+      if (!current.ok) return current;
+      return {
+        ok: true,
+        value: Object.freeze({
+          activationStateDigest: current.value.digest,
+          active: ordered(current.value.state.active),
+          reactivationRequired: ordered(current.value.state.reactivationRequired),
+        }),
+      };
     });
   }
 
@@ -347,10 +455,10 @@ class Host implements PluginHost {
         if (lookup.status === "invalid-root") return pluginHostError("INVALID_TRUSTED_ROOT");
         if (lookup.status === "source-missing") return pluginHostError("ACTIVE_PLUGIN_SOURCE_MISSING", identity.id);
         if (lookup.status !== "available" || !same(identity, evidenceIdentity(lookup.value)!)) return pluginHostError("ACTIVE_PLUGIN_IDENTITY_MISMATCH", identity.id);
-        const callbacks = lookup.value.manifest.callbacks.filter((callback): callback is Readonly<{ hook: PluginPublicHookId; exportName: string; priority: number }> => callback.hook === "public/block/render" || callback.hook === "public/assets/emit");
+        const callbacks = lookup.value.manifest.callbacks.filter((callback): callback is Readonly<{ hook: "public/block/render" | "public/assets/emit"; exportName: string; priority: number }> => callback.hook === "public/block/render" || callback.hook === "public/assets/emit");
         if (callbacks.length === 0) continue;
         sources.push(Object.freeze({
-          identity: Object.freeze({ ...identity }),
+          identity: Object.freeze({ ...identity, capabilities: Object.freeze([...identity.capabilities]) }),
           activeStateDigest: validated.value.digest,
           entryBytes: copyBytes(lookup.value.entryBytes),
           resources: Object.freeze(lookup.value.resources.map((resource) => Object.freeze({ file: resource.file, bytes: copyBytes(resource.bytes), digest: resource.digest }))),
@@ -361,6 +469,171 @@ class Host implements PluginHost {
     });
   }
 
+  getSettingsSnapshot(): Promise<PluginHostResult<Readonly<{ state: PluginSettingsState; digest: Digest }>>> {
+    return this.serial(async () => this.settingsState());
+  }
+
+  replaceSettings(input: Readonly<{ identity: PluginActivationIdentity; expectedSettingsStateDigest: Digest; settingsContract: "seo-plugin-settings/v1"; settings: SeoPluginSettingsV1 }>): Promise<PluginHostResult<Readonly<{ state: PluginSettingsState; digest: Digest }>>> {
+    return this.serial(async () => {
+      if (!exact(input, ["identity", "expectedSettingsStateDigest", "settingsContract", "settings"]) || typeof input.expectedSettingsStateDigest !== "string" || !isDigest(input.expectedSettingsStateDigest) || input.settingsContract !== "seo-plugin-settings/v1") return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+      const wanted = identity(input.identity);
+      const nextSettings = settings(input.settings);
+      if (wanted === null || nextSettings === null || input.settingsContract !== nextSettings.contract) return pluginHostError("INVALID_PLUGIN_SETTINGS");
+      const active = await this.state();
+      if (!active.ok) return active;
+      if (!active.value.state.active.some((entry) => same(entry, wanted))) return pluginHostError("PLUGIN_SETTINGS_MISMATCH", wanted.id);
+      const current = await this.settingsState();
+      if (!current.ok) return current;
+      if (current.value.digest !== input.expectedSettingsStateDigest) return pluginHostError("PLUGIN_SETTINGS_STATE_CONFLICT");
+      const bytes = canonicalJsonBytes(nextSettings);
+      if (!bytes.ok) return pluginHostError("INVALID_PLUGIN_SETTINGS", wanted.id);
+      const record: PluginSettingsRecord = Object.freeze({ identity: wanted, settingsContract: "seo-plugin-settings/v1", settings: nextSettings, settingsDigest: sha256Digest(bytes.value) });
+      const next: PluginSettingsState = Object.freeze({ contract: "plugin-settings-state/v1", records: Object.freeze([...current.value.state.records.filter((item) => item.identity.id !== wanted.id), record].sort((left, right) => compareCodeUnits(left.identity.id, right.identity.id))) });
+      try {
+        if (!(await this.settingsPort!.compareAndReplace({ expectedDigest: current.value.digest, nextState: next }))) return pluginHostError("PLUGIN_SETTINGS_STATE_CONFLICT");
+      } catch { return pluginHostError("PLUGIN_SETTINGS_STATE_FAILURE"); }
+      const nextDigest = settingsDigest(next);
+      return nextDigest === null ? pluginHostError("PLUGIN_SETTINGS_STATE_FAILURE") : { ok: true, value: Object.freeze({ state: next, digest: nextDigest }) };
+    });
+  }
+
+  analyzeCmsSeo(input: Readonly<{ entryId: string; schemaIdentity: Readonly<{ schemaId: string; version: number }>; content: JsonValue; route: string }>): Promise<PluginHostResult<PluginSeoAnalysisResult>> {
+    return this.serial(async () => {
+      if (!exact(input, ["entryId", "schemaIdentity", "content", "route"]) || typeof input.entryId !== "string" || typeof input.route !== "string" || !exact(input.schemaIdentity, ["schemaId", "version"]) || typeof input.schemaIdentity.schemaId !== "string" || !Number.isSafeInteger(input.schemaIdentity.version) || json(input.content) === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+      const active = await this.state();
+      const configured = await this.settingsState();
+      if (!active.ok) return active;
+      if (!configured.ok) return configured;
+      const outputs: Readonly<{ output: CmsSeoAnalysisOutputV1; identity: PluginActivationIdentity; priority: number; inputDigest: Digest; outputDigest: Digest; settingsDigest: Digest; settings: SeoPluginSettingsV1 }>[] = [];
+      const diagnostics: PluginHostFailure[] = [];
+      for (const entry of active.value.state.active) {
+        const declaration = await installed(this.roots, entry.id);
+        const installedIdentity = declaration.status === "available" ? evidenceIdentity(declaration.value) : null;
+        if (declaration.status !== "available" || installedIdentity === null || !same(entry, installedIdentity)) {
+          const latched = await this.latchReactivation(active.value, [entry]);
+          if (!latched.ok) return latched;
+          diagnostics.push(pluginHostFailure("PLUGIN_EVIDENCE_MISMATCH", entry.id));
+          continue;
+        }
+        const callback = declaration.value.manifest.callbacks.find((item) => item.hook === "cms/seo/analyze");
+        if (callback === undefined) continue;
+        const record = configured.value.state.records.find((item) => same(item.identity, entry));
+        if (record === undefined) { diagnostics.push(pluginHostFailure("PLUGIN_SETTINGS_MISMATCH", entry.id)); continue; }
+        const inputWithoutDigest: Omit<CmsSeoAnalysisInputV1, "inputDigest"> = { contract: "cms-seo-analysis-input/v1", entryId: input.entryId, schemaIdentity: input.schemaIdentity, content: input.content, route: input.route, settings: record.settings };
+        const inputBytes = canonicalJsonBytes(inputWithoutDigest);
+        if (!inputBytes.ok) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+        const callbackInput: CmsSeoAnalysisInputV1 = Object.freeze({ ...inputWithoutDigest, inputDigest: sha256Digest(inputBytes.value) });
+        const module = await loadVerifiedPluginModule({ entryBytes: declaration.value.entryBytes, manifestHash: declaration.value.manifestHash, callbacks: declaration.value.manifest.callbacks, pluginId: entry.id });
+        if (!module.ok) { diagnostics.push(module.error); continue; }
+        let returned: unknown;
+        const frozenInput = json(callbackInput);
+        if (frozenInput === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+        try { returned = (module.value.namespace[callback.exportName] as (value: CmsSeoAnalysisInputV1, facade: object) => unknown)(frozenInput.value as unknown as CmsSeoAnalysisInputV1, Object.freeze({ capability: "cms-seo-analysis" })); } catch { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_FAILED", entry.id)); continue; }
+        if (nativePromise(returned)) observeRejectedPromise(returned);
+        if (thenable(returned)) { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_RESULT_INVALID", entry.id)); continue; }
+        const output = cmsSeoOutput(returned);
+        if (output === null) { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_RESULT_INVALID", entry.id)); continue; }
+        outputs.push(Object.freeze({ output: output.output, identity: entry, priority: callback.priority, inputDigest: callbackInput.inputDigest, outputDigest: output.digest, settingsDigest: record.settingsDigest, settings: record.settings }));
+      }
+      if (outputs.length !== 1) return outputs.length > 1 ? { ok: true, value: Object.freeze({ status: "unavailable", diagnostics: Object.freeze([pluginHostFailure("SEO_ANALYSIS_CONFLICT")]) }) } : { ok: true, value: Object.freeze({ status: "unavailable", diagnostics: Object.freeze(diagnostics) }) };
+      const result = outputs[0]!;
+      return { ok: true, value: Object.freeze({ status: "available", preview: result.output.preview, suggestions: Object.freeze([...result.output.suggestions]), producers: Object.freeze([Object.freeze({ identity: result.identity, hook: "cms/seo/analyze", priority: result.priority, inputDigest: result.inputDigest, outputDigest: result.outputDigest, settingsDigest: result.settingsDigest })]), settings: result.settings, settingsDigest: result.settingsDigest }) };
+    });
+  }
+  resolvePublicBuildSnapshot(input: ResolvePublicBuildSnapshotInput): Promise<PluginHostResult<PreparedPublicBuildSnapshot>> {
+    return this.serial(async () => {
+      const request = publicInput(input);
+      if (request === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+      const activation = await this.state();
+      const configured = await this.settingsState();
+      if (!activation.ok) return activation;
+      if (!configured.ok) return configured;
+
+      const sources: ActivePublicPluginRenderer[] = [];
+      const pageContributions: PublicSeoContributionRecord<PublicSeoPageContributionV1>[] = [];
+      const siteContributions: PublicSeoContributionRecord<PublicSeoSiteContributionV1>[] = [];
+      const diagnostics: PluginHostFailure[] = [];
+      for (const identity of activation.value.state.active) {
+        const lookup = await installed(this.roots, identity.id);
+        const actual = lookup.status === "available" ? evidenceIdentity(lookup.value) : null;
+        if (lookup.status !== "available" || actual === null || !same(identity, actual)) {
+          const latched = await this.latchReactivation(activation.value, [identity]);
+          if (!latched.ok) return latched;
+          diagnostics.push(pluginHostFailure("PLUGIN_EVIDENCE_MISMATCH", identity.id));
+          continue;
+        }
+        const rendererCallbacks = lookup.value.manifest.callbacks.filter((callback): callback is Readonly<{ hook: "public/block/render" | "public/assets/emit"; exportName: string; priority: number }> => callback.hook === "public/block/render" || callback.hook === "public/assets/emit");
+        if (rendererCallbacks.length > 0) {
+          sources.push(Object.freeze({ identity: Object.freeze({ ...identity, capabilities: Object.freeze([...identity.capabilities]) }), activeStateDigest: activation.value.digest, entryBytes: copyBytes(lookup.value.entryBytes), resources: Object.freeze(lookup.value.resources.map((resource) => Object.freeze({ file: resource.file, bytes: copyBytes(resource.bytes), digest: resource.digest }))), callbacks: Object.freeze(rendererCallbacks.map((callback) => Object.freeze({ ...callback }))) }));
+        }
+        const page = lookup.value.manifest.callbacks.find((callback) => callback.hook === "public/seo/page");
+        const site = lookup.value.manifest.callbacks.find((callback) => callback.hook === "public/seo/site");
+        if (page === undefined && site === undefined) continue;
+        const record = configured.value.state.records.find((candidate) => same(candidate.identity, identity));
+        if (record === undefined) { diagnostics.push(pluginHostFailure("PLUGIN_SETTINGS_MISMATCH", identity.id)); continue; }
+        const loaded = await loadVerifiedPluginModule({ entryBytes: lookup.value.entryBytes, manifestHash: lookup.value.manifestHash, callbacks: lookup.value.manifest.callbacks, pluginId: identity.id });
+        if (!loaded.ok) { diagnostics.push(loaded.error); continue; }
+        if (page !== undefined) {
+          for (const published of request.published) {
+            const withoutDigest = { contract: "public-seo-page-input/v1" as const, entryId: published.entryId, revisionId: published.revisionId, schemaIdentity: published.schemaIdentity, route: published.route, content: published.content, settings: record.settings };
+            const bytes = canonicalJsonBytes(withoutDigest);
+            if (!bytes.ok) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT", identity.id);
+            const callbackInput = Object.freeze({ ...withoutDigest, inputDigest: sha256Digest(bytes.value) });
+            let returned: unknown;
+            try { returned = (loaded.value.namespace[page.exportName] as (value: typeof callbackInput, facade: Readonly<{ capability: "public-seo-page-contribution" }>) => unknown)(json(callbackInput)!.value as unknown as typeof callbackInput, Object.freeze({ capability: "public-seo-page-contribution" })); } catch { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_FAILED", identity.id)); continue; }
+            if (nativePromise(returned)) observeRejectedPromise(returned);
+            if (thenable(returned)) { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_RESULT_INVALID", identity.id)); continue; }
+            const output = publicPageContribution(returned, published);
+            if (output === null) { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_RESULT_INVALID", identity.id)); continue; }
+            const evidence: PublicSeoEvidence = Object.freeze({ identity, hook: "public/seo/page", priority: page.priority, inputDigest: callbackInput.inputDigest, outputDigest: output.digest, settingsContract: record.settingsContract, settingsDigest: record.settingsDigest });
+            pageContributions.push(Object.freeze({ evidence, contribution: output.contribution }));
+          }
+        }
+        if (site !== undefined) {
+          const routes = request.published.map((published) => Object.freeze({ entryId: published.entryId, revisionId: published.revisionId, route: published.route }));
+          const withoutDigest = { contract: "public-seo-site-input/v1" as const, routes: Object.freeze(routes), settings: record.settings };
+          const bytes = canonicalJsonBytes(withoutDigest);
+          if (!bytes.ok) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT", identity.id);
+          const callbackInput = Object.freeze({ ...withoutDigest, inputDigest: sha256Digest(bytes.value) });
+          let returned: unknown;
+          try { returned = (loaded.value.namespace[site.exportName] as (value: typeof callbackInput, facade: Readonly<{ capability: "public-seo-site-contribution" }>) => unknown)(json(callbackInput)!.value as unknown as typeof callbackInput, Object.freeze({ capability: "public-seo-site-contribution" })); } catch { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_FAILED", identity.id)); continue; }
+          if (nativePromise(returned)) observeRejectedPromise(returned);
+          if (thenable(returned)) { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_RESULT_INVALID", identity.id)); continue; }
+          const output = publicSiteContribution(returned, record.settings.indexing);
+          if (output === null) { diagnostics.push(pluginHostFailure("PLUGIN_CALLBACK_RESULT_INVALID", identity.id)); continue; }
+          const evidence: PublicSeoEvidence = Object.freeze({ identity, hook: "public/seo/site", priority: site.priority, inputDigest: callbackInput.inputDigest, outputDigest: output.digest, settingsContract: record.settingsContract, settingsDigest: record.settingsDigest });
+          siteContributions.push(Object.freeze({ evidence, contribution: output.contribution }));
+        }
+      }
+      const renderers = Object.freeze(sources.sort((left, right) => compareCodeUnits(left.identity.id, right.identity.id)));
+      const rendererEvidence = Object.freeze(renderers.map((renderer) => Object.freeze({ identity: renderer.identity, entryDigest: sha256Digest(renderer.entryBytes), callbacks: Object.freeze([...renderer.callbacks].sort((left, right) => left.priority - right.priority || compareCodeUnits(left.hook, right.hook) || compareCodeUnits(left.exportName, right.exportName))), resources: Object.freeze(renderer.resources.map((resource) => Object.freeze({ file: resource.file, digest: resource.digest })).sort((left, right) => compareCodeUnits(left.file, right.file))) })));
+      pageContributions.sort((left, right) => left.evidence.priority - right.evidence.priority || compareCodeUnits(left.evidence.identity.id, right.evidence.identity.id) || compareCodeUnits(left.contribution.route, right.contribution.route));
+      siteContributions.sort((left, right) => left.evidence.priority - right.evidence.priority || compareCodeUnits(left.evidence.identity.id, right.evidence.identity.id));
+      diagnostics.sort((left, right) => compareCodeUnits(`${left.code}\0${left.subjectIds.join("\0")}`, `${right.code}\0${right.subjectIds.join("\0")}`));
+      const digestBase = { contract: "public-plugin-build-snapshot/v1" as const, activationStateDigest: activation.value.digest, settingsStateDigest: configured.value.digest, publicRendererEvidence: rendererEvidence, pageContributions, siteContributions, diagnostics };
+      const bytes = canonicalJsonBytes(digestBase);
+      if (!bytes.ok) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT");
+      const snapshot: PublicPluginBuildSnapshotV1 = Object.freeze({ ...digestBase, publicRenderers: renderers, snapshotDigest: sha256Digest(bytes.value) });
+      const token = Object.freeze({ snapshot, __publicSnapshotToken: Symbol("public-plugin-build") }) as unknown as PreparedPublicBuildSnapshot;
+      this.#publicPrepared.set(token, Object.freeze({ activationDigest: activation.value.digest, settingsDigest: configured.value.digest }));
+      return { ok: true, value: token };
+    });
+  }
+
+  validatePublicBuildSnapshot(token: PreparedPublicBuildSnapshot): Promise<PluginHostResult<true>> {
+    return this.serial(async () => {
+      const prepared = this.#publicPrepared.get(token);
+      if (prepared === undefined) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT");
+      this.#publicPrepared.delete(token);
+      const activation = await this.state();
+      const configured = await this.settingsState();
+      if (!activation.ok) return activation;
+      if (!configured.ok) return configured;
+      return activation.value.digest === prepared.activationDigest && configured.value.digest === prepared.settingsDigest
+        ? { ok: true, value: true }
+        : pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT");
+    });
+  }
   prepareSaveRevisionValidators(input: Readonly<{ entryId: string }>): Promise<PluginHostResult<PreparedSaveRevisionValidators>> {
     return this.serial(async () => {
       if (!exact(input, ["entryId"]) || typeof input.entryId !== "string") return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
@@ -467,6 +740,17 @@ class Host implements PluginHost {
     return { ok: true, value: fresh.value };
   }
 
+  private async settingsState(): Promise<Readonly<{ ok: true; value: Readonly<{ state: PluginSettingsState; digest: Digest }> }> | Readonly<{ ok: false; error: PluginHostFailure }>> {
+    if (this.settingsPort === undefined) return pluginHostError("PLUGIN_SETTINGS_STATE_FAILURE");
+    try {
+      const state = settingsState(await this.settingsPort.read());
+      const stateDigest = state === null ? null : settingsDigest(state);
+      return state === null || stateDigest === null ? pluginHostError("PLUGIN_SETTINGS_STATE_FAILURE") : { ok: true, value: Object.freeze({ state, digest: stateDigest }) };
+    } catch {
+      return pluginHostError("PLUGIN_SETTINGS_STATE_FAILURE");
+    }
+  }
+
   private async state(): Promise<Readonly<{ ok: true; value: State }> | Readonly<{ ok: false; error: PluginHostFailure }>> {
     try {
       const activationState = parseState(await this.port.read());
@@ -519,7 +803,7 @@ class Host implements PluginHost {
 }
 
 export async function createPluginHost(input: CreatePluginHostInput): Promise<PluginHostResult<PluginHost>> {
-  if (input === null || typeof input !== "object" || typeof input.activationState?.read !== "function" || typeof input.activationState?.compareAndReplace !== "function") return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
+  if (input === null || typeof input !== "object" || typeof input.activationState?.read !== "function" || typeof input.activationState?.compareAndReplace !== "function" || typeof input.settingsState?.read !== "function" || typeof input.settingsState?.compareAndReplace !== "function") return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
   const roots = await validateTrustedRoots(input);
-  return roots === null ? pluginHostError("INVALID_TRUSTED_ROOT") : { ok: true, value: new Host(roots, input.activationState) };
+  return roots === null ? pluginHostError("INVALID_TRUSTED_ROOT") : { ok: true, value: new Host(roots, input.activationState, input.settingsState) };
 }

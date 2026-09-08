@@ -9,15 +9,10 @@ export const pluginHostFailureCodes = [
   "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID",
   "PLUGIN_CALLBACK_FAILED", "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT",
   "PLUGIN_VALIDATION_SERVICE_FAILED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED",
+  "INVALID_PLUGIN_SETTINGS", "PLUGIN_SETTINGS_MISMATCH", "PLUGIN_SETTINGS_STATE_CONFLICT", "PLUGIN_SETTINGS_STATE_FAILURE", "SEO_ANALYSIS_CONFLICT",
 ] as const;
 export type PluginHostFailureCode = (typeof pluginHostFailureCodes)[number];
-export type PluginDiagnosticDetail = Readonly<{
-  pluginId: string;
-  hook: PluginHookId;
-  capability: PluginCapability;
-  entryId: string;
-  cause: "inactive" | "missing" | "identity-changed" | "rejected" | "invalid-result" | "callback-fault" | "capability-denied" | "reactivation-required";
-}>;
+export type PluginDiagnosticDetail = Readonly<{ pluginId: string; hook: PluginHookId; capability: PluginCapability; scope: Readonly<{ kind: "entry"; entryId: string }> | Readonly<{ kind: "site" }>; cause: "inactive" | "missing" | "identity-changed" | "rejected" | "invalid-result" | "callback-fault" | "capability-denied" | "reactivation-required"; }>;
 export type PluginHostFailure = Readonly<{
   code: PluginHostFailureCode;
   owner: "PluginHost";
@@ -36,8 +31,9 @@ const messages: Readonly<Record<PluginHostFailureCode, string>> = {
   PLUGIN_BLOCK_MISSING: "請安裝並啟用此內容所需的 exact Plugin identity。", PLUGIN_BLOCK_IDENTITY_CHANGED: "目前安裝的 Plugin identity 與此內容不相符。",
   PLUGIN_VALIDATION_REJECTED: "Plugin validator 拒絕儲存此內容。", PLUGIN_CALLBACK_RESULT_INVALID: "Plugin callback 回傳不符合 plugin-hooks/v1 contract。",
   PLUGIN_CALLBACK_FAILED: "Plugin callback 執行失敗。", PLUGIN_CAPABILITY_DENIED: "Plugin 未獲授權使用此 capability。",
-  INVALID_PLUGIN_OPERATION_SNAPSHOT: "Plugin operation snapshot 無效或已使用。", PLUGIN_VALIDATION_SERVICE_FAILED: "Plugin replacement 驗證未完成。",
-  ACTIVE_PLUGIN_SOURCE_MISSING: "Active Plugin 的 installed source 不可用。", ACTIVE_PLUGIN_REACTIVATION_REQUIRED: "請重新啟用受影響的 exact Plugin identity。",
+  PLUGIN_VALIDATION_SERVICE_FAILED: "Plugin replacement 驗證未完成。", ACTIVE_PLUGIN_SOURCE_MISSING: "Active Plugin 的 installed source 不可用。", ACTIVE_PLUGIN_REACTIVATION_REQUIRED: "請重新啟用受影響的 exact Plugin identity。",
+  INVALID_PLUGIN_OPERATION_SNAPSHOT: "Plugin operation snapshot 無效或已使用。",
+  INVALID_PLUGIN_SETTINGS: "Plugin settings 無效。", PLUGIN_SETTINGS_MISMATCH: "Plugin settings 與 active identity 不相符。", PLUGIN_SETTINGS_STATE_CONFLICT: "Plugin settings state 已變更。", PLUGIN_SETTINGS_STATE_FAILURE: "Plugin settings state 操作未完成。", SEO_ANALYSIS_CONFLICT: "多個 Plugin 回傳衝突的 SEO analysis。",
 };
 export function isCanonicalPluginId(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value); }
 export function pluginHostFailure(code: PluginHostFailureCode, subjectId?: unknown, detail?: PluginDiagnosticDetail): PluginHostFailure {

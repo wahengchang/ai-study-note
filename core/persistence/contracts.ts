@@ -23,14 +23,20 @@ export type AssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; obje
 export type ReadyAssetVersionRecord = Readonly<AssetVersionRecord & { availability: "ready" }>;
 export type PublishedAssetReference = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
 export type MediaStartupSnapshot = Readonly<{ pendingIntents: readonly MediaImportIntent[]; assetVersions: readonly AssetVersionRecord[] }>;
-export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
-export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
+export type ExtensionStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
+export type PluginActivationStateRecord = ExtensionStateRecord;
+export type ThemeActivationStateRecord = ExtensionStateRecord;
+export type PluginSettingsStateRecord = ExtensionStateRecord;
+export type CompareAndReplaceExtensionStateInput = Readonly<{ expectedDigest: Digest; next: ExtensionStateRecord }>;
+export type CompareAndReplacePluginActivationStateInput = CompareAndReplaceExtensionStateInput;
+export type CompareAndReplaceThemeActivationStateInput = CompareAndReplaceExtensionStateInput;
+export type CompareAndReplacePluginSettingsStateInput = CompareAndReplaceExtensionStateInput;
 
 export type PersistenceCanonicalState = Readonly<{
   contract: "persistence-canonical-state/v2";
   bytes: Uint8Array;
   digest: Digest;
-  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
+  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number }>;
 }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
@@ -179,7 +185,11 @@ export interface PersistenceTransaction {
 export interface PersistenceStore extends PersistenceTransaction {
   readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
   compareAndReplacePluginActivationState(input: CompareAndReplacePluginActivationStateInput): PersistenceResult<boolean>;
+  readThemeActivationState(): PersistenceResult<ThemeActivationStateRecord>;
+  compareAndReplaceThemeActivationState(input: CompareAndReplaceThemeActivationStateInput): PersistenceResult<boolean>;
+  readPluginSettingsState(): PersistenceResult<PluginSettingsStateRecord>;
   readMediaStartupSnapshot(): PersistenceResult<MediaStartupSnapshot>;
+  compareAndReplacePluginSettingsState(input: CompareAndReplacePluginSettingsStateInput): PersistenceResult<boolean>;
   runTransaction<T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
   ownsActiveTransaction(transaction: object): boolean;
   close(): void;

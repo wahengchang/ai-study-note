@@ -42,19 +42,21 @@ test("empty database migrates once and rerun preserves current storage", () => {
           "0006-add-revision-references",
           "0007-add-plugin-activation-state",
           "0008-add-schema-migration-lineage",
+          "0009-add-theme-activation-state",
+          "0010-add-plugin-settings-state",
         ],
-        currentMigrationId: "0008-add-schema-migration-lineage",
+        currentMigrationId: "0010-add-plugin-settings-state",
       },
     });
     const database = openSqliteAdapter(fixture.databasePath);
     assert.equal(database.get("PRAGMA application_id")?.application_id, 1095324500);
-    assert.equal(database.get("PRAGMA user_version")?.user_version, 8);
-    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 8);
+    assert.equal(database.get("PRAGMA user_version")?.user_version, 10);
+    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 10);
     database.close();
     const before = digestFile(fixture.databasePath);
     assert.deepEqual(migrateDatabase({ databasePath: fixture.databasePath }), {
       ok: true,
-      value: { appliedMigrationIds: [], currentMigrationId: "0008-add-schema-migration-lineage" },
+      value: { appliedMigrationIds: [], currentMigrationId: "0010-add-plugin-settings-state" },
     });
     assert.equal(digestFile(fixture.databasePath), before);
   } finally {

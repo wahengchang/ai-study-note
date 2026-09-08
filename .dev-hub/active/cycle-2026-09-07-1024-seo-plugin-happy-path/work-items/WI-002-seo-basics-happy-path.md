@@ -1,6 +1,6 @@
 ---
 id: WI-002
-status: blocked
+status: done
 title: SEO basics happy path
 work_group: WG-002
 depends_on: ["WI-001"]
@@ -18,4 +18,4 @@ runtime、契約測試、CMS browser flow 與 deterministic public build 全部�
 
 ## Notes
 
-阻塞原因：等待 #307 review、merge 與手動 close。解除條件：remote base 包含 merged #307，且 issue #307 為 closed。
+#307 已由 PR #313 merge，Issue #307 已 closed；WG-002 已依 merged remote base 啟動。

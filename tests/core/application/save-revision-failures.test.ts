@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { DomainApplication, DomainApplicationDependencies } from "../../../core/application/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
+
+function contentReadModel() { const model = createContentReadModel({ approvedRawFullPageSchemas: [] }); assert.equal(model.ok, true); if (!model.ok) throw new Error("createContentReadModel"); return model.value; }
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import type { DataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
@@ -50,7 +53,7 @@ function digestOf(store: PersistenceStore): string {
 
 function request(overrides: Partial<Parameters<DomainApplication["saveRevision"]>[0]> = {}) {
   return {
-    entryId: "entry-a", revisionId: "draft-1", operationId: "save-1",
+    entryId: "entry-a", revisionId: "draft-1", operationId: "save-1", expectedCurrentRevisionId: null,
     schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "draft" },
     route: "/guide", assetVersions: [], ...overrides,
   };
@@ -66,6 +69,7 @@ async function withStore(prefix: string, body: (store: PersistenceStore, pluginH
       repositoryRoot: process.cwd(),
       installedPluginsRoot: installedRoot,
       activationState: createPersistencePluginActivationStatePort({ persistence: store }),
+      settingsState: createPersistencePluginSettingsStatePort({ persistence: store }),
     });
     assert.equal(created.ok, true);
     if (!created.ok) return;
@@ -75,7 +79,7 @@ async function withStore(prefix: string, body: (store: PersistenceStore, pluginH
 
 test("a route already claimed by another entry fails with ROUTE_CONFLICT and leaves canonical state unchanged", async () => {
   await withStore("save-conflict-", async (store, pluginHost) => {
-    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     assert.equal((await app.saveRevision(request())).ok, true);
     const before = digestOf(store);
     const conflicted = await app.saveRevision(request({ entryId: "entry-b", revisionId: "draft-2", operationId: "save-2" }));
@@ -89,7 +93,7 @@ test("a route already claimed by another entry fails with ROUTE_CONFLICT and lea
 
 test("media that disappears after the preflight keeps MEDIA_UNAVAILABLE instead of collapsing to SAVE_REVISION_FAILED", async () => {
   await withStore("save-media-", async (store, pluginHost) => {
-    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     const before = digestOf(store);
     const saved = await app.saveRevision(request({ assetVersions: [{ assetId: "asset-1", assetVersionId: "version-1" }] }));
     assert.equal(saved.ok, false);
@@ -108,7 +112,7 @@ test("a route graph that moves under the proposal keeps STALE_ROUTE_PROPOSAL", a
       ...site,
       validateCurrentClaimInTransaction: () => ({ ok: false, error: { code: "STALE_ROUTE_PROPOSAL", owner: "SiteDefinition", subjectIds: [], remediation: { kind: "message", message: "" } } }),
     };
-    const app = createDomainApplication({ persistence: store, siteDefinition: staleSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: staleSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     const before = digestOf(store);
     const saved = await app.saveRevision(request());
     assert.equal(saved.ok, false);
@@ -120,7 +124,7 @@ test("a route graph that moves under the proposal keeps STALE_ROUTE_PROPOSAL", a
 
 test("an unregistered schema version is reported as a correctable request", async () => {
   await withStore("save-schema-", async (store, pluginHost) => {
-    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     const before = digestOf(store);
     const saved = await app.saveRevision(request({ schemaIdentity: { schemaId: "note", version: 9 } }));
     assert.equal(saved.ok, false);
@@ -133,7 +137,7 @@ test("an unregistered schema version is reported as a correctable request", asyn
 
 test("SaveRevision moves only the current pointer and preserves the published pointer", async () => {
   await withStore("save-published-", async (store, pluginHost) => {
-    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: createSiteDefinition({ persistence: store }), dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     const first = await app.saveRevision(request());
     assert.equal(first.ok, true);
     if (!first.ok) return;
@@ -142,7 +146,7 @@ test("SaveRevision moves only the current pointer and preserves the published po
       entryId: "entry-a", currentRevisionId: "draft-1", publishedRevisionId: "draft-1",
       lineage: { revisionId: "draft-1", operationId: "publish-1", operationKind: "PublishRevision" },
     }).ok, true);
-    const second = await app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2" }));
+    const second = await app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2", expectedCurrentRevisionId: "draft-1" }));
     assert.equal(second.ok, true, second.ok ? "" : second.error.code);
     if (!second.ok) return;
     assert.equal(second.value.currentPointer.currentRevisionId, "draft-2");

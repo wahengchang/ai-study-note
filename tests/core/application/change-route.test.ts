@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { ChangeRouteSuccess, DomainApplication, DomainApplicationResult } from "../../../core/application/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
+
+function contentReadModel() { const model = createContentReadModel({ approvedRawFullPageSchemas: [] }); assert.equal(model.ok, true); if (!model.ok) throw new Error("createContentReadModel"); return model.value; }
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import type { DataMedia } from "../../../core/media/index.js";
@@ -40,7 +43,7 @@ async function harness(directory: string): Promise<Harness> {
   if (!started.ok) throw new Error("startDataMedia");
   const installedPluginsRoot = path.join(directory, "installed");
   mkdirSync(installedPluginsRoot, { recursive: true });
-  const plugins = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot, activationState: createPersistencePluginActivationStatePort({ persistence: opened.value }) });
+  const plugins = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot, activationState: createPersistencePluginActivationStatePort({ persistence: opened.value }), settingsState: createPersistencePluginSettingsStatePort({ persistence: opened.value }) });
   assert.equal(plugins.ok, true);
   if (!plugins.ok) throw new Error("createPluginHost");
   const schema = canonicalJsonBytes({ type: "object" });
@@ -48,13 +51,17 @@ async function harness(directory: string): Promise<Harness> {
   if (!schema.ok) throw new Error("canonicalJsonBytes");
   assert.equal(opened.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schema.value, schemaDigest: sha256Digest(schema.value) }).ok, true);
   const site = createSiteDefinition({ persistence: opened.value });
-  const application = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: started.value, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: plugins.value });
+  const application = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: started.value, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: plugins.value, contentReadModel: contentReadModel() });
   return { databasePath, store: opened.value, site, application, media: started.value, plugins: plugins.value };
 }
 
+const currentRevisions = new WeakMap<DomainApplication, Map<string, string>>();
 async function save(application: DomainApplication, entryId: string, revisionId: string, route: string, operationId = `save-${entryId}-${revisionId}`): Promise<void> {
-  const result = await application.saveRevision({ entryId, revisionId, operationId, schemaIdentity: { schemaId: "note", version: 1 }, content: { entryId, revisionId }, route, assetVersions: [] });
+  const current = currentRevisions.get(application) ?? new Map<string, string>();
+  currentRevisions.set(application, current);
+  const result = await application.saveRevision({ entryId, revisionId, operationId, expectedCurrentRevisionId: current.get(entryId) ?? null, schemaIdentity: { schemaId: "note", version: 1 }, content: { entryId, revisionId }, route, assetVersions: [] });
   assert.equal(result.ok, true, result.ok ? "" : result.error.code);
+  if (result.ok) current.set(entryId, revisionId);
 }
 
 async function seedPublished(value: Harness, entryId = "entry-a", route = "/old"): Promise<void> {
@@ -88,6 +95,7 @@ function changeOnlyApplication(value: Harness): DomainApplication {
     dataMedia: unavailable,
     schemaValidator: { validate() { throw new Error("ChangeRoute must not validate schema"); } },
     pluginHost: plugins,
+    contentReadModel: contentReadModel(),
   });
 }
 

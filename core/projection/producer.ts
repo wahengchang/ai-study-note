@@ -1,5 +1,6 @@
 import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest } from "../foundation/index.js";
 import type { StructuredContent } from "../content/index.js";
+import type { ResolvePublicBuildSnapshotInput } from "../plugin-host/index.js";
 
 import type { CreateProjectionInput, PreviewDocument, Projection, ProjectionFailure, ProjectionResult, RendererInputArtifact, RendererInputV1 } from "./contracts.js";
 
@@ -8,6 +9,11 @@ function failure(code: ProjectionFailure["code"], subjectIds: readonly string[] 
 }
 function compare(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
 function base64(bytes: Uint8Array): string { return Buffer.from(bytes).toString("base64"); }
+function identityKey(identity: Readonly<{ id: string; version: string; manifestHash: Digest }>): string { return `${identity.id}\0${identity.version}\0${identity.manifestHash}`; }
+function publicUrl(base: string, path: string): string | null {
+  if (!path.startsWith("/")) return null;
+  try { const url = new URL(path.slice(1), base); return url.href; } catch { return null; }
+}
 function escapeHtml(value: string): string { return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;").replaceAll("'", "&#39;"); }
 // sandbox document 內的 <style>／<script> 是 raw text element：css／javascript 裡的 `</` 會提前關閉元素並截斷 source。
 // `<\/` 在 CSS string、JS string／regex／註解裡與 `</` 同意，因此可在不改變語意下保留完整 source。
@@ -53,12 +59,16 @@ class Producer implements Projection {
     if (plugins.value.some((plugin) => plugin.activeStateDigest !== pluginsBefore.value.digest)) return failure("PUBLISHED_SELECTION_STALE");
     const entries: RendererInputV1["entries"][number][] = [];
     const selectedRoutes: RendererInputV1["routes"][number][] = [];
+    const schemaIdentities = new Map<string, Readonly<{ schemaId: string; version: number }>>();
     const media: RendererInputV1["media"][number][] = [];
     for (const claim of routes.value.claims) {
       const pointer = this.input.persistence.getEntryPointers(claim.owner);
       if (!pointer.ok || pointer.value.publishedRevisionId !== claim.sourceRevisionId) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
       const resolved = this.resolveContent(claim.owner, claim.sourceRevisionId);
       if (resolved === null) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
+      const revision = this.input.persistence.getRevision({ entryId: claim.owner, revisionId: claim.sourceRevisionId });
+      if (!revision.ok) return failure("PUBLISHED_SELECTION_UNRESOLVED", [claim.owner]);
+      schemaIdentities.set(`${claim.owner}\0${claim.sourceRevisionId}`, Object.freeze({ schemaId: revision.value.schemaIdentity.schemaId, version: revision.value.schemaIdentity.version }));
       entries.push(Object.freeze({ entryId: claim.owner, revisionId: claim.sourceRevisionId, content: resolved.content, contentDigest: resolved.contentDigest }));
       selectedRoutes.push(Object.freeze({ route: claim.normalizedRoute, entryId: claim.owner, revisionId: claim.sourceRevisionId }));
       const selection = this.input.dataMedia.resolvePublishedSelection(claim.owner);
@@ -68,12 +78,42 @@ class Producer implements Projection {
     entries.sort((left, right) => compare(left.entryId, right.entryId) || compare(left.revisionId, right.revisionId));
     selectedRoutes.sort((left, right) => compare(left.route, right.route));
     media.sort((left, right) => compare(left.assetId, right.assetId) || compare(left.assetVersionId, right.assetVersionId) || compare(left.entryId, right.entryId));
+    const published: ResolvePublicBuildSnapshotInput["published"][number][] = [];
+    for (const route of selectedRoutes) {
+      const entry = entries.find((candidate) => candidate.entryId === route.entryId && candidate.revisionId === route.revisionId);
+      const schemaIdentity = schemaIdentities.get(`${route.entryId}\0${route.revisionId}`);
+      if (entry === undefined || schemaIdentity === undefined) return failure("PUBLISHED_SELECTION_UNRESOLVED", [route.entryId]);
+      published.push(Object.freeze({ entryId: route.entryId, revisionId: route.revisionId, schemaIdentity, route: route.route, content: entry.content }));
+    }
+    const preparedPlugins = await this.input.pluginHost.resolvePublicBuildSnapshot({ contract: "public-plugin-build-request/v1", published: Object.freeze(published) });
+    if (!preparedPlugins.ok) return failure("PUBLISHED_SELECTION_UNRESOLVED");
+    const settings = await this.input.pluginHost.getSettingsSnapshot();
+    if (!settings.ok || settings.value.digest !== preparedPlugins.value.snapshot.settingsStateDigest) return failure("PUBLISHED_SELECTION_STALE");
+    const settingsByIdentity = new Map(settings.value.state.records.map((record) => [identityKey(record.identity), record.settings.publicSiteUrl]));
+    const pageContributions = preparedPlugins.value.snapshot.pageContributions.map((record) => {
+      const base = settingsByIdentity.get(identityKey(record.evidence.identity));
+      const canonicalUrl = base === undefined ? null : publicUrl(base, record.contribution.canonicalPath);
+      if (canonicalUrl === null) return null;
+      return Object.freeze({ evidence: record.evidence, contribution: Object.freeze({ contract: record.contribution.contract, entryId: record.contribution.entryId, revisionId: record.contribution.revisionId, route: record.contribution.route, title: record.contribution.title, ...(record.contribution.description === undefined ? {} : { description: record.contribution.description }), canonicalUrl, openGraph: Object.freeze({ title: record.contribution.openGraph.title, ...(record.contribution.openGraph.description === undefined ? {} : { description: record.contribution.openGraph.description }), url: canonicalUrl, type: record.contribution.openGraph.type }), jsonLd: Object.freeze({ type: record.contribution.jsonLd.type, name: record.contribution.jsonLd.name, ...(record.contribution.jsonLd.description === undefined ? {} : { description: record.contribution.jsonLd.description }), url: canonicalUrl }) }) });
+    });
+    if (pageContributions.some((record) => record === null)) return failure("PUBLISHED_SELECTION_UNRESOLVED");
+    const siteContributions = preparedPlugins.value.snapshot.siteContributions.map((record) => {
+      const base = settingsByIdentity.get(identityKey(record.evidence.identity));
+      if (base === undefined) return null;
+      const sitemapUrls: string[] = [];
+      for (const item of published) { const url = publicUrl(base, item.route); if (url === null) return null; sitemapUrls.push(url); }
+      const sitemapUrl = publicUrl(base, "sitemap.xml");
+      if (sitemapUrl === null) return null;
+      return Object.freeze({ evidence: record.evidence, contribution: Object.freeze({ contract: record.contribution.contract, sitemapUrls: Object.freeze(sitemapUrls), robots: Object.freeze({ indexing: record.contribution.robots.indexing, sitemapUrl }) }) });
+    });
+    if (siteContributions.some((record) => record === null)) return failure("PUBLISHED_SELECTION_UNRESOLVED");
     const routeAfter = this.input.siteDefinition.snapshot("published");
     const themeAfter = await this.input.themeHost.getActiveSnapshot();
     const pluginsAfter = await this.input.pluginHost.getActiveSnapshot();
     const mediaBytes = canonicalJsonBytes(media);
     if (!mediaBytes.ok) return failure("PROJECTION_CANONICALIZATION_FAILED");
-    if (!routeAfter.ok || !themeAfter.ok || !pluginsAfter.ok || routeAfter.value.digest !== routes.value.digest || themeAfter.value.digest !== theme.value.activeStateDigest || pluginsAfter.value.digest !== pluginsBefore.value.digest) return failure("PUBLISHED_SELECTION_STALE");
+    const validatedPlugins = await this.input.pluginHost.validatePublicBuildSnapshot(preparedPlugins.value);
+    if (!routeAfter.ok || !themeAfter.ok || !pluginsAfter.ok || !validatedPlugins.ok || routeAfter.value.digest !== routes.value.digest || themeAfter.value.digest !== theme.value.activeStateDigest || pluginsAfter.value.digest !== pluginsBefore.value.digest) return failure("PUBLISHED_SELECTION_STALE");
     const selection = Object.freeze({ publishedRevisionIds: Object.freeze(entries.map((entry) => Object.freeze({ entryId: entry.entryId, revisionId: entry.revisionId }))), routeGraphDigest: routes.value.digest, mediaSelectionDigest: sha256Digest(mediaBytes.value) });
     const payload = Object.freeze({
       contract: "renderer-input/v1" as const,
@@ -94,6 +134,12 @@ class Producer implements Projection {
         resources: Object.freeze(plugin.resources.map((resource) => Object.freeze({ file: resource.file, bytesBase64: base64(resource.bytes), digest: resource.digest }))),
         callbacks: Object.freeze(plugin.callbacks.map((callback) => Object.freeze({ ...callback }))),
       }))),
+      seo: Object.freeze({
+        pageContributions: Object.freeze(pageContributions.filter((record): record is NonNullable<typeof record> => record !== null)),
+        siteContributions: Object.freeze(siteContributions.filter((record): record is NonNullable<typeof record> => record !== null)),
+        evidence: Object.freeze([...preparedPlugins.value.snapshot.pageContributions.map((record) => record.evidence), ...preparedPlugins.value.snapshot.siteContributions.map((record) => record.evidence)]),
+        omissionCount: preparedPlugins.value.snapshot.diagnostics.length,
+      }),
     });
     const payloadBytes = canonicalJsonBytes(payload);
     if (!payloadBytes.ok) return failure("PROJECTION_CANONICALIZATION_FAILED");

@@ -28,10 +28,22 @@ export const serverProofSchema = z.object({
   mac: z.string().regex(SECRET_TEXT_PATTERN),
 }).strict();
 
+export const browserTicketMintRequestSchema = z.object({
+  contract: z.literal("browser-ticket-mint-request/v1"),
+  generation: positiveInteger,
+  proofNonce: z.string().regex(SECRET_TEXT_PATTERN),
+}).strict();
+
+export const browserSessionExchangeSchema = z.object({
+  contract: z.literal("browser-session-exchange/v1"),
+  ticket: z.string().regex(/^asn_bt_v1_[A-Za-z0-9_-]{43}$/u),
+}).strict();
+
 export const saveRevisionRequestSchema = z.object({
   contract: z.literal("save-revision-request/v1"),
   revisionId: z.string(),
   operationId: z.string(),
+  expectedCurrentRevisionId: z.string().nullable(),
   schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(),
   content: jsonContent,
   route: z.string(),
@@ -76,6 +88,19 @@ export const publishRevisionSuccessSchema = z.object({
   stateDigest: z.string(),
 }).strict();
 
+const pluginIdentitySchema = z.object({
+  id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: z.string(), capabilities: z.array(z.string()),
+}).strict();
+const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string(), indexing: z.enum(["allow", "disallow"]) }).strict();
+const pluginDiagnosticSchema = z.object({
+  pluginId: z.string(), hook: z.string(), capability: z.string(), scope: z.union([z.object({ kind: z.literal("entry"), entryId: z.string() }).strict(), z.object({ kind: z.literal("site") }).strict()]), cause: z.string(),
+}).strict();
+export const pluginActivationRequestSchema = z.object({ contract: z.literal("plugin-activation-request/v1"), identity: pluginIdentitySchema, expectedActivationStateDigest: z.string() }).strict();
+export const pluginSettingsReplaceRequestSchema = z.object({ contract: z.literal("plugin-settings-replace-request/v1"), identity: pluginIdentitySchema, expectedSettingsStateDigest: z.string(), settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema }).strict();
+export const cmsSeoAnalysisRequestSchema = z.object({ contract: z.literal("cms-seo-analysis-request/v1"), entryId: z.string(), expectedCurrentRevisionId: z.string().nullable(), schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(), content: jsonContent, route: z.string(), documentDigest: z.string() }).strict();
+export const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), currentRevisionId: z.string(), publishedRevisionId: z.string().nullable(), schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(), content: jsonContent, route: z.string(), assetVersions: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()) }).strict();
+export const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: z.string(), settingsStateDigest: z.string(), plugins: z.array(z.object({ identity: pluginIdentitySchema, activation: z.enum(["inactive", "active", "reactivation-required"]), settings: z.unknown() }).strict()), diagnostics: z.array(pluginDiagnosticSchema) }).strict();
+
 export type TransportCode =
   | "INVALID_REQUEST_FRAMING"
   | "MISDIRECTED_REQUEST"
@@ -109,14 +134,14 @@ const conflictCodes = [
   "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH",
 ] as const;
 const invalidCodes = [
-  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST",
+  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST",
   "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE",
   "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING",
   "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED",
   "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED",
 ] as const;
 const domainCodes = [
-  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST",
+  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "ENTRY_NOT_FOUND", "READ_CURRENT_ENTRY_FAILED",
   "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "SCHEMA_INVALID",
   "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED",
   "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED",
@@ -128,10 +153,10 @@ const pluginCodes = [
   "ACTIVATION_STATE_CONFLICT", "ACTIVATION_STATE_FAILURE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING",
   "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID", "PLUGIN_CALLBACK_FAILED",
   "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "PLUGIN_VALIDATION_SERVICE_FAILED",
-  "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED",
+  "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED", "INVALID_PLUGIN_SETTINGS", "PLUGIN_SETTINGS_MISMATCH", "PLUGIN_SETTINGS_STATE_CONFLICT", "PLUGIN_SETTINGS_STATE_FAILURE", "SEO_ANALYSIS_CONFLICT",
 ] as const satisfies readonly PluginHostFailureCode[];
 
-const domainStatuses: Readonly<Record<DomainApplicationFailureCode, readonly number[]>> = Object.fromEntries(domainCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<DomainApplicationFailureCode, readonly number[]>>;
+const domainStatuses: Readonly<Record<DomainApplicationFailureCode, readonly number[]>> = Object.fromEntries(domainCodes.map((code) => [code, code === "ENTRY_NOT_FOUND" ? [404] : conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<DomainApplicationFailureCode, readonly number[]>>;
 const pluginStatuses: Readonly<Record<PluginHostFailureCode, readonly number[]>> = Object.fromEntries(pluginCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<PluginHostFailureCode, readonly number[]>>;
 const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...domainStatuses, ...pluginStatuses };
 

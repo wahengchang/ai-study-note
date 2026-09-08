@@ -37,7 +37,7 @@ function filesIn(directory: string, relative = ""): readonly string[] | null {
 
 function validManifest(value: unknown, expectedDigest: Digest): value is ArtifactManifest {
   const input = value as { contract: unknown; rendererInputDigest: unknown; totalDigest: unknown; files: unknown; routes: unknown };
-  if (!exact(value, ["contract", "rendererInputDigest", "provenance", "routes", "files", "totalDigest"]) || input.contract !== "artifact-manifest/v1" || typeof input.rendererInputDigest !== "string" || !isDigest(input.rendererInputDigest) || typeof input.totalDigest !== "string" || !isDigest(input.totalDigest) || input.totalDigest !== expectedDigest || !Array.isArray(input.files) || !Array.isArray(input.routes)) return false;
+  if (!exact(value, ["contract", "rendererInputDigest", "provenance", "seo", "routes", "files", "totalDigest"]) || input.contract !== "artifact-manifest/v1" || typeof input.rendererInputDigest !== "string" || !isDigest(input.rendererInputDigest) || typeof input.totalDigest !== "string" || !isDigest(input.totalDigest) || input.totalDigest !== expectedDigest || !Array.isArray(input.files) || !Array.isArray(input.routes)) return false;
   const files = input.files;
   const routes = input.routes;
   if (!files.every((candidate) => { if (!exact(candidate, ["path", "digest", "byteLength"])) return false; const file = candidate as { path: unknown; digest: unknown; byteLength: unknown }; return typeof file.path === "string" && safe(file.path) && typeof file.digest === "string" && isDigest(file.digest) && Number.isSafeInteger(file.byteLength) && (file.byteLength as number) >= 0; }) || !sortedUnique(files.map((file) => (file as { path: string }).path))) return false;
@@ -70,7 +70,7 @@ function snapshot(directory: string, artifactDigest: Digest): VerifiedDeliveredA
 
 function rendererOutput(value: unknown): value is Parameters<PublicDelivery["deliver"]>[0] {
   const input = value as { contract: unknown; rendererInputDigest: unknown; outputDigest: unknown; files: unknown; routes: unknown };
-  if (!exact(value, ["contract", "rendererInputDigest", "provenance", "routes", "files", "outputDigest"]) || input.contract !== "renderer-output/v1" || typeof input.rendererInputDigest !== "string" || !isDigest(input.rendererInputDigest) || typeof input.outputDigest !== "string" || !isDigest(input.outputDigest) || !Array.isArray(input.files) || !Array.isArray(input.routes)) return false;
+  if (!exact(value, ["contract", "rendererInputDigest", "provenance", "seo", "routes", "files", "outputDigest"]) || input.contract !== "renderer-output/v1" || typeof input.rendererInputDigest !== "string" || !isDigest(input.rendererInputDigest) || typeof input.outputDigest !== "string" || !isDigest(input.outputDigest) || !Array.isArray(input.files) || !Array.isArray(input.routes)) return false;
   const files = input.files;
   const routes = input.routes;
   return files.every((candidate) => { if (!exact(candidate, ["path", "bytes", "digest"])) return false; const file = candidate as { path: unknown; bytes: unknown; digest: unknown }; return typeof file.path === "string" && safe(file.path) && file.bytes instanceof Uint8Array && typeof file.digest === "string" && isDigest(file.digest) && sha256Digest(file.bytes) === file.digest; }) && new Set(files.map((file) => (file as { path: string }).path)).size === files.length && routes.every((candidate) => { if (!exact(candidate, ["route", "filePath"])) return false; const route = candidate as { route: unknown; filePath: unknown }; return typeof route.route === "string" && typeof route.filePath === "string" && safe(route.filePath) && route.filePath.endsWith(".html"); }) && sortedUnique(routes.map((route) => (route as { route: string }).route)) && new Set(routes.map((route) => (route as { filePath: string }).filePath)).size === routes.length;
@@ -84,14 +84,17 @@ class Delivery implements PublicDelivery {
     const files = [...output.files].sort((left, right) => compare(left.path, right.path));
     const routes = [...output.routes].sort((left, right) => compare(left.route, right.route));
     if (!routes.every((route) => files.some((file) => file.path === route.filePath))) return fail("INVALID_RENDERER_OUTPUT");
-    const payload = { contract: "artifact-manifest/v1" as const, rendererInputDigest: output.rendererInputDigest, provenance: output.provenance, routes: routes.map((route) => ({ ...route })), files: files.map((file) => ({ path: file.path, digest: file.digest, byteLength: file.bytes.byteLength })) };
+    const payload = { contract: "artifact-manifest/v1" as const, rendererInputDigest: output.rendererInputDigest, provenance: output.provenance, seo: output.seo, routes: routes.map((route) => ({ ...route })), files: files.map((file) => ({ path: file.path, digest: file.digest, byteLength: file.bytes.byteLength })) };
     const payloadBytes = canonicalJsonBytes(payload);
     if (!payloadBytes.ok) return fail("INVALID_RENDERER_OUTPUT");
     const manifest: ArtifactManifest = { ...payload, totalDigest: sha256Digest(payloadBytes.value) };
     const bytes = manifestBytes(manifest);
     if (bytes === null) return fail("INVALID_RENDERER_OUTPUT");
     const directory = path.join(this.root, manifest.totalDigest);
-    if (existsSync(directory)) return fail("ARTIFACT_IMMUTABILITY_CONFLICT");
+    if (existsSync(directory)) {
+      const existing = snapshot(directory, manifest.totalDigest);
+      return existing === null ? fail("ARTIFACT_IMMUTABILITY_CONFLICT") : { ok: true, value: { artifactDigest: manifest.totalDigest, directory, manifest: existing.manifest } };
+    }
     let temporary: string;
     try { temporary = mkdtempSync(path.join(this.root, ".staging-")); } catch { return fail("ARTIFACT_WRITE_FAILED"); }
     try {

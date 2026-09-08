@@ -5,16 +5,17 @@ import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index
 import { createStaticRenderer } from "../../../core/renderer/index.js";
 
 function digest(value: string): string { return sha256Digest(new TextEncoder().encode(value)); }
-function artifact(sources: Readonly<{ themeSource?: string; pluginSource?: string }> = {}) {
-  const themeSource = sources.themeSource ?? "export function render(input) { return { contract: 'theme-render-output/v1', pages: input.routes.map((route) => { const entry = input.entries.find((item) => item.entryId === route.entryId && item.revisionId === route.revisionId); return { route: route.route, html: '<h1>' + entry.content.title + '</h1>' + entry.blocks.join('') }; }) }; }";
+function artifact(sources: Readonly<{ themeSource?: string; pluginSource?: string; seo?: unknown }> = {}) {
+  const themeSource = sources.themeSource ?? "export function render(input) { return { contract: 'theme-render-output/v1', pages: input.routes.map((route) => { const entry = input.entries.find((item) => item.entryId === route.entryId && item.revisionId === route.revisionId); return { route: route.route, language: 'zh-Hant', bodyHtml: '<h1>' + entry.content.title + '</h1>' + entry.blocks.join(''), stylesheetResources: [] }; }) }; }";
   const pluginSource = sources.pluginSource ?? "export function block(input) { return { contract: 'public-block-render-output/v1', html: '<aside>' + input.entries[0].content.title + '</aside>' }; } export function assets() { return { contract: 'public-assets-emit-output/v1', files: [{ path: 'assets/plugin.txt', bytesBase64: 'cGx1Z2lu' }] }; }";
   const payload = {
     contract: "renderer-input/v1" as const,
     selection: { publishedRevisionIds: [{ entryId: "entry", revisionId: "r1" }], routeGraphDigest: digest("route"), mediaSelectionDigest: digest("media") },
-    entries: [{ entryId: "entry", revisionId: "r1", content: { contract: "site-content/v1" as const, title: "公開", blocks: [{ kind: "article" as const, text: "公開內容" }] }, contentDigest: digest("content") }],
+    entries: [{ entryId: "entry", revisionId: "r1", content: { contract: "site-content/v1" as const, title: "公開", blocks: [{ kind: "article" as const, text: "公開內容" }], seo: {} }, contentDigest: digest("content") }],
     routes: [{ route: "/guide", entryId: "entry", revisionId: "r1" }],
     media: [],
     theme: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1" as const, manifestHash: digest("theme") }, entrySourceBase64: Buffer.from(themeSource).toString("base64"), entryDigest: digest(themeSource), resources: [] },
+    seo: sources.seo ?? { pageContributions: [], siteContributions: [], evidence: [], omissionCount: 0 },
     plugins: [{ identity: { id: "plugin", version: "1.0.0", hookContract: "plugin-hooks/v1" as const, manifestHash: digest("plugin") }, entrySourceBase64: Buffer.from(pluginSource).toString("base64"), entryDigest: digest(pluginSource), resources: [], callbacks: [{ hook: "public/block/render" as const, exportName: "block", priority: 10 }, { hook: "public/assets/emit" as const, exportName: "assets", priority: 10 }] }],
   };
   const payloadBytes = canonicalJsonBytes(payload);
@@ -49,7 +50,7 @@ test("Renderer 執行已封存 Theme 與 Plugin bytes，輸出可重現 artifact
   assert.deepEqual(first.value.files.filter((file) => file.path === "assets/plugin.txt").map((file) => new TextDecoder().decode(file.bytes)), ["plugin"]);
   assert.deepEqual(first.value.routes.map((route) => route.route), ["/guide"]);
   const page = first.value.files.find((file) => file.path === first.value.routes[0]?.filePath);
-  assert.equal(new TextDecoder().decode(page?.bytes), "<h1>公開</h1><aside>公開</aside>");
+  assert.equal(new TextDecoder().decode(page?.bytes), "<!doctype html><html lang=\"zh-Hant\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>公開</title></head><body><h1>公開</h1><aside>公開</aside></body></html>");
   const altered = artifact();
   altered.bytes[0] = 0;
   const rejected = await renderer.render(altered);
@@ -96,7 +97,7 @@ test("同 priority 的 Plugin callback 依 Plugin ID 穩定排序", async () => 
   const rendered = await createStaticRenderer().render(seal(base));
   assert.equal(rendered.ok, true);
   if (!rendered.ok) return;
-  assert.equal(new TextDecoder().decode(rendered.value.files.find((file) => file.path === rendered.value.routes[0]?.filePath)?.bytes), "<h1>公開</h1><aside>alpha</aside><aside>公開</aside>");
+  assert.equal(new TextDecoder().decode(rendered.value.files.find((file) => file.path === rendered.value.routes[0]?.filePath)?.bytes), "<!doctype html><html lang=\"zh-Hant\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>公開</title></head><body><h1>公開</h1><aside>alpha</aside><aside>公開</aside></body></html>");
 });
 
 test("Renderer 拒絕宣告不受支援 extension contract 的封存輸入", async () => {
@@ -132,4 +133,19 @@ test("Renderer 拒絕 entries content 不是 site-content/v1 的封存輸入", a
     assert.equal(rejected.ok, false, JSON.stringify(content));
     if (!rejected.ok) assert.equal(rejected.error.code, "INVALID_RENDERER_INPUT", JSON.stringify(content));
   }
+});
+
+test("Renderer 以已解析SEO貢獻產生固定 head、sitemap 與 robots", async () => {
+  const seo = {
+    pageContributions: [{ evidence: {}, contribution: { contract: "public-seo-page-contribution/v1", entryId: "entry", revisionId: "r1", route: "/guide", title: "<SEO>", description: "描述", canonicalUrl: "https://example.test/base/guide", openGraph: { title: "OG", description: "OG 描述", url: "https://example.test/base/guide", type: "article" }, jsonLd: { type: "WebPage", name: "JSON <name>", description: "JSON 描述", url: "https://example.test/base/guide" } } }],
+    siteContributions: [{ evidence: {}, contribution: { contract: "public-seo-site-contribution/v1", sitemapUrls: ["https://example.test/base/guide"], robots: { indexing: "allow", sitemapUrl: "https://example.test/base/sitemap.xml" } } }], evidence: [], omissionCount: 0,
+  };
+  const rendered = await createStaticRenderer().render(artifact({ seo }));
+  assert.equal(rendered.ok, true);
+  if (!rendered.ok) return;
+  const page = new TextDecoder().decode(rendered.value.files.find((file) => file.path === rendered.value.routes[0]?.filePath)?.bytes);
+  assert.match(page, /<title>&lt;SEO&gt;<\/title><meta name="description" content="描述"><link rel="canonical" href="https:\/\/example\.test\/base\/guide"><meta property="og:title" content="OG"><meta property="og:description" content="OG 描述"><meta property="og:url" content="https:\/\/example\.test\/base\/guide"><meta property="og:type" content="article"><script type="application\/ld\+json">/u);
+  assert.equal(page.includes("\\u003cname\\u003e"), true);
+  assert.equal(new TextDecoder().decode(rendered.value.files.find((file) => file.path === "sitemap.xml")?.bytes), '<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"><url><loc>https://example.test/base/guide</loc></url></urlset>\n');
+  assert.equal(new TextDecoder().decode(rendered.value.files.find((file) => file.path === "robots.txt")?.bytes), "User-agent: *\nAllow: /\nSitemap: https://example.test/base/sitemap.xml\n");
 });

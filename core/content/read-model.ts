@@ -5,9 +5,9 @@ import type {
   ContentReadInput,
   ContentReadResult,
   ContentSchemaIdentity,
-  CreatePublishedContentReadModelInput,
+  CreateContentReadModelInput,
   InteractiveDemoBlock,
-  PublishedContentReadModel,
+  ContentReadModel,
   RawFullPageBlock,
   StructuredArticleBlock,
   StructuredContent,
@@ -79,10 +79,24 @@ function block(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>):
   return "INVALID_STRUCTURED_CONTENT";
 }
 
+function seo(value: unknown): StructuredContent["seo"] | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
+  const keys = Object.keys(value);
+  if (!keys.every((key) => key === "title" || key === "description" || key === "canonicalPath")) return undefined;
+  const record = value as UnknownRecord;
+  if ((record.title !== undefined && !text(record.title)) || (record.description !== undefined && !text(record.description)) || (record.canonicalPath !== undefined && !text(record.canonicalPath))) return undefined;
+  return Object.freeze({
+    ...(record.title === undefined ? {} : { title: record.title }),
+    ...(record.description === undefined ? {} : { description: record.description }),
+    ...(record.canonicalPath === undefined ? {} : { canonicalPath: record.canonicalPath }),
+  });
+}
+
 function structured(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>, schema: ContentSchemaIdentity): StructuredContent | ContentReadFailureCode {
-  if (!exact(value, ["contract", "title", "blocks"])) return "INVALID_STRUCTURED_CONTENT";
+  if (!exact(value, ["contract", "title", "blocks", "seo"])) return "INVALID_STRUCTURED_CONTENT";
   if (value.contract !== "site-content/v1") return "UNSUPPORTED_CONTENT_CONTRACT";
-  if (!text(value.title) || !Array.isArray(value.blocks)) return "INVALID_STRUCTURED_CONTENT";
+  const parsedSeo = seo(value.seo);
+  if (!text(value.title) || !Array.isArray(value.blocks) || parsedSeo === undefined) return "INVALID_STRUCTURED_CONTENT";
   const allowRawFullPage = approvedRawFullPageSchemas.has(schemaKey(schema));
   const blocks: Array<StructuredArticleBlock | RawFullPageBlock | InteractiveDemoBlock> = [];
   for (const item of value.blocks) {
@@ -90,10 +104,10 @@ function structured(value: unknown, approvedRawFullPageSchemas: ReadonlySet<stri
     if (typeof parsed === "string") return parsed;
     blocks.push(parsed);
   }
-  return Object.freeze({ contract: "site-content/v1", title: value.title, blocks: Object.freeze(blocks) });
+  return Object.freeze({ contract: "site-content/v1", title: value.title, blocks: Object.freeze(blocks), seo: parsedSeo });
 }
 
-class ReadModel implements PublishedContentReadModel {
+class ReadModel implements ContentReadModel {
   public constructor(private readonly approvedRawFullPageSchemas: ReadonlySet<string>) {}
 
   public read(input: ContentReadInput): ContentReadResult<StructuredContentArtifact> {
@@ -118,7 +132,7 @@ class ReadModel implements PublishedContentReadModel {
   }
 }
 
-export function createPublishedContentReadModel(input: CreatePublishedContentReadModelInput): ContentReadResult<PublishedContentReadModel> {
+export function createContentReadModel(input: CreateContentReadModelInput): ContentReadResult<ContentReadModel> {
   if (input === null || typeof input !== "object" || !Array.isArray(input.approvedRawFullPageSchemas)) return failure("INVALID_CONTENT_MODEL_INPUT");
   const approved = new Set<string>();
   for (const identity of input.approvedRawFullPageSchemas) {

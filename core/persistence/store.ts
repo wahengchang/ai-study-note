@@ -4,7 +4,7 @@ import type {
   AssetVersionAvailability,
   AssetVersionIdentity,
   AssetVersionRecord,
-  CompareAndReplacePluginActivationStateInput,
+  CompareAndReplaceExtensionStateInput,
   CreateRevisionInput,
   EntryPointerRecord,
   MediaImportIntent,
@@ -16,9 +16,9 @@ import type {
   PersistenceResult,
   PersistenceStore,
   PersistenceTransaction,
-  PluginActivationStateRecord,
-  PublishedAssetReference,
+  ExtensionStateRecord,
   ReadyAssetVersionRecord,
+  PublishedAssetReference,
   RevisionIdentity,
   RevisionRecord,
   RevisionReferenceRecord,
@@ -82,8 +82,12 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     deleteMediaImportIntentExact(input) { return atomic((transaction) => transaction.deleteMediaImportIntentExact(input)); },
     createRevisionReferences(revision, assetVersions) { return atomic((transaction) => transaction.createRevisionReferences(revision, assetVersions)); },
     createRevisionWithReferences(input) { return atomic((transaction) => transaction.createRevisionWithReferences(input)); },
-    readPluginActivationState() { return readPluginActivationState(database); },
-    compareAndReplacePluginActivationState(input) { return compareAndReplacePluginActivationState(database, input); },
+    readPluginActivationState() { return readExtensionState(database, "plugin_activation_state"); },
+    compareAndReplacePluginActivationState(input) { return compareAndReplaceExtensionState(database, "plugin_activation_state", input); },
+    readThemeActivationState() { return readExtensionState(database, "theme_activation_state"); },
+    compareAndReplaceThemeActivationState(input) { return compareAndReplaceExtensionState(database, "theme_activation_state", input); },
+    readPluginSettingsState() { return readExtensionState(database, "plugin_settings_state"); },
+    compareAndReplacePluginSettingsState(input) { return compareAndReplaceExtensionState(database, "plugin_settings_state", input); },
     readMediaStartupSnapshot() { return readMediaStartupSnapshot(database); },
     runTransaction,
     ownsActiveTransaction(transaction) { return activeTransactions.has(transaction); },
@@ -249,9 +253,11 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
   };
 }
 
-function readPluginActivationState(database: SqliteAdapter): PersistenceResult<PluginActivationStateRecord> {
+type ExtensionStateTable = "plugin_activation_state" | "theme_activation_state" | "plugin_settings_state";
+
+function readExtensionState(database: SqliteAdapter, table: ExtensionStateTable): PersistenceResult<ExtensionStateRecord> {
   try {
-    const row = database.get("SELECT state_bytes, state_digest FROM plugin_activation_state WHERE singleton = 1");
+    const row = database.get(`SELECT state_bytes, state_digest FROM ${table} WHERE singleton = 1`);
     const bytes = row === undefined ? null : byte(row, "state_bytes");
     const digest = row === undefined ? null : digestField(row, "state_digest");
     return bytes === null || digest === null
@@ -262,9 +268,10 @@ function readPluginActivationState(database: SqliteAdapter): PersistenceResult<P
   }
 }
 
-function compareAndReplacePluginActivationState(
+function compareAndReplaceExtensionState(
   database: SqliteAdapter,
-  input: CompareAndReplacePluginActivationStateInput,
+  table: ExtensionStateTable,
+  input: CompareAndReplaceExtensionStateInput,
 ): PersistenceResult<boolean> {
   if (
     input === null || typeof input !== "object" || !isDigest(input.expectedDigest)
@@ -273,24 +280,19 @@ function compareAndReplacePluginActivationState(
   ) return persistenceResultFailure("INVALID_PERSISTENCE_INPUT");
   try {
     return database.transaction(() => {
-      const row = database.get("SELECT state_digest FROM plugin_activation_state WHERE singleton = 1");
+      const row = database.get(`SELECT state_digest FROM ${table} WHERE singleton = 1`);
       const currentDigest = row === undefined ? null : digestField(row, "state_digest");
       if (currentDigest === null) return persistenceResultFailure("STORAGE_FAILURE");
       if (currentDigest !== input.expectedDigest) return { ok: true, value: false };
       const canonical = validateCanonicalBytes(input.next.bytes, input.next.digest);
       if (!canonical.ok) return persistenceResultFailure(canonical.code);
-      database.run(
-        "UPDATE plugin_activation_state SET state_bytes = ?, state_digest = ? WHERE singleton = 1",
-        copyBytes(canonical.bytes),
-        canonical.digest,
-      );
+      database.run(`UPDATE ${table} SET state_bytes = ?, state_digest = ? WHERE singleton = 1`, copyBytes(canonical.bytes), canonical.digest);
       return { ok: true, value: true };
     });
   } catch (error) {
     return persistenceResultFailure(sqliteFailureCode(error));
   }
 }
-
 function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResult<PersistenceCanonicalState> {
   const collect = (sql: string, keys: readonly string[]) => database.all(sql)
     .map((row) => Object.fromEntries(keys.map((key) => [key, row[key]])))
@@ -310,10 +312,13 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     const schemaMigrationExecutions = collect("SELECT operation_id AS operationId,source_schema_id AS sourceSchemaId,source_schema_version AS sourceSchemaVersion,target_schema_id AS targetSchemaId,target_schema_version AS targetSchemaVersion,mapping_identity AS mappingIdentity FROM schema_migration_executions", ["operationId", "sourceSchemaId", "sourceSchemaVersion", "targetSchemaId", "targetSchemaVersion", "mappingIdentity"]);
     const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);
     const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
-    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const pluginActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_activation_state", ["singleton", "stateDigest"]);
+    const themeActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM theme_activation_state", ["singleton", "stateDigest"]);
+    const pluginSettingsStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_settings_state", ["singleton", "stateDigest"]);
+    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage, pluginActivationStates, themeActivationStates, pluginSettingsStates };
     const bytes = canonicalJsonBytes(payload);
     if (!bytes.ok) return failed("STORAGE_FAILURE");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length }) }) });
   } catch {
     return failed("STORAGE_FAILURE");
   }

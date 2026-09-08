@@ -1,6 +1,6 @@
 ---
 id: WG-002
-status: blocked
+status: in_progress
 title: SEO basics happy path
 work_items: ["WI-002"]
 owner: Main
@@ -17,4 +17,4 @@ pr: null
 
 ## Verification
 
-阻塞原因：#307 尚未完成 review/merge/close。解除條件：確認 merged remote contract 與 closed #307；解除後記錄 targeted tests、repository checks、browser/build/omission 實測。
+2026-09-07：確認 PR #313 已 merge、Issue #307 已 closed，feature worktree 由 merge commit `1dc21ed` 建立。待完成 runtime 與實測後填入結果。

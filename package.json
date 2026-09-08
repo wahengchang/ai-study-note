@@ -20,22 +20,35 @@
     "db:migrate": "node --disable-warning=ExperimentalWarning --import tsx apps/cli/db-migrate.ts",
     "cms:credential": "node --import tsx apps/authoring-api/credential-cli.ts",
     "cms:save-revision": "node --import tsx apps/authoring-api/save-revision-cli.ts",
-    "site:serve": "node --import tsx apps/public-ui/serve.ts"
+    "site:serve": "node --import tsx apps/public-ui/serve.ts",
+    "cms:build": "vite build --config apps/cms/vite-config.ts",
+    "plugin:package": "node --import tsx apps/cli/plugin-package.ts",
+    "theme:package": "node --import tsx apps/cli/theme-package.ts",
+    "theme:activate": "node --import tsx apps/cli/theme-activate.ts",
+    "site:build": "node --import tsx apps/cli/site-build.ts",
+    "cms:serve": "node --import tsx apps/authoring-api/cms-serve.ts",
+    "cms:open": "node --import tsx apps/authoring-api/cms-open.ts"
   },
   "dependencies": {
     "@hono/node-server": "2.1.1",
     "es-module-lexer": "2.3.2",
     "hono": "4.13.5",
     "json-canonicalize": "3.0.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
     "semver": "7.8.5",
     "unicode-case-folding": "1.1.1",
     "zod": "4.5.4"
   },
   "devDependencies": {
     "@types/node": "24.13.3",
+    "@types/react": "19.2.8",
+    "@types/react-dom": "19.2.7",
     "@types/semver": "7.8.0",
+    "@vitejs/plugin-react": "6.1.1",
     "rulesync": "^16.15.0",
     "tsx": "4.23.12",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "vite": "8.2.2"
   }
 }

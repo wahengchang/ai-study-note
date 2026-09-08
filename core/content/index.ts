@@ -1,15 +1,16 @@
-export { createPublishedContentReadModel } from "./read-model.js";
+export { createContentReadModel } from "./read-model.js";
 export type {
   ContentReadFailure,
   ContentReadFailureCode,
   ContentReadInput,
+  ContentReadModel,
   ContentReadResult,
   ContentSchemaIdentity,
-  CreatePublishedContentReadModelInput,
+  CreateContentReadModelInput,
   InteractiveDemoBlock,
-  PublishedContentReadModel,
   RawFullPageBlock,
   StructuredArticleBlock,
   StructuredContent,
   StructuredContentArtifact,
+  StructuredContentSeo,
 } from "./contracts.js";

@@ -1,4 +1,4 @@
-export { createLocalAuthoringCredentialAuthority } from "./credential-store.js";
+export { createLocalAuthoringCredentialAuthority, openLocalAuthoringClientCredential } from "./credential-store.js";
 export type {
   AuthoringCredentialAuthority,
   AuthoringCredentialFailureCode,

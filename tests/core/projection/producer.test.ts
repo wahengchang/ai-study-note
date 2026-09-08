@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createPublishedContentReadModel } from "../../../core/content/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
 import { createProjection } from "../../../core/projection/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 
@@ -10,14 +10,14 @@ function digest(value: Uint8Array | string): `sha256:${string}` {
 }
 
 function contentReadModel() {
-  const model = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
+  const model = createContentReadModel({ approvedRawFullPageSchemas: [] });
   assert.equal(model.ok, true);
   if (!model.ok) throw new Error();
   return model.value;
 }
 
 test("Projection 封存已啟用 Theme 與公開 Plugin 的完整 verified bytes", async () => {
-  const contentBytes = canonicalJsonBytes({ contract: "site-content/v1", title: "公開內容", blocks: [] });
+  const contentBytes = canonicalJsonBytes({ contract: "site-content/v1", title: "公開內容", blocks: [], seo: {} });
   assert.equal(contentBytes.ok, true);
   if (!contentBytes.ok) return;
   const routeDigest = digest("route");
@@ -45,6 +45,9 @@ test("Projection 封存已啟用 Theme 與公開 Plugin 的完整 verified bytes
     pluginHost: {
       resolveActivePublicRenderers: async () => ({ ok: true, value: [{ identity: { id: "plugin", version: "1.0.0", hookContract: "plugin-hooks/v1", manifestHash: pluginManifestHash }, activeStateDigest: activePluginStateDigest, entryBytes: new TextEncoder().encode(pluginSource), resources: [], callbacks: [{ hook: "public/block/render", exportName: "renderBlock", priority: 0 }] }] }),
       getActiveSnapshot: async () => ({ ok: true, value: { identities: [{ id: "plugin", version: "1.0.0", hookContract: "plugin-hooks/v1", manifestHash: pluginManifestHash }], digest: activePluginStateDigest } }),
+      getSettingsSnapshot: async () => ({ ok: true, value: { state: { contract: "plugin-settings-state/v1", records: [] }, digest: digest("settings") } }),
+      resolvePublicBuildSnapshot: async () => ({ ok: true, value: { snapshot: { contract: "public-plugin-build-snapshot/v1", activationStateDigest: activePluginStateDigest, settingsStateDigest: digest("settings"), publicRenderers: [], publicRendererEvidence: [], pageContributions: [], siteContributions: [], diagnostics: [], snapshotDigest: digest("snapshot") } } }),
+      validatePublicBuildSnapshot: async () => ({ ok: true, value: true }),
     } as never,
   });
   assert.equal(projection.ok, true);
@@ -61,7 +64,7 @@ test("Projection 封存已啟用 Theme 與公開 Plugin 的完整 verified bytes
 });
 
 test("沒有 public renderer Plugin 時，期間的 activation 變更仍讓 published projection 失效", async () => {
-  const contentBytes = canonicalJsonBytes({ contract: "site-content/v1", title: "公開內容", blocks: [] });
+  const contentBytes = canonicalJsonBytes({ contract: "site-content/v1", title: "公開內容", blocks: [], seo: {} });
   assert.equal(contentBytes.ok, true);
   if (!contentBytes.ok) return;
   const themeSource = "export function render() { return { contract: 'theme-render-output/v1', files: [] }; }";
@@ -84,6 +87,9 @@ test("沒有 public renderer Plugin 時，期間的 activation 變更仍讓 publ
     pluginHost: {
       resolveActivePublicRenderers: async () => ({ ok: true, value: [] }),
       getActiveSnapshot: async () => { pluginStateReads += 1; return { ok: true, value: { identities: [], digest: digest(`plugin-state-${pluginStateReads}`) } }; },
+      getSettingsSnapshot: async () => ({ ok: true, value: { state: { contract: "plugin-settings-state/v1", records: [] }, digest: digest("settings") } }),
+      resolvePublicBuildSnapshot: async () => ({ ok: true, value: { snapshot: { contract: "public-plugin-build-snapshot/v1", activationStateDigest: digest("plugin-state-1"), settingsStateDigest: digest("settings"), publicRenderers: [], publicRendererEvidence: [], pageContributions: [], siteContributions: [], diagnostics: [], snapshotDigest: digest("snapshot") } } }),
+      validatePublicBuildSnapshot: async () => ({ ok: true, value: true }),
     } as never,
   });
   assert.equal(projection.ok, true);

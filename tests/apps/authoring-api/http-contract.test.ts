@@ -3,12 +3,13 @@ import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { request as nodeRequest } from "node:http";
+import { Agent, request as nodeRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
@@ -36,7 +37,7 @@ function send(method: string, pathname: string, headers: Headers, body?: string)
 }
 function post(pathname: string, headers: Headers, body: string): Promise<RawResponse> { return send("POST", pathname, headers, body); }
 function saveBody(revisionId: string, route: string): string {
-  return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [] });
+  return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [] });
 }
 function publishBody(expectedCurrentRevisionId: string, operationId = `publish-${expectedCurrentRevisionId}`): string {
   return JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId, operationId });
@@ -73,13 +74,14 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     const persistence = openPersistence({ databasePath }); if (!persistence.ok) throw new Error(persistence.error.code); closePersistence = () => persistence.value.close();
     const schema = canonicalJsonBytes({ type: "object" }); if (!schema.ok) throw new Error(schema.error.code);
     assert.equal(persistence.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schema.value, schemaDigest: sha256Digest(schema.value) }).ok, true);
-    const pluginHost = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: persistence.value }) }); if (!pluginHost.ok) throw new Error(pluginHost.error.code);
+    const pluginHost = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: persistence.value }), settingsState: createPersistencePluginSettingsStatePort({ persistence: persistence.value }) }); if (!pluginHost.ok) throw new Error(pluginHost.error.code);
     const objects = createLocalMediaObjectStore({ objectsRoot: path.join(directory, "objects") }); if (!objects.ok) throw new Error(objects.error.code);
     const media = startDataMedia({ persistence: persistence.value, objectStore: objects.value }); if (!media.ok) throw new Error(media.error.code);
     const credentials = createLocalAuthoringCredentialAuthority({ homeDirectory: directory, xdgConfigHome: path.join(directory, "config") });
     assert.equal((await credentials.transition("provision")).ok, true);
     const apiKey = JSON.parse(readFileSync(path.join(directory, "config", "ai-study-note", "local-authoring-v1.json"), "utf8")).apiKey as string;
-    const application = createDomainApplication({ persistence: persistence.value, siteDefinition: createSiteDefinition({ persistence: persistence.value }), dataMedia: media.value, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: pluginHost.value });
+    const contentModel = createContentReadModel({ approvedRawFullPageSchemas: [] }); if (!contentModel.ok) throw new Error(contentModel.error.code);
+    const application = createDomainApplication({ persistence: persistence.value, siteDefinition: createSiteDefinition({ persistence: persistence.value }), dataMedia: media.value, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: pluginHost.value, contentReadModel: contentModel.value });
     let published = 0;
     const instrumentedApplication = { ...application, publishRevision: async (...args: Parameters<typeof application.publishRevision>) => {
       published += 1;
@@ -256,7 +258,7 @@ test("every rejected transport shape fails closed with its contract status and m
       { name: "oversized body", headers: bearer, body: oversized, status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "SaveRevision request 不得超過 4 MiB。" },
       { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },
       { name: "percent-encoded entryId", path: "/v1/entries/a%2Fb/revisions", headers: bearer, body: saveBody("r", "/a"), status: 404, code: "ROUTE_NOT_FOUND" },
-      { name: "unlisted /_local route", path: "/_local/browser-tickets", headers: bearer, body: "{}", status: 404, code: "ROUTE_NOT_FOUND" },
+      { name: "unlisted /_local route", path: "/_local/unlisted", headers: bearer, body: "{}", status: 404, code: "ROUTE_NOT_FOUND" },
       { name: "server proof rejects cookie", path: "/_local/server-proof", headers: { ...json, Cookie: "session=1" }, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       { name: "server proof rejects query", path: "/_local/server-proof?key=1", headers: json, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       // proof route 的上限是 4 KiB；remediation 不得沿用 SaveRevision 的 4 MiB 說明。
@@ -391,4 +393,47 @@ test("the client rejects an in-process request whose serialized body the listene
     assert.deepEqual(result, { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } }, "JSON.stringify 會丟掉 undefined content，必須在送出前擋下");
     assert.deepEqual(await createLocalAuthoringClient(credentialLocation(directory)).saveRevision({ entryId: "a/b", request: JSON.parse(saveBody("r", "/a")) }), { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } });
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+
+test("plugin management GET requires browser read profile and returns the exact management snapshot", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const rejected = await send("GET", "/v1/plugins", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(rejected.status, 403);
+    assert.equal(failureCode(rejected), "ORIGIN_FORBIDDEN");
+    const listed = await send("GET", "/v1/plugins", { Authorization: `Bearer ${apiKey}`, "Sec-Fetch-Site": "same-origin", Host: authority });
+    assert.equal(listed.status, 200);
+    const body = JSON.parse(listed.body) as { contract: string; plugins: unknown[]; diagnostics: unknown[] };
+    assert.equal(body.contract, "plugin-management-snapshot/v1");
+    assert.deepEqual(body.plugins, []);
+    assert.deepEqual(body.diagnostics, []);
+    assertResponseHeaders(listed, "plugin management");
+  });
+});
+
+
+test("same proof-bound socket mints one browser ticket and exchange never redacts the session key", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const agent = new Agent({ keepAlive: true, maxSockets: 1, maxFreeSockets: 1 });
+    const agentPost = (pathname: string, headers: Headers, body: string): Promise<RawResponse> => new Promise((resolve, reject) => {
+      const request = nodeRequest({ host: "127.0.0.1", port: 43127, path: pathname, method: "POST", agent, headers: headers as Record<string, string | string[]> }, (response) => {
+        const chunks: Buffer[] = []; response.on("data", (chunk: Buffer) => chunks.push(chunk)); response.on("end", () => resolve({ status: response.statusCode ?? 0, body: Buffer.concat(chunks).toString("utf8"), headers: response.headers }));
+      });
+      request.once("error", reject); request.end(body);
+    });
+    try {
+      const proof = await agentPost("/_local/server-proof", { "Content-Type": "application/json", Host: authority }, JSON.stringify({ contract: "authoring-server-proof-challenge/v1", generation: 1, nonce: "b".repeat(43) }));
+      assert.equal(proof.status, 200);
+      const ticketResponse = await agentPost("/_local/browser-tickets", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority }, JSON.stringify({ contract: "browser-ticket-mint-request/v1", generation: 1, proofNonce: "b".repeat(43) }));
+      assert.equal(ticketResponse.status, 201);
+      const ticket = JSON.parse(ticketResponse.body) as { contract: string; ticket: string; generation: number; expiresInSeconds: number };
+      assert.equal(ticket.contract, "browser-ticket/v1"); assert.equal(ticket.generation, 1); assert.equal(ticket.expiresInSeconds, 60);
+      const exchange = await post("/_local/browser-session", { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin", Host: authority }, JSON.stringify({ contract: "browser-session-exchange/v1", ticket: ticket.ticket }));
+      assert.equal(exchange.status, 200);
+      const session = JSON.parse(exchange.body) as { contract: string; apiKey: string; generation: number };
+      assert.deepEqual(session, { contract: "browser-session/v1", generation: 1, apiKey });
+      const replay = await post("/_local/browser-session", { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin", Host: authority }, JSON.stringify({ contract: "browser-session-exchange/v1", ticket: ticket.ticket }));
+      assert.equal(replay.status, 401); assert.equal(failureCode(replay), "AUTHORIZATION_INVALID");
+    } finally { agent.destroy(); }
+  });
 });

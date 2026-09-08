@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { createPublishedContentReadModel } from "../../../core/content/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createProjection } from "../../../core/projection/index.js";
 
@@ -19,7 +19,7 @@ function revision(revisionId: string, content: unknown) {
 }
 
 function previewProjection(input: Readonly<{ current: ReturnType<typeof revision>; published?: ReturnType<typeof revision>; canonicalDigests?: readonly `sha256:${string}`[] }>) {
-  const model = createPublishedContentReadModel({ approvedRawFullPageSchemas: [{ schemaId: "site-content", version: 1 }] });
+  const model = createContentReadModel({ approvedRawFullPageSchemas: [{ schemaId: "site-content", version: 1 }] });
   assert.equal(model.ok, true);
   if (!model.ok) throw new Error();
   let stateRead = 0;
@@ -40,8 +40,8 @@ function previewProjection(input: Readonly<{ current: ReturnType<typeof revision
 
 test("Preview 依 selection 隔離 current draft 與 published revision，且 canonical state digest 不變", () => {
   const projection = previewProjection({
-    current: revision("draft", { contract: "site-content/v1", title: "草稿標題", blocks: [{ kind: "article", text: "草稿內容" }] }),
-    published: revision("published", { contract: "site-content/v1", title: "公開標題", blocks: [{ kind: "article", text: "公開內容" }] }),
+    current: revision("draft", { contract: "site-content/v1", title: "草稿標題", blocks: [{ kind: "article", text: "草稿內容" }], seo: {} }),
+    published: revision("published", { contract: "site-content/v1", title: "公開標題", blocks: [{ kind: "article", text: "公開內容" }], seo: {} }),
   });
   assert.equal(projection.ok, true);
   if (!projection.ok) return;
@@ -65,6 +65,7 @@ test("Preview 將 raw 與 Interactive Demo 的所有 source 放入 sandbox srcdo
         { kind: "raw-full-page", html: "<main>raw source</main>", staticFallback: "raw fallback" },
         { kind: "interactive-demo", pluginIdentity: { id: "demo", version: "1.0.0", hookContract: "plugin-hooks/v1", manifestHash: sha256Digest(new TextEncoder().encode("demo")) }, source: { html: "<button>run</button>", css: "button{color:red}", javascript: "window.ran=true" }, staticFallback: "demo fallback" },
       ],
+      seo: {},
     }),
   });
   assert.equal(projection.ok, true);
@@ -92,6 +93,7 @@ test("Preview 保留 demo source 的 raw text，`</script>` 不會提前關閉 s
       blocks: [
         { kind: "interactive-demo", pluginIdentity: { id: "demo", version: "1.0.0", hookContract: "plugin-hooks/v1", manifestHash: sha256Digest(new TextEncoder().encode("demo")) }, source: { html: "<p>x</p>", css: 'p::after{content:"</style>"}', javascript: 'document.title = "</script>";' }, staticFallback: "demo fallback" },
       ],
+      seo: {},
     }),
   });
   assert.equal(projection.ok, true);
@@ -108,7 +110,7 @@ test("Preview 保留 demo source 的 raw text，`</script>` 不會提前關閉 s
 });
 
 test("Preview 對未發布、unresolved content 與 state race fail closed，不回 partial document", () => {
-  const noPublished = previewProjection({ current: revision("draft", { contract: "site-content/v1", title: "草稿", blocks: [] }) });
+  const noPublished = previewProjection({ current: revision("draft", { contract: "site-content/v1", title: "草稿", blocks: [], seo: {} }) });
   assert.equal(noPublished.ok, true);
   if (!noPublished.ok) return;
   const missing = noPublished.value.preview({ selection: "published", subject: { entryId: "note" } });
@@ -116,7 +118,7 @@ test("Preview 對未發布、unresolved content 與 state race fail closed，不
   if (!missing.ok) assert.equal(missing.error.code, "PREVIEW_SELECTION_UNRESOLVED");
 
   const stateRace = previewProjection({
-    current: revision("draft", { contract: "site-content/v1", title: "草稿", blocks: [] }),
+    current: revision("draft", { contract: "site-content/v1", title: "草稿", blocks: [], seo: {} }),
     canonicalDigests: [sha256Digest(new TextEncoder().encode("before")), sha256Digest(new TextEncoder().encode("after"))],
   });
   assert.equal(stateRace.ok, true);
@@ -127,7 +129,7 @@ test("Preview 對未發布、unresolved content 與 state race fail closed，不
 });
 
 test("Preview 對無效 selection 與 subject 回 INVALID_PREVIEW_INPUT", () => {
-  const projection = previewProjection({ current: revision("draft", { contract: "site-content/v1", title: "草稿", blocks: [] }) });
+  const projection = previewProjection({ current: revision("draft", { contract: "site-content/v1", title: "草稿", blocks: [], seo: {} }) });
   assert.equal(projection.ok, true);
   if (!projection.ok) return;
   for (const invalid of [{ selection: "draft", subject: { entryId: "note" } }, { selection: "current", subject: { entryId: "" } }, { selection: "current", subject: null }]) {

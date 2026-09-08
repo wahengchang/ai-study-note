@@ -10,10 +10,12 @@ export type InteractiveDemoBlock = Readonly<{
   source: Readonly<{ html: string; css: string; javascript: string }>;
   staticFallback: string;
 }>;
+export type StructuredContentSeo = Readonly<{ title?: string; description?: string; canonicalPath?: string }>;
 export type StructuredContent = Readonly<{
   contract: "site-content/v1";
   title: string;
   blocks: readonly (StructuredArticleBlock | RawFullPageBlock | InteractiveDemoBlock)[];
+  seo: StructuredContentSeo;
 }>;
 export type StructuredContentArtifact = Readonly<{
   contract: "structured-content-artifact/v1";
@@ -44,9 +46,9 @@ export type ContentReadFailure = Readonly<{
 export type ContentReadResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: ContentReadFailure }>;
 
 /** raw full-page 僅在 composition 明確列出的 schema identity 下可進入 structured model。 */
-export type CreatePublishedContentReadModelInput = Readonly<{
+export type CreateContentReadModelInput = Readonly<{
   approvedRawFullPageSchemas: readonly ContentSchemaIdentity[];
 }>;
-export type PublishedContentReadModel = Readonly<{
+export type ContentReadModel = Readonly<{
   read(input: ContentReadInput): ContentReadResult<StructuredContentArtifact>;
 }>;

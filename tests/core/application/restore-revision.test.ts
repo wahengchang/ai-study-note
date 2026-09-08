@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { DomainApplication } from "../../../core/application/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
+
+function contentReadModel() { const model = createContentReadModel({ approvedRawFullPageSchemas: [] }); assert.equal(model.ok, true); if (!model.ok) throw new Error("createContentReadModel"); return model.value; }
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { startDataMedia, createLocalMediaObjectStore } from "../../../core/media/index.js";
 import type { DataMedia } from "../../../core/media/index.js";
@@ -36,7 +39,7 @@ async function harness(directory: string): Promise<Harness> {
   if (!objects.ok) throw new Error("object store unavailable");
   const installedRoot = path.join(directory, "installed");
   mkdirSync(installedRoot, { recursive: true });
-  const plugins = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: opened.value }) });
+  const plugins = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: opened.value }), settingsState: createPersistencePluginSettingsStatePort({ persistence: opened.value }) });
   assert.equal(plugins.ok, true);
   if (!plugins.ok) throw new Error("plugin host unavailable");
   const schemaBytes = canonicalJsonBytes({ type: "object" });
@@ -44,7 +47,7 @@ async function harness(directory: string): Promise<Harness> {
   if (!schemaBytes.ok) throw new Error("schema unavailable");
   assert.equal(opened.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schemaBytes.value, schemaDigest: sha256Digest(schemaBytes.value) }).ok, true);
   const media = start({ persistence: opened.value, objectStore: objects.value });
-  const application = createDomainApplication({ persistence: opened.value, siteDefinition: createSiteDefinition({ persistence: opened.value }), dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: plugins.value });
+  const application = createDomainApplication({ persistence: opened.value, siteDefinition: createSiteDefinition({ persistence: opened.value }), dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: plugins.value, contentReadModel: contentReadModel() });
   return { store: opened.value, media, application, objectsRoot };
 }
 
@@ -53,11 +56,11 @@ test("RestoreRevision creates a new current immutable revision and retains the p
   try {
     const { store, media, application } = await harness(directory);
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes: new Uint8Array([1, 2, 3]), metadata: { type: "image" } }).ok, true);
-    const saved = await application.saveRevision({ entryId: "entry", revisionId: "draft", operationId: "save-1", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "old" }, route: "/old", assetVersions: [{ assetId: "asset", assetVersionId: "v1" }] });
+    const saved = await application.saveRevision({ entryId: "entry", revisionId: "draft", operationId: "save-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "old" }, route: "/old", assetVersions: [{ assetId: "asset", assetVersionId: "v1" }] });
     assert.equal(saved.ok, true, saved.ok ? "" : saved.error.code);
     if (!saved.ok) return;
     assert.equal((await application.publishRevision({ entryId: "entry", expectedCurrentRevisionId: "draft", operationId: "publish-1" })).ok, true);
-    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft-2", operationId: "save-2", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "new" }, route: "/old", assetVersions: [] })).ok, true);
+    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft-2", operationId: "save-2", expectedCurrentRevisionId: "draft", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "new" }, route: "/old", assetVersions: [] })).ok, true);
 
     const restored = await application.restoreRevision({ entryId: "entry", sourceRevisionId: "draft", revisionId: "restored", operationId: "restore-1" });
     assert.equal(restored.ok, true, restored.ok ? "" : restored.error.code);
@@ -89,8 +92,8 @@ test("RestoreRevision refuses unavailable media before any mutation and succeeds
     const metadata = { type: "image" };
     assert.equal(media.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes, metadata }).ok, true);
     assert.equal(media.importLocal({ importId: "import-2", assetId: "asset", assetVersionId: "v2", bytes: new Uint8Array([9]), metadata: { type: "other" } }).ok, true);
-    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft", operationId: "save-1", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "old" }, route: "/old", assetVersions: [{ assetId: "asset", assetVersionId: "v1" }] })).ok, true);
-    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft-2", operationId: "save-2", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "new" }, route: "/old", assetVersions: [{ assetId: "asset", assetVersionId: "v2" }] })).ok, true);
+    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft", operationId: "save-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "old" }, route: "/old", assetVersions: [{ assetId: "asset", assetVersionId: "v1" }] })).ok, true);
+    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft-2", operationId: "save-2", expectedCurrentRevisionId: "draft", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "new" }, route: "/old", assetVersions: [{ assetId: "asset", assetVersionId: "v2" }] })).ok, true);
     assert.equal(media.archiveAsset({ assetId: "asset", assetVersionId: "v1" }).ok, true);
     // v1 的 physical bytes 也遺失，remediation 必須要求本機 recovery bytes 而非單純解除封存。
     unlinkSync(path.join(objectsRoot, "objects", sha256Digest(bytes).slice(7)));
@@ -125,7 +128,7 @@ test("RestoreRevision rejects malformed requests and unknown source revisions wi
   const directory = mkdtempSync(path.join(tmpdir(), "restore-invalid-"));
   try {
     const { store, application } = await harness(directory);
-    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft", operationId: "save-1", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "old" }, route: "/old", assetVersions: [] })).ok, true);
+    assert.equal((await application.saveRevision({ entryId: "entry", revisionId: "draft", operationId: "save-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "old" }, route: "/old", assetVersions: [] })).ok, true);
     const before = store.canonicalState();
     assert.equal(before.ok, true);
     if (!before.ok) return;

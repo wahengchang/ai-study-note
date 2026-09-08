@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { DomainApplication, DomainApplicationResult, RevisionSchemaValidator, SaveRevisionRequest } from "../../../core/application/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
+
+function contentReadModel() { const model = createContentReadModel({ approvedRawFullPageSchemas: [] }); assert.equal(model.ok, true); if (!model.ok) throw new Error("createContentReadModel"); return model.value; }
 import { canonicalJsonBytes, sha256Digest, type Digest, type JsonValue } from "../../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
@@ -45,8 +48,9 @@ function request(overrides: Partial<SaveRevisionRequest> = {}): SaveRevisionRequ
     entryId: "entry-a",
     revisionId: "draft-1",
     operationId: "save-1",
+    expectedCurrentRevisionId: "draft-0",
     schemaIdentity: { schemaId: "note", version: 1 },
-    content: { title: "draft" },
+    content: { contract: "site-content/v1", title: "draft", blocks: [], seo: {} },
     route: "/guide",
     assetVersions: [],
     ...overrides,
@@ -64,7 +68,7 @@ function writeValidatorPlugin(installedRoot: string, mode: PluginMode, traceKey:
   const directory = path.join(installedRoot, "application-validator");
   mkdirSync(directory, { recursive: true });
   const output = mode === "accept"
-    ? 'return { contract: "save-revision-validator-output/v1", decision: "accept", replacement: { content: { title: "validated" } } };'
+    ? 'return { contract: "save-revision-validator-output/v1", decision: "accept", replacement: { content: { contract: "site-content/v1", title: "validated", blocks: [], seo: {} } } };'
     : mode === "reject"
       ? 'return { contract: "save-revision-validator-output/v1", decision: "reject" };'
       : mode === "throw"
@@ -135,7 +139,7 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
     },
     compareAndReplace(input) { return realPort.compareAndReplace(input); },
   };
-  const created = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: activationPort });
+  const created = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: activationPort, settingsState: createPersistencePluginSettingsStatePort({ persistence: store }) });
   assert.equal(created.ok, true);
   if (!created.ok) throw new Error("plugin host creation failed");
   const pluginHost = created.value;
@@ -148,8 +152,8 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
       return Object.freeze({ ok: !(validations > 1 && schemaMode === "reject-replacement") });
     },
   };
-  const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: media, schemaValidator, pluginHost });
-  const baselineSave = await app.saveRevision(request({ revisionId: "draft-0", operationId: "save-0", assetVersions: [{ assetId: "asset-a", assetVersionId: "version-a" }] }));
+  const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: media, schemaValidator, pluginHost, contentReadModel: contentReadModel() });
+  const baselineSave = await app.saveRevision(request({ revisionId: "draft-0", operationId: "save-0", expectedCurrentRevisionId: null, assetVersions: [{ assetId: "asset-a", assetVersionId: "version-a" }] }));
   assert.equal(baselineSave.ok, true);
   if (!baselineSave.ok) throw new Error("baseline SaveRevision failed");
   assert.equal(store.setEntryPointers({ entryId: "entry-a", currentRevisionId: "draft-0", publishedRevisionId: "draft-0", lineage: { revisionId: "draft-0", operationId: "publish-0", operationKind: "PublishRevision" } }).ok, true);
@@ -161,7 +165,10 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
   const candidate = discovered.value.candidates.find((item) => item.id === "application-validator");
   assert.notEqual(candidate, undefined);
   if (candidate === undefined) throw new Error("application validator candidate missing");
-  const activated = await pluginHost.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash } });
+  const activationSnapshot = await pluginHost.getActiveSnapshot();
+  assert.equal(activationSnapshot.ok, true);
+  if (!activationSnapshot.ok) throw new Error("activation snapshot failed");
+  const activated = await pluginHost.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash, capabilities: candidate.capabilities }, expectedActivationStateDigest: activationSnapshot.value.digest });
   assert.equal(activated.ok, true, activated.ok ? "" : JSON.stringify(activated.error));
   if (!activated.ok) throw new Error("plugin activation failed");
 
@@ -250,9 +257,9 @@ test("SaveRevision consumes a real PluginHost snapshot before writes and returns
     assert.equal(await value.activationPort.compareAndReplace({ expectedDigest: value.activeDigest, nextState: empty }), true);
     gate.release();
     const first = await firstSave;
-    assert.equal(first.ok, true);
+    assert.equal(first.ok, true, first.ok ? "" : first.error.code);
     if (!first.ok) return;
-    assert.deepEqual(JSON.parse(new TextDecoder().decode(first.value.revision.contentBytes)), { title: "validated" });
+    assert.deepEqual(JSON.parse(new TextDecoder().decode(first.value.revision.contentBytes)), { contract: "site-content/v1", title: "validated", blocks: [], seo: {} });
     assert.equal(first.value.activePluginStateDigest, value.activeDigest);
     assert.equal(first.value.stateDigest, persistedState(value.store).digest);
     assert.equal(first.value.currentPointer.currentRevisionId, "draft-1");
@@ -261,10 +268,10 @@ test("SaveRevision consumes a real PluginHost snapshot before writes and returns
     assert.deepEqual(trace(value).map((item) => item.frozen), [true]);
     assert.deepEqual(value.site.snapshot("published"), { ok: true, value: before.published });
 
-    const second = await value.app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2", content: { title: "raw" } }));
+    const second = await value.app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2", expectedCurrentRevisionId: "draft-1", content: { contract: "site-content/v1", title: "raw", blocks: [], seo: {} } }));
     assert.equal(second.ok, true);
     if (!second.ok) return;
-    assert.deepEqual(JSON.parse(new TextDecoder().decode(second.value.revision.contentBytes)), { title: "raw" });
+    assert.deepEqual(JSON.parse(new TextDecoder().decode(second.value.revision.contentBytes)), { contract: "site-content/v1", title: "raw", blocks: [], seo: {} });
     assert.equal(second.value.activePluginStateDigest, sha256Digest(canonical(empty)));
     assert.equal(trace(value).length, 1);
     assert.equal(second.value.currentPointer.currentRevisionId, "draft-2");
@@ -343,7 +350,7 @@ test("SaveRevision replacement consumes one active validator snapshot and persis
     assert.equal(replaced.ok, true, replaced.ok ? "" : replaced.error.code);
     if (!replaced.ok) return;
     assert.equal(replaced.value.activePluginStateDigest, value.activeDigest);
-    assert.deepEqual(JSON.parse(new TextDecoder().decode(replaced.value.revision.contentBytes)), { title: "validated" });
+    assert.deepEqual(JSON.parse(new TextDecoder().decode(replaced.value.revision.contentBytes)), { contract: "site-content/v1", title: "validated", blocks: [], seo: {} });
     assert.deepEqual(replaced.value.references.map((reference) => reference.assetVersion), [{ assetId: "asset-a", assetVersionId: "version-b" }]);
     assert.equal(trace(value).length, 1);
   } finally {

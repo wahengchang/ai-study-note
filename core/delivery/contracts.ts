@@ -1,6 +1,6 @@
 import type { Digest, MessageRemediation } from "../foundation/index.js";
 import type { RendererOutput } from "../renderer/index.js";
-export type ArtifactManifest = Readonly<{ contract: "artifact-manifest/v1"; rendererInputDigest: Digest; provenance: RendererOutput["provenance"]; routes: RendererOutput["routes"]; files: readonly Readonly<{ path: string; digest: Digest; byteLength: number }>[]; totalDigest: Digest }>;
+export type ArtifactManifest = Readonly<{ contract: "artifact-manifest/v1"; rendererInputDigest: Digest; provenance: RendererOutput["provenance"]; seo: RendererOutput["seo"]; routes: RendererOutput["routes"]; files: readonly Readonly<{ path: string; digest: Digest; byteLength: number }>[]; totalDigest: Digest }>;
 export type ArtifactFileSnapshot = Readonly<{ path: string; bytes: Uint8Array; digest: Digest }>;
 export type VerifiedDeliveredArtifact = Readonly<{ artifactDigest: Digest; manifest: ArtifactManifest; files: readonly ArtifactFileSnapshot[] }>;
 export type DeliveryFailure = Readonly<{ code: "INVALID_RENDERER_OUTPUT" | "ARTIFACT_WRITE_FAILED" | "ARTIFACT_IMMUTABILITY_CONFLICT" | "REDELIVERY_SOURCE_INVALID"; owner: "Delivery"; subjectIds: readonly string[]; remediation: MessageRemediation }>;

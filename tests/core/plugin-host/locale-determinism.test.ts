@@ -12,6 +12,8 @@ import {
   type PluginActivationState,
   type PluginActivationStatePort,
   type PluginManifestV1,
+  type PluginSettingsState,
+  type PluginSettingsStatePort,
 } from "../../../core/plugin-host/index.js";
 
 const repositoryRoot = process.cwd();
@@ -55,6 +57,19 @@ class MemoryActivationStatePort implements PluginActivationStatePort {
     return true;
   }
 }
+class MemorySettingsStatePort implements PluginSettingsStatePort {
+  public state: PluginSettingsState = Object.freeze({ contract: "plugin-settings-state/v1", records: Object.freeze([]) });
+
+  public async read(): Promise<PluginSettingsState> {
+    return this.state;
+  }
+
+  public async compareAndReplace(input: Readonly<{ expectedDigest: Digest; nextState: PluginSettingsState }>): Promise<boolean> {
+    if (input.expectedDigest !== sha256Digest(bytes(this.state))) return false;
+    this.state = input.nextState;
+    return true;
+  }
+}
 
 function manifestFor(pluginDirectory: string, pluginId: string, files: readonly string[]): PluginManifestV1 {
   return {
@@ -95,7 +110,7 @@ test("identity and manifest hash follow code-unit order, not the host locale", a
     const installedRoot = path.join(directory, "installed");
     const expected = pluginIds.map((pluginId) => stage(installedRoot, pluginId));
     const port = new MemoryActivationStatePort();
-    const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: installedRoot, activationState: port });
+    const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: installedRoot, activationState: port, settingsState: new MemorySettingsStatePort() });
     assert.equal(created.ok, true);
     if (!created.ok) return;
 
@@ -106,7 +121,10 @@ test("identity and manifest hash follow code-unit order, not the host locale", a
       const candidate = report.value.candidates.find((item) => item.id === pluginId);
       assert.notEqual(candidate, undefined);
       if (candidate === undefined) return;
-      const activated = await created.value.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash } });
+      const baseline = await created.value.getActiveSnapshot();
+      assert.equal(baseline.ok, true);
+      if (!baseline.ok) throw new Error("Activation snapshot unexpectedly failed");
+      const activated = await created.value.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash, capabilities: candidate.capabilities }, expectedActivationStateDigest: baseline.value.digest });
       assert.equal(activated.ok, true, activated.ok ? "" : activated.error.code);
     }
     assert.deepEqual(port.state.active.map((identity) => identity.id), [...pluginIds].sort());

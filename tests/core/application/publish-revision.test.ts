@@ -4,8 +4,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { DomainApplication, DomainApplicationDependencies } from "../../../core/application/index.js";
+import { createContentReadModel } from "../../../core/content/index.js";
+
+function contentReadModel() { const model = createContentReadModel({ approvedRawFullPageSchemas: [] }); assert.equal(model.ok, true); if (!model.ok) throw new Error("createContentReadModel"); return model.value; }
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import type { DataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
@@ -54,7 +57,7 @@ async function withStore(body: (store: PersistenceStore, pluginHost: DomainAppli
     const store = openStore(directory);
     const installedRoot = path.join(directory, "installed");
     mkdirSync(installedRoot);
-    const host = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: store }) });
+    const host = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: store }), settingsState: createPersistencePluginSettingsStatePort({ persistence: store }) });
     assert.equal(host.ok, true);
     if (!host.ok) return;
     try { await body(store, host.value); } finally { store.close(); }
@@ -62,14 +65,14 @@ async function withStore(body: (store: PersistenceStore, pluginHost: DomainAppli
 }
 
 async function save(app: DomainApplication, revisionId: string, operationId: string) {
-  const result = await app.saveRevision({ entryId: "entry-a", revisionId, operationId, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route: "/guide", assetVersions: [] });
+  const result = await app.saveRevision({ entryId: "entry-a", revisionId, operationId, expectedCurrentRevisionId: revisionId === "draft-1" ? null : "draft-1", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route: "/guide", assetVersions: [] });
   assert.equal(result.ok, true, result.ok ? "" : result.error.code);
 }
 
 test("PublishRevision moves only the published selection and records non-revision lineage", async () => {
   await withStore(async (store, pluginHost) => {
     const site = createSiteDefinition({ persistence: store });
-    const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     await save(app, "draft-1", "save-1");
     const beforeCurrent = site.snapshot("current"); assert.equal(beforeCurrent.ok, true);
     const published = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" });
@@ -95,22 +98,22 @@ test("PublishRevision moves only the published selection and records non-revisio
 test("PublishRevision rejects invalid, stale, schema, media, and route gates without mutation", async () => {
   await withStore(async (store, pluginHost) => {
     const site = createSiteDefinition({ persistence: store });
-    const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     await save(app, "draft-1", "save-1");
     const beforeMismatch = digestOf(store);
     const mismatch = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "other", operationId: "publish-1" });
     assert.equal(mismatch.ok, false); if (!mismatch.ok) assert.equal(mismatch.error.code, "CURRENT_REVISION_MISMATCH");
     assert.equal(digestOf(store), beforeMismatch);
     const conflictSite: DomainApplicationDependencies["siteDefinition"] = { ...site, preparePublishedClaim: () => ({ ok: false, error: { code: "ROUTE_CONFLICT", owner: "SiteDefinition", subjectIds: [], remediation: { kind: "message", message: "" } } }) };
-    const conflictApp = createDomainApplication({ persistence: store, siteDefinition: conflictSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const conflictApp = createDomainApplication({ persistence: store, siteDefinition: conflictSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     const beforeRoute = digestOf(store);
     const conflict = await conflictApp.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-2" });
     assert.equal(conflict.ok, false); if (!conflict.ok) assert.equal(conflict.error.code, "ROUTE_CONFLICT");
     assert.equal(digestOf(store), beforeRoute);
-    const schemaApp = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: { validate: () => ({ ok: false }) }, pluginHost });
+    const schemaApp = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: { validate: () => ({ ok: false }) }, pluginHost, contentReadModel: contentReadModel() });
     const invalid = await schemaApp.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-3" });
     assert.equal(invalid.ok, false); if (!invalid.ok) assert.equal(invalid.error.code, "SCHEMA_INVALID");
-    const mediaApp = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: unavailableMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const mediaApp = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: unavailableMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     const media = await mediaApp.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-4" });
     assert.equal(media.ok, false); if (!media.ok) assert.equal(media.error.code, "MEDIA_UNAVAILABLE");
     assert.equal(digestOf(store), beforeRoute);
@@ -121,8 +124,8 @@ test("PublishRevision reports stale route proposals and leaves its write-set unc
   await withStore(async (store, pluginHost) => {
     const site = createSiteDefinition({ persistence: store });
     const staleSite: DomainApplicationDependencies["siteDefinition"] = { ...site, validatePublishedClaimInTransaction: () => ({ ok: false, error: { code: "STALE_ROUTE_PROPOSAL", owner: "SiteDefinition", subjectIds: [], remediation: { kind: "message", message: "" } } }) };
-    const app = createDomainApplication({ persistence: store, siteDefinition: staleSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
-    await save(createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost }), "draft-1", "save-1");
+    const app = createDomainApplication({ persistence: store, siteDefinition: staleSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
+    await save(createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() }), "draft-1", "save-1");
     const before = digestOf(store);
     const result = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" });
     assert.equal(result.ok, false); if (!result.ok) assert.equal(result.error.code, "STALE_ROUTE_PROPOSAL");
@@ -133,7 +136,7 @@ test("PublishRevision reports stale route proposals and leaves its write-set unc
 test("PublishRevision replaces an existing published claim when current route moves", async () => {
   await withStore(async (store, pluginHost) => {
     const site = createSiteDefinition({ persistence: store });
-    const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     await save(app, "draft-1", "save-1");
     assert.equal((await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" })).ok, true);
     await save(app, "draft-2", "save-2");
@@ -154,7 +157,7 @@ test("PublishRevision replaces an existing published claim when current route mo
 test("PublishRevision rejects a proposal detached from its selected current-route snapshot", async () => {
   await withStore(async (store, pluginHost) => {
     const site = createSiteDefinition({ persistence: store });
-    const initial = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const initial = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     await save(initial, "draft-1", "save-1");
     const racedSite: DomainApplicationDependencies["siteDefinition"] = {
       ...site,
@@ -164,7 +167,7 @@ test("PublishRevision rejects a proposal detached from its selected current-rout
         return site.preparePublishedClaim(input);
       },
     };
-    const app = createDomainApplication({ persistence: store, siteDefinition: racedSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
+    const app = createDomainApplication({ persistence: store, siteDefinition: racedSite, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost, contentReadModel: contentReadModel() });
     const result = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" });
     assert.equal(result.ok, false);
     if (!result.ok) assert.equal(result.error.code, "STALE_ROUTE_PROPOSAL");

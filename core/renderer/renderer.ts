@@ -62,8 +62,15 @@ function structuredBlock(value: unknown): boolean {
     && structuredSource(value.source) && typeof value.staticFallback === "string";
 }
 function structuredContent(value: unknown): boolean {
-  return exact(value, ["contract", "title", "blocks"]) && value.contract === "site-content/v1" && typeof value.title === "string" && value.title.length > 0
-    && Array.isArray(value.blocks) && value.blocks.every((block) => structuredBlock(block));
+  if (!exact(value, ["contract", "title", "blocks", "seo"]) || value.contract !== "site-content/v1" || typeof value.title !== "string" || value.title.length === 0 || !Array.isArray(value.blocks) || !value.blocks.every((block) => structuredBlock(block))) return false;
+  const seo = value.seo;
+  if (seo === null || typeof seo !== "object" || Array.isArray(seo)) return false;
+  const keys = Object.keys(seo);
+  if (keys.some((key) => key !== "title" && key !== "description" && key !== "canonicalPath")) return false;
+  const fields = seo as Record<string, unknown>;
+  return (fields.title === undefined || typeof fields.title === "string" && fields.title.length > 0)
+    && (fields.description === undefined || typeof fields.description === "string" && fields.description.length > 0)
+    && (fields.canonicalPath === undefined || typeof fields.canonicalPath === "string" && fields.canonicalPath.length > 0);
 }
 function frozen<T>(value: T): T {
   if (value !== null && typeof value === "object") {
@@ -95,15 +102,15 @@ function assetOutput(value: unknown): readonly Readonly<{ path: string; bytes: U
   }
   return Object.freeze(files);
 }
-function themeOutput(value: unknown, expectedRoutes: readonly string[]): readonly Readonly<{ path: string; bytes: Uint8Array; route: string }>[] | null {
+function themeOutput(value: unknown, expectedRoutes: readonly string[]): readonly Readonly<{ path: string; route: string; language: string; bodyHtml: string; stylesheetResources: readonly string[] }>[] | null {
   if (thenable(value) || !exact(value, ["contract", "pages"]) || value.contract !== "theme-render-output/v1" || !Array.isArray(value.pages)) return null;
   const expected = new Set(expectedRoutes);
-  const pages: Array<Readonly<{ path: string; bytes: Uint8Array; route: string }>> = [];
+  const pages: Array<Readonly<{ path: string; route: string; language: string; bodyHtml: string; stylesheetResources: readonly string[] }>> = [];
   for (const page of (value as ThemeRenderOutput).pages) {
-    if (!exact(page, ["route", "html"]) || typeof page.route !== "string" || typeof page.html !== "string" || !expected.delete(page.route)) return null;
+    if (!exact(page, ["route", "language", "bodyHtml", "stylesheetResources"]) || typeof page.route !== "string" || !/^[A-Za-z0-9-]+$/u.test(page.language) || typeof page.bodyHtml !== "string" || !Array.isArray(page.stylesheetResources) || new Set(page.stylesheetResources).size !== page.stylesheetResources.length || !page.stylesheetResources.every((resource) => typeof resource === "string" && resource.endsWith(".css")) || !expected.delete(page.route)) return null;
     const path = routePath(page.route);
     if (path === null) return null;
-    pages.push(Object.freeze({ route: page.route, path, bytes: new TextEncoder().encode(page.html) }));
+    pages.push(Object.freeze({ route: page.route, path, language: page.language, bodyHtml: page.bodyHtml, stylesheetResources: Object.freeze([...page.stylesheetResources]) }));
   }
   return expected.size === 0 ? Object.freeze(pages) : null;
 }
@@ -111,6 +118,14 @@ async function module(input: Readonly<{ bytes: Uint8Array; manifestHash: Digest;
   const loaded = await loadVerifiedRendererModule({ entryBytes: input.bytes, manifestHash: input.manifestHash, requiredExports: input.requiredExports });
   return loaded?.namespace ?? null;
 }
+function htmlAttribute(value: string): string { return value.replace(/[&<>"']/gu, (character) => character === "&" ? "&amp;" : character === "<" ? "&lt;" : character === ">" ? "&gt;" : character === "\"" ? "&quot;" : "&#39;"); }
+function relativeAssetHref(filePath: string, assetPath: string): string { return "../".repeat(filePath.split("/").length - 1) + assetPath; }
+function jsonLdScript(value: unknown): string | null {
+  const encoded = canonicalJsonBytes(value);
+  if (!encoded.ok) return null;
+  return new TextDecoder().decode(encoded.value).replaceAll("<", "\\u003c").replaceAll(">", "\\u003e").replaceAll("&", "\\u0026").replaceAll("\u2028", "\\u2028").replaceAll("\u2029", "\\u2029");
+}
+function xml(value: string): string { return value.replace(/[&<>"']/gu, (character) => character === "&" ? "&amp;" : character === "<" ? "&lt;" : character === ">" ? "&gt;" : character === "\"" ? "&quot;" : "&apos;"); }
 
 class Renderer implements StaticRenderer {
   public async render(artifact: RendererInputArtifact): Promise<RendererResult<RendererOutput>> {
@@ -208,13 +223,52 @@ class Renderer implements StaticRenderer {
     } catch {
       return error("RENDERER_CALLBACK_FAILED");
     }
-    const themeFiles = themeOutput(themed, routes.map((route) => route.route));
-    if (themeFiles === null) return error("RENDERER_CALLBACK_RESULT_INVALID");
-    const routeFiles = themeFiles.map((file) => Object.freeze({ route: file.route, filePath: file.path })).sort((left, right) => compare(left.route, right.route));
+    const themePages = themeOutput(themed, routes.map((route) => route.route));
+    if (themePages === null) return error("RENDERER_CALLBACK_RESULT_INVALID");
+    if (input.seo === null || typeof input.seo !== "object" || !Array.isArray(input.seo.pageContributions) || !Array.isArray(input.seo.siteContributions)) return error("INVALID_RENDERER_INPUT");
+    const seoByRoute = new Map<string, RendererInputV1["seo"]["pageContributions"][number]>();
+    for (const record of input.seo.pageContributions) {
+      const existing = seoByRoute.get(record.contribution.route);
+      if (existing !== undefined || !routes.some((route) => route.route === record.contribution.route && route.entryId === record.contribution.entryId && route.revisionId === record.contribution.revisionId)) return error("SEO_CONTRIBUTION_CONFLICT");
+      seoByRoute.set(record.contribution.route, record);
+    }
+    if (input.seo.siteContributions.length > 1) return error("SEO_CONTRIBUTION_CONFLICT");
+    const routeFiles = themePages.map((file) => Object.freeze({ route: file.route, filePath: file.path })).sort((left, right) => compare(left.route, right.route));
     if (new Set(routeFiles.map((file) => file.route)).size !== routeFiles.length || new Set(routeFiles.map((file) => file.filePath)).size !== routeFiles.length) return error("RENDER_OUTPUT_CONFLICT");
+    const cssByFile = new Map(input.theme.resources.filter((resource) => resource.file.endsWith(".css")).map((resource) => [resource.file, resource]));
+    const themeFiles: Array<Readonly<{ path: string; bytes: Uint8Array }>> = [];
+    const copiedStyles = new Set<string>();
+    for (const page of themePages) {
+      const entryRoute = routes.find((route) => route.route === page.route);
+      const entry = entryRoute === undefined ? undefined : entries.get(`${entryRoute.entryId}\0${entryRoute.revisionId}`);
+      if (entry === undefined) return error("INVALID_RENDERER_INPUT");
+      const stylesheetLinks: string[] = [];
+      for (const name of page.stylesheetResources) {
+        const resource = cssByFile.get(name);
+        if (resource === undefined) return error("RENDERER_CALLBACK_RESULT_INVALID");
+        const assetPath = `assets/theme/${resource.digest.slice("sha256:".length)}.css`;
+        stylesheetLinks.push(`<link rel="stylesheet" href="${htmlAttribute(relativeAssetHref(page.path, assetPath))}">`);
+        if (!copiedStyles.has(assetPath)) { copiedStyles.add(assetPath); const bytes = verifiedBytes(resource.bytesBase64, resource.digest); if (bytes === null) return error("INVALID_RENDERER_INPUT"); themeFiles.push(Object.freeze({ path: assetPath, bytes })); }
+      }
+      const seo = seoByRoute.get(page.route)?.contribution;
+      const title = htmlAttribute(seo?.title ?? entry.content.title);
+      const description = seo?.description === undefined ? "" : `<meta name="description" content="${htmlAttribute(seo.description)}">`;
+      const seoHead = seo === undefined ? "" : `<link rel="canonical" href="${htmlAttribute(seo.canonicalUrl)}"><meta property="og:title" content="${htmlAttribute(seo.openGraph.title)}">${seo.openGraph.description === undefined ? "" : `<meta property="og:description" content="${htmlAttribute(seo.openGraph.description)}">`}<meta property="og:url" content="${htmlAttribute(seo.openGraph.url)}"><meta property="og:type" content="${seo.openGraph.type}"><script type="application/ld+json">${jsonLdScript({ "@context": "https://schema.org", "@type": seo.jsonLd.type, name: seo.jsonLd.name, ...(seo.jsonLd.description === undefined ? {} : { description: seo.jsonLd.description }), url: seo.jsonLd.url }) ?? ""}</script>`;
+      themeFiles.push(Object.freeze({ path: page.path, bytes: new TextEncoder().encode(`<!doctype html><html lang="${htmlAttribute(page.language)}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${stylesheetLinks.join("")}<title>${title}</title>${description}${seoHead}</head><body>${page.bodyHtml}</body></html>`) }));
+    }
+    const seoFiles: Array<Readonly<{ path: string; bytes: Uint8Array }>> = [];
+    const siteSeo = input.seo.siteContributions[0]?.contribution;
+    if (siteSeo !== undefined) {
+      if (!Array.isArray(siteSeo.sitemapUrls) || siteSeo.sitemapUrls.length === 0 || new Set(siteSeo.sitemapUrls).size !== siteSeo.sitemapUrls.length || siteSeo.sitemapUrls.some((url: unknown) => typeof url !== "string" || /[\r\n\0]/u.test(url)) || (siteSeo.robots.indexing !== "allow" && siteSeo.robots.indexing !== "disallow") || typeof siteSeo.robots.sitemapUrl !== "string" || /[\r\n\0]/u.test(siteSeo.robots.sitemapUrl)) return error("SEO_CONTRIBUTION_CONFLICT");
+      const locations = [...siteSeo.sitemapUrls].sort(compare);
+      const sitemap = `<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">${locations.map((location) => `<url><loc>${xml(location)}</loc></url>`).join("")}</urlset>\n`;
+      const directive = siteSeo.robots.indexing === "allow" ? "Allow: /" : "Disallow: /";
+      const robots = `User-agent: *\n${directive}\nSitemap: ${siteSeo.robots.sitemapUrl}\n`;
+      seoFiles.push(Object.freeze({ path: "sitemap.xml", bytes: new TextEncoder().encode(sitemap) }), Object.freeze({ path: "robots.txt", bytes: new TextEncoder().encode(robots) }));
+    }
     const files: RenderedFile[] = [];
     const paths = new Set<string>();
-    if (!outputFiles(pluginFiles, files, paths) || !outputFiles(themeFiles, files, paths)) return error("RENDER_OUTPUT_CONFLICT");
+    if (!outputFiles(pluginFiles, files, paths) || !outputFiles(themeFiles, files, paths) || !outputFiles(seoFiles, files, paths)) return error("RENDER_OUTPUT_CONFLICT");
     files.sort((left, right) => compare(left.path, right.path));
     const provenance = Object.freeze({
       publishedRevisionIds: Object.freeze(input.selection.publishedRevisionIds.map((item) => Object.freeze({ ...item }))),
@@ -223,9 +277,12 @@ class Renderer implements StaticRenderer {
       theme: Object.freeze({ id: input.theme.identity.id, version: input.theme.identity.version, manifestHash: input.theme.identity.manifestHash }),
       plugins: Object.freeze(input.plugins.map((plugin) => Object.freeze({ id: plugin.identity.id, version: plugin.identity.version, manifestHash: plugin.identity.manifestHash }))),
     });
-    const evidence = canonicalJsonBytes({ provenance, routes: routeFiles, files: files.map((file) => ({ path: file.path, digest: file.digest })) });
+    const seoEvidence = canonicalJsonBytes(input.seo.evidence);
+    if (!seoEvidence.ok || !Number.isSafeInteger(input.seo.omissionCount) || input.seo.omissionCount < 0) return error("INVALID_RENDERER_INPUT");
+    const seo = Object.freeze({ evidenceDigest: sha256Digest(seoEvidence.value), omissionCount: input.seo.omissionCount });
+    const evidence = canonicalJsonBytes({ provenance, seo, routes: routeFiles, files: files.map((file) => ({ path: file.path, digest: file.digest })) });
     if (!evidence.ok) return error("RENDER_OUTPUT_CONFLICT");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "renderer-output/v1", rendererInputDigest: artifact.inputDigest, provenance, routes: Object.freeze(routeFiles), files: Object.freeze(files), outputDigest: sha256Digest(evidence.value) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "renderer-output/v1", rendererInputDigest: artifact.inputDigest, provenance, routes: Object.freeze(routeFiles), seo, files: Object.freeze(files), outputDigest: sha256Digest(evidence.value) }) });
   }
 }
 export function createStaticRenderer(): StaticRenderer { return new Renderer(); }

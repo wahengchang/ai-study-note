@@ -10,14 +10,15 @@ import { createStaticRenderer } from "../../../core/renderer/index.js";
 
 function digest(value: string): string { return sha256Digest(new TextEncoder().encode(value)); }
 function artifact(sources: Readonly<{ pluginSource?: string }> = {}) {
-  const themeSource = "export function render(input) { return { contract: 'theme-render-output/v1', pages: input.routes.map((route) => { const entry = input.entries.find((item) => item.entryId === route.entryId && item.revisionId === route.revisionId); return { route: route.route, html: '<h1>' + entry.content.title + '</h1>' }; }) }; }";
+  const themeSource = "export function render(input) { return { contract: 'theme-render-output/v1', pages: input.routes.map((route) => { const entry = input.entries.find((item) => item.entryId === route.entryId && item.revisionId === route.revisionId); return { route: route.route, language: 'zh-Hant', bodyHtml: '<h1>' + entry.content.title + '</h1>', stylesheetResources: [] }; }) }; }";
   const payload = {
     contract: "renderer-input/v1" as const,
     selection: { publishedRevisionIds: [{ entryId: "note", revisionId: "published" }], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media") },
-    entries: [{ entryId: "note", revisionId: "published", content: { contract: "site-content/v1" as const, title: "公開內容", blocks: [] }, contentDigest: digest("content") }],
+    entries: [{ entryId: "note", revisionId: "published", content: { contract: "site-content/v1" as const, title: "公開內容", blocks: [], seo: {} }, contentDigest: digest("content") }],
     routes: [{ route: "/guide", entryId: "note", revisionId: "published" }],
     media: [],
     theme: { identity: { id: "theme", version: "1.0.0", rendererContract: "theme-renderer/v1" as const, manifestHash: digest("theme") }, entrySourceBase64: Buffer.from(themeSource).toString("base64"), entryDigest: digest(themeSource), resources: [] },
+    seo: { pageContributions: [], siteContributions: [], evidence: [], omissionCount: 0 },
     plugins: sources.pluginSource === undefined ? [] : [{
       identity: { id: "assets", version: "1.0.0", hookContract: "plugin-hooks/v1" as const, manifestHash: digest("assets-plugin") },
       entrySourceBase64: Buffer.from(sources.pluginSource).toString("base64"),
@@ -51,7 +52,7 @@ test("相同 immutable renderer input 會交付相同的 Theme artifact", async 
     const result = delivery.value.deliver(first.value);
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(readFileSync(path.join(result.value.directory, first.value.routes[0]?.filePath ?? ""), "utf8"), "<h1>公開內容</h1>");
+    assert.equal(readFileSync(path.join(result.value.directory, first.value.routes[0]?.filePath ?? ""), "utf8"), "<!doctype html><html lang=\"zh-Hant\"><head><meta charset=\"utf-8\"><meta name=\"viewport\" content=\"width=device-width, initial-scale=1\"><title>公開內容</title></head><body><h1>公開內容</h1></body></html>");
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

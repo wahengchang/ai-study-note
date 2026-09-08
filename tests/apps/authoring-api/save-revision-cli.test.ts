@@ -33,7 +33,7 @@ test("SaveRevision CLI maps a failed save to exit code 1 with the failure code o
   const directory = mkdtempSync(path.join(tmpdir(), "save-revision-cli-"));
   const environment = { cwd: directory, homeDirectory: directory, xdgConfigHome: path.join(directory, "config") };
   try {
-    writeFileSync(path.join(directory, "request.json"), JSON.stringify({ contract: "save-revision-request/v1", revisionId: "r", operationId: "o", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "t" }, route: "/r", assetVersions: [] }));
+    writeFileSync(path.join(directory, "request.json"), JSON.stringify({ contract: "save-revision-request/v1", revisionId: "r", operationId: "o", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "t" }, route: "/r", assetVersions: [] }));
     // credential 尚未 provision：client 在接觸 network 之前就 fail closed。
     const notProvisioned = io();
     assert.equal(await runSaveRevisionCli(["--entry-id", "entry", "--input", "request.json"], notProvisioned.value, environment), 1);

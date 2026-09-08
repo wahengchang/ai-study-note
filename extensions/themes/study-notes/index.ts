@@ -1,26 +1,4 @@
 // @ts-nocheck
-const STYLE = `
-:root { color-scheme: light; font-family: system-ui, sans-serif; line-height: 1.6; }
-* { box-sizing: border-box; }
-body { margin: 0; background: #f8fafc; color: #172033; }
-a { color: #075985; }
-:where(a, button, iframe, [tabindex]):focus-visible { outline: 3px solid #f59e0b; outline-offset: 3px; }
-.skip-link { position: absolute; left: 1rem; top: -4rem; padding: .5rem .75rem; background: #172033; color: #fff; z-index: 1; }
-.skip-link:focus { top: 1rem; }
-.site-header, main, .site-footer { width: min(100% - 2rem, 72rem); margin-inline: auto; }
-.site-header { padding-block: 1.5rem; }
-.site-header p { margin: 0; color: #475569; }
-.site-nav ul { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
-main { padding-block: 1.5rem 3rem; }
-article { padding: clamp(1rem, 4vw, 3rem); background: #fff; border: 1px solid #cbd5e1; border-radius: .75rem; }
-h1 { line-height: 1.2; }
-.embedded-content { margin-block: 1.5rem; padding: 1rem; border: 1px solid #94a3b8; border-radius: .5rem; }
-.embedded-content iframe { width: 100%; min-height: 18rem; border: 1px solid #64748b; }
-.embedded-fallback { margin-top: 1rem; }
-.site-footer { padding-block: 1.5rem; color: #475569; }
-@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }
-`;
-
 function record(value) {
   return typeof value === "object" && value !== null;
 }
@@ -96,15 +74,15 @@ function navigation(route, routes, entries) {
   }).join("");
 }
 
-function shell(route, title, body, routes, entries) {
+function shell(route, body, routes, entries) {
   const home = escapeHtml(routes.some((item) => item.route === "/") ? relativeHref(route, "/") : "./");
-  return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body><a class="skip-link" href="#main-content">跳至主要內容</a><header class="site-header"><p><a href="${home}">AI Study Note</a></p><nav class="site-nav" aria-label="文章導覽"><ul>${navigation(route, routes, entries)}</ul></nav></header><main id="main-content" tabindex="-1">${body}</main><footer class="site-footer">由 AI Study Note 產生的靜態頁面。</footer></body></html>`;
+  return `<a class="skip-link" href="#main-content">跳至主要內容</a><header class="site-header"><p><a href="${home}">AI Study Note</a></p><nav class="site-nav" aria-label="文章導覽"><ul>${navigation(route, routes, entries)}</ul></nav></header><main id="main-content" tabindex="-1">${body}</main><footer class="site-footer">由 AI Study Note 產生的靜態頁面。</footer>`;
 }
 
 function document(route, entry, routes, entries) {
   const raw = rawFullPage(entry.content.blocks);
-  if (raw !== undefined) return shell(route, entry.content.title, `<section class="embedded-content" aria-labelledby="raw-page-title"><h1 id="raw-page-title">${escapeHtml(entry.content.title)}</h1><h2>原始完整頁面</h2><iframe title="原始完整頁面" aria-describedby="raw-page-fallback" srcdoc="${escapeHtml(raw.html)}"></iframe><p class="embedded-fallback" id="raw-page-fallback"><strong>靜態替代內容：</strong>${escapeHtml(raw.staticFallback)}</p></section>`, routes, entries);
-  return shell(route, entry.content.title, `<article aria-labelledby="entry-title"><h1 id="entry-title">${escapeHtml(entry.content.title)}</h1>${renderBlocks(entry.content.blocks, entry.blocks)}</article>`, routes, entries);
+  if (raw !== undefined) return shell(route, `<section class="embedded-content" aria-labelledby="raw-page-title"><h1 id="raw-page-title">${escapeHtml(entry.content.title)}</h1><h2>原始完整頁面</h2><iframe title="原始完整頁面" aria-describedby="raw-page-fallback" srcdoc="${escapeHtml(raw.html)}"></iframe><p class="embedded-fallback" id="raw-page-fallback"><strong>靜態替代內容：</strong>${escapeHtml(raw.staticFallback)}</p></section>`, routes, entries);
+  return shell(route, `<article aria-labelledby="entry-title"><h1 id="entry-title">${escapeHtml(entry.content.title)}</h1>${renderBlocks(entry.content.blocks, entry.blocks)}</article>`, routes, entries);
 }
 
 
@@ -113,7 +91,7 @@ export function render(input) {
   const pages = input.routes.map((route) => {
     const entry = entries.get(`${route.entryId}\0${route.revisionId}`);
     if (entry === undefined) throw new Error("missing route entry");
-    return { route: route.route, html: document(route.route, entry, input.routes, entries) };
+    return { route: route.route, language: "zh-Hant", bodyHtml: document(route.route, entry, input.routes, entries), stylesheetResources: ["style.css"] };
   });
   return { contract: "theme-render-output/v1", pages };
 }

@@ -1,17 +1,24 @@
-import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
+import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
 import type { AssetVersionIdentity, RestoreAssetCommandDescriptor } from "../media/index.js";
-import type { PluginHostFailure } from "../plugin-host/index.js";
-import type { PublishedRouteClaimProposal, RouteClaim, RouteClaimReplacementProposal } from "../site-definition/index.js";
+import type { PluginActivationIdentity, PluginActivationManagementSnapshot, PluginCandidate, PluginHostFailure, PluginSettingsRecord, SeoPluginSettingsV1 } from "../plugin-host/index.js";
+import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal } from "../site-definition/index.js";
 
 import type {
+  AuthoringEntryV1,
   ChangeRouteRequest,
   ChangeRouteSuccess,
+  CmsSeoAnalysisRequest,
+  CmsSeoAnalysisResultV1,
+  CmsSeoAnalysisSuccess,
   DomainApplication,
   DomainApplicationCommandFailure,
   DomainApplicationDependencies,
   DomainApplicationFailure,
   DomainApplicationFailureCode,
   DomainApplicationResult,
+  PluginActivationRequestV1,
+  PluginManagementSnapshotV1,
+  PluginSettingsReplaceRequestV1,
   PublishRevisionRequest,
   PublishRevisionSuccess,
   RestoreRevisionRequest,
@@ -27,6 +34,9 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_PUBLISH_REVISION_REQUEST: "請修正 PublishRevision request。",
   INVALID_RESTORE_REVISION_REQUEST: "請修正 RestoreRevision request。",
   INVALID_CHANGE_ROUTE_REQUEST: "請修正 ChangeRoute request。",
+  INVALID_SEO_ANALYSIS_REQUEST: "請修正 CMS SEO analysis request。",
+  ENTRY_NOT_FOUND: "找不到指定的 entry。",
+  READ_CURRENT_ENTRY_FAILED: "無法讀取目前 entry。",
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
   MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
@@ -92,7 +102,7 @@ function verifiedSourceContent(bytes: Uint8Array, digest: Digest): CanonicalCont
   }
 }
 
-export function createDomainApplication({ persistence, siteDefinition, dataMedia, schemaValidator, pluginHost }: DomainApplicationDependencies): DomainApplication {
+export function createDomainApplication({ persistence, siteDefinition, dataMedia, schemaValidator, pluginHost, contentReadModel }: DomainApplicationDependencies): DomainApplication {
   const mediaUnavailable = <T>(assetVersions: readonly AssetVersionIdentity[]): DomainApplicationResult<T> => {
     const unavailable = assetVersions.filter((assetVersion) => !dataMedia.getReadyAssetVersion(assetVersion).ok);
     return fail("MEDIA_UNAVAILABLE", "DataMedia", (unavailable.length > 0 ? unavailable : assetVersions).map((item) => item.assetId));
@@ -110,7 +120,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     return fail(operationFailure[operation], "SiteDefinition", [entryId]);
   };
 
-  const executeSaveRevision = async (request: SaveRevisionRequest, expectedCurrentRevisionId?: string): Promise<DomainApplicationResult<SaveRevisionSuccess>> => {
+  const executeSaveRevision = async (request: SaveRevisionRequest): Promise<DomainApplicationResult<SaveRevisionSuccess>> => {
     if (!validSave(request) || duplicate(request.assetVersions)) return fail("INVALID_SAVE_REVISION_REQUEST");
     const initial = canonicalContent(request.content);
     if (initial === null) return fail("INVALID_SAVE_REVISION_REQUEST");
@@ -136,12 +146,11 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
 
     const result = persistence.runTransaction<SaveRevisionSuccess, DomainApplicationFailure>((transaction) => {
       const prior = transaction.getEntryPointers(request.entryId);
-      if (expectedCurrentRevisionId !== undefined) {
-        if (!prior.ok || prior.value.currentRevisionId !== expectedCurrentRevisionId) {
-          return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
-        }
-      } else if (!prior.ok && prior.error.code !== "ENTRY_POINTER_NOT_FOUND") {
-        return fail("SAVE_REVISION_FAILED");
+      if (request.expectedCurrentRevisionId === null) {
+        if (prior.ok) return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
+        if (prior.error.code !== "ENTRY_POINTER_NOT_FOUND") return fail("SAVE_REVISION_FAILED");
+      } else if (!prior.ok || prior.value.currentRevisionId !== request.expectedCurrentRevisionId) {
+        return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
       }
 
       const token = siteDefinition.validateCurrentClaimInTransaction(claim.value, transaction);
@@ -261,11 +270,155 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         schemaIdentity: source.value.schemaIdentity,
         content: sourceContent.value,
         route: selected.value.claim.normalizedRoute,
+        expectedCurrentRevisionId: request.expectedCurrentRevisionId,
         assetVersions,
       },
-      request.expectedCurrentRevisionId,
     );
   };
+
+  const readCurrentEntry = (input: Readonly<{ entryId: string }>): DomainApplicationResult<AuthoringEntryV1> => {
+    if (!entryInput(input)) return fail("ENTRY_NOT_FOUND");
+    const pointer = persistence.getEntryPointers(input.entryId);
+    if (!pointer.ok) {
+      return pointer.error.code === "ENTRY_POINTER_NOT_FOUND"
+        ? fail("ENTRY_NOT_FOUND", "Content", [input.entryId])
+        : fail("READ_CURRENT_ENTRY_FAILED", "Content", [input.entryId]);
+    }
+    const revision = persistence.getRevision({ entryId: input.entryId, revisionId: pointer.value.currentRevisionId });
+    if (!revision.ok) return fail("READ_CURRENT_ENTRY_FAILED", "Content", [input.entryId, pointer.value.currentRevisionId]);
+    const content = contentReadModel.read({
+      schemaIdentity: revision.value.schemaIdentity,
+      contentBytes: revision.value.contentBytes,
+      contentDigest: revision.value.contentDigest,
+    });
+    if (!content.ok) return fail("READ_CURRENT_ENTRY_FAILED", "Content", [input.entryId, pointer.value.currentRevisionId]);
+    const routeGraph = siteDefinition.snapshot("current");
+    if (!routeGraph.ok) return fail("READ_CURRENT_ENTRY_FAILED", "SiteDefinition", [input.entryId]);
+    const claim = routeGraph.value.claims.find((candidate) => candidate.owner === input.entryId && candidate.sourceRevisionId === pointer.value.currentRevisionId);
+    if (claim === undefined) return fail("READ_CURRENT_ENTRY_FAILED", "SiteDefinition", [input.entryId]);
+    const references = persistence.getRevisionReferences(revision.value.identity);
+    if (!references.ok) return fail("READ_CURRENT_ENTRY_FAILED", "Content", [input.entryId, pointer.value.currentRevisionId]);
+    const assetVersions = references.value
+      .map((reference) => reference.assetVersion)
+      .sort((left, right) => codeUnitCompare(identityKey(left), identityKey(right)));
+    return {
+      ok: true,
+      value: {
+        contract: "authoring-entry/v1",
+        entryId: input.entryId,
+        currentRevisionId: pointer.value.currentRevisionId,
+        publishedRevisionId: pointer.value.publishedRevisionId ?? null,
+        schemaIdentity: revision.value.schemaIdentity,
+        content: content.value.content as AuthoringEntryV1["content"],
+        route: claim.normalizedRoute,
+        assetVersions,
+      },
+    };
+  };
+
+  const analyzeCmsSeo = async (request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisSuccess>> => {
+    const analysis = normalizeCmsSeoAnalysisRequest(request);
+    if (analysis === null) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+    const document = canonicalContent(analysis.content);
+    if (document === null || documentDigest(analysis, document.value) !== analysis.documentDigest) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+    const normalizedRoute = normalizeRoute(analysis.route);
+    if (normalizedRoute === null || normalizedRoute.normalizedRoute !== analysis.route) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+    const schema = persistence.getSchemaVersion(analysis.schemaIdentity);
+    if (!schema.ok) return fail("INVALID_SEO_ANALYSIS_REQUEST", "Content", [analysis.schemaIdentity.schemaId]);
+    const content = contentReadModel.read({
+      schemaIdentity: analysis.schemaIdentity,
+      contentBytes: document.bytes,
+      contentDigest: document.digest,
+    });
+    if (!content.ok) return fail("INVALID_SEO_ANALYSIS_REQUEST", "Content", [analysis.entryId]);
+    const pointer = persistence.getEntryPointers(analysis.entryId);
+    if (analysis.expectedCurrentRevisionId === null) {
+      if (pointer.ok) return fail("CURRENT_REVISION_MISMATCH", "Content", [analysis.entryId]);
+      if (pointer.error.code !== "ENTRY_POINTER_NOT_FOUND") return fail("READ_CURRENT_ENTRY_FAILED", "Content", [analysis.entryId]);
+    } else {
+      if (!pointer.ok || pointer.value.currentRevisionId !== analysis.expectedCurrentRevisionId) {
+        return fail("CURRENT_REVISION_MISMATCH", "Content", [analysis.entryId]);
+      }
+      const current = persistence.getRevision({ entryId: analysis.entryId, revisionId: analysis.expectedCurrentRevisionId });
+      if (!current.ok || current.value.schemaIdentity.schemaId !== analysis.schemaIdentity.schemaId || current.value.schemaIdentity.version !== analysis.schemaIdentity.version) {
+        return fail("CURRENT_REVISION_MISMATCH", "Content", [analysis.entryId]);
+      }
+    }
+    const resolved = await pluginHost.analyzeCmsSeo({
+      entryId: analysis.entryId,
+      schemaIdentity: analysis.schemaIdentity,
+      content: content.value.content as JsonValue,
+      route: normalizedRoute.normalizedRoute,
+    });
+    if (!resolved.ok) {
+      return { ok: true, value: unavailableCmsSeoAnalysis(analysis.entryId, analysis.documentDigest, [resolved.error as PluginHostFailure]) };
+    }
+    if (resolved.value.status === "unavailable") {
+      return { ok: true, value: unavailableCmsSeoAnalysis(analysis.entryId, analysis.documentDigest, resolved.value.diagnostics) };
+    }
+    const canonicalUrl = resolvePublicRouteUrl(resolved.value.settings.publicSiteUrl, resolved.value.preview.canonicalPath);
+    if (canonicalUrl === null) {
+      return { ok: true, value: unavailableCmsSeoAnalysis(analysis.entryId, analysis.documentDigest, [invalidSeoProducerDiagnostic()]) };
+    }
+    const result: CmsSeoAnalysisResultV1 = {
+      contract: "cms-seo-analysis-result/v1",
+      status: "available",
+      documentDigest: analysis.documentDigest,
+      preview: {
+        title: resolved.value.preview.title,
+        ...(resolved.value.preview.description === undefined ? {} : { description: resolved.value.preview.description }),
+        canonicalUrl,
+      },
+      suggestions: resolved.value.suggestions,
+      producers: resolved.value.producers,
+    };
+    return { ok: true, value: { contract: "cms-seo-analysis-success/v1", entryId: analysis.entryId, result } };
+  };
+
+  const replacePluginSettings = async (request: PluginSettingsReplaceRequestV1): Promise<DomainApplicationResult<Readonly<{ settingsStateDigest: Digest }>>> => {
+    const settings = normalizePluginSettingsReplaceRequest(request);
+    if (settings === null) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+    const replaced = await pluginHost.replaceSettings(settings);
+    return replaced.ok
+      ? { ok: true, value: { settingsStateDigest: replaced.value.digest } }
+      : { ok: false, error: replaced.error as PluginHostFailure };
+  };
+  const listPlugins = async (): Promise<DomainApplicationResult<PluginManagementSnapshotV1>> => {
+    const [discovery, activation, settings] = await Promise.all([
+      pluginHost.discover(),
+      pluginHost.getActivationManagementSnapshot(),
+      pluginHost.getSettingsSnapshot(),
+    ]);
+    if (!discovery.ok) return { ok: false, error: discovery.error as PluginHostFailure };
+    if (!activation.ok) return { ok: false, error: activation.error as PluginHostFailure };
+    if (!settings.ok) return { ok: false, error: settings.error as PluginHostFailure };
+    const plugins = [...discovery.value.candidates]
+      .sort((left, right) => codeUnitCompare(left.id, right.id))
+      .map((candidate) => pluginManagementCandidate(candidate, activation.value, settings.value.state.records));
+    const diagnostics = discovery.value.rejections
+      .flatMap((rejection) => rejection.detail === undefined ? [] : [rejection.detail])
+      .sort((left, right) => codeUnitCompare(`${left.capability}\0${left.scope.kind === "entry" ? left.scope.entryId : ""}\0${left.hook}\0${left.pluginId}`, `${right.capability}\0${right.scope.kind === "entry" ? right.scope.entryId : ""}\0${right.hook}\0${right.pluginId}`));
+    return {
+      ok: true,
+      value: {
+        contract: "plugin-management-snapshot/v1",
+        activationStateDigest: activation.value.activationStateDigest,
+        settingsStateDigest: settings.value.digest,
+        plugins,
+        diagnostics,
+      },
+    };
+  };
+
+  const activatePlugin = async (request: PluginActivationRequestV1): Promise<DomainApplicationResult<Readonly<{ activationStateDigest: Digest }>>> => {
+    const activation = normalizePluginActivationRequest(request);
+    if (activation === null) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+    const activated = await pluginHost.activate(activation);
+    return activated.ok
+      ? { ok: true, value: { activationStateDigest: activated.value.digest } }
+      : { ok: false, error: activated.error as PluginHostFailure };
+  };
+
 
   return {
     async saveRevision(request: SaveRevisionCommandRequest) {
@@ -275,6 +428,26 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         ? executeSaveRevision(command.request)
         : executeMediaReferenceReplacement(command.request);
     },
+    async readCurrentEntry(input) {
+      return readCurrentEntry(input);
+    },
+
+    async analyzeCmsSeo(request) {
+      return analyzeCmsSeo(request);
+    },
+
+    async replacePluginSettings(request) {
+      return replacePluginSettings(request);
+    },
+    async listPlugins() {
+      return listPlugins();
+    },
+
+    async activatePlugin(request) {
+      return activatePlugin(request);
+    },
+
+
 
     async changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>> {
       const change = normalizeChangeRouteRequest(request);
@@ -536,6 +709,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
               },
             };
       });
+
       return result.ok
         ? result
         : result.error.owner === "Persistence"
@@ -543,6 +717,223 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
           : { ok: false, error: result.error };
     },
   };
+}
+function normalizePluginActivationRequest(value: unknown): PluginActivationRequestV1 | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["contract", "identity", "expectedActivationStateDigest"]);
+  const identity = pluginIdentity(fields?.identity);
+  if (
+    fields === null
+    || fields.contract !== "plugin-activation-request/v1"
+    || identity === null
+    || typeof fields.expectedActivationStateDigest !== "string"
+    || !isDigest(fields.expectedActivationStateDigest)
+  ) {
+    return null;
+  }
+  return { contract: fields.contract, identity, expectedActivationStateDigest: fields.expectedActivationStateDigest };
+}
+
+function pluginManagementCandidate(
+  candidate: PluginCandidate,
+  activation: PluginActivationManagementSnapshot,
+  records: readonly PluginSettingsRecord[],
+): PluginManagementSnapshotV1["plugins"][number] {
+  const identity = {
+    id: candidate.id,
+    version: candidate.version,
+    hookContract: candidate.hookContract,
+    manifestHash: candidate.manifestHash,
+    capabilities: candidate.capabilities,
+  };
+  const active = activation.active.some((entry) => samePluginIdentity(entry, identity));
+  const reactivationRequired = activation.reactivationRequired.some((entry) => samePluginIdentity(entry, identity));
+  const record = records.find((entry) => entry.identity.id === candidate.id);
+  const settings = record === undefined
+    ? { status: "missing" as const }
+    : !samePluginIdentity(record.identity, identity)
+      ? { status: "identity-mismatch" as const, settingsDigest: record.settingsDigest }
+      : record.settingsContract !== "seo-plugin-settings/v1" || record.settings.contract !== record.settingsContract
+        ? { status: "contract-mismatch" as const, settingsDigest: record.settingsDigest }
+        : seoSettings(record.settings) === null
+          ? { status: "invalid" as const, settingsDigest: record.settingsDigest }
+          : { status: "valid" as const, settingsContract: record.settingsContract, settings: record.settings, settingsDigest: record.settingsDigest };
+  return {
+    identity: candidate,
+    activation: reactivationRequired ? "reactivation-required" : active ? "active" : "inactive",
+    settings,
+  };
+}
+
+function samePluginIdentity(left: PluginActivationIdentity, right: PluginActivationIdentity): boolean {
+  if (left.id !== right.id || left.version !== right.version || left.hookContract !== right.hookContract || left.manifestHash !== right.manifestHash || left.capabilities.length !== right.capabilities.length) return false;
+  return left.capabilities.every((capability, index) => capability === right.capabilities[index]);
+}
+
+function entryInput(value: unknown): value is Readonly<{ entryId: string }> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  const fields = ownEnumerableFields(value, ["entryId"]);
+  return fields !== null && text(fields.entryId);
+}
+
+function documentDigest(
+  request: Readonly<{ entryId: string; expectedCurrentRevisionId: string | null; schemaIdentity: Readonly<{ schemaId: string; version: number }>; route: string }>,
+  content: JsonValue,
+): Digest | null {
+  const canonical = canonicalJsonBytes({
+    entryId: request.entryId,
+    expectedCurrentRevisionId: request.expectedCurrentRevisionId,
+    schemaIdentity: request.schemaIdentity,
+    content,
+    route: request.route,
+  });
+  return canonical.ok ? sha256Digest(canonical.value) : null;
+}
+
+function normalizeCmsSeoAnalysisRequest(value: unknown): CmsSeoAnalysisRequest | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["contract", "entryId", "expectedCurrentRevisionId", "schemaIdentity", "content", "route", "documentDigest"]);
+  const schemaIdentity = schema(fields?.schemaIdentity);
+  if (
+    fields === null
+    || fields.contract !== "cms-seo-analysis-request/v1"
+    || !text(fields.entryId)
+    || (fields.expectedCurrentRevisionId !== null && !text(fields.expectedCurrentRevisionId))
+    || schemaIdentity === null
+    || !text(fields.route)
+    || typeof fields.documentDigest !== "string"
+    || !isDigest(fields.documentDigest)
+  ) {
+    return null;
+  }
+  return {
+    contract: fields.contract,
+    entryId: fields.entryId,
+    expectedCurrentRevisionId: fields.expectedCurrentRevisionId,
+    schemaIdentity,
+    content: fields.content as unknown as CmsSeoAnalysisRequest["content"],
+    route: fields.route,
+    documentDigest: fields.documentDigest,
+  };
+}
+
+function normalizePluginSettingsReplaceRequest(value: unknown): PluginSettingsReplaceRequestV1 | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["contract", "identity", "expectedSettingsStateDigest", "settingsContract", "settings"]);
+  const identity = pluginIdentity(fields?.identity);
+  const settings = seoSettings(fields?.settings);
+  if (
+    fields === null
+    || fields.contract !== "plugin-settings-replace-request/v1"
+    || identity === null
+    || typeof fields.expectedSettingsStateDigest !== "string"
+    || !isDigest(fields.expectedSettingsStateDigest)
+    || fields.settingsContract !== "seo-plugin-settings/v1"
+    || settings === null
+    || settings.contract !== fields.settingsContract
+  ) {
+    return null;
+  }
+  return {
+    contract: fields.contract,
+    identity,
+    expectedSettingsStateDigest: fields.expectedSettingsStateDigest,
+    settingsContract: fields.settingsContract,
+    settings,
+  };
+}
+
+function unavailableCmsSeoAnalysis(entryId: string, documentDigest: Digest, diagnostics: readonly PluginHostFailure[]): CmsSeoAnalysisSuccess {
+  return {
+    contract: "cms-seo-analysis-success/v1",
+    entryId,
+    result: {
+      contract: "cms-seo-analysis-result/v1",
+      status: "unavailable",
+      documentDigest,
+      diagnostics,
+    },
+  };
+}
+
+function invalidSeoProducerDiagnostic(): PluginHostFailure {
+  return {
+    code: "PLUGIN_CALLBACK_RESULT_INVALID",
+    owner: "PluginHost",
+    subjectIds: [],
+    remediation: { kind: "message", message: "Plugin SEO output 無效。" },
+  };
+}
+
+function resolvePublicRouteUrl(publicSiteUrl: string, route: string): string | null {
+  const normalizedRoute = normalizeRoute(route);
+  if (normalizedRoute === null || normalizedRoute.normalizedRoute !== route) return null;
+  try {
+    const base = new URL(publicSiteUrl);
+    if (
+      base.protocol !== "https:"
+      || base.username !== ""
+      || base.password !== ""
+      || base.port !== ""
+      || base.search !== ""
+      || base.hash !== ""
+      || base.href !== publicSiteUrl
+      || !/^\/(?:[^/]+\/)*$/u.test(base.pathname)
+    ) {
+      return null;
+    }
+    const suffix = route === "/" ? "" : route.slice(1).replace(/\/?$/u, "/");
+    return new URL(suffix, base).href;
+  } catch {
+    return null;
+  }
+}
+
+function schema(value: unknown): Readonly<{ schemaId: string; version: number }> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["schemaId", "version"]);
+  return fields !== null && text(fields.schemaId) && typeof fields.version === "number" && Number.isSafeInteger(fields.version) && fields.version > 0
+    ? { schemaId: fields.schemaId, version: fields.version }
+    : null;
+}
+
+function pluginIdentity(value: unknown): PluginActivationIdentity | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["id", "version", "hookContract", "manifestHash", "capabilities"]);
+  if (
+    fields === null
+    || !text(fields.id)
+    || !text(fields.version)
+    || fields.hookContract !== "plugin-hooks/v1"
+    || typeof fields.manifestHash !== "string"
+    || !isDigest(fields.manifestHash)
+    || !Array.isArray(fields.capabilities)
+    || fields.capabilities.some((capability) => typeof capability !== "string")
+  ) {
+    return null;
+  }
+  return {
+    id: fields.id,
+    version: fields.version,
+    hookContract: fields.hookContract,
+    manifestHash: fields.manifestHash,
+    capabilities: [...fields.capabilities] as PluginActivationIdentity["capabilities"],
+  };
+}
+
+function seoSettings(value: unknown): SeoPluginSettingsV1 | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["contract", "publicSiteUrl", "indexing"]);
+  return fields !== null
+    && fields.contract === "seo-plugin-settings/v1"
+    && text(fields.publicSiteUrl)
+    && (fields.indexing === "allow" || fields.indexing === "disallow")
+    ? { contract: fields.contract, publicSiteUrl: fields.publicSiteUrl, indexing: fields.indexing }
+    : null;
+}
+
+function codeUnitCompare(left: string, right: string): number {
+  return left < right ? -1 : left > right ? 1 : 0;
 }
 
 function validSave(value: SaveRevisionRequest): boolean {
@@ -552,6 +943,7 @@ function validSave(value: SaveRevisionRequest): boolean {
     && value.revisionId.length > 0
     && typeof value.operationId === "string"
     && value.operationId.length > 0
+    && (value.expectedCurrentRevisionId === null || text(value.expectedCurrentRevisionId))
     && Array.isArray(value.assetVersions);
 }
 
@@ -618,9 +1010,11 @@ function normalizeSaveRevisionCommand(value: unknown): NormalizedSaveRevisionCom
   try {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
     const kind = Object.getOwnPropertyDescriptor(value, "kind");
-    if (kind === undefined) return { kind: "save", request: value as SaveRevisionRequest };
-    if (!("value" in kind)) return null;
-    if (kind.value !== "media-reference-replacement") return { kind: "save", request: value as SaveRevisionRequest };
+    if (kind !== undefined && (!("value" in kind) || kind.value !== "media-reference-replacement")) return null;
+    if (kind === undefined) {
+      const request = ownEnumerableFields(value, ["entryId", "revisionId", "operationId", "expectedCurrentRevisionId", "schemaIdentity", "content", "route", "assetVersions"]);
+      return request === null ? null : { kind: "save", request: request as SaveRevisionRequest };
+    }
 
     const request = ownEnumerableFields(value, [
       "kind",
