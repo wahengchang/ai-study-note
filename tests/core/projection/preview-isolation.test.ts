@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
+import { createPublishedContentReadModel } from "../../../core/content/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import { createPluginHost, type PluginActivationState } from "../../../core/plugin-host/index.js";
@@ -30,7 +31,7 @@ test("renderer input stays published-only while current preview exposes only its
     const store = opened.value;
     const schema = canonical({ type: "object" });
     assert.equal(store.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schema, schemaDigest: sha256Digest(schema) }).ok, true);
-    for (const [revisionId, content] of [["r1", { title: "published" }], ["r2", { title: "DRAFT_SECRET" }]] as const) {
+    for (const [revisionId, content] of [["r1", { contract: "site-content/v1", title: "published", blocks: [{ kind: "article", text: "published" }] }], ["r2", { contract: "site-content/v1", title: "DRAFT_SECRET", blocks: [{ kind: "article", text: "DRAFT_SECRET" }] }]] as const) {
       const bytes = canonical(content);
       assert.equal(store.createRevision({ identity: { entryId: "entry-a", revisionId }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: bytes, contentDigest: sha256Digest(bytes), lineage: { operationId: `save-${revisionId}`, operationKind: "SaveRevision" } }).ok, true);
     }
@@ -68,7 +69,10 @@ test("renderer input stays published-only while current preview exposes only its
     const themeHost = await createThemeHost({ repositoryRoot, installedThemesRoot: themes });
     assert.equal(themeHost.ok, true);
     if (!themeHost.ok) return;
-    const projection = createProjectionPreview({ persistence: store, siteDefinition, dataMedia: media.value, pluginHost: pluginHost.value, themeHost: themeHost.value });
+    const contentReadModel = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
+    assert.equal(contentReadModel.ok, true);
+    if (!contentReadModel.ok) return;
+    const projection = createProjectionPreview({ persistence: store, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value, pluginHost: pluginHost.value, themeHost: themeHost.value });
     const themeIdentity = { id: "safe-theme", version: "1.0.0", manifestHash: sha256Digest(manifest) } as const;
     const rendered = await projection.produceRendererInput({ themeIdentity });
     assert.equal(rendered.ok, true);

@@ -1,6 +1,6 @@
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
-import { validatePluginActivationIdentity } from "../plugin-host/index.js";
-import { normalizeRoute } from "../site-definition/index.js";
+import { parsePluginManifest, validatePluginActivationIdentity } from "../plugin-host/index.js";
+import { normalizeRoute, routeSnapshotDigest } from "../site-definition/index.js";
 import { parseThemeManifest } from "../theme-host/index.js";
 
 import { equalBytes, exact, freeze, mediaSelectionDigest, routeSelectionDigest } from "./canonical.js";
@@ -28,11 +28,19 @@ function embedded(value: unknown, byteLength: unknown, expected: unknown): boole
   return bytes.byteLength === byteLength && bytes.toString("base64url") === value && sha256Digest(bytes) === expected;
 }
 
+function structuredContent(value: unknown): boolean {
+  if (!exact(value, ["contract", "title", "blocks"]) || value.contract !== "site-content/v1" || !text(value.title) || !Array.isArray(value.blocks)) return false;
+  return value.blocks.every((block) => {
+    if (exact(block, ["kind", "text"])) return block.kind === "article" && typeof block.text === "string" && block.text.length > 0;
+    if (exact(block, ["kind", "html", "staticFallback"])) return block.kind === "raw-full-page" && typeof block.html === "string" && block.html.length > 0 && typeof block.staticFallback === "string" && block.staticFallback.length > 0;
+    return exact(block, ["kind", "pluginIdentity", "source", "staticFallback"]) && block.kind === "interactive-demo" && validatePluginActivationIdentity(block.pluginIdentity).ok && exact(block.source, ["html", "css", "javascript"]) && typeof block.source.html === "string" && typeof block.source.css === "string" && typeof block.source.javascript === "string" && typeof block.staticFallback === "string" && block.staticFallback.length > 0;
+  });
+}
 function rendererEntry(value: unknown): boolean {
   return exact(value, ["entryId", "revisionId", "schemaIdentity", "content", "contentDigest"])
     && text(value.entryId) && text(value.revisionId)
-    && exact(value.schemaIdentity, ["schemaId", "version"]) && text(value.schemaIdentity.schemaId) && count(value.schemaIdentity.version)
-    && canonicalDigest(value.content as JsonValue, value.contentDigest);
+    && exact(value.schemaIdentity, ["schemaId", "version"]) && text(value.schemaIdentity.schemaId) && Number.isSafeInteger(value.schemaIdentity.version) && (value.schemaIdentity.version as number) > 0
+    && structuredContent(value.content) && canonicalDigest(value.content as JsonValue, value.contentDigest);
 }
 function mediaReference(value: unknown): boolean {
   return exact(value, ["entryId", "revisionId", "assetVersion"]) && text(value.entryId) && text(value.revisionId)
@@ -84,8 +92,40 @@ function theme(value: unknown): boolean {
   });
 }
 function plugins(value: unknown): boolean {
-  if (!exact(value, ["activeStateDigest", "identities"]) || !digest(value.activeStateDigest) || !Array.isArray(value.identities)) return false;
-  return (value.identities as readonly unknown[]).every((identity) => validatePluginActivationIdentity(identity).ok);
+  if (!exact(value, ["activeStateDigest", "identities", "renderers"]) || !digest(value.activeStateDigest) || !Array.isArray(value.identities) || !Array.isArray(value.renderers)) return false;
+  const identities = value.identities as readonly unknown[];
+  if (!identities.every((identity) => validatePluginActivationIdentity(identity).ok)) return false;
+  const activeState = canonicalJsonBytes({ contract: "plugin-activation-state/v2", active: identities, reactivationRequired: [] });
+  if (!activeState.ok || sha256Digest(activeState.value) !== value.activeStateDigest) return false;
+  const identityIds = identities.map((identity) => (identity as Readonly<{ id: string }>).id);
+  if (!ascending(identityIds)) return false;
+  const identityById = new Map(identities.map((identity) => [(identity as Readonly<{ id: string }>).id, identity]));
+  const rendererIds: string[] = [];
+  for (const renderer of value.renderers as readonly Record<string, unknown>[]) {
+    if (!exact(renderer, ["identity", "manifest", "entryBytesBase64url", "entryDigest", "resources", "callbacks"]) || !validatePluginActivationIdentity(renderer.identity).ok || typeof renderer.entryBytesBase64url !== "string" || !digest(renderer.entryDigest)) return false;
+    const identity = renderer.identity as Readonly<{ id: string; version: string; hookContract: string; manifestHash: Digest }>;
+    const encodedManifest = canonicalJsonBytes(renderer.manifest);
+    const parsedManifest = encodedManifest.ok ? parsePluginManifest(encodedManifest.value, identity.id) : null;
+    if (parsedManifest === null || !parsedManifest.ok || parsedManifest.value.manifestHash !== identity.manifestHash || parsedManifest.value.manifest.version !== identity.version || parsedManifest.value.manifest.hookContract !== identity.hookContract || parsedManifest.value.manifest.entry.digest !== renderer.entryDigest) return false;
+    const manifest = parsedManifest.value.manifest;
+    const entryBytes = Buffer.from(renderer.entryBytesBase64url, "base64url");
+    if (entryBytes.toString("base64url") !== renderer.entryBytesBase64url || sha256Digest(entryBytes) !== renderer.entryDigest || !Array.isArray(renderer.resources) || !Array.isArray(renderer.callbacks)) return false;
+    const active = identityById.get(identity.id) as Readonly<{ id: string; version: string; hookContract: string; manifestHash: string }> | undefined;
+    if (active === undefined || active.id !== identity.id || active.version !== identity.version || active.hookContract !== identity.hookContract || active.manifestHash !== identity.manifestHash) return false;
+    rendererIds.push(identity.id);
+    const expectedResources = manifest.resources as readonly Record<string, unknown>[];
+    if (renderer.resources.length !== expectedResources.length) return false;
+    for (const [index, resource] of (renderer.resources as readonly Record<string, unknown>[]).entries()) {
+      const expected = expectedResources[index]!;
+      if (!exact(expected, ["file", "digest"]) || !exact(resource, ["file", "bytesBase64url", "digest"]) || resource.file !== expected.file || resource.digest !== expected.digest || typeof resource.bytesBase64url !== "string") return false;
+      const bytes = Buffer.from(resource.bytesBase64url, "base64url");
+      if (bytes.toString("base64url") !== resource.bytesBase64url || sha256Digest(bytes) !== resource.digest) return false;
+    }
+    const expectedCallbacks = (manifest.callbacks as readonly Record<string, unknown>[]).filter((callback) => exact(callback, ["hook", "exportName", "priority"]) && (callback.hook === "public/block/render" || callback.hook === "public/assets/emit")).sort((left, right) => Number(left.priority) - Number(right.priority) || (String(left.hook) < String(right.hook) ? -1 : String(left.hook) > String(right.hook) ? 1 : 0) || (String(left.exportName) < String(right.exportName) ? -1 : String(left.exportName) > String(right.exportName) ? 1 : 0));
+    if (expectedCallbacks.length === 0 || renderer.callbacks.length !== expectedCallbacks.length) return false;
+    if (!(renderer.callbacks as readonly unknown[]).every((callback, index) => exact(callback, ["hook", "exportName", "priority"]) && callback.hook === expectedCallbacks[index]!.hook && callback.exportName === expectedCallbacks[index]!.exportName && callback.priority === expectedCallbacks[index]!.priority)) return false;
+  }
+  return ascending(rendererIds) && rendererIds.length === new Set(rendererIds).size;
 }
 function claim(value: unknown): boolean {
   if (!exact(value, ["normalizedRoute", "owner", "sourceRevisionId"]) || !text(value.normalizedRoute) || !text(value.owner) || !text(value.sourceRevisionId)) return false;
@@ -101,8 +141,8 @@ function validRendererInput(value: Record<string, unknown>): boolean {
   if (!Array.isArray(entries) || !entries.every(rendererEntry) || !ascending(entries.map((entry) => `${entry.entryId}\u0000${entry.revisionId}`))) return false;
   if (!exact(routes, ["contract", "normalization", "graph", "claims"]) || routes.contract !== "route-graph-snapshot/v1" || routes.normalization !== "route-normalization/v1" || routes.graph !== "published") return false;
   const claims = routes.claims as readonly Record<string, never>[];
-  if (!Array.isArray(claims) || !claims.every(claim)) return false;
-  if (new Set(claims.map((value) => String(value.owner))).size !== claims.length || new Set(claims.map((value) => String(value.normalizedRoute))).size !== claims.length) return false;
+  if (!Array.isArray(claims) || !claims.every(claim) || routeSnapshotDigest("published", claims) !== selection.routeGraphDigest) return false;
+  if (new Set(claims.map((item) => String(item.owner))).size !== claims.length || new Set(claims.map((item) => String(item.normalizedRoute))).size !== claims.length) return false;
   if (!media(value.media) || !theme(value.theme) || !plugins(value.plugins)) return false;
   if (mediaSelectionDigest(value.media) !== selection.mediaSelectionDigest) return false;
   const selected = selection.publishedRevisionIds as readonly Record<string, never>[];

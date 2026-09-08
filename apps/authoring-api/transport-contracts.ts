@@ -2,7 +2,7 @@ import type { DomainApplicationFailureCode } from "../../core/application/index.
 import type { PluginHostFailureCode } from "../../core/plugin-host/index.js";
 import { z } from "zod";
 
-import { SECRET_TEXT_PATTERN } from "./origin.js";
+import { API_KEY_PATTERN, BROWSER_TICKET_PATTERN, SECRET_TEXT_PATTERN } from "./origin.js";
 
 const positiveInteger = z.number().int().safe().positive();
 const stringArray = z.array(z.string());
@@ -26,6 +26,30 @@ export const serverProofSchema = z.object({
   generation: positiveInteger,
   nonce: z.string().regex(SECRET_TEXT_PATTERN),
   mac: z.string().regex(SECRET_TEXT_PATTERN),
+}).strict();
+
+export const browserTicketMintRequestSchema = z.object({
+  contract: z.literal("browser-ticket-mint-request/v1"),
+  generation: positiveInteger,
+  proofNonce: z.string().regex(SECRET_TEXT_PATTERN),
+}).strict();
+
+export const browserTicketSchema = z.object({
+  contract: z.literal("browser-ticket/v1"),
+  ticket: z.string().regex(BROWSER_TICKET_PATTERN),
+  generation: positiveInteger,
+  expiresInSeconds: z.literal(60),
+}).strict();
+
+export const browserSessionExchangeSchema = z.object({
+  contract: z.literal("browser-session-exchange/v1"),
+  ticket: z.string().regex(BROWSER_TICKET_PATTERN),
+}).strict();
+
+export const browserSessionSchema = z.object({
+  contract: z.literal("browser-session/v1"),
+  generation: positiveInteger,
+  apiKey: z.string().regex(API_KEY_PATTERN),
 }).strict();
 
 export const saveRevisionRequestSchema = z.object({
@@ -87,6 +111,7 @@ export type TransportCode =
   | "AUTHORIZATION_INVALID"
   | "AUTHORIZATION_REVOKED"
   | "SERVER_PROOF_GENERATION_MISMATCH"
+  | "BROWSER_BOOTSTRAP_INVALID"
   | "INVALID_REQUEST_BODY"
   | "REQUEST_BODY_TOO_LARGE"
   | "ROUTE_NOT_FOUND"
@@ -100,7 +125,7 @@ const transportStatuses: Readonly<Record<TransportCode, readonly number[]>> = {
   INVALID_REQUEST_FRAMING: [400], MISDIRECTED_REQUEST: [421], ORIGIN_FORBIDDEN: [403],
   AUTHORIZATION_REQUIRED: [401], AUTHORIZATION_MALFORMED: [401], AUTHORIZATION_DUPLICATE: [401],
   AUTHORIZATION_ALTERNATE_TRANSPORT: [401], AUTHORIZATION_INVALID: [401], AUTHORIZATION_REVOKED: [401],
-  SERVER_PROOF_GENERATION_MISMATCH: [401], INVALID_REQUEST_BODY: [400], REQUEST_BODY_TOO_LARGE: [400],
+  SERVER_PROOF_GENERATION_MISMATCH: [401], BROWSER_BOOTSTRAP_INVALID: [401], INVALID_REQUEST_BODY: [400], REQUEST_BODY_TOO_LARGE: [400],
   ROUTE_NOT_FOUND: [404], METHOD_NOT_ALLOWED: [405], UNSUPPORTED_MEDIA_TYPE: [415], INTERNAL_SERVER_ERROR: [500, 503],
 };
 
@@ -152,6 +177,10 @@ export const authoringErrorSchema = z.object({
 
 export type ServerProofChallengeDto = Readonly<z.infer<typeof serverProofChallengeSchema>>;
 export type ServerProofDto = Readonly<z.infer<typeof serverProofSchema>>;
+export type BrowserTicketMintRequestDto = Readonly<z.infer<typeof browserTicketMintRequestSchema>>;
+export type BrowserTicketDto = Readonly<z.infer<typeof browserTicketSchema>>;
+export type BrowserSessionExchangeDto = Readonly<z.infer<typeof browserSessionExchangeSchema>>;
+export type BrowserSessionDto = Readonly<z.infer<typeof browserSessionSchema>>;
 export type SaveRevisionRequestDto = Readonly<z.infer<typeof saveRevisionRequestSchema>>;
 export type SaveRevisionSuccessDto = Readonly<z.infer<typeof saveRevisionSuccessSchema>>;
 export type PublishRevisionRequestDto = Readonly<z.infer<typeof publishRevisionRequestSchema>>;

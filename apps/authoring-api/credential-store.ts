@@ -31,6 +31,11 @@ export interface CredentialAdmission {
   readonly generation: number;
   verifyBearer(candidate: string): boolean;
   createServerProof(nonce: string): string;
+  /**
+   * Browser ticket consume 的唯一 raw-key handoff。呼叫即清除 admission bytes；
+   * 因此同一 admission 不能再驗證、簽 proof 或再次交付 key。
+   */
+  takeBrowserSessionApiKey(): string | undefined;
   dispose(): void;
 }
 export interface AuthoringCredentialAuthority {
@@ -357,6 +362,13 @@ export function createLocalAuthoringCredentialAuthorityWithIo(input: LocalAuthor
         generation,
         verifyBearer(candidate) { if (key === undefined) return false; const actual = encode(candidate); try { return actual.byteLength === key.byteLength && timingSafeEqual(actual, key); } finally { actual.fill(0); } },
         createServerProof(nonce) { if (key === undefined) return ""; const nonceBytes = encode(`authoring-server-proof/v1\0${ORIGIN}\0${generation}\0${nonce}`); try { return createHmac("sha256", key).update(nonceBytes).digest("base64url"); } finally { nonceBytes.fill(0); } },
+        takeBrowserSessionApiKey() {
+          if (key === undefined) return undefined;
+          const value = new TextDecoder("utf-8", { fatal: true }).decode(key);
+          key.fill(0);
+          key = undefined;
+          return value;
+        },
         dispose() { if (key !== undefined) { key.fill(0); key = undefined; } },
       } };
     },

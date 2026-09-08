@@ -16,12 +16,18 @@ import type { PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
 import { createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi } from "../../../apps/authoring-api/index.js";
-import type { AuthoringApiLogEvent, AuthoringCredentialAuthority } from "../../../apps/authoring-api/index.js";
+import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
 const authority = "127.0.0.1:43127";
 type Headers = Readonly<Record<string, string | readonly string[]>>;
 type RawResponse = Readonly<{ status: number; body: string; headers: Readonly<Record<string, string | readonly string[] | undefined>> }>;
+const cmsAssets: CmsAssets = {
+  bootstrapPath: "assets/bootstrap-test.js",
+  read(pathname) {
+    return pathname === "/cms/assets/bootstrap-test.js" ? { bytes: new TextEncoder().encode("export {};"), contentType: "text/javascript; charset=utf-8", destination: "script" } : undefined;
+  },
+};
 
 function send(method: string, pathname: string, headers: Headers, body?: string): Promise<RawResponse> {
   const deferred = Promise.withResolvers<RawResponse>();
@@ -86,7 +92,7 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
       return application.publishRevision(args[0]);
     } };
     const log: AuthoringApiLogEvent[] = [];
-    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, logger: (event) => log.push(event) });
+    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event) });
     if (!started.ok) throw new Error(`${started.error.code}（127.0.0.1:43127 是否已被佔用？）`);
     close = started.value.close;
     const digest = (): string => { const state = persistence.value.canonicalState(); if (!state.ok) throw new Error(state.error.code); return state.value.digest; };
@@ -108,6 +114,52 @@ test("actual listener proves current credential and saves a revision", async () 
     assert.equal(body.contract, "save-revision-success/v1"); assert.equal(body.entryId, "entry");
     assert.equal(body.revision.revisionId, "revision-1"); assert.equal(body.pointer.currentRevisionId, "revision-1");
     assertResponseHeaders(saved, "save success");
+  });
+});
+
+test("CMS documents and manifest assets apply their independent Fetch Metadata gate", async () => {
+  await withAuthoringApi(async ({ digest }) => {
+    const before = digest();
+    const document = await send("GET", "/cms/entries/new", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
+    assert.equal(document.status, 200);
+    assert.match(document.body, /<script type="module" src="\/cms\/assets\/bootstrap-test\.js"><\/script>/u);
+    assert.equal(document.headers["content-security-policy"] !== undefined, true);
+    const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+    assert.equal(asset.status, 200);
+    assert.equal(asset.body, "export {};");
+    const wrongDestination = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "style" });
+    assert.equal(wrongDestination.status, 403);
+    const encoded = await send("GET", "/cms/entries/a%2Fb", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
+    assert.equal(encoded.status, 404);
+    const query = await send("GET", "/cms?ticket=leak", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
+    assert.equal(query.status, 403);
+    assert.equal(digest(), before);
+  });
+});
+
+test("typed client mints one browser ticket and browser exchange receives the sole session secret response", async () => {
+  await withAuthoringApi(async ({ directory, apiKey }) => {
+    const client = createLocalAuthoringClient({ homeDirectory: directory, xdgConfigHome: path.join(directory, "config") });
+    const minted = await client.mintBrowserTicket();
+    assert.equal(minted.ok, true);
+    if (!minted.ok) return;
+    assert.match(minted.value.ticket, /^asn_bt_v1_[A-Za-z0-9_-]{43}$/u);
+    assert.equal(minted.value.ticket.includes(apiKey), false);
+    const exchange = await fetch(`${origin}/_local/browser-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin" },
+      body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: minted.value.ticket }),
+    });
+    assert.equal(exchange.status, 200);
+    const session = await exchange.json() as { contract: string; generation: number; apiKey: string };
+    assert.deepEqual(session, { contract: "browser-session/v1", generation: 1, apiKey });
+    const replay = await fetch(`${origin}/_local/browser-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin" },
+      body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: minted.value.ticket }),
+    });
+    assert.equal(replay.status, 401);
+    assert.equal((await replay.text()).includes(minted.value.ticket), false);
   });
 });
 
@@ -256,7 +308,7 @@ test("every rejected transport shape fails closed with its contract status and m
       { name: "oversized body", headers: bearer, body: oversized, status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "SaveRevision request 不得超過 4 MiB。" },
       { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },
       { name: "percent-encoded entryId", path: "/v1/entries/a%2Fb/revisions", headers: bearer, body: saveBody("r", "/a"), status: 404, code: "ROUTE_NOT_FOUND" },
-      { name: "unlisted /_local route", path: "/_local/browser-tickets", headers: bearer, body: "{}", status: 404, code: "ROUTE_NOT_FOUND" },
+      { name: "browser ticket rejects malformed body", path: "/_local/browser-tickets", headers: bearer, body: "{}", status: 400, code: "INVALID_REQUEST_BODY" },
       { name: "server proof rejects cookie", path: "/_local/server-proof", headers: { ...json, Cookie: "session=1" }, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       { name: "server proof rejects query", path: "/_local/server-proof?key=1", headers: json, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       // proof route 的上限是 4 KiB；remediation 不得沿用 SaveRevision 的 4 MiB 說明。

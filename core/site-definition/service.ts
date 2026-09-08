@@ -194,6 +194,11 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
   };
 }
 
+export function routeSnapshotDigest(graph: RouteGraph, claims: readonly Readonly<{ normalizedRoute: string; owner: string; sourceRevisionId: string }>[]): Digest | null {
+  const encoded = encodeSnapshot(graph, claims as readonly RouteClaim[]);
+  return encoded.ok ? sha256Digest(encoded.value) : null;
+}
+
 function encodeSnapshot(graph: RouteGraph, claims: readonly RouteClaim[]) {
   return canonicalJsonBytes({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph, claims: [...claims].sort(compareClaims).map(({ normalizedRoute, owner, sourceRevisionId }) => ({ normalizedRoute, owner, sourceRevisionId })) });
 }

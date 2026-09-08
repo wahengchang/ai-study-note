@@ -6,7 +6,7 @@ import type { RouteClaim } from "../site-definition/index.js";
 import type { ThemeHostFailure, ThemeIdentity } from "../theme-host/index.js";
 
 import { equalBytes, exact, freeze, mediaSelectionDigest, routeSelectionDigest } from "./canonical.js";
-import type { PreviewInput, PreviewInputArtifact, ProjectionDependencies, ProjectionPreview, ProjectionResult, RendererEntry, RendererInput, RendererInputArtifact, RendererMedia, RendererMediaAsset, RendererMediaReference, RendererTheme, RendererThemeFile } from "./contracts.js";
+import type { PreviewInput, PreviewInputArtifact, ProjectionDependencies, ProjectionPreview, ProjectionResult, RendererEntry, RendererInput, RendererInputArtifact, RendererMedia, RendererMediaAsset, RendererMediaReference, RendererPluginRenderer, RendererTheme, RendererThemeFile } from "./contracts.js";
 import { projectionFailure } from "./failures.js";
 
 const maximumObjectBytes = 64 * 1024 * 1024;
@@ -40,9 +40,10 @@ function decodeCanonical(bytes: Uint8Array, digest: Digest): JsonValue | null {
     return freeze(parsed as JsonValue);
   } catch { return null; }
 }
-function entry(record: RevisionRecord): RendererEntry | null {
-  const content = decodeCanonical(record.contentBytes, record.contentDigest);
-  return content === null ? null : Object.freeze({ entryId: record.identity.entryId, revisionId: record.identity.revisionId, schemaIdentity: Object.freeze({ ...record.schemaIdentity }), content, contentDigest: record.contentDigest });
+function entry(record: RevisionRecord, dependencies: ProjectionDependencies): ProjectionResult<RendererEntry> {
+  const content = dependencies.contentReadModel.read({ schemaIdentity: record.schemaIdentity, contentBytes: record.contentBytes, contentDigest: record.contentDigest });
+  if (!content.ok) return { ok: false, error: content.error };
+  return { ok: true, value: Object.freeze({ entryId: record.identity.entryId, revisionId: record.identity.revisionId, schemaIdentity: Object.freeze({ ...record.schemaIdentity }), content: content.value.content, contentDigest: content.value.digest }) };
 }
 function metadata(asset: ReadyAssetVersion): JsonValue | null { return decodeCanonical(asset.metadataBytes, asset.metadataDigest); }
 function selectionKey(value: Selected): string { return `${value.entryId}\u0000${value.revisionId}`; }
@@ -98,9 +99,9 @@ function captureInSnapshot(input: Readonly<{ dependencies: ProjectionDependencie
   for (const identity of selected) {
     const revision = snapshot.getRevision(identity);
     if (!revision.ok) return { ok: false, error: projectionFailure("INVALID_REVISION_EVIDENCE", [identity.entryId, identity.revisionId]) };
-    const value = entry(revision.value);
-    if (value === null) return { ok: false, error: projectionFailure("INVALID_REVISION_EVIDENCE", [identity.entryId, identity.revisionId]) };
-    entries.push(value);
+    const value = entry(revision.value, input.dependencies);
+    if (!value.ok) return value;
+    entries.push(value.value);
     const revisionReferences = snapshot.getRevisionReferences(identity);
     if (!revisionReferences.ok) return { ok: false, error: projectionFailure("UNRESOLVED_MEDIA_REFERENCE", [identity.entryId, identity.revisionId]) };
     for (const reference of revisionReferences.value) {
@@ -134,36 +135,51 @@ function captureInSnapshot(input: Readonly<{ dependencies: ProjectionDependencie
   const guardBytes = canonicalJsonBytes(guardBody(bare));
   return !guardBytes.ok ? { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") } : { ok: true, value: Object.freeze({ ...bare, guard: sha256Digest(guardBytes.value) }) };
 }
-async function materialize(input: Readonly<{ dependencies: ProjectionDependencies; captured: Captured; themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<Readonly<{ media: RendererMedia; theme: RendererTheme; identities: readonly PluginActivationIdentity[] }>>> {
+async function materialize(input: Readonly<{ dependencies: ProjectionDependencies; captured: Captured; themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<Readonly<{ media: RendererMedia; theme: RendererTheme; identities: readonly PluginActivationIdentity[]; renderers: readonly RendererPluginRenderer[] }>>> {
   const inspected = await input.dependencies.pluginHost.inspectActiveSnapshot();
-  if (!inspected.ok) return externalFailure<Readonly<{ media: RendererMedia; theme: RendererTheme; identities: readonly PluginActivationIdentity[] }>>(inspected.error);
+  if (!inspected.ok) return externalFailure(inspected.error);
   if (inspected.value.digest !== input.captured.pluginDigest) return { ok: false, error: projectionFailure("PROJECTION_STATE_CHANGED") };
+  const activeRenderers = await input.dependencies.pluginHost.resolveActivePublicRenderers();
+  if (!activeRenderers.ok) return externalFailure(activeRenderers.error);
+  if (activeRenderers.value.some((renderer) => renderer.activeStateDigest !== inspected.value.digest)) return { ok: false, error: projectionFailure("PROJECTION_STATE_CHANGED") };
   let total = 0;
   const objects = new Map<string, Readonly<{ objectDigest: Digest; byteLength: number; bytesBase64url: string }>>();
   for (const asset of input.captured.assets) {
     if (asset.byteLength > maximumObjectBytes || total > maximumEmbeddedBytes - asset.byteLength) return { ok: false, error: projectionFailure("PROJECTION_PAYLOAD_TOO_LARGE") };
     const object = await Promise.resolve(input.dependencies.dataMedia.readReadyObject(asset.identity));
-    if (!object.ok || object.value.asset.objectDigest !== asset.objectDigest || object.value.asset.byteLength !== asset.byteLength || object.value.asset.metadataDigest !== asset.metadataDigest) return { ok: false, error: projectionFailure("UNRESOLVED_MEDIA_REFERENCE", [asset.identity.assetId, asset.identity.assetVersionId]) };
+    if (!object.ok || object.value.asset.objectDigest !== asset.objectDigest || object.value.asset.byteLength !== asset.byteLength || object.value.asset.metadataDigest !== asset.metadataDigest || sha256Digest(object.value.bytes) !== asset.objectDigest || object.value.bytes.byteLength !== asset.byteLength) return { ok: false, error: projectionFailure("UNRESOLVED_MEDIA_REFERENCE", [asset.identity.assetId, asset.identity.assetVersionId]) };
+    total += asset.byteLength;
     const prior = objects.get(asset.objectDigest);
-    if (prior === undefined) {
-      if (sha256Digest(object.value.bytes) !== asset.objectDigest || object.value.bytes.byteLength !== asset.byteLength) return { ok: false, error: projectionFailure("UNRESOLVED_MEDIA_REFERENCE", [asset.identity.assetId, asset.identity.assetVersionId]) };
-      total += asset.byteLength;
-      objects.set(asset.objectDigest, Object.freeze({ objectDigest: asset.objectDigest, byteLength: asset.byteLength, bytesBase64url: Buffer.from(object.value.bytes).toString("base64url") }));
-    } else if (prior.byteLength !== asset.byteLength) return { ok: false, error: projectionFailure("UNRESOLVED_MEDIA_REFERENCE", [asset.identity.assetId, asset.identity.assetVersionId]) };
+    if (prior === undefined) objects.set(asset.objectDigest, Object.freeze({ objectDigest: asset.objectDigest, byteLength: asset.byteLength, bytesBase64url: Buffer.from(object.value.bytes).toString("base64url") }));
+    else if (prior.byteLength !== asset.byteLength) return { ok: false, error: projectionFailure("UNRESOLVED_MEDIA_REFERENCE", [asset.identity.assetId, asset.identity.assetVersionId]) };
   }
   const resolved = await input.dependencies.themeHost.resolveExact({ identity: Object.freeze({ ...input.themeIdentity }) });
-  if (!resolved.ok) return externalFailure<Readonly<{ media: RendererMedia; theme: RendererTheme; identities: readonly PluginActivationIdentity[] }>>(resolved.error);
+  if (!resolved.ok) return externalFailure(resolved.error);
   const files: RendererThemeFile[] = [];
   for (const [role, file] of [["runtime", resolved.value.manifest.runtime], ...resolved.value.manifest.resources.map((value) => ["resource", value] as const)] as const) {
     const bytes = await input.dependencies.themeHost.readVerifiedFile({ identity: resolved.value.identity, file: file.file });
-    if (!bytes.ok) return externalFailure<Readonly<{ media: RendererMedia; theme: RendererTheme; identities: readonly PluginActivationIdentity[] }>>(bytes.error);
-    if (total > maximumEmbeddedBytes - bytes.value.byteLength || sha256Digest(bytes.value) !== file.digest) return { ok: false, error: projectionFailure(total > maximumEmbeddedBytes - bytes.value.byteLength ? "PROJECTION_PAYLOAD_TOO_LARGE" : "PROJECTION_STATE_CHANGED") };
+    if (!bytes.ok || sha256Digest(bytes.value) !== file.digest || total > maximumEmbeddedBytes - bytes.value.byteLength) return !bytes.ok ? externalFailure(bytes.error) : { ok: false, error: projectionFailure("PROJECTION_PAYLOAD_TOO_LARGE") };
     total += bytes.value.byteLength;
     files.push(Object.freeze({ role, file: file.file, digest: file.digest, bytesBase64url: Buffer.from(bytes.value).toString("base64url") }));
   }
+  const renderers: RendererPluginRenderer[] = [];
+  for (const renderer of activeRenderers.value) {
+    if (sha256Digest(renderer.entryBytes) !== renderer.entryDigest || total > maximumEmbeddedBytes - renderer.entryBytes.byteLength) return { ok: false, error: projectionFailure("PROJECTION_STATE_CHANGED") };
+    total += renderer.entryBytes.byteLength;
+    const resources = [];
+    for (const resource of renderer.resources) {
+      if (sha256Digest(resource.bytes) !== resource.digest || total > maximumEmbeddedBytes - resource.bytes.byteLength) return { ok: false, error: projectionFailure("PROJECTION_STATE_CHANGED") };
+      total += resource.bytes.byteLength;
+      resources.push(Object.freeze({ file: resource.file, digest: resource.digest, bytesBase64url: Buffer.from(resource.bytes).toString("base64url") }));
+    }
+    renderers.push(Object.freeze({ identity: Object.freeze({ ...renderer.identity }), manifest: freeze(renderer.manifest), entryBytesBase64url: Buffer.from(renderer.entryBytes).toString("base64url"), entryDigest: renderer.entryDigest, resources: Object.freeze(resources), callbacks: Object.freeze(renderer.callbacks.map((callback) => Object.freeze({ ...callback }))) }));
+  }
+  const after = await input.dependencies.pluginHost.inspectActiveSnapshot();
+  if (!after.ok) return externalFailure(after.error);
+  if (after.value.digest !== inspected.value.digest) return { ok: false, error: projectionFailure("PROJECTION_STATE_CHANGED") };
   const media: RendererMedia = Object.freeze({ contract: "renderer-media/v1", references: input.captured.references, assets: input.captured.assets, objects: Object.freeze([...objects.values()].sort((left, right) => compare(left.objectDigest, right.objectDigest))) });
   const theme: RendererTheme = Object.freeze({ identity: Object.freeze({ ...resolved.value.identity }), manifest: freeze(resolved.value.manifest), files: Object.freeze(files) });
-  return { ok: true, value: Object.freeze({ media, theme, identities: Object.freeze(inspected.value.identities.map((value) => Object.freeze({ ...value }))) }) };
+  return { ok: true, value: Object.freeze({ media, theme, identities: Object.freeze(inspected.value.identities.map((value) => Object.freeze({ ...value }))), renderers: Object.freeze(renderers) }) };
 }
 function rendererArtifact(input: Omit<RendererInput, "inputDigest">): ProjectionResult<RendererInputArtifact> {
   const unsigned = canonicalJsonBytes(input);
@@ -200,7 +216,7 @@ export function createProjectionPreview(dependencies: ProjectionDependencies): P
       if (digest === null) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
       // routeGraphDigest 取自 snapshot A 的同一次 route 讀取；另外再讀一次 route graph 會落在 guard 之外，
       // 讓 artifact 內的 claims 與 digest 可能來自兩個不同的 canonical state。
-      return rendererArtifact({ contract: "renderer-input/v1", selection: Object.freeze({ publishedRevisionIds: first.value.selected, routeGraphDigest: first.value.routeGraphDigest, mediaSelectionDigest: digest }), entries: first.value.entries, routes: Object.freeze({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: first.value.claims.map(({ normalizedRoute, owner, sourceRevisionId }) => Object.freeze({ normalizedRoute, owner, sourceRevisionId })) }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities }) });
+      return rendererArtifact({ contract: "renderer-input/v1", selection: Object.freeze({ publishedRevisionIds: first.value.selected, routeGraphDigest: first.value.routeGraphDigest, mediaSelectionDigest: digest }), entries: first.value.entries, routes: Object.freeze({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: first.value.claims.map(({ normalizedRoute, owner, sourceRevisionId }) => Object.freeze({ normalizedRoute, owner, sourceRevisionId })) }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities, renderers: materialized.value.renderers }) });
     },
     async preview(input: Readonly<{ selection: "current" | "published"; subject: Readonly<{ entryId: string }>; themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<PreviewInputArtifact>> {
       if (!validPreviewInput(input)) return { ok: false, error: projectionFailure("INVALID_PROJECTION_INPUT") };
@@ -218,7 +234,7 @@ export function createProjectionPreview(dependencies: ProjectionDependencies): P
       if (route === undefined || digest === null) return { ok: false, error: projectionFailure(route === undefined ? "UNRESOLVED_ROUTE_REFERENCE" : "PROJECTION_ENCODING_FAILED") };
       const routeSelection = routeSelectionDigest(input.selection, route);
       if (routeSelection === null) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
-      return previewArtifact({ contract: "preview-input/v1", subject: Object.freeze({ entryId: input.subject.entryId }), selection: Object.freeze({ mode: input.selection, selectedRevision: first.value.selected[0]!, routeSelectionDigest: routeSelection, mediaSelectionDigest: digest }), entry: first.value.entries[0]!, route: Object.freeze({ normalizedRoute: route.normalizedRoute, owner: route.owner, sourceRevisionId: route.sourceRevisionId }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities }) });
+      return previewArtifact({ contract: "preview-input/v1", subject: Object.freeze({ entryId: input.subject.entryId }), selection: Object.freeze({ mode: input.selection, selectedRevision: first.value.selected[0]!, routeSelectionDigest: routeSelection, mediaSelectionDigest: digest }), entry: first.value.entries[0]!, route: Object.freeze({ normalizedRoute: route.normalizedRoute, owner: route.owner, sourceRevisionId: route.sourceRevisionId }), media: materialized.value.media, theme: materialized.value.theme, plugins: Object.freeze({ activeStateDigest: first.value.pluginDigest, identities: materialized.value.identities, renderers: materialized.value.renderers }) });
     },
   });
 }

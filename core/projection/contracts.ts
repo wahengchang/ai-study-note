@@ -1,7 +1,8 @@
+import type { StructuredContent, PublishedContentReadModel, ContentReadFailure } from "../content/index.js";
 import type { JsonValue, Digest } from "../foundation/index.js";
 import type { DataMedia } from "../media/index.js";
 import type { PersistenceStore } from "../persistence/index.js";
-import type { PluginHost, PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
+import type { PluginHost, PluginActivationIdentity, PluginHostFailure, PluginManifestV1, PluginPublicHookId } from "../plugin-host/index.js";
 import type { RouteClaim, SiteDefinition } from "../site-definition/index.js";
 import type { ThemeHost, ThemeHostFailure, ThemeIdentity, ThemeManifestV1 } from "../theme-host/index.js";
 
@@ -26,7 +27,7 @@ export type ProjectionFailure = Readonly<{
   remediation: Readonly<{ kind: "message"; message: string }>;
 }>;
 
-export type ProjectionResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: ProjectionFailure | PluginHostFailure | ThemeHostFailure }>;
+export type ProjectionResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: ProjectionFailure | ContentReadFailure | PluginHostFailure | ThemeHostFailure }>;
 export type RendererInputArtifact = Readonly<{ bytes: Uint8Array; inputDigest: Digest; bytesDigest: Digest }>;
 export type PreviewInputArtifact = Readonly<{ bytes: Uint8Array; previewDigest: Digest; bytesDigest: Digest }>;
 
@@ -34,7 +35,7 @@ export type RendererEntry = Readonly<{
   entryId: string;
   revisionId: string;
   schemaIdentity: Readonly<{ schemaId: string; version: number }>;
-  content: JsonValue;
+  content: StructuredContent;
   contentDigest: Digest;
 }>;
 export type RendererMediaReference = Readonly<{ entryId: string; revisionId: string; assetVersion: Readonly<{ assetId: string; assetVersionId: string }> }>;
@@ -49,7 +50,15 @@ export type RendererMediaObject = Readonly<{ objectDigest: Digest; byteLength: n
 export type RendererMedia = Readonly<{ contract: "renderer-media/v1"; references: readonly RendererMediaReference[]; assets: readonly RendererMediaAsset[]; objects: readonly RendererMediaObject[] }>;
 export type RendererThemeFile = Readonly<{ role: "runtime" | "resource"; file: string; digest: Digest; bytesBase64url: string }>;
 export type RendererTheme = Readonly<{ identity: ThemeIdentity; manifest: ThemeManifestV1; files: readonly RendererThemeFile[] }>;
-export type RendererPlugins = Readonly<{ activeStateDigest: Digest; identities: readonly PluginActivationIdentity[] }>;
+export type RendererPluginRenderer = Readonly<{
+  identity: PluginActivationIdentity;
+  manifest: PluginManifestV1;
+  entryBytesBase64url: string;
+  entryDigest: Digest;
+  resources: readonly Readonly<{ file: string; bytesBase64url: string; digest: Digest }>[];
+  callbacks: readonly Readonly<{ hook: PluginPublicHookId; exportName: string; priority: number }>[];
+}>;
+export type RendererPlugins = Readonly<{ activeStateDigest: Digest; identities: readonly PluginActivationIdentity[]; renderers: readonly RendererPluginRenderer[] }>;
 export type RendererRoutes = Readonly<{ contract: "route-graph-snapshot/v1"; normalization: "route-normalization/v1"; graph: "published"; claims: readonly Omit<RouteClaim, "graph">[] }>;
 export type RendererInput = Readonly<{
   contract: "renderer-input/v1";
@@ -79,4 +88,4 @@ export interface ProjectionPreview {
   produceRendererInput(input: Readonly<{ themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<RendererInputArtifact>>;
   preview(input: Readonly<{ selection: "current" | "published"; subject: Readonly<{ entryId: string }>; themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<PreviewInputArtifact>>;
 }
-export type ProjectionDependencies = Readonly<{ persistence: PersistenceStore; siteDefinition: SiteDefinition; dataMedia: DataMedia; pluginHost: PluginHost; themeHost: ThemeHost }>;
+export type ProjectionDependencies = Readonly<{ persistence: PersistenceStore; siteDefinition: SiteDefinition; dataMedia: DataMedia; contentReadModel: PublishedContentReadModel; pluginHost: PluginHost; themeHost: ThemeHost }>;
