@@ -1,0 +1,4 @@
+:root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #f7f5ef; color: #1d2b24; }
+body { margin: 0; min-width: 20rem; }
+main { max-width: 72rem; margin: 0 auto; padding: 3rem 1.5rem; }
+h1:focus-visible { outline: 3px solid #175c42; outline-offset: .25rem; }

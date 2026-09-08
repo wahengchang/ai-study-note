@@ -7,23 +7,24 @@ import type { ZodType } from "zod";
 import { openLocalAuthoringClientCredential } from "./credential-store.js";
 import type { AuthoringCredentialFailureCode, LocalAuthoringCredentialInput } from "./credential-store.js";
 import { AUTHORING_HOST, AUTHORING_PORT, ENTRY_ID_PATTERN } from "./origin.js";
-import { authoringErrorSchema, authoringErrorStatuses, publishRevisionRequestSchema, publishRevisionSuccessSchema, saveRevisionRequestSchema, saveRevisionSuccessSchema, serverProofSchema } from "./transport-contracts.js";
-import type { AuthoringRemoteErrorCode, PublishRevisionRequestDto, PublishRevisionSuccessDto, SaveRevisionRequestDto, SaveRevisionSuccessDto } from "./transport-contracts.js";
+import { authoringErrorSchema, authoringErrorStatuses, browserTicketSchema, publishRevisionRequestSchema, publishRevisionSuccessSchema, saveRevisionRequestSchema, saveRevisionSuccessSchema, serverProofSchema } from "./transport-contracts.js";
+import type { AuthoringRemoteErrorCode, BrowserTicketDto, PublishRevisionRequestDto, PublishRevisionSuccessDto, SaveRevisionRequestDto, SaveRevisionSuccessDto } from "./transport-contracts.js";
 
 const proofLimit = 64 * 1024;
 const saveSuccessLimit = 16 * 1024 * 1024;
 const publishSuccessLimit = 64 * 1024;
 
-export type AuthoringClientFailureCode = AuthoringCredentialFailureCode | AuthoringRemoteErrorCode | "INVALID_CLIENT_REQUEST" | "AUTHORING_CONNECTION_FAILED" | "AUTHORING_PROOF_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT" | "AUTHORING_SERVER_PROOF_INVALID" | "AUTHORING_CONNECTION_CHANGED" | "INVALID_SERVER_RESPONSE";
+export type AuthoringClientFailureCode = AuthoringCredentialFailureCode | AuthoringRemoteErrorCode | "INVALID_CLIENT_REQUEST" | "AUTHORING_CONNECTION_FAILED" | "AUTHORING_PROOF_TIMEOUT" | "AUTHORING_TICKET_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT" | "AUTHORING_SERVER_PROOF_INVALID" | "AUTHORING_CONNECTION_CHANGED" | "INVALID_SERVER_RESPONSE";
 export type AuthoringClientResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: AuthoringClientFailureCode }> }>;
 export interface LocalAuthoringClient {
+  mintBrowserTicket(): Promise<AuthoringClientResult<BrowserTicketDto>>;
   saveRevision(input: Readonly<{ entryId: string; request: SaveRevisionRequestDto }>): Promise<AuthoringClientResult<SaveRevisionSuccessDto>>;
   publishRevision(input: Readonly<{ entryId: string; request: PublishRevisionRequestDto }>): Promise<AuthoringClientResult<PublishRevisionSuccessDto>>;
 }
 
 type HttpReply = Readonly<{ status: number; text: string }>;
 type ProofReply = Readonly<{ reply: HttpReply; socket: Socket }>;
-type CommandTimeoutCode = "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT";
+type CommandTimeoutCode = "AUTHORING_TICKET_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT";
 type AuthenticatedCommand<T> = Readonly<{ pathname: string; body: string; successLimit: number; timeoutCode: CommandTimeoutCode; successSchema: ZodType<T> }>;
 
 function failed<T>(code: AuthoringClientFailureCode): AuthoringClientResult<T> { return { ok: false, error: { code } }; }
@@ -142,9 +143,51 @@ async function authenticatedCommand<T>(location: LocalAuthoringCredentialInput, 
   }
   return failed("SERVER_PROOF_GENERATION_MISMATCH");
 }
+async function mintBrowserTicket(location: LocalAuthoringCredentialInput): Promise<AuthoringClientResult<BrowserTicketDto>> {
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const credential = await openLocalAuthoringClientCredential(location);
+    if (!credential.ok) return failed(credential.error.code);
+    const agent = new Agent({ keepAlive: true, maxSockets: 1, maxTotalSockets: 1, maxFreeSockets: 1, proxyEnv: undefined });
+    try {
+      const proofNonce = nonce();
+      const proof = await requestProof(agent, JSON.stringify({ contract: "authoring-server-proof-challenge/v1", generation: credential.value.generation, nonce: proofNonce }));
+      if (!proof.ok) return failed(proof.code);
+      if (proof.value.reply.status !== 200) {
+        const code = remoteCode(proof.value.reply.status, proof.value.reply.text) ?? "AUTHORING_SERVER_PROOF_INVALID";
+        if (code === "SERVER_PROOF_GENERATION_MISMATCH" && attempt === 0) continue;
+        return failed(code);
+      }
+      const rawProof = (() => { try { return JSON.parse(proof.value.reply.text) as unknown; } catch { return undefined; } })();
+      const parsedProof = serverProofSchema.safeParse(rawProof);
+      if (!parsedProof.success || parsedProof.data.generation !== credential.value.generation || parsedProof.data.nonce !== proofNonce || !credential.value.verifyServerProof(proofNonce, parsedProof.data.mac)) return failed("AUTHORING_SERVER_PROOF_INVALID");
+      const header = credential.value.authorizationHeader();
+      if (header === "") return failed("CREDENTIAL_NOT_PROVISIONED");
+      const remote = await requestAuthenticated(agent, proof.value.socket, header, {
+        pathname: "/_local/browser-tickets",
+        body: JSON.stringify({ contract: "browser-ticket-mint-request/v1", generation: credential.value.generation, proofNonce }),
+        successLimit: proofLimit,
+        timeoutCode: "AUTHORING_TICKET_TIMEOUT",
+        successSchema: browserTicketSchema,
+      });
+      if (!remote.ok) return failed(remote.code);
+      if (remote.value.status !== 201) return failed(remoteCode(remote.value.status, remote.value.text) ?? "INVALID_SERVER_RESPONSE");
+      const rawTicket = (() => { try { return JSON.parse(remote.value.text) as unknown; } catch { return undefined; } })();
+      const parsedTicket = browserTicketSchema.safeParse(rawTicket);
+      return parsedTicket.success && parsedTicket.data.generation === credential.value.generation ? { ok: true, value: parsedTicket.data } : failed("INVALID_SERVER_RESPONSE");
+    } finally {
+      credential.value.dispose();
+      agent.destroy();
+    }
+  }
+  return failed("SERVER_PROOF_GENERATION_MISMATCH");
+}
+
 
 export function createLocalAuthoringClient(location: LocalAuthoringCredentialInput): LocalAuthoringClient {
   return {
+    mintBrowserTicket() {
+      return mintBrowserTicket(location);
+    },
     saveRevision(input) {
       if (!ENTRY_ID_PATTERN.test(input.entryId) || !saveRevisionRequestSchema.safeParse(input.request).success) return Promise.resolve(failed("INVALID_CLIENT_REQUEST"));
       return authenticatedCommand(location, { pathname: `/v1/entries/${input.entryId}/revisions`, body: JSON.stringify(input.request), successLimit: saveSuccessLimit, timeoutCode: "AUTHORING_SAVE_TIMEOUT", successSchema: saveRevisionSuccessSchema });

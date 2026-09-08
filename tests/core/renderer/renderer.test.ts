@@ -1,0 +1,74 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
+import { createStaticRenderer } from "../../../core/renderer/index.js";
+
+function canonical(value: unknown): Uint8Array {
+  const result = canonicalJsonBytes(value);
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("canonical");
+  return result.value;
+}
+function digest(value: unknown): `sha256:${string}` { return sha256Digest(canonical(value)); }
+function artifact(input: Readonly<{ themeSource?: string; pluginSource?: string; media?: boolean }> = {}) {
+  const themeSource = input.themeSource ?? "export function render(input) { return { contract: 'theme-render-output/v1', pages: input.routes.map((route) => ({ route: route.normalizedRoute, html: '<h1>' + input.entries[0].content.title + '</h1>' + input.entries[0].blocks.join('') })) }; }";
+  const pluginSource = input.pluginSource ?? "export function block(input) { return { contract: 'public-block-render-output/v1', html: '<aside>' + input.entries[0].content.title + '</aside>' }; } export function assets() { return { contract: 'public-assets-emit-output/v1', files: [{ path: 'assets/plugin.txt', bytesBase64: 'cGx1Z2lu' }] }; }";
+  const content = { contract: "site-content/v1" as const, title: "公開", blocks: [{ kind: "article" as const, text: "公開內容" }] };
+  const objectDigest = sha256Digest(new Uint8Array([0]));
+  const media = input.media ? { contract: "renderer-media/v1" as const, references: [{ entryId: "entry", revisionId: "r1", assetVersion: { assetId: "asset", assetVersionId: "v1" } }], assets: [{ identity: { assetId: "asset", assetVersionId: "v1" }, objectDigest, byteLength: 1, metadata: {}, metadataDigest: digest({}) }], objects: [{ objectDigest, byteLength: 1, bytesBase64url: "AA" }] } : { contract: "renderer-media/v1" as const, references: [], assets: [], objects: [] };
+  const manifest = { contract: "theme-manifest/v1" as const, id: "theme", version: "1.0.0", runtime: { file: "runtime.mjs", digest: sha256Digest(new TextEncoder().encode(themeSource)) }, resources: [] };
+  const themeIdentity = { id: manifest.id, version: manifest.version, manifestHash: sha256Digest(canonical(manifest)) };
+  const pluginManifest = { manifestVersion: "plugin-manifest/v1" as const, id: "plugin", version: "1.0.0", trustedLocal: true as const, hookContract: "plugin-hooks/v1" as const, capabilities: ["public-assets-emitter" as const, "public-block-renderer" as const], entry: { file: "entry.mjs", digest: sha256Digest(new TextEncoder().encode(pluginSource)) }, callbacks: [{ hook: "public/assets/emit" as const, exportName: "assets", priority: 10 }, { hook: "public/block/render" as const, exportName: "block", priority: 10 }], resources: [] };
+  const identity = { id: "plugin", version: "1.0.0", hookContract: "plugin-hooks/v1" as const, manifestHash: sha256Digest(canonical(pluginManifest)) };
+  const activeStateDigest = digest({ contract: "plugin-activation-state/v2", active: [identity], reactivationRequired: [] });
+  const selection = { publishedRevisionIds: [{ entryId: "entry", revisionId: "r1" }], routeGraphDigest: digest({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: [{ normalizedRoute: "/guide", owner: "entry", sourceRevisionId: "r1" }] }), mediaSelectionDigest: digest({ contract: "renderer-media-selection/v1", references: media.references, assets: media.assets.map(({ identity: assetIdentity, objectDigest, byteLength, metadata, metadataDigest }) => ({ identity: assetIdentity, objectDigest, byteLength, metadata, metadataDigest })), objects: media.objects.map(({ objectDigest, byteLength }) => ({ objectDigest, byteLength })) }) };
+  const payload = {
+    contract: "renderer-input/v1" as const,
+    selection,
+    entries: [{ entryId: "entry", revisionId: "r1", schemaIdentity: { schemaId: "note", version: 1 }, content, contentDigest: sha256Digest(canonical(content)) }],
+    routes: { contract: "route-graph-snapshot/v1" as const, normalization: "route-normalization/v1" as const, graph: "published" as const, claims: [{ normalizedRoute: "/guide", owner: "entry", sourceRevisionId: "r1" }] },
+    media,
+    theme: { identity: themeIdentity, manifest, files: [{ role: "runtime" as const, file: "runtime.mjs", digest: manifest.runtime.digest, bytesBase64url: Buffer.from(themeSource).toString("base64url") }] },
+    plugins: { activeStateDigest, identities: [identity], renderers: [{ identity, manifest: pluginManifest, entryBytesBase64url: Buffer.from(pluginSource).toString("base64url"), entryDigest: sha256Digest(new TextEncoder().encode(pluginSource)), resources: [], callbacks: [{ hook: "public/assets/emit" as const, exportName: "assets", priority: 10 }, { hook: "public/block/render" as const, exportName: "block", priority: 10 }] }] },
+  };
+  const full = { ...payload, inputDigest: sha256Digest(canonical(payload)) };
+  const bytes = canonical(full);
+  return { bytes, inputDigest: full.inputDigest, bytesDigest: sha256Digest(bytes) };
+}
+
+test("Renderer 只執行通過 strict parser 的封存 Theme 與 Plugin bytes", async () => {
+  const result = await createStaticRenderer().render(artifact());
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.deepEqual(result.value.routes, [{ route: "/guide", filePath: result.value.routes[0]!.filePath }]);
+  assert.equal(new TextDecoder().decode(result.value.files.find((file) => file.path === result.value.routes[0]!.filePath)!.bytes), "<h1>公開</h1><aside>公開</aside>");
+  assert.equal(new TextDecoder().decode(result.value.files.find((file) => file.path === "assets/plugin.txt")!.bytes), "plugin");
+});
+
+test("Renderer 在載入 module 前拒絕 media evidence", async () => {
+  const result = await createStaticRenderer().render(artifact({ media: true }));
+  assert.equal(result.ok, false);
+  if (!result.ok) assert.equal(result.error.code, "PUBLIC_MEDIA_UNSUPPORTED");
+});
+
+test("Renderer 拒絕 dependency graph 與 Promise callback", async () => {
+  const dependency = await createStaticRenderer().render(artifact({ themeSource: "import 'node:fs'; export function render() {}" }));
+  assert.equal(dependency.ok, false);
+  if (!dependency.ok) assert.equal(dependency.error.code, "RENDERER_MODULE_INVALID");
+  const promise = await createStaticRenderer().render(artifact({ pluginSource: "export function block() { return Promise.reject(new Error('x')); } export function assets() { return { contract: 'public-assets-emit-output/v1', files: [] }; }" }));
+  assert.equal(promise.ok, false);
+  if (!promise.ok) assert.equal(promise.error.code, "RENDERER_CALLBACK_RESULT_INVALID");
+});
+
+test("Renderer 將 hostile callback 結果視為無效而非讓 getter 或 thenable 逸出", async () => {
+  const getter = await createStaticRenderer().render(artifact({ pluginSource: "export function block() { const value = { contract: 'public-block-render-output/v1' }; Object.defineProperty(value, 'html', { enumerable: true, get() { throw new Error('getter'); } }); return value; } export function assets() { return { contract: 'public-assets-emit-output/v1', files: [] }; }" }));
+  assert.equal(getter.ok, false);
+  if (!getter.ok) assert.equal(getter.error.code, "RENDERER_CALLBACK_RESULT_INVALID");
+  const thenExport = await createStaticRenderer().render(artifact({ pluginSource: "export const then = () => {}; export function block() { return { contract: 'public-block-render-output/v1', html: '' }; } export function assets() { return { contract: 'public-assets-emit-output/v1', files: [] }; }" }));
+  assert.equal(thenExport.ok, false);
+  if (!thenExport.ok) assert.equal(thenExport.error.code, "RENDERER_MODULE_INVALID");
+  const proxy = await createStaticRenderer().render(artifact({ pluginSource: "export function block() { return new Proxy({}, { getPrototypeOf() { throw new Error('proxy'); } }); } export function assets() { return { contract: 'public-assets-emit-output/v1', files: [] }; }" }));
+  assert.equal(proxy.ok, false);
+  if (!proxy.ok) assert.equal(proxy.error.code, "RENDERER_CALLBACK_RESULT_INVALID");
+});

@@ -5,6 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest, type Digest } from "../../../core/foundation/index.js";
+import { createPublishedContentReadModel } from "../../../core/content/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence, type PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost, type PluginActivationState } from "../../../core/plugin-host/index.js";
@@ -50,12 +51,12 @@ async function harness(withMedia: boolean): Promise<Harness> {
     assert.equal(media.value.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes: new Uint8Array([1, 2, 3, 250]), metadata: { type: "image" } }).ok, true);
     assetVersions.push({ assetId: "asset", assetVersionId: "v1" } as const);
   }
-  const content = canonical({ title: "published" });
+  const content = canonical({ contract: "site-content/v1", title: "published", blocks: [{ kind: "article", text: "published" }] });
   const revision = { identity: { entryId: "entry-a", revisionId: "r1" }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: content, contentDigest: sha256Digest(content), lineage: { operationId: "save-r1", operationKind: "SaveRevision" } };
   assert.equal(store.createRevisionWithReferences({ revision, assetVersions }).ok, true);
   assert.equal(store.setEntryPointers({ entryId: "entry-a", currentRevisionId: "r1", publishedRevisionId: "r1", lineage: { revisionId: "r1", operationId: "publish-r1", operationKind: "PublishRevision" } }).ok, true);
   // entryId 的 prefix 關係會讓「以空白分隔 tuple」與 producer 的排序不同，用來釘住分隔字元約定。
-  const sibling = canonical({ title: "sibling" });
+  const sibling = canonical({ contract: "site-content/v1", title: "sibling", blocks: [{ kind: "article", text: "sibling" }] });
   assert.equal(store.createRevision({ identity: { entryId: "entry-a b", revisionId: "r1" }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: sibling, contentDigest: sha256Digest(sibling), lineage: { operationId: "save-sibling", operationKind: "SaveRevision" } }).ok, true);
   assert.equal(store.setEntryPointers({ entryId: "entry-a b", currentRevisionId: "r1", publishedRevisionId: "r1", lineage: { revisionId: "r1", operationId: "publish-sibling", operationKind: "PublishRevision" } }).ok, true);
   const siteDefinition = createSiteDefinition({ persistence: store });
@@ -85,9 +86,12 @@ async function harness(withMedia: boolean): Promise<Harness> {
   const themeHost = await createThemeHost({ repositoryRoot, installedThemesRoot: themes });
   assert.equal(themeHost.ok, true);
   if (!themeHost.ok) throw new Error("theme host");
+  const contentReadModel = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
+  assert.equal(contentReadModel.ok, true);
+  if (!contentReadModel.ok) throw new Error("content read model");
   return Object.freeze({
     directory, store,
-    projection: createProjectionPreview({ persistence: store, siteDefinition, dataMedia: media.value, pluginHost: pluginHost.value, themeHost: themeHost.value }),
+    projection: createProjectionPreview({ persistence: store, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value, pluginHost: pluginHost.value, themeHost: themeHost.value }),
     themeIdentity: Object.freeze({ id: "safe-theme", version: "1.0.0", manifestHash: sha256Digest(manifest) as Digest }),
   });
 }
@@ -102,7 +106,7 @@ test("capture failures reach the caller as their own diagnosis instead of one st
     assert.deepEqual([...missing.error.subjectIds], ["absent"]);
 
     // 有 published pointer 但沒有 published route claim 的 subject，必須回報 route 無法解析。
-    const bytes = canonical({ title: "unrouted" });
+    const bytes = canonical({ contract: "site-content/v1", title: "unrouted", blocks: [{ kind: "article", text: "unrouted" }] });
     assert.equal(context.store.createRevision({ identity: { entryId: "entry-b", revisionId: "b1" }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: bytes, contentDigest: sha256Digest(bytes), lineage: { operationId: "save-b1", operationKind: "SaveRevision" } }).ok, true);
     assert.equal(context.store.setEntryPointers({ entryId: "entry-b", currentRevisionId: "b1", publishedRevisionId: "b1", lineage: { revisionId: "b1", operationId: "publish-b1", operationKind: "PublishRevision" } }).ok, true);
     const unrouted = await context.projection.preview({ selection: "published", subject: { entryId: "entry-b" }, themeIdentity: context.themeIdentity });
@@ -167,6 +171,7 @@ test("strict parsers reject every resealed payload whose evidence no longer matc
       ["theme runtime bytes 與 manifest digest 不符", (document) => { ((document.theme as Record<string, unknown>).files as Record<string, unknown>[])[0]!.bytesBase64url = "AA"; }],
       ["media selection digest 與內容不符", (document) => { ((document.media as Record<string, unknown>).references as unknown[]).length = 0; }],
       ["route 未經 route-normalization/v1 正規化", (document) => { ((document.routes as Record<string, unknown>).claims as Record<string, unknown>[])[0]!.normalizedRoute = "/Published"; }],
+      ["route graph digest 與 claims 不符", (document) => { ((document.routes as Record<string, unknown>).claims as Record<string, unknown>[])[0]!.normalizedRoute = "/other"; }],
       ["selection 與 entries 不再一一對應", (document) => { (document.selection as Record<string, unknown>).publishedRevisionIds = [{ entryId: "entry-a", revisionId: "r2" }]; }],
     ];
     for (const [reason, mutate] of tampered) {

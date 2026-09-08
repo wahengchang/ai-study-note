@@ -1,5 +1,8 @@
+import { createProjectionPreview } from "./service.js";
+
+export { createProjectionPreview };
 export { parsePreviewInput, parseRendererInput } from "./codec.js";
-export { createProjectionPreview } from "./service.js";
+export { renderPreviewDocument } from "./preview-document.js";
 export type {
   ParsedPreviewInput,
   ParsedRendererInput,
@@ -12,4 +15,6 @@ export type {
   ProjectionResult,
   RendererInput,
   RendererInputArtifact,
+  RendererPluginRenderer,
 } from "./contracts.js";
+export type { PreviewDocument } from "./preview-document.js";

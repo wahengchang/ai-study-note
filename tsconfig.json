@@ -13,7 +13,8 @@
     "verbatimModuleSyntax": true,
     "forceConsistentCasingInFileNames": true,
     "skipLibCheck": false,
+    "jsx": "react-jsx",
     "noEmit": true
   },
-  "include": ["core/**/*.ts", "apps/**/*.ts", "extensions/**/*.ts", "tests/**/*.ts", "scripts/**/*.ts"]
+  "include": ["core/**/*.ts", "apps/**/*.ts", "apps/**/*.tsx", "extensions/**/*.ts", "tests/**/*.ts", "tests/**/*.tsx", "scripts/**/*.ts"]
 }
