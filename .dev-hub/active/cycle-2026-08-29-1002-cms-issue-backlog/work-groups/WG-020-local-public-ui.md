@@ -1,5 +1,5 @@
 ---
-id: WG-018
+id: WG-020
 status: completed
 title: Local Subpath-safe Public UI
 work_items: ["WI-054"]

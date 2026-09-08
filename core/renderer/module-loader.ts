@@ -12,9 +12,10 @@ export async function loadVerifiedRendererModule(input: Readonly<{
   try {
     await init;
     const source = new TextDecoder("utf-8", { fatal: true }).decode(input.entryBytes);
-    const [imports] = parse(source);
+    const [imports, exports] = parse(source);
     // import.meta 不會建立依賴圖；其餘 import 一律使封存 bytes 邊界失效。
-    if (imports.some((item) => item.d !== -2)) return null;
+    // dynamic import 會 assimilate callable namespace.then；禁止它避免 extension 在載入期取得 resolver。
+    if (imports.some((item) => item.d !== -2) || exports.some((item) => item.n === "then")) return null;
     const url = `data:text/javascript;base64,${Buffer.from(input.entryBytes).toString("base64")}#manifest=${encodeURIComponent(input.manifestHash)}`;
     const namespace = (await import(url)) as Readonly<Record<string, unknown>>;
     if (input.requiredExports.some((name) => typeof namespace[name] !== "function")) return null;

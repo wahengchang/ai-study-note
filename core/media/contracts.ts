@@ -17,6 +17,7 @@ export type AssetVersionRecord = AssetVersion;
 export type ReadyAssetVersion = Readonly<AssetVersion & { availability: "ready" }>;
 export type PublishedMediaSelection = Readonly<{ entryId: string; revisionId: string; assets: readonly ReadyAssetVersion[] }>;
 export type MediaEvidence = Readonly<{ objectDigest: Digest; byteLength: number }>;
+export type VerifiedReadyMediaObject = Readonly<{ asset: ReadyAssetVersion; bytes: Uint8Array }>;
 
 export type MediaStageToken = Readonly<{ readonly __mediaStage: unique symbol }>;
 export type MediaFinalToken = Readonly<{ readonly __mediaFinal: unique symbol }>;
@@ -31,6 +32,7 @@ export interface MediaObjectStore {
   verifyFinal(final: MediaFinalToken, evidence: MediaEvidence): DataMediaResult<void>;
   releaseStage(stage: MediaStageToken, final: MediaFinalToken): DataMediaResult<void>;
   verifyEvidence(evidence: MediaEvidence): DataMediaResult<void>;
+  readEvidence(evidence: MediaEvidence): DataMediaResult<Uint8Array>;
   inspectFinal(evidence: MediaEvidence): DataMediaResult<"healthy" | "absent" | "unhealthy">;
   readStartupSnapshot(): DataMediaResult<MediaStorageSnapshot>;
   removeOrphan(candidate: MediaStageToken | MediaFinalToken): DataMediaResult<void>;
@@ -106,6 +108,7 @@ export type DataMediaResult<T> = CoreResult<T> | Readonly<{ ok: false; error: Da
 export interface DataMedia {
   importLocal(input: ImportLocalMediaInput): DataMediaResult<ReadyAssetVersion>;
   getReadyAssetVersion(identity: AssetVersionIdentity): DataMediaResult<ReadyAssetVersion>;
+  readReadyObject(identity: AssetVersionIdentity): DataMediaResult<VerifiedReadyMediaObject>;
   requireReadyAssetVersions(identities: readonly AssetVersionIdentity[]): DataMediaResult<readonly ReadyAssetVersion[]>;
   resolvePublishedSelection(entryId: string): DataMediaResult<PublishedMediaSelection>;
   archiveAsset(identity: AssetVersionIdentity): DataMediaResult<AssetVersion>;

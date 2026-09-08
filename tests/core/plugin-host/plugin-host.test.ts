@@ -789,30 +789,52 @@ test("validator prepare verifies all evidence before imports and rejects replace
   }
 });
 
-test("公開 renderer source 只對 active Plugin 提供已驗證 immutable bytes", async () => {
+test("inspectActiveSnapshot verifies exact active evidence without durable drift latch", async () => {
   const value = fixture();
   try {
-    const sourceBytes = "export function renderBlock() { return { contract: 'public-block-render-output/v1', html: '' }; }";
-    writeFileSync(path.join(value.pluginDirectory, "index.mjs"), sourceBytes);
+    const pluginHost = await host(value);
+    const activated = await activate(pluginHost);
+    assert.equal(activated.ok, true);
+    if (!activated.ok) return;
+    const writes = value.port.writes;
+    const healthy = await pluginHost.inspectActiveSnapshot();
+    assert.equal(healthy.ok, true);
+    assert.equal(value.port.writes, writes);
+    rmSync(path.join(value.pluginDirectory, "resources", "contract.json"));
+    const drift = await pluginHost.inspectActiveSnapshot();
+    assertFailure(drift, "ACTIVE_PLUGIN_SOURCE_MISSING");
+    assert.equal(value.port.writes, writes);
+    assert.deepEqual(value.port.state.active, [activated.value.identities[0]!]);
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("public renderer snapshot 封存 manifest、entry 與 resource bytes，並拒絕 active evidence drift", async () => {
+  const value = fixture();
+  try {
+    writeFileSync(path.join(value.pluginDirectory, "index.mjs"), "export function block() { return { contract: 'public-block-render-output/v1', html: '' }; } export function emit() { return { contract: 'public-assets-emit-output/v1', files: [] }; }");
     writeManifest(value.pluginDirectory, {
-      capabilities: ["public-block-renderer"],
-      callbacks: [{ hook: "public/block/render", exportName: "renderBlock", priority: 0 }],
+      capabilities: ["public-assets-emitter", "public-block-renderer"],
+      callbacks: [{ hook: "public/assets/emit", exportName: "emit", priority: 5 }, { hook: "public/block/render", exportName: "block", priority: 10 }],
     });
     const pluginHost = await host(value);
-    const inactive = await pluginHost.resolveActivePublicRenderers();
-    assert.deepEqual(inactive, { ok: true, value: [] });
-    const activation = await activate(pluginHost);
-    assert.equal(activation.ok, true);
-    const active = await pluginHost.resolveActivePublicRenderers();
-    assert.equal(active.ok, true);
-    if (!active.ok) return;
-    assert.equal(active.value.length, 1);
-    assert.equal(new TextDecoder().decode(active.value[0]?.entryBytes), sourceBytes);
-    assert.deepEqual(active.value[0]?.callbacks, [{ hook: "public/block/render", exportName: "renderBlock", priority: 0 }]);
-    if (!activation.ok) return;
-    const deactivation = await pluginHost.deactivate({ identity: activation.value.identities[0]! });
-    assert.equal(deactivation.ok, true);
-    assert.deepEqual(await pluginHost.resolveActivePublicRenderers(), { ok: true, value: [] });
+    assert.equal((await activate(pluginHost)).ok, true);
+    const first = await pluginHost.resolveActivePublicRenderers();
+    assert.equal(first.ok, true);
+    if (!first.ok) return;
+    assert.equal(first.value.length, 1);
+    const renderer = first.value[0]!;
+    assert.equal(renderer.manifest.entry.digest, renderer.entryDigest);
+    assert.deepEqual(renderer.callbacks.map((callback) => callback.exportName), ["emit", "block"]);
+    const original = renderer.entryBytes[0]!;
+    renderer.entryBytes[0] = original ^ 0xff;
+    const second = await pluginHost.resolveActivePublicRenderers();
+    assert.equal(second.ok, true);
+    if (!second.ok) return;
+    assert.equal(second.value[0]!.entryBytes[0], original);
+    writeFileSync(path.join(value.pluginDirectory, "index.mjs"), "export function block() { return null; }");
+    assertFailure(await pluginHost.resolveActivePublicRenderers(), "ACTIVE_PLUGIN_IDENTITY_MISMATCH");
   } finally {
     rmSync(value.directory, { recursive: true, force: true });
   }

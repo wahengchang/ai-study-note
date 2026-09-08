@@ -16,9 +16,10 @@ export async function loadVerifiedPluginModule(input: Readonly<{
   try {
     await init;
     const source = new TextDecoder("utf-8", { fatal: true }).decode(input.entryBytes);
-    const [imports] = parse(source);
+    const [imports, exports] = parse(source);
     // `d === -2` 是不載入 module 的 import.meta；其餘 lexer record 都會建立 executable dependency graph。
-    if (imports.some((item) => item.d !== -2)) return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
+    // callable namespace.then 會被 dynamic import Promise assimilate，不能讓 extension 在 callback gate 前執行。
+    if (imports.some((item) => item.d !== -2) || exports.some((item) => item.n === "then")) return { ok: false, error: pluginHostFailure("PLUGIN_MODULE_INVALID", input.pluginId) };
     const url = `data:text/javascript;base64,${Buffer.from(input.entryBytes).toString("base64")}#manifest=${encodeURIComponent(input.manifestHash)}`;
     // Plugin entry bytes與 manifest hash只在 runtime 決定；靜態 import 無法保留這個 verified-byte boundary。
     const namespace = (await import(url)) as Readonly<Record<string, unknown>>;

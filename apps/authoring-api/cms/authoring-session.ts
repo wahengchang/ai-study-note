@@ -14,32 +14,48 @@ function isSessionReply(value: unknown): value is SessionReply {
 
 /** API key 永遠留在此 closure；任何 authenticated 401 都中止所有 request 並清除 session。 */
 export async function openAuthoringSession(ticket: string, onLock: Lock): Promise<AuthoringSession> {
-  const exchange = await fetch("/_local/browser-session", {
-    method: "POST",
-    credentials: "omit",
-    cache: "no-store",
-    redirect: "error",
-    referrerPolicy: "no-referrer",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket }),
-  });
-  if (!exchange.ok) throw new Error("BROWSER_SESSION_EXCHANGE_FAILED");
-  const parsed: unknown = await exchange.json().catch(() => undefined);
-  if (!isSessionReply(parsed)) throw new Error("BROWSER_SESSION_INVALID");
-
-  let key: string | undefined = parsed.apiKey;
+  let key: string | undefined;
+  let locked = false;
+  const exchangeController = new AbortController();
   const inFlight = new Set<AbortController>();
   const lock = (): void => {
-    if (key === undefined) return;
+    if (locked) return;
+    locked = true;
     key = undefined;
+    exchangeController.abort();
     removeEventListener("pagehide", lock);
     for (const controller of inFlight) controller.abort();
     inFlight.clear();
     onLock();
   };
-  // pagehide 是 bfcache 也會經過的最後同步時機；不清 key 會讓還原的 page 帶著
-  // 已離開的 session 繼續持有 bearer。
+  // 在 ticket exchange 前就安裝：pagehide 可中斷尚未回應、但已可能發出 bearer 的 session 建立。
   addEventListener("pagehide", lock);
+  let exchange: Response;
+  try {
+    exchange = await fetch("/_local/browser-session", {
+      method: "POST",
+      credentials: "omit",
+      cache: "no-store",
+      redirect: "error",
+      referrerPolicy: "no-referrer",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket }),
+      signal: exchangeController.signal,
+    });
+  } catch {
+    if (!locked) removeEventListener("pagehide", lock);
+    throw new Error(locked ? "CMS_LOCKED" : "BROWSER_SESSION_EXCHANGE_FAILED");
+  }
+  if (locked || !exchange.ok) {
+    if (!locked) removeEventListener("pagehide", lock);
+    throw new Error(locked ? "CMS_LOCKED" : "BROWSER_SESSION_EXCHANGE_FAILED");
+  }
+  const parsed: unknown = await exchange.json().catch(() => undefined);
+  if (locked || !isSessionReply(parsed)) {
+    if (!locked) removeEventListener("pagehide", lock);
+    throw new Error(locked ? "CMS_LOCKED" : "BROWSER_SESSION_INVALID");
+  }
+  key = parsed.apiKey;
   return {
     async authorizedFetch(path, init = {}) {
       if (key === undefined) throw new Error("CMS_LOCKED");

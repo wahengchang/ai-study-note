@@ -2,7 +2,7 @@
 id: WI-053
 status: done
 title: Projection Preview core document
-work_group: WG-017
+work_group: WG-019
 depends_on: ["WI-052"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-052"]
 
 ## Notes
 GitHub #254 residual core seam 已完成。API-12 transport 仍依 GitHub #289 的 application/HTTP 依賴，未建立 stub。
-GitHub #254 的 published `renderer-input/v1` 已由 WG-015 完成。本項不建立 API-12 transport，該 transport 仍依其獨立 Issue 的 application/HTTP 依賴。
+GitHub #254 的 published `renderer-input/v1` 已由 WG-016 完成。本項只在已驗證 artifact 上新增 `preview-document/v1` renderer；不建立 API-12 transport，該 transport 仍依其獨立 Issue 的 application/HTTP 依賴。

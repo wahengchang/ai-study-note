@@ -81,8 +81,10 @@ export type ValidatedSaveRevisionContent = Readonly<{ content: JsonValue; conten
 export type VerifiedPluginResource = Readonly<{ file: string; bytes: Uint8Array; digest: Digest }>;
 export type ActivePublicPluginRenderer = Readonly<{
   identity: PluginActivationIdentity;
+  manifest: PluginManifestV1;
   activeStateDigest: Digest;
   entryBytes: Uint8Array;
+  entryDigest: Digest;
   resources: readonly VerifiedPluginResource[];
   callbacks: readonly Readonly<{ hook: PluginPublicHookId; exportName: string; priority: number }>[];
 }>;
@@ -93,6 +95,7 @@ export type PluginHost = Readonly<{
   activate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>>;
   deactivate(input: Readonly<{ identity: PluginActivationIdentity }>): Promise<PluginHostResult<ActivePluginSnapshot>>;
   getActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>>;
+  inspectActiveSnapshot(): Promise<PluginHostResult<ActivePluginSnapshot>>;
   resolveCmsEditorBlock(input: CmsEditorBlockSource): Promise<PluginHostResult<CmsEditorBlockResolution>>;
   prepareSaveRevisionValidators(input: Readonly<{ entryId: string }>): Promise<PluginHostResult<PreparedSaveRevisionValidators>>;
   resolveActivePublicRenderers(): Promise<PluginHostResult<readonly ActivePublicPluginRenderer[]>>;

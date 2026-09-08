@@ -1,195 +1,245 @@
-import { readFile, readdir, realpath, stat } from "node:fs/promises";
-import path from "node:path";
+import { valid as semverValid } from "semver";
+import { copyBytes, isDigest, sha256Digest } from "../foundation/index.js";
+import type { ThemeHost, ThemeHostResult, ThemeIdentity, ThemeManifestV1, VerifiedThemePackage } from "./contracts.js";
+import { isCanonicalThemeId, themeHostFailure, type ThemeHostFailure } from "./failures.js";
+import { parseThemeManifest } from "./manifest.js";
+import { compareCodeUnits } from "./ordering.js";
+import { runtimeIsSelfContained } from "./runtime-scan.js";
+import {
+  installedThemeSlots,
+  readTrustedThemeFile,
+  revalidateTrustedRoots,
+  validateThemeSlot,
+  type TrustedIdentity,
+  type TrustedRoots,
+} from "./trusted-root.js";
 
-import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } from "../foundation/index.js";
+/**
+ * 每個 operation 都以兩階段收集 installed root：
+ *
+ *   slots ──▶ 階段一：slot identity + theme.json ──▶ ThemeIdentity 普查（conflict／drift 判定）
+ *                                                   │
+ *                                                   └─ select ──▶ 階段二：完整 evidence 位元組
+ *                                                                （digest + self-contained runtime 掃描）
+ *
+ * identity 只來自 manifest，所以 conflict 與 drift 只需要階段一；只有真正要交付的 package
+ * 才進入階段二。`resolveExact`／`readVerifiedFile` 因此不會為了單一 Theme 重新讀取並雜湊
+ * installed root 內其他所有 package。
+ */
+type ValidatedTheme = Readonly<{
+  identity: ThemeIdentity;
+  descriptor: VerifiedThemePackage;
+  bytes: ReadonlyMap<string, Uint8Array>;
+}>;
+type ParsedSlot = Readonly<{
+  slot: string;
+  slotIdentity: TrustedIdentity;
+  identity: ThemeIdentity;
+  manifest: ThemeManifestV1;
+  manifestBytes: number;
+}>;
+type SlotOutcome =
+  | Readonly<{ status: "validated"; identity: ThemeIdentity; theme: ValidatedTheme }>
+  | Readonly<{ status: "unverified"; identity: ThemeIdentity }>
+  | Readonly<{ status: "rejected"; identity: ThemeIdentity | null; error: ThemeHostFailure }>;
+type Collected = Readonly<{ ok: true; values: readonly SlotOutcome[] }> | Readonly<{ ok: false; error: ThemeHostFailure }>;
+type CollectOptions = Readonly<{ select: (identity: ThemeIdentity) => boolean; retainBytes: boolean }>;
 
-import { ThemeRendererContract, type ActiveThemeRendererSource, type ActiveThemeSnapshot, type CreateThemeHostInput, type ThemeActivationIdentity, type ThemeActivationState, type ThemeCandidate, type ThemeDiscoveryReport, type ThemeHost, type ThemeHostResult, type ThemeManifestV1, type VerifiedThemeResource } from "./contracts.js";
-import { isCanonicalThemeId, themeHostError, type ThemeHostFailure } from "./failures.js";
+const maximumSlots = 256;
+const maximumResources = 128;
+const maximumManifestBytes = 1_048_576;
+const maximumEvidenceFileBytes = 16_777_216;
+const maximumPackageBytes = 67_108_864;
+/** 同時開啟的 package 數量上限，讓 peak memory 與 file descriptor 不隨 slot 數線性膨脹。 */
+const maximumConcurrentSlots = 8;
 
-type TrustedRoot = Readonly<{ repositoryRoot: string; installedThemesRoot: string; dev: number; ino: number; uid: number; mode: number }>;
-type InstalledTheme = Readonly<{ manifest: ThemeManifestV1; manifestHash: Digest; entryBytes: Uint8Array; resources: readonly VerifiedThemeResource[] }>;
-type State = Readonly<{ value: ThemeActivationState; digest: Digest }>;
-
-function compareCodeUnits(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
-function inside(root: string, candidate: string): boolean { const relative = path.relative(root, candidate); return relative === "" || (!relative.startsWith("..") && !path.isAbsolute(relative)); }
-function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> { return typeof value === "object" && value !== null && !Array.isArray(value) && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key)); }
-function safeFile(value: unknown): value is string { return typeof value === "string" && value.length > 0 && !value.includes("\\") && !value.includes("\0") && !path.posix.isAbsolute(value) && value.split("/").every((part) => part.length > 0 && part !== "." && part !== ".."); }
-function same(left: ThemeActivationIdentity, right: ThemeActivationIdentity): boolean { return left.id === right.id && left.version === right.version && left.rendererContract === right.rendererContract && left.manifestHash === right.manifestHash; }
-function copyIdentity(value: ThemeActivationIdentity): ThemeActivationIdentity { return Object.freeze({ id: value.id, version: value.version, rendererContract: value.rendererContract, manifestHash: value.manifestHash }); }
-function identity(value: unknown): ThemeActivationIdentity | null {
-  if (!exact(value, ["id", "version", "rendererContract", "manifestHash"])) return null;
-  const id = value.id as string;
-  const version = value.version as string;
-  const manifestHash = value.manifestHash as Digest;
-  if (!isCanonicalThemeId(id) || version.length === 0 || value.rendererContract !== ThemeRendererContract || !isDigest(manifestHash)) return null;
-  return Object.freeze({ id, version, rendererContract: ThemeRendererContract, manifestHash });
-}
-function parseState(value: unknown): ThemeActivationState | null {
-  if (!exact(value, ["contract", "active"]) && !exact(value, ["contract"])) return null;
-  if (value.contract !== "theme-activation-state/v1") return null;
-  if (!Object.hasOwn(value, "active")) return Object.freeze({ contract: "theme-activation-state/v1" });
-  const active = identity(value.active);
-  return active === null ? null : Object.freeze({ contract: "theme-activation-state/v1", active });
-}
-function stateDigest(value: ThemeActivationState): Digest | null {
-  const bytes = canonicalJsonBytes(value);
-  return bytes.ok ? sha256Digest(bytes.value) : null;
-}
-function snapshot(state: State): ActiveThemeSnapshot { return Object.freeze(state.value.active === undefined ? { digest: state.digest } : { identity: copyIdentity(state.value.active), digest: state.digest }); }
-function candidate(value: InstalledTheme): ThemeCandidate { return Object.freeze({ id: value.manifest.id, version: value.manifest.version, rendererContract: value.manifest.rendererContract, manifestHash: value.manifestHash }); }
-
-async function absoluteDirectory(value: unknown): Promise<string | null> {
-  if (typeof value !== "string" || !path.isAbsolute(value)) return null;
-  try { const resolved = await realpath(value); return (await stat(resolved)).isDirectory() ? resolved : null; } catch { return null; }
-}
-async function trustedRoot(input: CreateThemeHostInput): Promise<TrustedRoot | null> {
-  const repositoryRoot = await absoluteDirectory(input.repositoryRoot);
-  const installedThemesRoot = await absoluteDirectory(input.installedThemesRoot);
-  if (repositoryRoot === null || installedThemesRoot === null || repositoryRoot === installedThemesRoot || inside(repositoryRoot, installedThemesRoot) || inside(installedThemesRoot, repositoryRoot)) return null;
-  try {
-    const metadata = await stat(installedThemesRoot);
-    const uid = typeof process.getuid === "function" ? process.getuid() : undefined;
-    if (!metadata.isDirectory() || uid === undefined || (metadata.uid !== uid && metadata.uid !== 0) || (metadata.mode & 0o022) !== 0) return null;
-    return Object.freeze({ repositoryRoot, installedThemesRoot, dev: metadata.dev, ino: metadata.ino, uid: metadata.uid, mode: metadata.mode });
-  } catch { return null; }
-}
-async function validRoot(root: TrustedRoot): Promise<boolean> {
-  try {
-    if (await realpath(root.installedThemesRoot) !== root.installedThemesRoot) return false;
-    const metadata = await stat(root.installedThemesRoot);
-    return metadata.isDirectory() && metadata.dev === root.dev && metadata.ino === root.ino && metadata.uid === root.uid && metadata.mode === root.mode && (metadata.mode & 0o022) === 0;
-  } catch { return false; }
-}
-async function resolvedFile(directory: string, file: string): Promise<string | null> {
-  if (!safeFile(file)) return null;
-  try { const resolved = await realpath(path.join(directory, file)); return inside(directory, resolved) && (await stat(resolved)).isFile() ? resolved : null; } catch { return null; }
-}
-type ParsedThemeManifest = Readonly<Omit<ThemeManifestV1, "rendererContract"> & { rendererContract: string }>;
-/** rendererContract 只檢查型別，contract 不符由 `load` 以 `UNSUPPORTED_RENDERER_CONTRACT` 分開回報。 */
-function manifest(bytes: Uint8Array): ParsedThemeManifest | null {
-  let value: unknown;
-  try { value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)); } catch { return null; }
-  const canonical = canonicalJsonBytes(value);
-  if (!canonical.ok || !Buffer.from(canonical.value).equals(Buffer.from(bytes))) return null;
-  if (!exact(value, ["manifestVersion", "id", "version", "trustedLocal", "rendererContract", "entry", "resources"])) return null;
-  const source = value as Readonly<Record<string, unknown>>;
-  const id = source.id as string;
-  const version = source.version as string;
-  if (source.manifestVersion !== "theme-manifest/v1" || !isCanonicalThemeId(id) || version.length === 0 || source.trustedLocal !== true || typeof source.rendererContract !== "string" || source.rendererContract.length === 0 || !exact(source.entry, ["file", "digest"]) || !Array.isArray(source.resources)) return null;
-  const entry = source.entry as Readonly<{ file: string; digest: Digest }>;
-  if (!safeFile(entry.file) || !isDigest(entry.digest)) return null;
-  const resources: Array<Readonly<{ file: string; digest: Digest }>> = [];
-  const files = new Set<string>([entry.file]);
-  for (const resource of source.resources) {
-    if (!exact(resource, ["file", "digest"])) return null;
-    const item = resource as Readonly<{ file: string; digest: Digest }>;
-    if (!safeFile(item.file) || !isDigest(item.digest) || files.has(item.file)) return null;
-    files.add(item.file);
-    resources.push(Object.freeze({ file: item.file, digest: item.digest }));
-  }
-  resources.sort((left, right) => compareCodeUnits(left.file, right.file));
-  return Object.freeze({ manifestVersion: "theme-manifest/v1", id, version, trustedLocal: true, rendererContract: source.rendererContract, entry: Object.freeze({ file: entry.file, digest: entry.digest }), resources: Object.freeze(resources) });
+function sameIdentity(left: ThemeIdentity, right: ThemeIdentity): boolean {
+  return left.id === right.id && left.version === right.version && left.manifestHash === right.manifestHash;
 }
 
-async function load(root: TrustedRoot, id: string): Promise<ThemeHostResult<InstalledTheme>> {
-  if (!isCanonicalThemeId(id)) return themeHostError("THEME_NOT_FOUND", id);
-  if (!(await validRoot(root))) return themeHostError("INVALID_TRUSTED_ROOT");
-  let directory: string;
-  try { directory = await realpath(path.join(root.installedThemesRoot, id)); if (!inside(root.installedThemesRoot, directory) || !(await stat(directory)).isDirectory()) return themeHostError("THEME_NOT_FOUND", id); } catch { return themeHostError("THEME_NOT_FOUND", id); }
-  const manifestPath = await resolvedFile(directory, "theme-manifest.json");
-  if (manifestPath === null) return themeHostError("INVALID_THEME_MANIFEST", id);
-  let manifestBytes: Uint8Array;
-  try { manifestBytes = new Uint8Array(await readFile(manifestPath)); } catch { return themeHostError("THEME_EVIDENCE_MISMATCH", id); }
-  const declared = manifest(manifestBytes);
-  if (declared === null || declared.id !== id) return themeHostError("INVALID_THEME_MANIFEST", id);
-  if (declared.rendererContract !== ThemeRendererContract) return themeHostError("UNSUPPORTED_RENDERER_CONTRACT", id);
-  const parsed: ThemeManifestV1 = Object.freeze({ ...declared, rendererContract: ThemeRendererContract });
-  const entryPath = await resolvedFile(directory, parsed.entry.file);
-  if (entryPath === null) return themeHostError("THEME_EVIDENCE_MISMATCH", id);
-  let entryBytes: Uint8Array;
-  try { entryBytes = new Uint8Array(await readFile(entryPath)); } catch { return themeHostError("THEME_EVIDENCE_MISMATCH", id); }
-  if (sha256Digest(entryBytes) !== parsed.entry.digest) return themeHostError("THEME_EVIDENCE_MISMATCH", id);
-  const resources: VerifiedThemeResource[] = [];
-  for (const resource of parsed.resources) {
-    const resourcePath = await resolvedFile(directory, resource.file);
-    if (resourcePath === null) return themeHostError("THEME_EVIDENCE_MISMATCH", id);
-    let bytes: Uint8Array;
-    try { bytes = new Uint8Array(await readFile(resourcePath)); } catch { return themeHostError("THEME_EVIDENCE_MISMATCH", id); }
-    if (sha256Digest(bytes) !== resource.digest) return themeHostError("THEME_EVIDENCE_MISMATCH", id);
-    resources.push(Object.freeze({ file: resource.file, bytes: copyBytes(bytes), digest: resource.digest }));
-  }
-  if (!(await validRoot(root))) return themeHostError("INVALID_TRUSTED_ROOT");
-  return Object.freeze({ ok: true, value: Object.freeze({ manifest: parsed, manifestHash: sha256Digest(manifestBytes), entryBytes: copyBytes(entryBytes), resources: Object.freeze(resources) }) });
+function outcomeIdentity(value: SlotOutcome): ThemeIdentity | null {
+  return value.identity;
 }
 
-class Host implements ThemeHost {
-  public constructor(private readonly root: TrustedRoot, private readonly activationState: CreateThemeHostInput["activationState"]) {}
+function isValidated(value: SlotOutcome): value is Extract<SlotOutcome, { status: "validated" }> {
+  return value.status === "validated";
+}
 
-  private async state(): Promise<ThemeHostResult<State>> {
-    try {
-      const value = parseState(await this.activationState.read());
-      const digest = value === null ? null : stateDigest(value);
-      return value === null || digest === null ? themeHostError("ACTIVATION_STATE_FAILURE") : Object.freeze({ ok: true, value: Object.freeze({ value, digest }) });
-    } catch { return themeHostError("ACTIVATION_STATE_FAILURE"); }
-  }
+function isConflict(value: SlotOutcome, identity: ThemeIdentity): boolean {
+  return value.status === "rejected" && value.error.code === "THEME_IDENTITY_CONFLICT" && value.identity !== null && value.identity.id === identity.id && value.identity.version === identity.version;
+}
 
-  public async discover(): Promise<ThemeHostResult<ThemeDiscoveryReport>> {
-    if (!(await validRoot(this.root))) return themeHostError("INVALID_TRUSTED_ROOT");
-    let names: string[];
-    try { names = (await readdir(this.root.installedThemesRoot, { withFileTypes: true })).filter((entry) => entry.isDirectory() || entry.isSymbolicLink()).map((entry) => entry.name).sort(compareCodeUnits); } catch { return themeHostError("THEME_DISCOVERY_FAILED"); }
-    const candidates: ThemeCandidate[] = [];
-    const rejections: ThemeHostFailure[] = [];
-    for (const name of names) {
-      const result = await load(this.root, name);
-      if (result.ok) candidates.push(candidate(result.value)); else rejections.push(result.error as ThemeHostFailure);
+function rejected(error: ThemeHostFailure, identity: ThemeIdentity | null): SlotOutcome {
+  return Object.freeze({ status: "rejected" as const, identity, error });
+}
+
+function validIdentity(value: unknown): value is ThemeIdentity {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const input = value as Record<string, unknown>;
+  return Object.keys(input).length === 3 && isCanonicalThemeId(input.id) && typeof input.version === "string" && semverValid(input.version) === input.version && typeof input.manifestHash === "string" && isDigest(input.manifestHash);
+}
+
+async function mapBounded<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<readonly R[]> {
+  const results: R[] = new Array<R>(items.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next;
+      next += 1;
+      results[index] = await run(items[index]!);
     }
-    return Object.freeze({ ok: true, value: Object.freeze({ candidates: Object.freeze(candidates), rejections: Object.freeze(rejections) }) });
-  }
-
-  public async activate(input: Readonly<{ identity: ThemeActivationIdentity }>): Promise<ThemeHostResult<ActiveThemeSnapshot>> {
-    const requested = identity(input.identity);
-    if (requested === null) return themeHostError("INVALID_THEME_HOST_INPUT");
-    const state = await this.state();
-    if (!state.ok) return state;
-    if (state.value.value.active !== undefined && !same(state.value.value.active, requested)) return themeHostError("THEME_IDENTITY_CONFLICT", requested.id);
-    const installed = await load(this.root, requested.id);
-    if (!installed.ok) return installed;
-    if (!same(candidate(installed.value), requested)) return themeHostError("THEME_IDENTITY_CONFLICT", requested.id);
-    const next: ThemeActivationState = Object.freeze({ contract: "theme-activation-state/v1", active: requested });
-    try { if (!(await this.activationState.compareAndReplace({ expectedDigest: state.value.digest, nextState: next }))) return themeHostError("ACTIVATION_STATE_CONFLICT", requested.id); } catch { return themeHostError("ACTIVATION_STATE_FAILURE", requested.id); }
-    const digest = stateDigest(next);
-    return digest === null ? themeHostError("ACTIVATION_STATE_FAILURE", requested.id) : Object.freeze({ ok: true, value: snapshot(Object.freeze({ value: next, digest })) });
-  }
-
-  public async deactivate(input: Readonly<{ identity: ThemeActivationIdentity }>): Promise<ThemeHostResult<ActiveThemeSnapshot>> {
-    const requested = identity(input.identity);
-    if (requested === null) return themeHostError("INVALID_THEME_HOST_INPUT");
-    const state = await this.state();
-    if (!state.ok) return state;
-    if (state.value.value.active === undefined || !same(state.value.value.active, requested)) return themeHostError("THEME_NOT_ACTIVE", requested.id);
-    const next: ThemeActivationState = Object.freeze({ contract: "theme-activation-state/v1" });
-    try { if (!(await this.activationState.compareAndReplace({ expectedDigest: state.value.digest, nextState: next }))) return themeHostError("ACTIVATION_STATE_CONFLICT", requested.id); } catch { return themeHostError("ACTIVATION_STATE_FAILURE", requested.id); }
-    const digest = stateDigest(next);
-    return digest === null ? themeHostError("ACTIVATION_STATE_FAILURE", requested.id) : Object.freeze({ ok: true, value: snapshot(Object.freeze({ value: next, digest })) });
-  }
-
-  public async getActiveSnapshot(): Promise<ThemeHostResult<ActiveThemeSnapshot>> { const state = await this.state(); return state.ok ? Object.freeze({ ok: true, value: snapshot(state.value) }) : state; }
-
-  public async resolveActiveRendererSource(): Promise<ThemeHostResult<ActiveThemeRendererSource>> {
-    const state = await this.state();
-    if (!state.ok) return state;
-    const active = state.value.value.active;
-    if (active === undefined) return themeHostError("THEME_NOT_ACTIVE");
-    const installed = await load(this.root, active.id);
-    if (!installed.ok) return installed.error.code === "THEME_NOT_FOUND" ? themeHostError("ACTIVE_THEME_IDENTITY_MISMATCH", active.id) : installed;
-    const found = candidate(installed.value);
-    if (!same(found, active)) return themeHostError("ACTIVE_THEME_IDENTITY_MISMATCH", active.id);
-    return Object.freeze({ ok: true, value: Object.freeze({ identity: copyIdentity(active), activeStateDigest: state.value.digest, entryBytes: copyBytes(installed.value.entryBytes), entryDigest: installed.value.manifest.entry.digest, resources: Object.freeze(installed.value.resources.map((resource) => Object.freeze({ file: resource.file, bytes: copyBytes(resource.bytes), digest: resource.digest }))) }) });
-  }
+  };
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
+  return results;
 }
 
-export async function createThemeHost(input: CreateThemeHostInput): Promise<ThemeHostResult<ThemeHost>> {
-  if (input === null || typeof input !== "object" || input.activationState === null || typeof input.activationState !== "object" || typeof input.activationState.read !== "function" || typeof input.activationState.compareAndReplace !== "function") return themeHostError("INVALID_THEME_HOST_INPUT");
-  const root = await trustedRoot(input);
-  return root === null ? themeHostError("INVALID_TRUSTED_ROOT") : Object.freeze({ ok: true, value: new Host(root, input.activationState) });
+async function parseSlot(roots: TrustedRoots, slot: string): Promise<Readonly<{ ok: true; value: ParsedSlot }> | Readonly<{ ok: false; outcome: SlotOutcome }>> {
+  const slotIdentity = await validateThemeSlot(roots, slot);
+  if (slotIdentity === null) return Object.freeze({ ok: false, outcome: rejected(themeHostFailure("THEME_EVIDENCE_MISMATCH"), null) });
+  const manifestBytes = await readTrustedThemeFile(roots, slot, slotIdentity, "theme.json", maximumManifestBytes);
+  if (!manifestBytes.ok) return Object.freeze({ ok: false, outcome: rejected(themeHostFailure("THEME_EVIDENCE_MISMATCH"), null) });
+  const parsed = parseThemeManifest(manifestBytes.bytes);
+  if (!parsed.ok) return Object.freeze({ ok: false, outcome: rejected(parsed.error.owner === "ThemeHost" ? parsed.error : themeHostFailure("INVALID_THEME_MANIFEST"), null) });
+  const { identity, manifest } = parsed.value;
+  if (manifest.resources.length > maximumResources) {
+    return Object.freeze({ ok: false, outcome: rejected(themeHostFailure("INVALID_THEME_MANIFEST", identity.id), identity) });
+  }
+  return Object.freeze({ ok: true, value: Object.freeze({ slot, slotIdentity, identity, manifest, manifestBytes: manifestBytes.bytes.byteLength }) });
+}
+
+async function verifySlot(roots: TrustedRoots, parsed: ParsedSlot, retainBytes: boolean): Promise<SlotOutcome> {
+  const { identity, manifest, slot, slotIdentity } = parsed;
+  const files = [manifest.runtime, ...manifest.resources];
+  const bytes = new Map<string, Uint8Array>();
+  let runtimeBytes: Uint8Array | null = null;
+  let packageBytes = parsed.manifestBytes;
+  for (const file of files) {
+    const evidence = await readTrustedThemeFile(roots, slot, slotIdentity, file.file, Math.min(maximumEvidenceFileBytes, maximumPackageBytes - packageBytes));
+    if (!evidence.ok || sha256Digest(evidence.bytes) !== file.digest) {
+      return rejected(themeHostFailure("THEME_EVIDENCE_MISMATCH", identity.id), identity);
+    }
+    packageBytes += evidence.bytes.byteLength;
+    if (file.file === manifest.runtime.file) runtimeBytes = evidence.bytes;
+    if (retainBytes) bytes.set(file.file, evidence.bytes);
+  }
+  if (runtimeBytes === null || !(await runtimeIsSelfContained(runtimeBytes))) {
+    return rejected(themeHostFailure("THEME_RUNTIME_INVALID", identity.id), identity);
+  }
+  const slotAfter = await validateThemeSlot(roots, slot);
+  if (slotAfter === null || slotAfter.dev !== slotIdentity.dev || slotAfter.ino !== slotIdentity.ino || slotAfter.uid !== slotIdentity.uid || slotAfter.mode !== slotIdentity.mode) {
+    return rejected(themeHostFailure("THEME_EVIDENCE_MISMATCH", identity.id), identity);
+  }
+  return Object.freeze({
+    status: "validated" as const,
+    identity,
+    theme: Object.freeze({
+      identity,
+      descriptor: Object.freeze({ identity, manifest }),
+      bytes,
+    }),
+  });
+}
+
+async function collect(roots: TrustedRoots, options: CollectOptions): Promise<Collected> {
+  if (!(await revalidateTrustedRoots(roots))) return Object.freeze({ ok: false, error: themeHostFailure("INVALID_TRUSTED_ROOT") });
+  let slots: readonly string[];
+  try {
+    slots = await installedThemeSlots(roots);
+  } catch {
+    return Object.freeze({ ok: false, error: themeHostFailure("THEME_DISCOVERY_FAILED") });
+  }
+  if (slots.length > maximumSlots) return Object.freeze({ ok: false, error: themeHostFailure("THEME_DISCOVERY_FAILED") });
+  const values = await mapBounded(slots, maximumConcurrentSlots, async (slot) => {
+    const parsed = await parseSlot(roots, slot);
+    if (!parsed.ok) return parsed.outcome;
+    return options.select(parsed.value.identity)
+      ? await verifySlot(roots, parsed.value, options.retainBytes)
+      : Object.freeze({ status: "unverified" as const, identity: parsed.value.identity });
+  });
+  if (!(await revalidateTrustedRoots(roots))) return Object.freeze({ ok: false, error: themeHostFailure("INVALID_TRUSTED_ROOT") });
+  return Object.freeze({ ok: true, values: Object.freeze(values) });
+}
+
+function conflictKey(identity: ThemeIdentity): string {
+  return `${identity.id}\0${identity.version}`;
+}
+
+function conflicts(values: readonly SlotOutcome[]): ReadonlySet<string> {
+  const counts = new Map<string, number>();
+  for (const value of values) {
+    const identity = outcomeIdentity(value);
+    if (identity === null) continue;
+    const key = conflictKey(identity);
+    counts.set(key, (counts.get(key) ?? 0) + 1);
+  }
+  return new Set([...counts].filter(([, count]) => count > 1).map(([key]) => key));
+}
+
+function normalizedValues(values: readonly SlotOutcome[]): readonly SlotOutcome[] {
+  const duplicateKeys = conflicts(values);
+  return Object.freeze(values.map((value) => {
+    const identity = outcomeIdentity(value);
+    return identity !== null && duplicateKeys.has(conflictKey(identity))
+      ? rejected(themeHostFailure("THEME_IDENTITY_CONFLICT", identity.id), identity)
+      : value;
+  }));
+}
+
+function orderedRejections(values: readonly SlotOutcome[]): readonly ThemeHostFailure[] {
+  const unique = new Map<string, ThemeHostFailure>();
+  for (const value of values) {
+    if (value.status !== "rejected") continue;
+    const key = `${value.error.code}\0${value.error.subjectIds[0] ?? ""}`;
+    if (!unique.has(key)) unique.set(key, value.error);
+  }
+  return Object.freeze([...unique.values()].sort((left, right) => {
+    const subject = compareCodeUnits(left.subjectIds[0] ?? "", right.subjectIds[0] ?? "");
+    return subject !== 0 ? subject : compareCodeUnits(left.code, right.code);
+  }));
+}
+
+function resolved(values: readonly SlotOutcome[], identity: ThemeIdentity): ThemeHostResult<ValidatedTheme> {
+  const normalized = normalizedValues(values);
+  const exact = normalized.find((value) => isValidated(value) && sameIdentity(value.identity, identity));
+  if (exact !== undefined && isValidated(exact)) return Object.freeze({ ok: true, value: exact.theme });
+  const conflict = normalized.find((value) => isConflict(value, identity));
+  if (conflict !== undefined && conflict.status === "rejected") return Object.freeze({ ok: false, error: conflict.error });
+  const drift = normalized.find((value) => {
+    const candidate = outcomeIdentity(value);
+    return candidate !== null && candidate.id === identity.id && candidate.version === identity.version;
+  });
+  return drift === undefined
+    ? Object.freeze({ ok: false, error: themeHostFailure("THEME_NOT_FOUND", identity.id) })
+    : Object.freeze({ ok: false, error: themeHostFailure("THEME_EVIDENCE_MISMATCH", identity.id) });
+}
+
+async function resolveIdentity(roots: TrustedRoots, identity: ThemeIdentity, retainBytes: boolean): Promise<ThemeHostResult<ValidatedTheme>> {
+  const collected = await collect(roots, { select: (candidate) => sameIdentity(candidate, identity), retainBytes });
+  return collected.ok ? resolved(collected.values, identity) : collected;
+}
+
+export function themeHost(roots: TrustedRoots): ThemeHost {
+  return Object.freeze({
+    async discover() {
+      const collected = await collect(roots, { select: () => true, retainBytes: false });
+      if (!collected.ok) return collected;
+      const values = normalizedValues(collected.values);
+      const candidates = values.filter(isValidated).map((value) => value.identity).sort((left, right) => compareCodeUnits(left.id, right.id) || compareCodeUnits(left.version, right.version) || compareCodeUnits(left.manifestHash, right.manifestHash));
+      return Object.freeze({ ok: true, value: Object.freeze({ candidates: Object.freeze(candidates), rejections: orderedRejections(values) }) });
+    },
+    async resolveExact(input) {
+      if (!validIdentity(input?.identity)) return Object.freeze({ ok: false, error: themeHostFailure("INVALID_THEME_HOST_INPUT") });
+      const result = await resolveIdentity(roots, input.identity, false);
+      return result.ok ? Object.freeze({ ok: true, value: result.value.descriptor }) : result;
+    },
+    async readVerifiedFile(input) {
+      if (!validIdentity(input?.identity) || typeof input?.file !== "string") return Object.freeze({ ok: false, error: themeHostFailure("INVALID_THEME_HOST_INPUT") });
+      const result = await resolveIdentity(roots, input.identity, true);
+      if (!result.ok) return result;
+      const bytes = result.value.bytes.get(input.file);
+      return bytes === undefined
+        ? Object.freeze({ ok: false, error: themeHostFailure("THEME_FILE_NOT_DECLARED", input.identity.id) })
+        : Object.freeze({ ok: true, value: copyBytes(bytes) });
+    },
+  });
 }

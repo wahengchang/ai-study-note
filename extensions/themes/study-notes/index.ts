@@ -89,15 +89,15 @@ function relativeHref(from, target) {
 
 function navigation(route, routes, entries) {
   return routes.map((item) => {
-    const target = entries.get(`${item.entryId}\0${item.revisionId}`);
+    const target = entries.get(`${item.owner}\0${item.sourceRevisionId}`);
     if (target === undefined) throw new Error("missing route entry");
-    const current = item.route === route ? ' aria-current="page"' : "";
-    return `<li><a href="${escapeHtml(relativeHref(route, item.route))}"${current}>${escapeHtml(target.content.title)}</a></li>`;
+    const current = item.normalizedRoute === route ? ' aria-current="page"' : "";
+    return `<li><a href="${escapeHtml(relativeHref(route, item.normalizedRoute))}"${current}>${escapeHtml(target.content.title)}</a></li>`;
   }).join("");
 }
 
 function shell(route, title, body, routes, entries) {
-  const home = escapeHtml(routes.some((item) => item.route === "/") ? relativeHref(route, "/") : "./");
+  const home = escapeHtml(routes.some((item) => item.normalizedRoute === "/") ? relativeHref(route, "/") : "./");
   return `<!doctype html><html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body><a class="skip-link" href="#main-content">跳至主要內容</a><header class="site-header"><p><a href="${home}">AI Study Note</a></p><nav class="site-nav" aria-label="文章導覽"><ul>${navigation(route, routes, entries)}</ul></nav></header><main id="main-content" tabindex="-1">${body}</main><footer class="site-footer">由 AI Study Note 產生的靜態頁面。</footer></body></html>`;
 }
 
@@ -111,9 +111,9 @@ function document(route, entry, routes, entries) {
 export function render(input) {
   const entries = new Map(input.entries.map((entry) => [`${entry.entryId}\0${entry.revisionId}`, entry]));
   const pages = input.routes.map((route) => {
-    const entry = entries.get(`${route.entryId}\0${route.revisionId}`);
+    const entry = entries.get(`${route.owner}\0${route.sourceRevisionId}`);
     if (entry === undefined) throw new Error("missing route entry");
-    return { route: route.route, html: document(route.route, entry, input.routes, entries) };
+    return { route: route.normalizedRoute, html: document(route.normalizedRoute, entry, input.routes, entries) };
   });
   return { contract: "theme-render-output/v1", pages };
 }

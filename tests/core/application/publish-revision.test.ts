@@ -17,6 +17,7 @@ const acceptEverySchema = { validate: () => ({ ok: true }) as const };
 const unavailableMedia: DataMedia = {
   importLocal: () => ({ ok: false, error: mediaFailure() }),
   getReadyAssetVersion: () => ({ ok: false, error: mediaFailure() }),
+  readReadyObject: () => ({ ok: false, error: mediaFailure() }),
   requireReadyAssetVersions: () => ({ ok: false, error: mediaFailure() }),
   resolvePublishedSelection: () => ({ ok: false, error: mediaFailure() }),
   archiveAsset: () => ({ ok: false, error: mediaFailure() }),

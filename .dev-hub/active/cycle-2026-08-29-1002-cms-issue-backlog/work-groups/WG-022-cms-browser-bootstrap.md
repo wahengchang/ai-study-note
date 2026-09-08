@@ -1,5 +1,5 @@
 ---
-id: WG-020
+id: WG-022
 status: completed
 title: CMS browser bootstrap
 work_items: ["WI-040"]

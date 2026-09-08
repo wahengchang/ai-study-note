@@ -15,4 +15,4 @@ depends_on: []
 GitHub Issue 的 acceptance 與分派後本 Work Group 的 Verification 均通過。
 
 ## Notes
-GitHub #253；WG-015 已完成 external root、exact identity、verified source snapshot 與 Renderer self-contained runtime boundary。
+GitHub #253；WG-015 已完成，實際驗證見 `logs/2026-09-04-1050-theme-host.md`。

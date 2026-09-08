@@ -1,6 +1,6 @@
 # CMS browser bootstrap review hardening
 
-- **Cycle**：`cycle-2026-08-29-1002-cms-issue-backlog` / `WG-020`
+- **Cycle**：`cycle-2026-08-29-1002-cms-issue-backlog` / `WG-022`
 - **完成時間**：2026-09-07T15:25:50+08:00
 - **狀態**：PR #323 review 後的補強，仍等待外部 reviewer 合併。
 

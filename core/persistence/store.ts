@@ -14,6 +14,7 @@ import type {
   PersistenceFailure,
   PersistenceFailureCode,
   PersistenceResult,
+  PersistenceReadSnapshot,
   PersistenceStore,
   PersistenceTransaction,
   PluginActivationStateRecord,
@@ -40,9 +41,51 @@ type Fail = <T>(code: PersistenceFailureCode) => PersistenceResult<T>;
 
 class Rollback extends Error { constructor(readonly decision: TransactionDecision<never, unknown>) { super("rollback"); } }
 
+function isSynchronousDecision(value: unknown): value is Readonly<{ ok: boolean }> {
+  return value !== null && typeof value === "object" && "ok" in value && typeof value.ok === "boolean" && !("then" in value && typeof value.then === "function");
+}
+
 export function createPersistenceStore(database: SqliteAdapter): PersistenceStore {
   const operations = createOperations(database);
   const activeTransactions = new WeakSet<object>();
+  const activeReadSnapshots = new WeakSet<object>();
+  const runReadSnapshot = <T, E>(operation: (snapshot: PersistenceReadSnapshot) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure> => {
+    let alive = true;
+    let firstFailure: PersistenceFailure | undefined;
+    const transaction = createOperations(database, () => alive, (failure) => { firstFailure ??= failure; });
+    const record = <R>(read: () => PersistenceResult<R>): PersistenceResult<R> => {
+      const result = read();
+      if (!result.ok) firstFailure ??= result.error;
+      return result;
+    };
+    const snapshot: PersistenceReadSnapshot = Object.freeze({
+      getEntryPointers(entryId: string) { return record(() => transaction.getEntryPointers(entryId)); },
+      listPublishedRevisionSelections() { return record(() => transaction.listPublishedRevisionSelections()); },
+      getRevision(identity: RevisionIdentity) { return record(() => transaction.getRevision(identity)); },
+      getRevisionReferences(identity: RevisionIdentity) { return record(() => transaction.getRevisionReferences(identity)); },
+      getReadyAssetVersion(identity: AssetVersionIdentity) { return record(() => transaction.getReadyAssetVersion(identity)); },
+      listRouteClaims(graph: "current" | "published") { return record(() => transaction.listRouteClaims(graph)); },
+      readPluginActivationState() { return record(() => transaction.readPluginActivationState()); },
+    });
+    try {
+      return database.readTransaction(() => {
+        activeReadSnapshots.add(snapshot);
+        try {
+          const decision = operation(snapshot);
+          if (!isSynchronousDecision(decision)) throw new Error("invalid read snapshot decision");
+          if (!decision.ok) return decision as TransactionDecision<T, E | PersistenceFailure>;
+          return firstFailure === undefined ? decision : { ok: false, error: firstFailure };
+        } finally {
+          activeReadSnapshots.delete(snapshot);
+        }
+      });
+    } catch {
+      return { ok: false, error: persistenceFailure("STORAGE_FAILURE") };
+    } finally {
+      activeReadSnapshots.delete(snapshot);
+      alive = false;
+    }
+  };
   const runTransaction = <T, E>(operation: (transaction: PersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure> => {
     let alive = true;
     let firstFailure: PersistenceFailure | undefined;
@@ -85,6 +128,8 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     readPluginActivationState() { return readPluginActivationState(database); },
     compareAndReplacePluginActivationState(input) { return compareAndReplacePluginActivationState(database, input); },
     readMediaStartupSnapshot() { return readMediaStartupSnapshot(database); },
+    runReadSnapshot,
+    ownsActiveReadSnapshot(snapshot) { return activeReadSnapshots.has(snapshot); },
     runTransaction,
     ownsActiveTransaction(transaction) { return activeTransactions.has(transaction); },
     preflightSchemaMigration(input) { return migrationImpact.preflight(input); },
@@ -187,6 +232,17 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       return { ok: true, value: revisionRecord({ identity, schemaIdentity: { schemaId, version }, contentBytes: bytes, contentDigest: digest, ...(restored === null ? {} : { restoredFromRevisionId: restored }), lineage: { operationId, operationKind } }, bytes, digest) };
     }); },
     getEntryPointers(entryId) { return reading(() => pointer(database.get("SELECT current_revision_id, published_revision_id FROM entry_pointers WHERE entry_id=?", entryId), entryId, refused)); },
+    listPublishedRevisionSelections() { return reading(() => {
+      const selections: RevisionIdentity[] = [];
+      for (const row of database.all("SELECT entry_id,published_revision_id FROM entry_pointers WHERE published_revision_id IS NOT NULL")) {
+        const entryId = text(row, "entry_id");
+        const revisionId = text(row, "published_revision_id");
+        if (entryId === null || revisionId === null) return refused("STORAGE_FAILURE");
+        selections.push({ entryId, revisionId });
+      }
+      selections.sort((left, right) => compareCodeUnits(left.entryId, right.entryId) || compareCodeUnits(left.revisionId, right.revisionId));
+      return { ok: true, value: Object.freeze(selections.map((selection) => Object.freeze({ ...selection }))) };
+    }); },
     setEntryPointers(input) { return guarded(() => {
       if (!validPointers(input)) return failed("INVALID_PERSISTENCE_INPUT");
       const identity = { entryId: input.entryId, revisionId: input.lineage.revisionId, operationId: input.lineage.operationId };
@@ -244,6 +300,7 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     listPublishedAssetReferences(identity) { return reading(() => { if (!validAssetIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const values: PublishedAssetReference[] = []; for (const row of database.all("SELECT p.entry_id,p.published_revision_id FROM entry_pointers p JOIN revision_refs r ON r.entry_id=p.entry_id AND r.revision_id=p.published_revision_id WHERE p.published_revision_id IS NOT NULL AND r.asset_id=? AND r.asset_version_id=?", identity.assetId, identity.assetVersionId)) { const entryId = text(row, "entry_id"), revisionId = text(row, "published_revision_id"); if (entryId === null || revisionId === null) return refused("STORAGE_FAILURE"); values.push({ entryId, revisionId, assetVersion: { ...identity } }); } return { ok: true, value: values.sort((a, b) => compareCodeUnits(a.entryId, b.entryId) || compareCodeUnits(a.revisionId, b.revisionId)) }; }); },
     createRevisionReferences(identity, assetVersions) { return references(identity,assetVersions); },
     getRevisionReferences(identity) { return reading(() => { if(!validRevisionIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const items: RevisionReferenceRecord[]=[]; for(const row of database.all("SELECT asset_id,asset_version_id FROM revision_refs WHERE entry_id=? AND revision_id=?",identity.entryId,identity.revisionId)){const assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id");if(assetId===null||assetVersionId===null)return refused("STORAGE_FAILURE");items.push({revision:{...identity},assetVersion:{assetId,assetVersionId}});} return {ok:true,value:items.sort((a,b)=>compareAssetVersions(a.assetVersion,b.assetVersion))}; }); },
+    readPluginActivationState() { return reading(() => readPluginActivationState(database)); },
     createRevisionWithReferences(input) { return guarded(() => { const created=revision(input.revision); if(!created.ok)return created; const createdReferences=references(input.revision.identity,input.assetVersions); if(!createdReferences.ok)return createdReferences; return {ok:true,value:{revision:created.value,references:createdReferences.value}}; }); },
     canonicalState() { return reading(() => canonicalState(database, refused)); },
   };

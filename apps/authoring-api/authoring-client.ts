@@ -144,34 +144,42 @@ async function authenticatedCommand<T>(location: LocalAuthoringCredentialInput, 
   return failed("SERVER_PROOF_GENERATION_MISMATCH");
 }
 async function mintBrowserTicket(location: LocalAuthoringCredentialInput): Promise<AuthoringClientResult<BrowserTicketDto>> {
-  const credential = await openLocalAuthoringClientCredential(location);
-  if (!credential.ok) return failed(credential.error.code);
-  const agent = new Agent({ keepAlive: true, maxSockets: 1, maxTotalSockets: 1, maxFreeSockets: 1, proxyEnv: undefined });
-  try {
-    const proofNonce = nonce();
-    const proof = await requestProof(agent, JSON.stringify({ contract: "authoring-server-proof-challenge/v1", generation: credential.value.generation, nonce: proofNonce }));
-    if (!proof.ok) return failed(proof.code);
-    const rawProof = (() => { try { return JSON.parse(proof.value.reply.text) as unknown; } catch { return undefined; } })();
-    const parsedProof = serverProofSchema.safeParse(rawProof);
-    if (proof.value.reply.status !== 200 || !parsedProof.success || parsedProof.data.generation !== credential.value.generation || parsedProof.data.nonce !== proofNonce || !credential.value.verifyServerProof(proofNonce, parsedProof.data.mac)) return failed("AUTHORING_SERVER_PROOF_INVALID");
-    const header = credential.value.authorizationHeader();
-    if (header === "") return failed("CREDENTIAL_NOT_PROVISIONED");
-    const remote = await requestAuthenticated(agent, proof.value.socket, header, {
-      pathname: "/_local/browser-tickets",
-      body: JSON.stringify({ contract: "browser-ticket-mint-request/v1", generation: credential.value.generation, proofNonce }),
-      successLimit: proofLimit,
-      timeoutCode: "AUTHORING_TICKET_TIMEOUT",
-      successSchema: browserTicketSchema,
-    });
-    if (!remote.ok) return failed(remote.code);
-    if (remote.value.status !== 201) return failed(remoteCode(remote.value.status, remote.value.text) ?? "INVALID_SERVER_RESPONSE");
-    const rawTicket = (() => { try { return JSON.parse(remote.value.text) as unknown; } catch { return undefined; } })();
-    const parsedTicket = browserTicketSchema.safeParse(rawTicket);
-    return parsedTicket.success && parsedTicket.data.generation === credential.value.generation ? { ok: true, value: parsedTicket.data } : failed("INVALID_SERVER_RESPONSE");
-  } finally {
-    credential.value.dispose();
-    agent.destroy();
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const credential = await openLocalAuthoringClientCredential(location);
+    if (!credential.ok) return failed(credential.error.code);
+    const agent = new Agent({ keepAlive: true, maxSockets: 1, maxTotalSockets: 1, maxFreeSockets: 1, proxyEnv: undefined });
+    try {
+      const proofNonce = nonce();
+      const proof = await requestProof(agent, JSON.stringify({ contract: "authoring-server-proof-challenge/v1", generation: credential.value.generation, nonce: proofNonce }));
+      if (!proof.ok) return failed(proof.code);
+      if (proof.value.reply.status !== 200) {
+        const code = remoteCode(proof.value.reply.status, proof.value.reply.text) ?? "AUTHORING_SERVER_PROOF_INVALID";
+        if (code === "SERVER_PROOF_GENERATION_MISMATCH" && attempt === 0) continue;
+        return failed(code);
+      }
+      const rawProof = (() => { try { return JSON.parse(proof.value.reply.text) as unknown; } catch { return undefined; } })();
+      const parsedProof = serverProofSchema.safeParse(rawProof);
+      if (!parsedProof.success || parsedProof.data.generation !== credential.value.generation || parsedProof.data.nonce !== proofNonce || !credential.value.verifyServerProof(proofNonce, parsedProof.data.mac)) return failed("AUTHORING_SERVER_PROOF_INVALID");
+      const header = credential.value.authorizationHeader();
+      if (header === "") return failed("CREDENTIAL_NOT_PROVISIONED");
+      const remote = await requestAuthenticated(agent, proof.value.socket, header, {
+        pathname: "/_local/browser-tickets",
+        body: JSON.stringify({ contract: "browser-ticket-mint-request/v1", generation: credential.value.generation, proofNonce }),
+        successLimit: proofLimit,
+        timeoutCode: "AUTHORING_TICKET_TIMEOUT",
+        successSchema: browserTicketSchema,
+      });
+      if (!remote.ok) return failed(remote.code);
+      if (remote.value.status !== 201) return failed(remoteCode(remote.value.status, remote.value.text) ?? "INVALID_SERVER_RESPONSE");
+      const rawTicket = (() => { try { return JSON.parse(remote.value.text) as unknown; } catch { return undefined; } })();
+      const parsedTicket = browserTicketSchema.safeParse(rawTicket);
+      return parsedTicket.success && parsedTicket.data.generation === credential.value.generation ? { ok: true, value: parsedTicket.data } : failed("INVALID_SERVER_RESPONSE");
+    } finally {
+      credential.value.dispose();
+      agent.destroy();
+    }
   }
+  return failed("SERVER_PROOF_GENERATION_MISMATCH");
 }
 
 

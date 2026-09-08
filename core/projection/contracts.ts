@@ -1,34 +1,91 @@
-import type { CoreResult, Digest, MessageRemediation } from "../foundation/index.js";
-import type { PublishedContentReadModel, StructuredContent } from "../content/index.js";
+import type { StructuredContent, PublishedContentReadModel, ContentReadFailure } from "../content/index.js";
+import type { JsonValue, Digest } from "../foundation/index.js";
 import type { DataMedia } from "../media/index.js";
 import type { PersistenceStore } from "../persistence/index.js";
-import type { PluginHost } from "../plugin-host/index.js";
-import type { SiteDefinition } from "../site-definition/index.js";
-import type { ThemeHost } from "../theme-host/index.js";
+import type { PluginHost, PluginActivationIdentity, PluginHostFailure, PluginManifestV1, PluginPublicHookId } from "../plugin-host/index.js";
+import type { RouteClaim, SiteDefinition } from "../site-definition/index.js";
+import type { ThemeHost, ThemeHostFailure, ThemeIdentity, ThemeManifestV1 } from "../theme-host/index.js";
 
-export type RendererInputV1 = Readonly<{
+export type ProjectionFailureCode =
+  | "INVALID_PROJECTION_INPUT"
+  | "SUBJECT_NOT_FOUND"
+  | "SUBJECT_NOT_PUBLISHED"
+  | "PROJECTION_STORAGE_FAILURE"
+  | "INVALID_REVISION_EVIDENCE"
+  | "UNRESOLVED_ROUTE_REFERENCE"
+  | "UNRESOLVED_MEDIA_REFERENCE"
+  | "PROJECTION_STATE_CHANGED"
+  | "PROJECTION_PAYLOAD_TOO_LARGE"
+  | "PROJECTION_ENCODING_FAILED"
+  | "INVALID_RENDERER_INPUT"
+  | "INVALID_PREVIEW_INPUT";
+
+export type ProjectionFailure = Readonly<{
+  code: ProjectionFailureCode;
+  owner: "Projection";
+  subjectIds: readonly string[];
+  remediation: Readonly<{ kind: "message"; message: string }>;
+}>;
+
+export type ProjectionResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: ProjectionFailure | ContentReadFailure | PluginHostFailure | ThemeHostFailure }>;
+export type RendererInputArtifact = Readonly<{ bytes: Uint8Array; inputDigest: Digest; bytesDigest: Digest }>;
+export type PreviewInputArtifact = Readonly<{ bytes: Uint8Array; previewDigest: Digest; bytesDigest: Digest }>;
+
+export type RendererEntry = Readonly<{
+  entryId: string;
+  revisionId: string;
+  schemaIdentity: Readonly<{ schemaId: string; version: number }>;
+  content: StructuredContent;
+  contentDigest: Digest;
+}>;
+export type RendererMediaReference = Readonly<{ entryId: string; revisionId: string; assetVersion: Readonly<{ assetId: string; assetVersionId: string }> }>;
+export type RendererMediaAsset = Readonly<{
+  identity: Readonly<{ assetId: string; assetVersionId: string }>;
+  objectDigest: Digest;
+  byteLength: number;
+  metadata: JsonValue;
+  metadataDigest: Digest;
+}>;
+export type RendererMediaObject = Readonly<{ objectDigest: Digest; byteLength: number; bytesBase64url: string }>;
+export type RendererMedia = Readonly<{ contract: "renderer-media/v1"; references: readonly RendererMediaReference[]; assets: readonly RendererMediaAsset[]; objects: readonly RendererMediaObject[] }>;
+export type RendererThemeFile = Readonly<{ role: "runtime" | "resource"; file: string; digest: Digest; bytesBase64url: string }>;
+export type RendererTheme = Readonly<{ identity: ThemeIdentity; manifest: ThemeManifestV1; files: readonly RendererThemeFile[] }>;
+export type RendererPluginRenderer = Readonly<{
+  identity: PluginActivationIdentity;
+  manifest: PluginManifestV1;
+  entryBytesBase64url: string;
+  entryDigest: Digest;
+  resources: readonly Readonly<{ file: string; bytesBase64url: string; digest: Digest }>[];
+  callbacks: readonly Readonly<{ hook: PluginPublicHookId; exportName: string; priority: number }>[];
+}>;
+export type RendererPlugins = Readonly<{ activeStateDigest: Digest; identities: readonly PluginActivationIdentity[]; renderers: readonly RendererPluginRenderer[] }>;
+export type RendererRoutes = Readonly<{ contract: "route-graph-snapshot/v1"; normalization: "route-normalization/v1"; graph: "published"; claims: readonly Omit<RouteClaim, "graph">[] }>;
+export type RendererInput = Readonly<{
   contract: "renderer-input/v1";
   inputDigest: Digest;
   selection: Readonly<{ publishedRevisionIds: readonly Readonly<{ entryId: string; revisionId: string }>[]; routeGraphDigest: Digest; mediaSelectionDigest: Digest }>;
-  entries: readonly Readonly<{ entryId: string; revisionId: string; content: StructuredContent; contentDigest: Digest }>[];
-  routes: readonly Readonly<{ route: string; entryId: string; revisionId: string }>[];
-  media: readonly Readonly<{ entryId: string; revisionId: string; assetId: string; assetVersionId: string; objectDigest: Digest; byteLength: number; metadataDigest: Digest; publicPath: string }>[];
-  theme: Readonly<{ identity: Readonly<{ id: string; version: string; rendererContract: "theme-renderer/v1"; manifestHash: Digest }>; entrySourceBase64: string; entryDigest: Digest; resources: readonly Readonly<{ file: string; bytesBase64: string; digest: Digest }>[] }>;
-  plugins: readonly Readonly<{ identity: Readonly<{ id: string; version: string; hookContract: "plugin-hooks/v1"; manifestHash: Digest }>; entrySourceBase64: string; entryDigest: Digest; resources: readonly Readonly<{ file: string; bytesBase64: string; digest: Digest }>[]; callbacks: readonly Readonly<{ hook: "public/block/render" | "public/assets/emit"; exportName: string; priority: number }>[] }>[];
+  entries: readonly RendererEntry[];
+  routes: RendererRoutes;
+  media: RendererMedia;
+  theme: RendererTheme;
+  plugins: RendererPlugins;
 }>;
-export type RendererInputArtifact = Readonly<{ contract: "renderer-input-artifact/v1"; bytes: Uint8Array; inputDigest: Digest }>;
-export type PreviewSelection = "current" | "published";
-export type PreviewSubject = Readonly<{ entryId: string }>;
-export type PreviewDocument = Readonly<{
-  contract: "preview-document/v1";
-  selection: PreviewSelection;
-  subject: PreviewSubject;
-  revisionId: string;
-  contentDigest: Digest;
-  document: string;
+export type PreviewInput = Readonly<{
+  contract: "preview-input/v1";
+  previewDigest: Digest;
+  subject: Readonly<{ entryId: string }>;
+  selection: Readonly<{ mode: "current" | "published"; selectedRevision: Readonly<{ entryId: string; revisionId: string }>; routeSelectionDigest: Digest; mediaSelectionDigest: Digest }>;
+  entry: RendererEntry;
+  route: Omit<RouteClaim, "graph">;
+  media: RendererMedia;
+  theme: RendererTheme;
+  plugins: RendererPlugins;
 }>;
-export type ProjectionFailureCode = "INVALID_PROJECTION_INPUT" | "INVALID_PREVIEW_INPUT" | "PUBLISHED_SELECTION_UNRESOLVED" | "PUBLISHED_SELECTION_STALE" | "PREVIEW_SELECTION_UNRESOLVED" | "PREVIEW_STATE_STALE" | "PROJECTION_CANONICALIZATION_FAILED";
-export type ProjectionFailure = Readonly<{ code: ProjectionFailureCode; owner: "Projection"; subjectIds: readonly string[]; remediation: MessageRemediation }>;
-export type ProjectionResult<T> = CoreResult<T> | Readonly<{ ok: false; error: ProjectionFailure }>;
-export type CreateProjectionInput = Readonly<{ persistence: PersistenceStore; siteDefinition: SiteDefinition; dataMedia: DataMedia; contentReadModel: PublishedContentReadModel; themeHost: ThemeHost; pluginHost: PluginHost }>;
-export type Projection = Readonly<{ producePublishedRendererInput(): Promise<ProjectionResult<RendererInputArtifact>>; preview(input: Readonly<{ selection: PreviewSelection; subject: PreviewSubject }>): ProjectionResult<PreviewDocument> }>;
+export type ParsedRendererInput = Readonly<{ input: RendererInput; bytesDigest: Digest }>;
+export type ParsedPreviewInput = Readonly<{ input: PreviewInput; bytesDigest: Digest }>;
+
+export interface ProjectionPreview {
+  produceRendererInput(input: Readonly<{ themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<RendererInputArtifact>>;
+  preview(input: Readonly<{ selection: "current" | "published"; subject: Readonly<{ entryId: string }>; themeIdentity: ThemeIdentity }>): Promise<ProjectionResult<PreviewInputArtifact>>;
+}
+export type ProjectionDependencies = Readonly<{ persistence: PersistenceStore; siteDefinition: SiteDefinition; dataMedia: DataMedia; contentReadModel: PublishedContentReadModel; pluginHost: PluginHost; themeHost: ThemeHost }>;

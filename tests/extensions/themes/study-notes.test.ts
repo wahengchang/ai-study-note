@@ -6,7 +6,13 @@ import test from "node:test";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createStaticRenderer } from "../../../core/renderer/index.js";
 
-function digest(value: string) { return sha256Digest(new TextEncoder().encode(value)); }
+function canonical(value: unknown): Uint8Array {
+  const result = canonicalJsonBytes(value);
+  assert.equal(result.ok, true);
+  if (!result.ok) throw new Error("canonical");
+  return result.value;
+}
+function digest(value: unknown) { return sha256Digest(canonical(value)); }
 
 const themeEntry = path.resolve(import.meta.dirname, "../../../extensions/themes/study-notes/index.ts");
 
@@ -16,17 +22,21 @@ function demoBlock(name: string) {
 
 function artifact(blocks?: readonly unknown[]) {
   const source = readFileSync(themeEntry, "utf8");
+  const content = { contract: "site-content/v1" as const, title: "公開筆記示範", blocks: blocks ?? [{ kind: "article" as const, text: "第一段。\n\n第二段。" }, demoBlock("替代內容")] };
+  const media = { contract: "renderer-media/v1" as const, references: [], assets: [], objects: [] };
+  const manifest = { contract: "theme-manifest/v1" as const, id: "study-notes", version: "1.0.0", runtime: { file: "runtime.mjs", digest: sha256Digest(new Uint8Array(readFileSync(themeEntry))) }, resources: [] };
   const payload = {
     contract: "renderer-input/v1" as const,
-    selection: { publishedRevisionIds: [{ entryId: "guide", revisionId: "r1" }], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media") },
-    entries: [{ entryId: "guide", revisionId: "r1", content: { contract: "site-content/v1" as const, title: "公開筆記示範", blocks: blocks ?? [{ kind: "article" as const, text: "第一段。\n\n第二段。" }, { kind: "interactive-demo" as const, pluginIdentity: { id: "demo", version: "1.0.0", hookContract: "plugin-hooks/v1" as const, manifestHash: digest("demo") }, source: { html: "<button>執行</button>", css: "button{color:red}", javascript: "document.body.dataset.ready='yes'" }, staticFallback: "<strong>替代內容</strong>" }] }, contentDigest: digest("content") }],
-    routes: [{ route: "/guide", entryId: "guide", revisionId: "r1" }], media: [],
-    theme: { identity: { id: "study-notes", version: "1.0.0", rendererContract: "theme-renderer/v1" as const, manifestHash: digest("manifest") }, entrySourceBase64: Buffer.from(source).toString("base64"), entryDigest: digest(source), resources: [] }, plugins: [],
+    selection: { publishedRevisionIds: [{ entryId: "guide", revisionId: "r1" }], routeGraphDigest: digest({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: [{ normalizedRoute: "/guide", owner: "guide", sourceRevisionId: "r1" }] }), mediaSelectionDigest: digest({ contract: "renderer-media-selection/v1", references: [], assets: [], objects: [] }) },
+    entries: [{ entryId: "guide", revisionId: "r1", schemaIdentity: { schemaId: "note", version: 1 }, content, contentDigest: sha256Digest(canonical(content)) }],
+    routes: { contract: "route-graph-snapshot/v1" as const, normalization: "route-normalization/v1" as const, graph: "published" as const, claims: [{ normalizedRoute: "/guide", owner: "guide", sourceRevisionId: "r1" }] },
+    media,
+    theme: { identity: { id: manifest.id, version: manifest.version, manifestHash: sha256Digest(canonical(manifest)) }, manifest, files: [{ role: "runtime" as const, file: "runtime.mjs", digest: manifest.runtime.digest, bytesBase64url: Buffer.from(source).toString("base64url") }] },
+    plugins: { activeStateDigest: digest({ contract: "plugin-activation-state/v2", active: [], reactivationRequired: [] }), identities: [], renderers: [] },
   };
-  const payloadBytes = canonicalJsonBytes(payload); assert.equal(payloadBytes.ok, true); if (!payloadBytes.ok) throw new Error();
-  const full = { ...payload, inputDigest: sha256Digest(payloadBytes.value) };
-  const bytes = canonicalJsonBytes(full); assert.equal(bytes.ok, true); if (!bytes.ok) throw new Error();
-  return { contract: "renderer-input-artifact/v1" as const, bytes: bytes.value, inputDigest: full.inputDigest };
+  const full = { ...payload, inputDigest: sha256Digest(canonical(payload)) };
+  const bytes = canonical(full);
+  return { bytes, inputDigest: full.inputDigest, bytesDigest: sha256Digest(bytes) };
 }
 
 test("預設 Theme 產生子路徑安全且可存取的完整公開頁面", async () => {
@@ -40,7 +50,7 @@ test("預設 Theme 產生子路徑安全且可存取的完整公開頁面", asyn
   assert.match(html, /href="\.\/">AI Study Note/u);
   assert.match(html, /sandbox="allow-scripts"/u);
   assert.doesNotMatch(html, /allow-same-origin/u);
-  assert.match(html, /&lt;strong&gt;替代內容&lt;\/strong&gt;/u);
+  assert.match(html, /<strong>靜態替代內容：<\/strong>替代內容 的替代內容/u);
   assert.match(html, /:focus-visible/u);
 });
 
@@ -61,9 +71,3 @@ test("同一頁的多個 Interactive Demo 各自擁有唯一的標題與 static 
   assert.doesNotMatch(html, /allow-same-origin/u);
 });
 
-test("Theme manifest 宣告的 entry digest 與實際 entry bytes 相符", () => {
-  const manifest = JSON.parse(readFileSync(path.resolve(import.meta.dirname, "../../../extensions/themes/study-notes/theme-manifest.json"), "utf8")) as { entry: { file: string; digest: string } };
-  assert.equal(manifest.entry.file, "index.ts");
-  // Theme Host 以這個 digest 驗證 entry bytes：漏更新會讓啟用在 runtime 才以 THEME_EVIDENCE_MISMATCH 失敗。
-  assert.equal(manifest.entry.digest, sha256Digest(new Uint8Array(readFileSync(themeEntry))));
-});

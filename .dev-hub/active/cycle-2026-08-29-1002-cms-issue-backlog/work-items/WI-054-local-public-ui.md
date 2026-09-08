@@ -2,7 +2,7 @@
 id: WI-054
 status: done
 title: Local subpath-safe Public UI
-work_group: WG-018
+work_group: WG-020
 depends_on: ["WI-053"]
 ---
 
@@ -18,7 +18,7 @@ depends_on: ["WI-053"]
 
 ## Notes
 
-GitHub #255 的 local Public UI 切片。WG-017 的 Preview core document 已在本 branch 以 recovered commits 接回並通過 `npm run check`（195 tests）。
+GitHub #255 的 local Public UI 切片。WG-019 的 Preview core document 已在本 branch 以 recovered commits 接回並通過 `npm run check`（195 tests）。
 
 **Owner 決策（2026-09-06）**：GitHub Pages 與 release 必須留至整個專案最後階段；本 Work Item 只持續完善與驗證本機 Public UI，不得加入 workflow、deploy 或 remote release 行為。
 

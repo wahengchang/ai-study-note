@@ -74,6 +74,11 @@ export function createLocalMediaObjectStore({ objectsRoot }: Readonly<{ objectsR
         } catch { return fail("MEDIA_FINAL_VERIFICATION_FAILURE"); }
       },
       verifyEvidence(evidence) { if (!validEvidence(evidence) || !healthyRoot()) return fail("MEDIA_FINAL_VERIFICATION_FAILURE"); const inspected = inspectFile(finalPath(objects, evidence.objectDigest), "final", evidence.objectDigest); return inspected !== undefined && sameEvidence(inspected.evidence, evidence) && (inspected.nlink === 1 || inspected.nlink === 2) && healthyRoot() ? { ok: true, value: undefined } : fail("MEDIA_FINAL_VERIFICATION_FAILURE"); },
+      readEvidence(evidence) {
+        if (!validEvidence(evidence) || !healthyRoot()) return fail("MEDIA_FINAL_VERIFICATION_FAILURE");
+        const bytes = readEvidenceBytes(finalPath(objects, evidence.objectDigest), "final", evidence.objectDigest, evidence);
+        return bytes === undefined || !healthyRoot() ? fail("MEDIA_FINAL_VERIFICATION_FAILURE") : { ok: true, value: copyBytes(bytes) };
+      },
       inspectFinal(evidence) {
         if (!validEvidence(evidence) || !healthyRoot()) return fail("MEDIA_ROOT_FAILURE");
         const file = finalPath(objects, evidence.objectDigest);
@@ -122,6 +127,34 @@ function scanSnapshot(staging: string, objects: string, tokenFor: (record: Store
 function scanNames(staging: string, objects: string): readonly Readonly<{ kind: Kind; key: Digest; path: string }>[] | undefined { try { const entries = [...readdirSync(staging), ...readdirSync(objects)].sort(compareCodeUnits); const result: Array<Readonly<{ kind: Kind; key: Digest; path: string }>> = []; for (const name of entries) { const stage = /^[a-f0-9]{64}\.partial$/.exec(name), final = /^[a-f0-9]{64}$/.exec(name); if (stage === null && final === null) return undefined; const kind: Kind = stage === null ? "final" : "stage"; const key = `sha256:${(stage?.[0] ?? final?.[0] ?? "").replace(".partial", "")}` as Digest; result.push({ kind, key, path: kind === "stage" ? stagePath(staging,key) : finalPath(objects,key) }); } return result; } catch { return undefined; } }
 function statFile(file: string, kind: Kind): Readonly<{ dev: number; ino: number; nlink: number; mtimeMs: number; size: number }> | undefined { try { const expected = kind === "stage" ? /^[a-f0-9]{64}\.partial$/ : /^[a-f0-9]{64}$/; if (!expected.test(path.basename(file))) return undefined; const stat = lstatSync(file); if (!stat.isFile() || stat.isSymbolicLink() || stat.uid !== process.getuid?.() || !Number.isSafeInteger(stat.size) || !Number.isSafeInteger(stat.nlink)) return undefined; return { dev: stat.dev, ino: stat.ino, nlink: stat.nlink, mtimeMs: stat.mtimeMs, size: stat.size }; } catch { return undefined; } }
 function exists(file: string): boolean { try { lstatSync(file); return true; } catch { return false; } }
+function readEvidenceBytes(file: string, kind: Kind, key: Digest, expected: MediaEvidence): Uint8Array | undefined {
+  try {
+    const before = statFile(file, kind);
+    if (before === undefined || before.size !== expected.byteLength) return undefined;
+    const handle = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    try {
+      const opened = fstatSync(handle);
+      if (!opened.isFile() || opened.uid !== process.getuid?.() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size || opened.nlink !== before.nlink || opened.mtimeMs !== before.mtimeMs) return undefined;
+      const bytes = new Uint8Array(expected.byteLength);
+      const hash = createHash("sha256");
+      let offset = 0;
+      while (offset < bytes.byteLength) {
+        const count = readSync(handle, bytes, offset, bytes.byteLength - offset, offset);
+        if (count <= 0) return undefined;
+        hash.update(bytes.subarray(offset, offset + count));
+        offset += count;
+      }
+      const after = fstatSync(handle);
+      const lstatAfter = statFile(file, kind);
+      if (!after.isFile() || after.uid !== process.getuid?.() || after.dev !== before.dev || after.ino !== before.ino || after.size !== before.size || after.nlink !== before.nlink || after.mtimeMs !== before.mtimeMs || lstatAfter === undefined || lstatAfter.dev !== before.dev || lstatAfter.ino !== before.ino || lstatAfter.size !== before.size || lstatAfter.nlink !== before.nlink || lstatAfter.mtimeMs !== before.mtimeMs || key !== expected.objectDigest || `sha256:${hash.digest("hex")}` !== expected.objectDigest) return undefined;
+      return bytes;
+    } finally {
+      closeSync(handle);
+    }
+  } catch {
+    return undefined;
+  }
+}
 function inspectFile(file: string, kind: Kind, key: Digest): Inspected | undefined { try { const before = statFile(file, kind); if (before === undefined) return undefined; const handle = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW); try { const opened = fstatSync(handle); if (!opened.isFile() || opened.uid !== process.getuid?.() || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size || opened.nlink !== before.nlink || opened.mtimeMs !== before.mtimeMs) return undefined; const hash = createHash("sha256"), buffer = Buffer.allocUnsafe(64 * 1024); let offset = 0; for (;;) { const count = readSync(handle, buffer, 0, buffer.length, offset); if (count === 0) break; hash.update(buffer.subarray(0,count)); offset += count; } const after = fstatSync(handle), lstatAfter = statFile(file, kind); if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.nlink !== opened.nlink || after.mtimeMs !== opened.mtimeMs || lstatAfter === undefined || lstatAfter.dev !== opened.dev || lstatAfter.ino !== opened.ino || lstatAfter.size !== opened.size || lstatAfter.nlink !== opened.nlink || lstatAfter.mtimeMs !== opened.mtimeMs) return undefined; const evidence = { objectDigest: `sha256:${hash.digest("hex")}` as Digest, byteLength: after.size }; if (!validEvidence(evidence) || (kind === "final" && evidence.objectDigest !== key)) return undefined; return { evidence, dev: after.dev, ino: after.ino, nlink: after.nlink, mtimeMs: after.mtimeMs }; } finally { closeSync(handle); } } catch { return undefined; } }
 function pinDirectories(root: string, staging: string, objects: string): Readonly<{ root: DirectoryIdentity; staging: DirectoryIdentity; objects: DirectoryIdentity }> | undefined { const rootId = directoryIdentity(root), stagingId = directoryIdentity(staging), objectsId = directoryIdentity(objects); return rootId === undefined || stagingId === undefined || objectsId === undefined ? undefined : { root: rootId, staging: stagingId, objects: objectsId }; }
 // group/other 可寫的 root 或非本使用者擁有的 root 會讓 immutable object 被他人替換，因此 pin 與每次存取都必須重新檢查擁有者與權限。

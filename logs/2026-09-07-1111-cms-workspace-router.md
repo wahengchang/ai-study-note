@@ -1,6 +1,6 @@
 # CMS workspace router
 
-- **Cycle**：`cycle-2026-08-29-1002-cms-issue-backlog` / `WG-019`
+- **Cycle**：`cycle-2026-08-29-1002-cms-issue-backlog` / `WG-021`
 - **完成時間**：2026-09-07T11:11:30+08:00
 - **狀態**：completed
 

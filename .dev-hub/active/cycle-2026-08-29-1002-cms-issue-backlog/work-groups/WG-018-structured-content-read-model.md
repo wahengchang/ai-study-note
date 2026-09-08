@@ -1,5 +1,5 @@
 ---
-id: WG-016
+id: WG-018
 status: completed
 title: Structured Content Read Model
 work_items: ["WI-052"]

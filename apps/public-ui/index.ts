@@ -40,10 +40,14 @@ const CONTENT_TYPES: Readonly<Record<string, string>> = Object.freeze({
 function contentType(file: string): string { const dot = file.lastIndexOf("."); return (dot === -1 ? undefined : CONTENT_TYPES[file.slice(dot)]) ?? "application/octet-stream"; }
 
 function respond(response: ServerResponse, status: number, body: string, headers: Readonly<Record<string, string>> = {}): void { response.writeHead(status, { ...ERROR_HEADERS, "Content-Type": "text/plain; charset=utf-8", "Content-Length": Buffer.byteLength(body), ...headers }); response.end(body); }
-// Location 只由已驗證的 basePath 與 rawPath 收斂後的 pathname 組成（不含 `//`、反斜線、`%`、`..`），
+// Location 只由已驗證的 basePath 與 rawPath 收斂後的 pathname 組成（不含 `//`、反斜線、`%`、dot segment），
 // 因此永遠是本站相對路徑，不會變成 open redirect。
 function redirect(response: ServerResponse, location: string): void { response.writeHead(302, { ...ERROR_HEADERS, Location: location, "Content-Length": 0 }); response.end(); }
-function rawPath(requestUrl: string | undefined): string | undefined { if (requestUrl === undefined || !requestUrl.startsWith("/") || requestUrl.startsWith("//")) return undefined; const pathname = requestUrl.split(/[?#]/u, 1)[0] ?? ""; return pathname.includes("%") || pathname.includes("\\") || pathname.includes("//") || pathname.includes("..") ? undefined : pathname; }
+function rawPath(requestUrl: string | undefined): string | undefined {
+  if (requestUrl === undefined || !requestUrl.startsWith("/") || requestUrl.startsWith("//")) return undefined;
+  const pathname = requestUrl.split(/[?#]/u, 1)[0] ?? "";
+  return pathname.includes("%") || pathname.includes("\\") || pathname.includes("//") || pathname.split("/").some((segment) => segment === "." || segment === "..") ? undefined : pathname;
+}
 
 function routeFor(basePath: string, pathname: string): string | undefined {
   if (pathname === basePath) return "/";

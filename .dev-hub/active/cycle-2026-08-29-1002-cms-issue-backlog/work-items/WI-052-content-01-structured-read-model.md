@@ -2,7 +2,7 @@
 id: WI-052
 status: done
 title: CONTENT-01 structured read model
-work_group: WG-016
+work_group: WG-018
 depends_on: ["WI-015"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-015"]
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #292；WG-016 已完成 `site-content/v1` immutable read model，通過 canonical/digest、raw full-page approval、Interactive Demo exact identity 與 fail-closed 契約測試。
+GitHub #292；WG-018 已完成 `site-content/v1` immutable read model，通過 canonical/digest、raw full-page approval、Interactive Demo exact identity 與 fail-closed 契約測試。

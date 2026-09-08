@@ -1,5 +1,6 @@
 export { PluginHookContract } from "./contracts.js";
-export { createPluginHost } from "./host.js";
+export { createPluginHost, validatePluginActivationIdentity } from "./host.js";
+export { parseManifestBytes as parsePluginManifest } from "./manifest.js";
 export type {
   ActivePluginSnapshot, ActivePublicPluginRenderer, CmsEditorBlockResolution, CmsEditorBlockResolverCallback, CmsEditorBlockResolverFacade,
   CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CmsEditorBlockSource, CmsEditorBlockSourceEvidence,

@@ -22,7 +22,7 @@ const SECURITY_HEADERS = {
 } as const;
 const CMS_DOCUMENT_HEADERS = {
   ...SECURITY_HEADERS,
-  "Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self'; font-src 'self'",
+  "Content-Security-Policy": "default-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'; connect-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; font-src 'self'; frame-src 'self'",
 } as const;
 const ERROR_REMEDIATION: Record<TransportCode, string> = {
   INVALID_REQUEST_FRAMING: "請修正 HTTP request framing。",
