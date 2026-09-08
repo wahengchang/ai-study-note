@@ -129,15 +129,19 @@ function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
   return transferEncoding.length === 0 || transferEncoding[0] === "chunked";
 }
 function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
-function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAsset["destination"] | undefined): boolean {
+function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAsset["destination"] | undefined, method: string): boolean {
   const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site");
   if (route === "cms-document") return origin.length === 0 && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && (fetchSite[0] === "none" || fetchSite[0] === "same-origin") && one(headers, "sec-fetch-mode") === "navigate" && one(headers, "sec-fetch-dest") === "document";
-  if (route === "cms-asset") return origin.length === 0 && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && fetchSite[0] === "same-origin" && assetDestination !== undefined && one(headers, "sec-fetch-dest") === assetDestination;
+  // module script fetch 會帶 exact same-origin `Origin`；其餘 asset destination 則省略，兩者都必須是 same-origin。
+  if (route === "cms-asset") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && fetchSite[0] === "same-origin" && assetDestination !== undefined && one(headers, "sec-fetch-dest") === assetDestination;
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
   if (route === "browser-ticket") return origin.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
   if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin" && values(headers, "authorization").length === 0;
   if (!AUTHENTICATED_ROUTES.has(route)) return true;
-  const browser = origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin";
+  // Fetch 只在 non-GET/HEAD 或 CORS-tainted request 附加 `Origin`，故 same-origin `GET` 合法省略；
+  // state-changing method 必定帶 `Origin`，因此省略在此一律拒絕，不讓它成為同源證明的繞道。
+  const omittedOrigin = origin.length === 0 && (method === "GET" || method === "HEAD");
+  const browser = (omittedOrigin || (origin.length === 1 && origin[0] === ORIGIN)) && fetchSite.length === 1 && fetchSite[0] === "same-origin";
   const cli = origin.length === 0 && fetchSite.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
   return browser || cli;
 }
@@ -356,7 +360,7 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     else if (!hostOk(headers)) result = errorResponse(requestId, "MISDIRECTED_REQUEST", 421);
     else if ((route === "cms-document" || route === "cms-asset") && (parsed?.search.length !== 0 || values(headers, "cookie").length !== 0 || values(headers, "authorization").length !== 0)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
     else if (route === "cms-asset" && asset === undefined) result = errorResponse(requestId, "ROUTE_NOT_FOUND", 404);
-    else if (!originOk(headers, route, asset?.destination)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
+    else if (!originOk(headers, route, asset?.destination, request.method)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
     else if (route === "unknown") result = errorResponse(requestId, "ROUTE_NOT_FOUND", 404);
     else if ((route === "cms-document" || route === "cms-asset") && request.method !== "GET") result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405);
     else if (READ_ROUTES.has(route) && request.method !== "GET" && !(POST_READ_ROUTES.has(route) && request.method === "POST")) result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405, "AuthoringApi", ERROR_REMEDIATION.METHOD_NOT_ALLOWED);

@@ -193,6 +193,12 @@ test("CMS documents and manifest assets apply their independent Fetch Metadata g
     const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
     assert.equal(asset.status, 200);
     assert.equal(asset.body, "export {};");
+    // module script fetch 實際會帶 exact same-origin Origin；只有 exact 值可通過。
+    const moduleAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: origin, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+    assert.equal(moduleAsset.status, 200);
+    const crossOriginAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: "https://attacker.example", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+    assert.equal(crossOriginAsset.status, 403);
+    assert.equal(failureCode(crossOriginAsset), "ORIGIN_FORBIDDEN");
     const wrongDestination = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "style" });
     assert.equal(wrongDestination.status, 403);
     const encoded = await send("GET", "/cms/entries/a%2Fb", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
@@ -200,6 +206,31 @@ test("CMS documents and manifest assets apply their independent Fetch Metadata g
     const query = await send("GET", "/cms?ticket=leak", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
     assert.equal(query.status, 403);
     assert.equal(digest(), before);
+  });
+});
+
+/** `Origin` 的省略是 GET 專屬的瀏覽器行為；把它擴到 state-changing method 會讓同源證明只剩 Fetch Metadata。 */
+test("authenticated /v1 routes admit originless same-origin GET but never an originless state change", async () => {
+  await withAuthoringApi(async ({ apiKey, digest }) => {
+    const before = digest();
+    const fetchMetadata = { "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" } as const;
+    const bearer = { Host: authority, Authorization: `Bearer ${apiKey}` } as const;
+    const previewBody = JSON.stringify({ contract: "preview-request/v1", selection: "current", subject: { entryId: "absent" } });
+    const json = { ...bearer, "Content-Type": "application/json" } as const;
+    for (const [name, response, status] of [
+      ["originless same-origin GET", await send("GET", "/v1/entries", { ...bearer, ...fetchMetadata }), 200],
+      ["exact Origin GET", await send("GET", "/v1/entries", { ...bearer, Origin: origin, ...fetchMetadata }), 200],
+      ["cross-site GET", await send("GET", "/v1/entries", { ...bearer, ...fetchMetadata, "Sec-Fetch-Site": "cross-site" }), 403],
+      ["foreign Origin GET", await send("GET", "/v1/entries", { ...bearer, Origin: "https://attacker.example", ...fetchMetadata }), 403],
+      ["originless same-origin POST", await post("/v1/preview", { ...json, ...fetchMetadata }, previewBody), 403],
+      ["exact Origin POST", await post("/v1/preview", { ...json, Origin: origin, ...fetchMetadata }, previewBody), 404],
+      ["CLI POST without Fetch Metadata", await post("/v1/preview", json, previewBody), 404],
+    ] as const) {
+      assert.equal(response.status, status, name);
+      if (status === 403) assert.equal(failureCode(response), "ORIGIN_FORBIDDEN", name);
+      assertResponseHeaders(response, name);
+    }
+    assert.equal(digest(), before, "gate 的接受與拒絕皆不得改變 canonical state");
   });
 });
 

@@ -1,6 +1,6 @@
 ---
 id: WI-056
-status: in_progress
+status: done
 title: CMS article entry workspace
 work_group: WG-023
 depends_on: ["WI-040", "WI-035", "WI-041", "WI-044", "WI-049"]
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-041", "WI-044", "WI-049"]
 
 ## Notes
 
-GitHub #315；由 WG-023 認領，Article-first CMS Workspace 進行中。
+GitHub #315；實際 `cms:serve` browser/a11y journey 已通過：文章清單、新增／重載、Save、current preview 與二段 Publish 都只經核准 owner seam。WG-023 已完成。

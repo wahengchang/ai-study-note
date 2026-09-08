@@ -12,4 +12,5 @@ export type {
   StructuredArticleBlock,
   StructuredContent,
   StructuredContentArtifact,
+  StructuredSeo,
 } from "./contracts.js";

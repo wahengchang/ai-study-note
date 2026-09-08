@@ -51,7 +51,7 @@ async function harness(withMedia: boolean): Promise<Harness> {
     assert.equal(media.value.importLocal({ importId: "import-1", assetId: "asset", assetVersionId: "v1", bytes: new Uint8Array([1, 2, 3, 250]), metadata: { type: "image" } }).ok, true);
     assetVersions.push({ assetId: "asset", assetVersionId: "v1" } as const);
   }
-  const content = canonical({ contract: "site-content/v1", title: "published", blocks: [{ kind: "article", text: "published" }] });
+  const content = canonical({ contract: "site-content/v1", title: "published", blocks: [{ kind: "article", text: "published" }], seo: { title: "搜尋標題", canonicalPath: "/published" } });
   const revision = { identity: { entryId: "entry-a", revisionId: "r1" }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: content, contentDigest: sha256Digest(content), lineage: { operationId: "save-r1", operationKind: "SaveRevision" } };
   assert.equal(store.createRevisionWithReferences({ revision, assetVersions }).ok, true);
   assert.equal(store.setEntryPointers({ entryId: "entry-a", currentRevisionId: "r1", publishedRevisionId: "r1", lineage: { revisionId: "r1", operationId: "publish-r1", operationKind: "PublishRevision" } }).ok, true);
@@ -136,6 +136,7 @@ test("producer output with embedded media round-trips through the strict parsers
     assert.equal(parsed.ok, true);
     if (!parsed.ok) return;
     assert.deepEqual(parsed.value.input.entries.map((entry) => entry.entryId), ["entry-a", "entry-a b"]);
+    assert.deepEqual(parsed.value.input.entries[0]!.content.seo, { title: "搜尋標題", canonicalPath: "/published" });
     assert.equal(parsed.value.input.media.objects.length, 1);
     assert.equal(parsed.value.input.media.objects[0]!.bytesBase64url, "AQID-g");
     assert.equal(parsed.value.input.theme.files.length, 1);
@@ -167,6 +168,7 @@ test("strict parsers reject every resealed payload whose evidence no longer matc
 
     const tampered: readonly (readonly [string, (document: Record<string, unknown>) => void])[] = [
       ["entry content 與 contentDigest 不符", (document) => { (document.entries as Record<string, unknown>[])[0]!.content = { title: "swapped" }; }],
+      ["entry content 的未知 SEO 即使重簽 content digest 仍被拒絕", (document) => { const entry = (document.entries as Record<string, unknown>[])[0]!; const content = entry.content as Record<string, unknown>; content.seo = { unknown: "x" }; entry.contentDigest = sha256Digest(canonical(content)); }],
       ["media object bytes 與 objectDigest 不符", (document) => { ((document.media as Record<string, unknown>).objects as Record<string, unknown>[])[0]!.bytesBase64url = "AQIDAQ"; }],
       ["theme runtime bytes 與 manifest digest 不符", (document) => { ((document.theme as Record<string, unknown>).files as Record<string, unknown>[])[0]!.bytesBase64url = "AA"; }],
       ["media selection digest 與內容不符", (document) => { ((document.media as Record<string, unknown>).references as unknown[]).length = 0; }],

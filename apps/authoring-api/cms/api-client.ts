@@ -30,7 +30,8 @@ export class CmsApiError extends Error {
 }
 
 /** save-revision-request/v1 沒有 expected-current 欄位：這裡不得宣告 transport 送不出去的 optimistic concurrency 輸入。 */
-export type ArticleSaveInput = Readonly<{ revisionId: string; operationId: string; title: string; slug: string; text: string }>;
+export type ArticleSeo = Readonly<{ title?: string; description?: string; canonicalPath?: string }>
+export type ArticleSaveInput = Readonly<{ revisionId: string; operationId: string; title: string; slug: string; text: string; seo: ArticleSeo }>;
 
 export class CmsApiClient {
   constructor(private readonly session: AuthoringSession) {}
@@ -46,7 +47,7 @@ export class CmsApiClient {
   async getEntry(entryId: string): Promise<EntryDetailDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}`, entryDetailSchema); }
   async getEntryRevisions(entryId: string): Promise<EntryRevisionCatalogDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/revisions`, entryRevisionCatalogSchema); }
   async save(entryId: string, input: ArticleSaveInput): Promise<SaveRevisionSuccessDto> {
-    const body = { contract: "save-revision-request/v1", revisionId: input.revisionId, operationId: input.operationId, schemaIdentity: { schemaId: "article", version: 1 }, content: { contract: "site-content/v1", title: input.title, blocks: [{ kind: "article", text: input.text }], seo: {} }, route: `/${input.slug}`, assetVersions: [] };
+    const body = { contract: "save-revision-request/v1", revisionId: input.revisionId, operationId: input.operationId, schemaIdentity: { schemaId: "article", version: 1 }, content: { contract: "site-content/v1", title: input.title, blocks: [{ kind: "article", text: input.text }], seo: input.seo }, route: `/${input.slug}`, assetVersions: [] };
     return this.json(`/v1/entries/${this.resourceId(entryId)}/revisions`, saveRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
   }
   async publish(entryId: string, expectedCurrentRevisionId: string): Promise<PublishRevisionSuccessDto> {
