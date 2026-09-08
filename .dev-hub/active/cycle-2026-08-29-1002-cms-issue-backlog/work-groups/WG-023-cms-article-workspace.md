@@ -6,7 +6,7 @@ work_items: ["WI-035", "WI-041", "WI-044", "WI-049", "WI-055", "WI-056"]
 owner: Main
 branch: feature/cms-article-workspace
 worktree: .dev-hub/worktrees/cms-article-workspace
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/325
 ---
 
 # CMS article workspace

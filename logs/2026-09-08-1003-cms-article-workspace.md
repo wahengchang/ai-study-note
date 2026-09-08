@@ -3,7 +3,7 @@
 - **完成時間**：2026-09-08T16:32:25+08:00
 - **Cycle／Work Group**：`cycle-2026-08-29-1002-cms-issue-backlog`／`WG-023`
 - **Branch**：`feature/cms-article-workspace`
-- **PR**：null
+- **PR**：https://github.com/wahengchang/ai-study-note/pull/325
 
 ## 交付
 
