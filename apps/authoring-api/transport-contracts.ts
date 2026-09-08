@@ -1,5 +1,8 @@
-import type { DomainApplicationFailureCode } from "../../core/application/index.js";
+import type { AuthoringReadFailureCode, ContentTypeAdministrationFailureCode, DomainApplicationFailureCode } from "../../core/application/index.js";
+import type { ContentReadFailureCode } from "../../core/content/index.js";
 import type { PluginHostFailureCode } from "../../core/plugin-host/index.js";
+import type { ProjectionFailureCode } from "../../core/projection/index.js";
+import type { ThemeHostFailureCode } from "../../core/theme-host/index.js";
 import { z } from "zod";
 
 import { API_KEY_PATTERN, BROWSER_TICKET_PATTERN, SECRET_TEXT_PATTERN } from "./origin.js";
@@ -14,6 +17,20 @@ const messageRemediationSchema = z.object({ kind: z.literal("message"), message:
  * listener 回來的 `INVALID_REQUEST_BODY`，而不是本地的 `INVALID_CLIENT_REQUEST`。
  */
 const jsonContent = z.unknown().refine((value) => value !== undefined);
+const schemaIdentitySchema = z.object({ schemaId: z.string(), version: positiveInteger }).strict();
+const routeSchema = z.object({ normalizedRoute: z.string(), sourceRevisionId: z.string() }).strict();
+const referenceSchema = z.object({ assetId: z.string(), assetVersionId: z.string(), availability: z.enum(["ready", "archived", "missing"]) }).strict();
+const revisionDocumentSchema = z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: z.string(), lineage: z.object({ operationId: z.string(), operationKind: z.string() }).strict(), restoredFromRevisionId: z.string().optional(), references: z.array(referenceSchema) }).strict();
+const routeGraphsSchema = z.object({ current: z.object({ digest: z.string(), claims: z.array(z.unknown()) }).strict(), published: z.object({ digest: z.string(), claims: z.array(z.unknown()) }).strict() }).strict();
+
+export const createContentTypeRequestSchema = z.object({ contract: z.literal("create-content-type-request/v1"), schemaId: z.string(), schema: jsonContent }).strict();
+export const contentTypeSchema = z.object({ contract: z.literal("content-type/v1"), schemaIdentity: schemaIdentitySchema, schema: jsonContent, schemaDigest: z.string() }).strict();
+export const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSchema), stateDigest: z.string() }).strict();
+export const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: z.string(), normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: z.string(), normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: routeGraphsSchema, stateDigest: z.string() }).strict();
+export const entryDetailSchema = z.object({ contract: z.literal("entry-detail/v1"), entryId: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), pointer: z.object({ entryId: z.string(), currentRevisionId: z.string(), publishedRevisionId: z.string().optional() }).strict(), current: z.object({ revision: revisionDocumentSchema, route: routeSchema }).strict(), published: z.object({ revision: revisionDocumentSchema, route: routeSchema }).strict().optional(), pointerLineage: z.array(z.object({ entryId: z.string(), currentRevisionId: z.string(), publishedRevisionId: z.string().optional(), lineageIdentity: z.object({ entryId: z.string(), revisionId: z.string(), operationId: z.string() }).strict() }).strict()), routeGraphs: routeGraphsSchema, stateDigest: z.string() }).strict();
+export const entryRevisionCatalogSchema = z.object({ contract: z.literal("entry-revision-catalog/v1"), entryId: z.string(), items: z.array(revisionDocumentSchema), stateDigest: z.string() }).strict();
+export const previewRequestSchema = z.object({ contract: z.literal("preview-request/v1"), selection: z.enum(["current", "published"]), subject: z.object({ entryId: z.string() }).strict() }).strict();
+export const previewDocumentSchema = z.object({ contract: z.literal("preview-document/v1"), selection: z.enum(["current", "published"]), subject: z.object({ entryId: z.string() }).strict(), revisionId: z.string(), contentDigest: z.string(), document: z.string() }).strict();
 
 export const serverProofChallengeSchema = z.object({
   contract: z.literal("authoring-server-proof-challenge/v1"),
@@ -101,80 +118,49 @@ export const publishRevisionSuccessSchema = z.object({
 }).strict();
 
 export type TransportCode =
-  | "INVALID_REQUEST_FRAMING"
-  | "MISDIRECTED_REQUEST"
-  | "ORIGIN_FORBIDDEN"
-  | "AUTHORIZATION_REQUIRED"
-  | "AUTHORIZATION_MALFORMED"
-  | "AUTHORIZATION_DUPLICATE"
-  | "AUTHORIZATION_ALTERNATE_TRANSPORT"
-  | "AUTHORIZATION_INVALID"
-  | "AUTHORIZATION_REVOKED"
-  | "SERVER_PROOF_GENERATION_MISMATCH"
-  | "BROWSER_BOOTSTRAP_INVALID"
-  | "INVALID_REQUEST_BODY"
-  | "REQUEST_BODY_TOO_LARGE"
-  | "ROUTE_NOT_FOUND"
-  | "METHOD_NOT_ALLOWED"
-  | "UNSUPPORTED_MEDIA_TYPE"
+  | "INVALID_REQUEST_FRAMING" | "MISDIRECTED_REQUEST" | "ORIGIN_FORBIDDEN"
+  | "AUTHORIZATION_REQUIRED" | "AUTHORIZATION_MALFORMED" | "AUTHORIZATION_DUPLICATE"
+  | "AUTHORIZATION_ALTERNATE_TRANSPORT" | "AUTHORIZATION_INVALID" | "AUTHORIZATION_REVOKED"
+  | "SERVER_PROOF_GENERATION_MISMATCH" | "BROWSER_BOOTSTRAP_INVALID" | "INVALID_REQUEST_BODY"
+  | "REQUEST_BODY_TOO_LARGE" | "ROUTE_NOT_FOUND" | "METHOD_NOT_ALLOWED" | "UNSUPPORTED_MEDIA_TYPE"
   | "INTERNAL_SERVER_ERROR";
-
-type RemoteFailureCode = TransportCode | DomainApplicationFailureCode | PluginHostFailureCode;
-
+type RemoteFailureCode = TransportCode | DomainApplicationFailureCode | ContentReadFailureCode | PluginHostFailureCode | AuthoringReadFailureCode | ContentTypeAdministrationFailureCode | ProjectionFailureCode | ThemeHostFailureCode;
 const transportStatuses: Readonly<Record<TransportCode, readonly number[]>> = {
   INVALID_REQUEST_FRAMING: [400], MISDIRECTED_REQUEST: [421], ORIGIN_FORBIDDEN: [403],
-  AUTHORIZATION_REQUIRED: [401], AUTHORIZATION_MALFORMED: [401], AUTHORIZATION_DUPLICATE: [401],
-  AUTHORIZATION_ALTERNATE_TRANSPORT: [401], AUTHORIZATION_INVALID: [401], AUTHORIZATION_REVOKED: [401],
+  AUTHORIZATION_REQUIRED: [401], AUTHORIZATION_MALFORMED: [401], AUTHORIZATION_DUPLICATE: [401], AUTHORIZATION_ALTERNATE_TRANSPORT: [401], AUTHORIZATION_INVALID: [401], AUTHORIZATION_REVOKED: [401],
   SERVER_PROOF_GENERATION_MISMATCH: [401], BROWSER_BOOTSTRAP_INVALID: [401], INVALID_REQUEST_BODY: [400], REQUEST_BODY_TOO_LARGE: [400],
   ROUTE_NOT_FOUND: [404], METHOD_NOT_ALLOWED: [405], UNSUPPORTED_MEDIA_TYPE: [415], INTERNAL_SERVER_ERROR: [500, 503],
 };
-
-const conflictCodes = [
-  "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED",
-  "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH",
-] as const;
-const invalidCodes = [
-  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST",
-  "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE",
-  "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING",
-  "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED",
-  "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED",
-] as const;
-const domainCodes = [
-  "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST",
-  "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "SCHEMA_INVALID",
-  "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED",
-  "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED",
-] as const satisfies readonly DomainApplicationFailureCode[];
-const pluginCodes = [
-  "INVALID_PLUGIN_HOST_INPUT", "INVALID_TRUSTED_ROOT", "PLUGIN_DISCOVERY_FAILED", "PLUGIN_NOT_FOUND",
-  "INVALID_PLUGIN_MANIFEST", "UNSUPPORTED_HOOK_CONTRACT", "UNSUPPORTED_CAPABILITY", "PLUGIN_EVIDENCE_MISMATCH",
-  "PLUGIN_IDENTITY_CONFLICT", "PLUGIN_MODULE_INVALID", "PLUGIN_NOT_ACTIVE", "ACTIVE_PLUGIN_IDENTITY_MISMATCH",
-  "ACTIVATION_STATE_CONFLICT", "ACTIVATION_STATE_FAILURE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING",
-  "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID", "PLUGIN_CALLBACK_FAILED",
-  "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "PLUGIN_VALIDATION_SERVICE_FAILED",
-  "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED",
-] as const satisfies readonly PluginHostFailureCode[];
-
+const conflictCodes = ["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH"] as const;
+const invalidCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED"] as const;
+const domainCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED"] as const satisfies readonly DomainApplicationFailureCode[];
+const pluginCodes = ["INVALID_PLUGIN_HOST_INPUT", "INVALID_TRUSTED_ROOT", "PLUGIN_DISCOVERY_FAILED", "PLUGIN_NOT_FOUND", "INVALID_PLUGIN_MANIFEST", "UNSUPPORTED_HOOK_CONTRACT", "UNSUPPORTED_CAPABILITY", "PLUGIN_EVIDENCE_MISMATCH", "PLUGIN_IDENTITY_CONFLICT", "PLUGIN_MODULE_INVALID", "PLUGIN_NOT_ACTIVE", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "ACTIVATION_STATE_CONFLICT", "ACTIVATION_STATE_FAILURE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID", "PLUGIN_CALLBACK_FAILED", "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "PLUGIN_VALIDATION_SERVICE_FAILED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED"] as const satisfies readonly PluginHostFailureCode[];
+const contentCodes = ["INVALID_CONTENT_MODEL_INPUT", "CONTENT_DIGEST_MISMATCH", "NON_CANONICAL_CONTENT_BYTES", "UNSUPPORTED_CONTENT_CONTRACT", "INVALID_STRUCTURED_CONTENT", "RAW_FULL_PAGE_NOT_APPROVED"] as const satisfies readonly ContentReadFailureCode[];
+const themeCodes = ["INVALID_THEME_HOST_INPUT", "INVALID_TRUSTED_ROOT", "THEME_DISCOVERY_FAILED", "THEME_NOT_FOUND", "INVALID_THEME_MANIFEST", "THEME_EVIDENCE_MISMATCH", "THEME_IDENTITY_CONFLICT", "THEME_RUNTIME_INVALID", "THEME_FILE_NOT_DECLARED"] as const satisfies readonly ThemeHostFailureCode[];
 const domainStatuses: Readonly<Record<DomainApplicationFailureCode, readonly number[]>> = Object.fromEntries(domainCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<DomainApplicationFailureCode, readonly number[]>>;
 const pluginStatuses: Readonly<Record<PluginHostFailureCode, readonly number[]>> = Object.fromEntries(pluginCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<PluginHostFailureCode, readonly number[]>>;
-const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...domainStatuses, ...pluginStatuses };
+const contentStatuses: Readonly<Record<ContentReadFailureCode, readonly number[]>> = Object.fromEntries(contentCodes.map((code) => [code, code === "INVALID_CONTENT_MODEL_INPUT" || code === "UNSUPPORTED_CONTENT_CONTRACT" || code === "INVALID_STRUCTURED_CONTENT" || code === "RAW_FULL_PAGE_NOT_APPROVED" ? [422] : [500]])) as unknown as Readonly<Record<ContentReadFailureCode, readonly number[]>>;
+const themeStatuses: Readonly<Record<ThemeHostFailureCode, readonly number[]>> = Object.fromEntries(themeCodes.map((code) => [code, code === "THEME_NOT_FOUND" ? [404] : code === "THEME_IDENTITY_CONFLICT" ? [409] : code === "INVALID_THEME_HOST_INPUT" ? [422] : [500]])) as unknown as Readonly<Record<ThemeHostFailureCode, readonly number[]>>;
+const readStatuses: Readonly<Record<AuthoringReadFailureCode, readonly number[]>> = { INVALID_AUTHORING_READ_INPUT: [422], CONTENT_TYPE_NOT_FOUND: [404], ENTRY_NOT_FOUND: [404], AUTHORING_CONTENT_UNSUPPORTED: [422], AUTHORING_READ_STATE_STALE: [409], AUTHORING_READ_FAILED: [500] };
+const contentTypeAdministrationStatuses: Readonly<Record<ContentTypeAdministrationFailureCode, readonly number[]>> = { INVALID_CONTENT_TYPE: [422], CONTENT_TYPE_CONFLICT: [409], CONTENT_TYPE_ADMINISTRATION_FAILED: [500] };
 
+const projectionStatuses: Readonly<Record<ProjectionFailureCode, readonly number[]>> = {
+  INVALID_PROJECTION_INPUT: [422], SUBJECT_NOT_FOUND: [404], SUBJECT_NOT_PUBLISHED: [404],
+  PROJECTION_STORAGE_FAILURE: [500], INVALID_REVISION_EVIDENCE: [500],
+  UNRESOLVED_ROUTE_REFERENCE: [422], UNRESOLVED_MEDIA_REFERENCE: [422],
+  PROJECTION_STATE_CHANGED: [409], PROJECTION_PAYLOAD_TOO_LARGE: [422],
+  PROJECTION_ENCODING_FAILED: [500], INVALID_RENDERER_INPUT: [422], INVALID_PREVIEW_INPUT: [422],
+};
+const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...domainStatuses, ...contentStatuses, ...pluginStatuses, ...readStatuses, ...contentTypeAdministrationStatuses, ...projectionStatuses, ...themeStatuses };
 export type AuthoringRemoteErrorCode = keyof typeof statusByCode;
-
 export function authoringErrorStatuses(code: string): readonly number[] | undefined {
   return Object.prototype.hasOwnProperty.call(statusByCode, code) ? statusByCode[code as AuthoringRemoteErrorCode] : undefined;
 }
-
 export const authoringErrorSchema = z.object({
-  contract: z.literal("authoring-error/v1"),
-  requestId: z.string(),
-  code: z.string().refine((code) => authoringErrorStatuses(code) !== undefined),
-  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost"]),
-  subjectIds: stringArray,
-  remediation: messageRemediationSchema,
+  contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string().refine((code) => authoringErrorStatuses(code) !== undefined),
+  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection"]),
+  subjectIds: stringArray, remediation: messageRemediationSchema,
 }).strict();
-
 export type ServerProofChallengeDto = Readonly<z.infer<typeof serverProofChallengeSchema>>;
 export type ServerProofDto = Readonly<z.infer<typeof serverProofSchema>>;
 export type BrowserTicketMintRequestDto = Readonly<z.infer<typeof browserTicketMintRequestSchema>>;
@@ -185,4 +171,12 @@ export type SaveRevisionRequestDto = Readonly<z.infer<typeof saveRevisionRequest
 export type SaveRevisionSuccessDto = Readonly<z.infer<typeof saveRevisionSuccessSchema>>;
 export type PublishRevisionRequestDto = Readonly<z.infer<typeof publishRevisionRequestSchema>>;
 export type PublishRevisionSuccessDto = Readonly<z.infer<typeof publishRevisionSuccessSchema>>;
+export type CreateContentTypeRequestDto = Readonly<z.infer<typeof createContentTypeRequestSchema>>;
+export type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
+export type ContentTypeCatalogDto = Readonly<z.infer<typeof contentTypeCatalogSchema>>;
+export type EntryCatalogDto = Readonly<z.infer<typeof entryCatalogSchema>>;
+export type EntryDetailDto = Readonly<z.infer<typeof entryDetailSchema>>;
+export type EntryRevisionCatalogDto = Readonly<z.infer<typeof entryRevisionCatalogSchema>>;
+export type PreviewRequestDto = Readonly<z.infer<typeof previewRequestSchema>>;
+export type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
 export type AuthoringErrorDto = Readonly<z.infer<typeof authoringErrorSchema>>;

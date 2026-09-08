@@ -6,7 +6,7 @@ import type { ZodType } from "zod";
 
 import { openLocalAuthoringClientCredential } from "./credential-store.js";
 import type { AuthoringCredentialFailureCode, LocalAuthoringCredentialInput } from "./credential-store.js";
-import { AUTHORING_HOST, AUTHORING_PORT, ENTRY_ID_PATTERN } from "./origin.js";
+import { AUTHORING_HOST, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN } from "./origin.js";
 import { authoringErrorSchema, authoringErrorStatuses, browserTicketSchema, publishRevisionRequestSchema, publishRevisionSuccessSchema, saveRevisionRequestSchema, saveRevisionSuccessSchema, serverProofSchema } from "./transport-contracts.js";
 import type { AuthoringRemoteErrorCode, BrowserTicketDto, PublishRevisionRequestDto, PublishRevisionSuccessDto, SaveRevisionRequestDto, SaveRevisionSuccessDto } from "./transport-contracts.js";
 
@@ -189,11 +189,11 @@ export function createLocalAuthoringClient(location: LocalAuthoringCredentialInp
       return mintBrowserTicket(location);
     },
     saveRevision(input) {
-      if (!ENTRY_ID_PATTERN.test(input.entryId) || !saveRevisionRequestSchema.safeParse(input.request).success) return Promise.resolve(failed("INVALID_CLIENT_REQUEST"));
+      if (!AUTHORING_RESOURCE_ID_PATTERN.test(input.entryId) || !saveRevisionRequestSchema.safeParse(input.request).success) return Promise.resolve(failed("INVALID_CLIENT_REQUEST"));
       return authenticatedCommand(location, { pathname: `/v1/entries/${input.entryId}/revisions`, body: JSON.stringify(input.request), successLimit: saveSuccessLimit, timeoutCode: "AUTHORING_SAVE_TIMEOUT", successSchema: saveRevisionSuccessSchema });
     },
     publishRevision(input) {
-      if (!ENTRY_ID_PATTERN.test(input.entryId) || !publishRevisionRequestSchema.safeParse(input.request).success) return Promise.resolve(failed("INVALID_CLIENT_REQUEST"));
+      if (!AUTHORING_RESOURCE_ID_PATTERN.test(input.entryId) || !publishRevisionRequestSchema.safeParse(input.request).success) return Promise.resolve(failed("INVALID_CLIENT_REQUEST"));
       return authenticatedCommand(location, { pathname: `/v1/entries/${input.entryId}/publish`, body: JSON.stringify(input.request), successLimit: publishSuccessLimit, timeoutCode: "AUTHORING_PUBLISH_TIMEOUT", successSchema: publishRevisionSuccessSchema });
     },
   };

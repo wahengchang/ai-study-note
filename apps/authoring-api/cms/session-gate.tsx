@@ -2,13 +2,14 @@ import { useEffect, useRef, useState } from "react";
 
 import { openAuthoringSession } from "./authoring-session.js";
 import type { AuthoringSession } from "./authoring-session.js";
+import { CmsApp } from "./app.js";
 
 type GateState = "loading" | "unlocked" | "locked";
 
 export function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {
   const [state, setState] = useState<GateState>(ticket === undefined ? "locked" : "loading");
   const heading = useRef<HTMLHeadingElement>(null);
-
+  const [session, setSession] = useState<AuthoringSession>();
   useEffect(() => {
     if (state !== "locked") return;
     heading.current?.focus();
@@ -22,7 +23,7 @@ export function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>
       if (active) setState("locked");
     }).then((opened) => {
       session = opened;
-      if (active) setState("unlocked"); else opened.lock();
+      if (active) { setSession(opened); setState("unlocked"); } else opened.lock();
     }).catch(() => {
       if (active) setState("locked");
     });
@@ -34,5 +35,5 @@ export function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>
 
   if (state === "loading") return <main aria-busy="true"><h1>正在建立 CMS session</h1></main>;
   if (state === "locked") return <main><h1 ref={heading} tabIndex={-1}>CMS 工作台已鎖定</h1><p>請由 cms:open 建立新的瀏覽器 session。</p></main>;
-  return <main><h1>CMS 工作台</h1><p>Browser session 已建立。</p></main>;
+  return session === undefined ? <main><h1>CMS 工作台已鎖定</h1></main> : <CmsApp session={session} />;
 }

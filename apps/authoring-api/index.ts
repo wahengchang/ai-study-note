@@ -32,7 +32,10 @@ export { createBrowserBootstrapState } from "./browser-bootstrap.js";
 export { loadCmsAssets } from "./cms-assets.js";
 export type { CmsAsset, CmsAssets } from "./cms-assets.js";
 export type { BrowserBootstrapFailure, BrowserBootstrapState, BrowserTicketMint } from "./browser-bootstrap.js";
+export { createAjvSchemaValidator } from "./schema-validator.js";
 export { startAuthoringApi } from "./server.js";
+export { startCmsRuntime } from "./cms-runtime.js";
+export type { CmsRuntimeFailure, CmsRuntimeFailureCode, CmsRuntimeResult, RunningCmsRuntime, StartCmsRuntimeInput } from "./cms-runtime.js";
 export type {
   AuthoringApiLogEvent,
   AuthoringApiResult,
@@ -47,6 +50,14 @@ export {
   browserSessionSchema,
   browserTicketMintRequestSchema,
   browserTicketSchema,
+  contentTypeCatalogSchema,
+  contentTypeSchema,
+  createContentTypeRequestSchema,
+  entryCatalogSchema,
+  entryDetailSchema,
+  entryRevisionCatalogSchema,
+  previewDocumentSchema,
+  previewRequestSchema,
   publishRevisionRequestSchema,
   publishRevisionSuccessSchema,
   saveRevisionRequestSchema,
@@ -61,6 +72,14 @@ export type {
   BrowserSessionExchangeDto,
   BrowserTicketDto,
   BrowserTicketMintRequestDto,
+  ContentTypeCatalogDto,
+  ContentTypeDto,
+  CreateContentTypeRequestDto,
+  EntryCatalogDto,
+  EntryDetailDto,
+  EntryRevisionCatalogDto,
+  PreviewDocumentDto,
+  PreviewRequestDto,
   PublishRevisionRequestDto,
   PublishRevisionSuccessDto,
   SaveRevisionRequestDto,
