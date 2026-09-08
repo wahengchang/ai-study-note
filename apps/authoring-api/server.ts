@@ -60,7 +60,12 @@ export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplica
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "cms-document" | "cms-asset" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "save" | "publish" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
+type RouteClass = "cms-document" | "cms-asset" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
+/** GET 為主的 read route：只有 collection route 額外接受 POST。 */
+const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "entries", "entry", "entry-revisions"]);
+const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "entry-revisions"]);
+/** 需要 Bearer credential 與 browser／CLI origin 判定的 authoring route。 */
+const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "preview"]);
 
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
@@ -96,7 +101,7 @@ function templateFor(route: RouteClass, pathname: string): RouteTemplate {
   if (route === "content-type") return "/v1/content-types/:schemaId";
   if (route === "entries") return "/v1/entries";
   if (route === "entry") return "/v1/entries/:entryId";
-  if (route === "entry-revisions" || route === "save") return "/v1/entries/:entryId/revisions";
+  if (route === "entry-revisions") return "/v1/entries/:entryId/revisions";
   if (route === "preview") return "/v1/preview";
   return route === "publish" ? "/v1/entries/:entryId/publish" : route === "proof" ? "/_local/server-proof" : route === "browser-ticket" ? "/_local/browser-tickets" : route === "browser-session" ? "/_local/browser-session" : "unmatched";
 }
@@ -131,7 +136,7 @@ function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAs
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
   if (route === "browser-ticket") return origin.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
   if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin" && values(headers, "authorization").length === 0;
-  if (!["content-types", "content-type", "entries", "entry", "entry-revisions", "save", "publish", "preview"].includes(route)) return true;
+  if (!AUTHENTICATED_ROUTES.has(route)) return true;
   const browser = origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin";
   const cli = origin.length === 0 && fetchSite.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
   return browser || cli;
@@ -354,10 +359,10 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     else if (!originOk(headers, route, asset?.destination)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
     else if (route === "unknown") result = errorResponse(requestId, "ROUTE_NOT_FOUND", 404);
     else if ((route === "cms-document" || route === "cms-asset") && request.method !== "GET") result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405);
-    else if (["content-types", "content-type", "entries", "entry", "entry-revisions"].includes(route) && request.method !== "GET" && !((route === "content-types" || route === "entry-revisions") && request.method === "POST")) result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405, "AuthoringApi", ERROR_REMEDIATION.METHOD_NOT_ALLOWED);
+    else if (READ_ROUTES.has(route) && request.method !== "GET" && !(POST_READ_ROUTES.has(route) && request.method === "POST")) result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405, "AuthoringApi", ERROR_REMEDIATION.METHOD_NOT_ALLOWED);
     else if (route === "cms-document") result = cmsDocumentResponse(input.cmsAssets);
     else if (route === "cms-asset" && asset !== undefined) result = cmsAssetResponse(asset);
-    else if (!["content-types", "content-type", "entries", "entry", "entry-revisions"].includes(route) && request.method !== "POST") result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405, "AuthoringApi", ERROR_REMEDIATION.METHOD_NOT_ALLOWED);
+    else if (!READ_ROUTES.has(route) && request.method !== "POST") result = errorResponse(requestId, "METHOD_NOT_ALLOWED", 405, "AuthoringApi", ERROR_REMEDIATION.METHOD_NOT_ALLOWED);
     else result = await app.fetch(request, env);
     const event: AuthoringApiLogEvent = { requestId, stableEventCode: result.status >= 500 ? "AUTHORING_REQUEST_FAILED" : result.status >= 400 ? "AUTHORING_REQUEST_REJECTED" : "AUTHORING_REQUEST_OK", method: methodFor(incoming.method), routeTemplate: templateFor(route, pathname), status: result.status };
     try { input.logger(event); } catch { /* sink fault 不得影響 transport */ }

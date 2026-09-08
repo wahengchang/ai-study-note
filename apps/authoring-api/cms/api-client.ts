@@ -29,7 +29,8 @@ export class CmsApiError extends Error {
   }
 }
 
-export type ArticleSaveInput = Readonly<{ revisionId: string; operationId: string; title: string; slug: string; text: string; expectedCurrentRevisionId?: string | null }>;
+/** save-revision-request/v1 沒有 expected-current 欄位：這裡不得宣告 transport 送不出去的 optimistic concurrency 輸入。 */
+export type ArticleSaveInput = Readonly<{ revisionId: string; operationId: string; title: string; slug: string; text: string }>;
 
 export class CmsApiClient {
   constructor(private readonly session: AuthoringSession) {}

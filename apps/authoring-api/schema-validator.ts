@@ -28,14 +28,14 @@ export function createAjvSchemaValidator(): ContentTypeDefinitionValidator & Rev
     },
     validate(input) {
       try {
-        const schema = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input.schema.schemaBytes)) as JsonValue;
-        const content = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input.contentBytes));
+        // schema bytes 由 immutable digest 定址：cache 命中時不得重複 decode／parse schema。
         let validator = runtimeValidators.get(input.schema.schemaDigest);
         if (validator === undefined) {
-          validator = compile(schema);
+          validator = compile(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input.schema.schemaBytes)) as JsonValue);
           if (validator === undefined) return { ok: false };
           runtimeValidators.set(input.schema.schemaDigest, validator);
         }
+        const content = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(input.contentBytes));
         return validator(content) === true ? { ok: true } : { ok: false };
       } catch {
         return { ok: false };

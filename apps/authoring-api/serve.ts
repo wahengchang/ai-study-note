@@ -64,7 +64,7 @@ export async function runCmsServe(argv: readonly string[], environment: NodeJS.P
 }
 
 export async function cmsServeMain(): Promise<void> {
-  process.exitCode = await runCmsServe(process.argv.slice(2), process.env, process.stdout.isTTY ? { stdout: (text) => process.stdout.write(text), stderr: (text) => process.stderr.write(text) } : { stdout: (text) => process.stdout.write(text), stderr: (text) => process.stderr.write(text) });
+  process.exitCode = await runCmsServe(process.argv.slice(2), process.env, { stdout: (text) => { process.stdout.write(text); }, stderr: (text) => { process.stderr.write(text); } });
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) void cmsServeMain();
