@@ -30,9 +30,11 @@ function failure(code: ContentReadFailureCode): ContentReadResult<never> {
   });
 }
 
-function exact(value: unknown, keys: readonly string[]): value is UnknownRecord {
+/** `optional` 只放寬「可缺席」：未列出的 key 一律拒絕，required key 一律必須存在。 */
+function exact(value: unknown, keys: readonly string[], optional: readonly string[] = []): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value)
-    && Object.keys(value).length === keys.length && keys.every((key) => Object.hasOwn(value, key));
+    && Object.keys(value).every((key) => keys.includes(key) || optional.includes(key))
+    && keys.every((key) => Object.hasOwn(value, key));
 }
 
 function schemaIdentity(value: unknown): value is ContentSchemaIdentity {
@@ -82,17 +84,16 @@ function block(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>):
 }
 
 function structuredSeo(value: unknown): StructuredSeo | ContentReadFailureCode {
-  if (typeof value !== "object" || value === null || Array.isArray(value) || !Object.keys(value).every((key) => (SEO_KEYS as readonly string[]).includes(key))) return "INVALID_STRUCTURED_CONTENT";
-  const record = value as UnknownRecord;
-  for (const key of SEO_KEYS) if (Object.hasOwn(record, key) && !text(record[key])) return "INVALID_STRUCTURED_CONTENT";
-  return Object.freeze({ ...(typeof record.title === "string" ? { title: record.title } : {}), ...(typeof record.description === "string" ? { description: record.description } : {}), ...(typeof record.canonicalPath === "string" ? { canonicalPath: record.canonicalPath } : {}) });
+  if (!exact(value, [], SEO_KEYS)) return "INVALID_STRUCTURED_CONTENT";
+  for (const key of SEO_KEYS) if (Object.hasOwn(value, key) && !text(value[key])) return "INVALID_STRUCTURED_CONTENT";
+  // defensive copy：read model 交出的 SEO 不得與呼叫端持有的 parsed bytes 共用同一 object。
+  return Object.freeze({ ...(text(value.title) ? { title: value.title } : {}), ...(text(value.description) ? { description: value.description } : {}), ...(text(value.canonicalPath) ? { canonicalPath: value.canonicalPath } : {}) });
 }
 function structured(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>, schema: ContentSchemaIdentity): StructuredContent | ContentReadFailureCode {
-  const hasSeo = typeof value === "object" && value !== null && !Array.isArray(value) && Object.hasOwn(value, "seo");
-  if (!exact(value, hasSeo ? ["contract", "title", "blocks", "seo"] : ["contract", "title", "blocks"])) return "INVALID_STRUCTURED_CONTENT";
+  if (!exact(value, ["contract", "title", "blocks"], ["seo"])) return "INVALID_STRUCTURED_CONTENT";
   if (value.contract !== "site-content/v1") return "UNSUPPORTED_CONTENT_CONTRACT";
   if (!text(value.title) || !Array.isArray(value.blocks)) return "INVALID_STRUCTURED_CONTENT";
-  const seo = hasSeo ? structuredSeo(value.seo) : undefined;
+  const seo = Object.hasOwn(value, "seo") ? structuredSeo(value.seo) : undefined;
   if (typeof seo === "string") return seo;
   const allowRawFullPage = approvedRawFullPageSchemas.has(schemaKey(schema));
   const blocks: Array<StructuredArticleBlock | RawFullPageBlock | InteractiveDemoBlock> = [];

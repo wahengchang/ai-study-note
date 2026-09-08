@@ -14,7 +14,9 @@ function useLoadGeneration(): Readonly<{ next(): () => boolean; }> {
   return { next: () => { generation.current += 1; const mine = generation.current; return () => generation.current === mine; } };
 }
 function message(reason: unknown): string { return reason instanceof CmsApiError ? reason.remediation : "無法完成 CMS request。"; }
+/** `site-content/v1` 的 `seo` 是 optional：缺席視為空 metadata，出現則必須是允許欄位的 non-empty string，否則 fail closed。 */
 function articleSeo(value: unknown): ArticleSeo | undefined {
+  if (value === undefined) return {};
   if (typeof value !== "object" || value === null || Array.isArray(value) || !Object.keys(value).every((key) => (ARTICLE_SEO_KEYS as readonly string[]).includes(key))) return undefined;
   const record = value as Readonly<Record<string, unknown>>;
   for (const key of ARTICLE_SEO_KEYS) if (Object.hasOwn(record, key) && (typeof record[key] !== "string" || record[key].length === 0)) return undefined;

@@ -30,13 +30,11 @@ function embedded(value: unknown, byteLength: unknown, expected: unknown): boole
 }
 
 function structuredSeo(value: unknown): boolean {
-  return typeof value === "object" && value !== null && !Array.isArray(value)
-    && Object.keys(value).every((key) => (SEO_KEYS as readonly string[]).includes(key))
-    && SEO_KEYS.every((key) => !Object.hasOwn(value, key) || text((value as Record<string, unknown>)[key]));
+  return exact(value, [], SEO_KEYS) && SEO_KEYS.every((key) => !Object.hasOwn(value, key) || text(value[key]));
 }
 function structuredContent(value: unknown): boolean {
-  const hasSeo = typeof value === "object" && value !== null && !Array.isArray(value) && Object.hasOwn(value, "seo");
-  if (!exact(value, hasSeo ? ["contract", "title", "blocks", "seo"] : ["contract", "title", "blocks"]) || value.contract !== "site-content/v1" || !text(value.title) || !Array.isArray(value.blocks) || (hasSeo && !structuredSeo(value.seo))) return false;
+  if (!exact(value, ["contract", "title", "blocks"], ["seo"]) || value.contract !== "site-content/v1" || !text(value.title) || !Array.isArray(value.blocks)) return false;
+  if (Object.hasOwn(value, "seo") && !structuredSeo(value.seo)) return false;
   return value.blocks.every((block) => {
     if (exact(block, ["kind", "text"])) return block.kind === "article" && typeof block.text === "string" && block.text.length > 0;
     if (exact(block, ["kind", "html", "staticFallback"])) return block.kind === "raw-full-page" && typeof block.html === "string" && block.html.length > 0 && typeof block.staticFallback === "string" && block.staticFallback.length > 0;
