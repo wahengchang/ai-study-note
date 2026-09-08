@@ -6,7 +6,7 @@ work_items: ["WI-058"]
 owner: Main
 branch: fix/cms-browser-authoring-journey
 worktree: .dev-hub/worktrees/cms-browser-authoring-journey
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/328
 ---
 
 # CMS browser authoring journey remediation

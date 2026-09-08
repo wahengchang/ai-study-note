@@ -27,4 +27,4 @@
 ## 相關 Branch／PR
 
 - Branch：`fix/cms-browser-authoring-journey`
-- PR：待建立
+- PR：https://github.com/wahengchang/ai-study-note/pull/328
