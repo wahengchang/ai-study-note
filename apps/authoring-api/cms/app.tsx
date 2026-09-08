@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
 
 import type { AuthoringSession } from "./authoring-session.js";
-import { CmsApiClient, CmsApiError, type ArticleSaveInput } from "./api-client.js";
+import { CmsApiClient, CmsApiError, type ArticleSaveInput, type ArticleSeo } from "./api-client.js";
 
 const titleCollator = new Intl.Collator("zh-Hant-TW", { numeric: true, sensitivity: "base" });
+const ARTICLE_SEO_KEYS = ["title", "description", "canonicalPath"] as const;
 function slugify(title: string): string { return title.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/gu, ""); }
 /** 每次載入取得新的 generation；unmount 或再次載入後，過期回應不得覆寫畫面狀態。 */
 function useLoadGeneration(): Readonly<{ next(): () => boolean; }> {
@@ -13,11 +14,17 @@ function useLoadGeneration(): Readonly<{ next(): () => boolean; }> {
   return { next: () => { generation.current += 1; const mine = generation.current; return () => generation.current === mine; } };
 }
 function message(reason: unknown): string { return reason instanceof CmsApiError ? reason.remediation : "無法完成 CMS request。"; }
-function articleContent(value: unknown): Readonly<{ title: string; text: string }> | undefined {
+function articleSeo(value: unknown): ArticleSeo | undefined {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !Object.keys(value).every((key) => (ARTICLE_SEO_KEYS as readonly string[]).includes(key))) return undefined;
+  const record = value as Readonly<Record<string, unknown>>;
+  for (const key of ARTICLE_SEO_KEYS) if (Object.hasOwn(record, key) && (typeof record[key] !== "string" || record[key].length === 0)) return undefined;
+  return { ...(typeof record.title === "string" ? { title: record.title } : {}), ...(typeof record.description === "string" ? { description: record.description } : {}), ...(typeof record.canonicalPath === "string" ? { canonicalPath: record.canonicalPath } : {}) };
+}
+function articleContent(value: unknown): Readonly<{ title: string; text: string; seo: ArticleSeo }> | undefined {
   if (typeof value !== "object" || value === null) return undefined;
-  const content = value as Readonly<{ title?: unknown; blocks?: unknown }>;
-  const block = Array.isArray(content.blocks) ? content.blocks[0] : undefined;
-  return typeof content.title === "string" && typeof block === "object" && block !== null && (block as { kind?: unknown }).kind === "article" && typeof (block as { text?: unknown }).text === "string" ? { title: content.title, text: (block as { text: string }).text } : undefined;
+  const content = value as Readonly<{ title?: unknown; blocks?: unknown; seo?: unknown }>;
+  const block = Array.isArray(content.blocks) ? content.blocks[0] : undefined; const seo = articleSeo(content.seo);
+  return typeof content.title === "string" && typeof block === "object" && block !== null && (block as { kind?: unknown }).kind === "article" && typeof (block as { text?: unknown }).text === "string" && seo !== undefined ? { title: content.title, text: (block as { text: string }).text, seo } : undefined;
 }
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element { return <><a className="skip" href="#workspace">跳到內容</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><Link to="/cms/entries">文章</Link><Link to="/cms/entries/new">新增文章</Link><Link to="/cms/content-types">內容類型</Link></nav></header><main id="workspace">{children}</main></>; }
 
@@ -57,15 +64,15 @@ function List({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
 function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }>): React.JSX.Element {
   const params = useParams(); const navigate = useNavigate(); const generatedId = useRef<string>(""); const dialog = useRef<HTMLDialogElement>(null); const publishTrigger = useRef<HTMLButtonElement>(null);
   if (generatedId.current === "") generatedId.current = crypto.randomUUID();
-  const entryId = params.entryId ?? generatedId.current; const [detail, setDetail] = useState<Awaited<ReturnType<CmsApiClient["getEntry"]>>>(); const [title, setTitle] = useState(""); const [slug, setSlug] = useState(""); const [text, setText] = useState(""); const [saved, setSaved] = useState<Readonly<{ title: string; slug: string; text: string }>>(); const [slugEdited, setSlugEdited] = useState(false); const [loading, setLoading] = useState(true); const [terminal, setTerminal] = useState<string>(); const [error, setError] = useState<string>(); const [notice, setNotice] = useState(""); const [currentPreview, setCurrentPreview] = useState<string>(); const [publishedPreview, setPublishedPreview] = useState<string>();
+  const entryId = params.entryId ?? generatedId.current; const [detail, setDetail] = useState<Awaited<ReturnType<CmsApiClient["getEntry"]>>>(); const [title, setTitle] = useState(""); const [slug, setSlug] = useState(""); const [text, setText] = useState(""); const [seo, setSeo] = useState<ArticleSeo>({}); const [saved, setSaved] = useState<Readonly<{ title: string; slug: string; text: string; seo: ArticleSeo }>>(); const [slugEdited, setSlugEdited] = useState(false); const [loading, setLoading] = useState(true); const [terminal, setTerminal] = useState<string>(); const [error, setError] = useState<string>(); const [notice, setNotice] = useState(""); const [currentPreview, setCurrentPreview] = useState<string>(); const [publishedPreview, setPublishedPreview] = useState<string>();
   const dirty = saved !== undefined && (saved.title !== title || saved.slug !== slug || saved.text !== text); const invalid = { title: title.trim().length === 0, slug: slug.trim().length === 0, text: text.trim().length === 0 };
-  const adopt = (next: Awaited<ReturnType<CmsApiClient["getEntry"]>>): void => { const content = articleContent(next.current.revision.content); if (content === undefined) { setTerminal("目前 revision 無法作為 Article 編輯。 "); return; } const fields = { title: content.title, slug: next.current.route.normalizedRoute.slice(1), text: content.text }; setDetail(next); setTitle(fields.title); setSlug(fields.slug); setText(fields.text); setSaved(fields); };
+  const adopt = (next: Awaited<ReturnType<CmsApiClient["getEntry"]>>): void => { const content = articleContent(next.current.revision.content); if (content === undefined) { setTerminal("目前 revision 無法作為 Article 編輯。 "); return; } const fields = { title: content.title, slug: next.current.route.normalizedRoute.slice(1), text: content.text, seo: content.seo }; setDetail(next); setTitle(fields.title); setSlug(fields.slug); setText(fields.text); setSeo(fields.seo); setSaved(fields); };
   const preview = async (selection: "current" | "published"): Promise<void> => { try { const document = await api.preview(entryId, selection); if (selection === "current") setCurrentPreview(document.document); else setPublishedPreview(document.document); } catch (reason) { if (selection === "published" && reason instanceof CmsApiError && reason.status === 404) { setPublishedPreview(undefined); return; } setError(message(reason)); } };
   const generation = useLoadGeneration();
   const load = (): void => { const current = generation.next(); setLoading(true); setTerminal(undefined); setError(undefined); void api.getContentType("article").then(async () => { if (!current()) return; if (create) { setSaved(undefined); setLoading(false); return; } const next = await api.getEntry(entryId); if (!current()) return; adopt(next); setLoading(false); await preview("current"); if (next.published !== undefined) await preview("published"); }).catch((reason: unknown) => { if (!current()) return; if (reason instanceof CmsApiError && reason.status === 404) setTerminal("尚未建立 Article v1，無法儲存文章。"); else setTerminal(message(reason)); setLoading(false); }); };
   useEffect(load, [api, entryId, create]);
   // SaveRevision 與其後的重新載入分開處理：寫入本身失敗時不得回報「已儲存」，必須顯示 listener 的 remediation。
-  const save = async (): Promise<void> => { if (invalid.title || invalid.slug || invalid.text || terminal !== undefined) { setError("標題、網址代稱與本文皆為必填。"); return; } const input: ArticleSaveInput = { revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), title, slug, text }; try { await api.save(entryId, input); } catch (reason) { setNotice(""); setError(message(reason)); return; } try { const refreshed = await api.getEntry(entryId); adopt(refreshed); setError(undefined); setNotice("已儲存，目前預覽已更新。"); await preview("current"); if (create) navigate(`/cms/entries/${entryId}`, { replace: true }); } catch (reason) { setNotice("已儲存。"); setError(`已儲存，但重新載入失敗：${message(reason)}`); } };
+  const save = async (): Promise<void> => { if (invalid.title || invalid.slug || invalid.text || terminal !== undefined) { setError("標題、網址代稱與本文皆為必填。"); return; } const input: ArticleSaveInput = { revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), title, slug, text, seo }; try { await api.save(entryId, input); } catch (reason) { setNotice(""); setError(message(reason)); return; } try { const refreshed = await api.getEntry(entryId); adopt(refreshed); setError(undefined); setNotice("已儲存，目前預覽已更新。"); await preview("current"); if (create) navigate(`/cms/entries/${entryId}`, { replace: true }); } catch (reason) { setNotice("已儲存。"); setError(`已儲存，但重新載入失敗：${message(reason)}`); } };
   const publish = async (): Promise<void> => { if (detail === undefined || dirty) return; try { await api.publish(entryId, detail.current.revision.revisionId); const refreshed = await api.getEntry(entryId); adopt(refreshed); await Promise.all([preview("current"), preview("published")]); setNotice("已發布。"); } catch (reason) { setError(message(reason)); } finally { dialog.current?.close(); publishTrigger.current?.focus(); } };
   if (loading) return <Layout><h1>{create ? "新增文章" : "編輯文章"}</h1><p aria-busy="true">正在載入文章。</p></Layout>;
   if (terminal !== undefined) return <Layout><h1>{create ? "新增文章" : "編輯文章"}</h1><p role="alert">{terminal}</p>{terminal.includes("Article v1") ? <Link to="/cms/content-types/new">建立 Article v1</Link> : <button onClick={load}>重試</button>}</Layout>;

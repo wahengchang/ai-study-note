@@ -8,6 +8,7 @@ import type { ParsedPreviewInput, ParsedRendererInput, PreviewInput, ProjectionF
 import { projectionFailure } from "./failures.js";
 
 const base64url = /^[A-Za-z0-9_-]*$/;
+const SEO_KEYS = ["title", "description", "canonicalPath"] as const;
 
 function digest(value: unknown): value is Digest { return typeof value === "string" && isDigest(value); }
 function text(value: unknown): value is string { return typeof value === "string" && value.length > 0; }
@@ -28,8 +29,14 @@ function embedded(value: unknown, byteLength: unknown, expected: unknown): boole
   return bytes.byteLength === byteLength && bytes.toString("base64url") === value && sha256Digest(bytes) === expected;
 }
 
+function structuredSeo(value: unknown): boolean {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    && Object.keys(value).every((key) => (SEO_KEYS as readonly string[]).includes(key))
+    && SEO_KEYS.every((key) => !Object.hasOwn(value, key) || text((value as Record<string, unknown>)[key]));
+}
 function structuredContent(value: unknown): boolean {
-  if (!exact(value, ["contract", "title", "blocks"]) || value.contract !== "site-content/v1" || !text(value.title) || !Array.isArray(value.blocks)) return false;
+  const hasSeo = typeof value === "object" && value !== null && !Array.isArray(value) && Object.hasOwn(value, "seo");
+  if (!exact(value, hasSeo ? ["contract", "title", "blocks", "seo"] : ["contract", "title", "blocks"]) || value.contract !== "site-content/v1" || !text(value.title) || !Array.isArray(value.blocks) || (hasSeo && !structuredSeo(value.seo))) return false;
   return value.blocks.every((block) => {
     if (exact(block, ["kind", "text"])) return block.kind === "article" && typeof block.text === "string" && block.text.length > 0;
     if (exact(block, ["kind", "html", "staticFallback"])) return block.kind === "raw-full-page" && typeof block.html === "string" && block.html.length > 0 && typeof block.staticFallback === "string" && block.staticFallback.length > 0;

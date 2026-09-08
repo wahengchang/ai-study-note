@@ -12,9 +12,11 @@ import type {
   StructuredArticleBlock,
   StructuredContent,
   StructuredContentArtifact,
+  StructuredSeo,
 } from "./contracts.js";
 
 type UnknownRecord = Readonly<Record<string, unknown>>;
+const SEO_KEYS = ["title", "description", "canonicalPath"] as const;
 
 function failure(code: ContentReadFailureCode): ContentReadResult<never> {
   return Object.freeze({
@@ -79,10 +81,19 @@ function block(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>):
   return "INVALID_STRUCTURED_CONTENT";
 }
 
+function structuredSeo(value: unknown): StructuredSeo | ContentReadFailureCode {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !Object.keys(value).every((key) => (SEO_KEYS as readonly string[]).includes(key))) return "INVALID_STRUCTURED_CONTENT";
+  const record = value as UnknownRecord;
+  for (const key of SEO_KEYS) if (Object.hasOwn(record, key) && !text(record[key])) return "INVALID_STRUCTURED_CONTENT";
+  return Object.freeze({ ...(typeof record.title === "string" ? { title: record.title } : {}), ...(typeof record.description === "string" ? { description: record.description } : {}), ...(typeof record.canonicalPath === "string" ? { canonicalPath: record.canonicalPath } : {}) });
+}
 function structured(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>, schema: ContentSchemaIdentity): StructuredContent | ContentReadFailureCode {
-  if (!exact(value, ["contract", "title", "blocks"])) return "INVALID_STRUCTURED_CONTENT";
+  const hasSeo = typeof value === "object" && value !== null && !Array.isArray(value) && Object.hasOwn(value, "seo");
+  if (!exact(value, hasSeo ? ["contract", "title", "blocks", "seo"] : ["contract", "title", "blocks"])) return "INVALID_STRUCTURED_CONTENT";
   if (value.contract !== "site-content/v1") return "UNSUPPORTED_CONTENT_CONTRACT";
   if (!text(value.title) || !Array.isArray(value.blocks)) return "INVALID_STRUCTURED_CONTENT";
+  const seo = hasSeo ? structuredSeo(value.seo) : undefined;
+  if (typeof seo === "string") return seo;
   const allowRawFullPage = approvedRawFullPageSchemas.has(schemaKey(schema));
   const blocks: Array<StructuredArticleBlock | RawFullPageBlock | InteractiveDemoBlock> = [];
   for (const item of value.blocks) {
@@ -90,7 +101,7 @@ function structured(value: unknown, approvedRawFullPageSchemas: ReadonlySet<stri
     if (typeof parsed === "string") return parsed;
     blocks.push(parsed);
   }
-  return Object.freeze({ contract: "site-content/v1", title: value.title, blocks: Object.freeze(blocks) });
+  return Object.freeze({ contract: "site-content/v1", title: value.title, blocks: Object.freeze(blocks), ...(seo === undefined ? {} : { seo }) });
 }
 
 class ReadModel implements PublishedContentReadModel {

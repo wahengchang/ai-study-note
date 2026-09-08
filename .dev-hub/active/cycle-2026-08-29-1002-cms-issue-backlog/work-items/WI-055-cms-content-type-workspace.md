@@ -1,6 +1,6 @@
 ---
 id: WI-055
-status: in_progress
+status: done
 title: CMS Content Type administration workspace
 work_group: WG-023
 depends_on: ["WI-040", "WI-035", "WI-041"]
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-041"]
 
 ## Notes
 
-GitHub #314；in_progress；由 WG-023 認領。
+GitHub #314；實際 `cms:serve` browser/a11y journey 已通過：內容類型清單、Article v1 建立與 readonly schema 詳情均可操作。WG-023 已完成。

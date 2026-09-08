@@ -91,3 +91,22 @@ test("model fail-closed 拒絕未知 block 與不完整 demo source", () => {
   assert.equal(incompleteDemo.ok, false);
   if (!incompleteDemo.ok) assert.equal(incompleteDemo.error.code, "INVALID_STRUCTURED_CONTENT");
 });
+
+test("model 保留受限 SEO metadata 並拒絕未知或無效欄位", () => {
+  const model = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
+  assert.equal(model.ok, true);
+  if (!model.ok) return;
+  for (const seo of [{}, { title: "搜尋標題", description: "搜尋說明", canonicalPath: "/seo" }] as const) {
+    const result = model.value.read(input({ contract: "site-content/v1", title: "有 SEO", blocks: [{ kind: "article", text: "內容" }], seo }));
+    assert.equal(result.ok, true);
+    if (result.ok) assert.deepEqual(result.value.content.seo, seo);
+  }
+  const legacy = model.value.read(input({ contract: "site-content/v1", title: "舊內容", blocks: [{ kind: "article", text: "內容" }] }));
+  assert.equal(legacy.ok, true);
+  if (legacy.ok) assert.equal(Object.hasOwn(legacy.value.content, "seo"), false);
+  for (const seo of [null, [], { title: "" }, { title: 1 }, { unknown: "x" }, { title: "x", description: "" }] as const) {
+    const result = model.value.read(input({ contract: "site-content/v1", title: "無效 SEO", blocks: [{ kind: "article", text: "內容" }], seo }));
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "INVALID_STRUCTURED_CONTENT");
+  }
+});

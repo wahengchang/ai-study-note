@@ -10,10 +10,16 @@ export type InteractiveDemoBlock = Readonly<{
   source: Readonly<{ html: string; css: string; javascript: string }>;
   staticFallback: string;
 }>;
+export type StructuredSeo = Readonly<{
+  title?: string;
+  description?: string;
+  canonicalPath?: string;
+}>;
 export type StructuredContent = Readonly<{
   contract: "site-content/v1";
   title: string;
   blocks: readonly (StructuredArticleBlock | RawFullPageBlock | InteractiveDemoBlock)[];
+  seo?: StructuredSeo;
 }>;
 export type StructuredContentArtifact = Readonly<{
   contract: "structured-content-artifact/v1";

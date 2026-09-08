@@ -184,23 +184,25 @@ test("actual listener pins Theme identity and preserves the preview wire contrac
 });
 
 test("CMS documents and manifest assets apply their independent Fetch Metadata gate", async () => {
-  await withAuthoringApi(async ({ digest }) => {
-    const before = digest();
-    const document = await send("GET", "/cms/entries/new", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
-    assert.equal(document.status, 200);
-    assert.match(document.body, /<script type="module" src="\/cms\/assets\/bootstrap-test\.js"><\/script>/u);
-    assert.equal(document.headers["content-security-policy"] !== undefined, true);
-    const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
-    assert.equal(asset.status, 200);
-    assert.equal(asset.body, "export {};");
-    const wrongDestination = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "style" });
-    assert.equal(wrongDestination.status, 403);
-    const encoded = await send("GET", "/cms/entries/a%2Fb", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
-    assert.equal(encoded.status, 404);
-    const query = await send("GET", "/cms?ticket=leak", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
-    assert.equal(query.status, 403);
-    assert.equal(digest(), before);
-  });
+  await withAuthoringApi(async ({ apiKey, digest }) => { const before = digest();
+  const document = await send("GET", "/cms/entries/new", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
+  assert.equal(document.status, 200);
+  assert.match(document.body, /<script type="module" src="\/cms\/assets\/bootstrap-test\.js"><\/script>/u);
+  assert.equal(document.headers["content-security-policy"] !== undefined, true);
+  const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+  assert.equal(asset.status, 200);
+  assert.equal(asset.body, "export {};");
+  const moduleAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: origin, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+  assert.equal(moduleAsset.status, 200);
+  const crossOriginAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: "https://attacker.example", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+  assert.equal(crossOriginAsset.status, 403);
+  const wrongDestination = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "style" });
+  assert.equal(wrongDestination.status, 403);
+  const encoded = await send("GET", "/cms/entries/a%2Fb", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
+  assert.equal(encoded.status, 404);
+  const query = await send("GET", "/cms?ticket=leak", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
+  assert.equal(query.status, 403);
+  await (async () => { const browserGet = await send("GET", "/v1/entries", { Host: authority, Authorization: `Bearer ${apiKey}`, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" }); assert.equal(browserGet.status, 200); const crossSiteGet = await send("GET", "/v1/entries", { Host: authority, Authorization: `Bearer ${apiKey}`, "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" }); assert.equal(crossSiteGet.status, 403); assert.equal(failureCode(crossSiteGet), "ORIGIN_FORBIDDEN"); assert.equal(digest(), before); })(); });
 });
 
 test("typed client mints one browser ticket and browser exchange receives the sole session secret response", async () => {
