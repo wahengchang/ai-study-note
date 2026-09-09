@@ -55,7 +55,7 @@ test("bundled CMS clears the raw ticket before session exchange and keeps the ke
     const consoleMessages: string[] = [];
     page.on("console", (message) => consoleMessages.push(message.text()));
     await page.goto(`http://127.0.0.1:${address.port}/cms#${ticket}`, { waitUntil: "networkidle" });
-    await page.getByRole("heading", { name: "文章", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "CMS 文章工作台", exact: true }).waitFor();
     await page.getByText("Browser session 已建立。", { exact: true }).waitFor();
     const browserState = await page.evaluate(() => ({ href: location.href, hash: location.hash, title: document.title, dom: document.documentElement.outerHTML, local: Object.keys(localStorage), session: Object.keys(sessionStorage) }));
     assert.equal(browserState.hash, "");

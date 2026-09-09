@@ -1,8 +1,8 @@
 ---
 id: WI-056
-status: pending
+status: done
 title: CMS article entry workspace
-work_group: null
+work_group: WG-025
 depends_on: ["WI-040", "WI-035", "WI-041", "WI-044", "WI-049"]
 ---
 
@@ -18,8 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-041", "WI-044", "WI-049"]
 
 ## Notes
 
-`site-reset` 的 `apps/cms/workspace.tsx` 已交付 `/cms`、`/cms/entries/new`、
-`/cms/entries/:entryId` 的 article workflow：save、current／published preview、dirty publish lock 與
-`<dialog>` 二段 Publish；但缺少 #315 acceptance 要求的 `/cms/entries` 明確 history route。因此不可將
-現有測試視為四條 canonical route 的 browser/a11y gate，WI-056 維持 `pending`，待獨立 Work Group 補齊。
-實作來自 #332／#334，不是 #337；#337 不合併。
+WG-025 已交付 `/cms`、`/cms/entries`、`/cms/entries/new`、`/cms/entries/:entryId` 的 four-route article workflow。打包 CMS 的 authenticated Chromium browser/a11y journey 覆蓋 empty state、Article v1 save、Current／Published tabs、Escape/取消焦點回復、二段 Publish、Article v2 與 published-with-draft；Save、preview 與 Publish 仍只經既有 owner seam。實際驗證與決策記於 `logs/2026-09-09-2157-cms-article-entry-workspace.md`。
