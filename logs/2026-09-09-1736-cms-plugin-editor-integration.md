@@ -28,6 +28,15 @@ pr: https://github.com/wahengchang/ai-study-note/pull/334
 - `node --import tsx --test tests/apps/authoring-api/http-contract.test.ts`：17 passed。
 - `npm run check`：typecheck、architecture check、CMS build 與 242 tests 全數通過。
 
+## 追加修正（PR review）
+
+Review 發現 CMS 端採用 `cms-editor-block-resolutions/v1` 時缺三道 guard，均已修正於 `apps/cms/workspace.tsx`：
+
+- **Stale response 跨文章汙染**：`refreshEditorBlocks()` 只比對自己 closure 裡的 `entry`，切換文章時前一篇尚未回來的 response 仍會通過自身比對並寫入 state，把 A 篇的 Host output 貼到 B 篇的 block 上。改為沿用 SEO 既有的 generation ref（`editorBlockGeneration` 於 `adopt()` 遞增），比 adopt 更早發出的 response 一律丟棄。
+- **Response 未驗證 snapshot 完整性**：Editor 以 block index 對齊 resolution，但先前未檢查 `blockIndex` 序列是否等於 document 的 interactive block 位置，也未檢查各 item 是否同源。`DomainApplication.resolveCurrentCmsEditorBlocks()` 是逐 block 呼叫 Host，中途的 activation 變更會讓同一份 response 混到兩個 `activeStateDigest`。改為 index 序列與單一 `activeStateDigest` 皆須成立，否則落到既有的「互動區塊狀態已變更，請重新載入文章。」。
+- **失敗訊息被重複播報**：`EditorPluginBlock` 逐 block 渲染 `role="alert"`，一份含 N 個 interactive block 的 document 會讓同一則訊息被 AT 播報 N 次。alert 改由 Editor 統一渲染一次；per-block status text 維持不變。
+
 ## 已知限制／後續
 
-無。
+- `GET /v1/entries/:entryId/current/editor-blocks` 對非 `site-content/v1` 的 entry 會回 `CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED`（500）。CMS 不會走到（`adopt()` 先擋下），但直接呼叫 API 時 500 語意上代表 Application fault，與「entry 本身健康、只是不是 site-content」不符。
+- `refreshPreviews()` 同樣沒有 stale-response 保護（PR 之前既有行為，未在此變更）。

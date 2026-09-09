@@ -226,6 +226,10 @@ function SeoPreview({ analysis, busy, invalid, failure }: Readonly<{ analysis: C
   return <aside><section aria-label="SEO 預覽" aria-busy={busy}><h2>SEO 預覽</h2><p aria-live="polite" aria-atomic="true">{status}</p>{!invalid && !busy && failure === undefined && analysis?.status === "available" && <>{analysis.preview?.title !== undefined && <h3>{analysis.preview.title}</h3>}{analysis.preview?.description !== undefined && <p>{analysis.preview.description}</p>}{analysis.preview?.canonicalUrl !== undefined && <p className="breakable">{analysis.preview.canonicalUrl}</p>}<ul>{suggestions.map((suggestion) => <li key={suggestion.code}>{suggestion.code}</li>)}</ul></>}</section></aside>;
 }
 
+/**
+ * `failure` 只驅動這個 block 的 status text；對應的 `role="alert"` 由 Editor 統一渲染一次。
+ * 一份 document 可含多個 interactive block，逐 block 重複 alert 會讓同一則訊息被 AT 播報多次。
+ */
 function EditorPluginBlock({ block, blockIndex, resolution, failure }: Readonly<{ block: InteractiveDemoBlock; blockIndex: number; resolution: CmsEditorBlockResolutionsDto["items"][number] | undefined; failure: string | undefined }>): React.JSX.Element {
   const ordinal = blockIndex + 1;
   const headingId = `editor-plugin-block-${blockIndex}-heading`;
@@ -241,7 +245,6 @@ function EditorPluginBlock({ block, blockIndex, resolution, failure }: Readonly<
     <h2 id={headingId}>互動區塊 {ordinal}</h2>
     <dl><dt>Plugin</dt><dd>{identity}</dd><dt>Manifest hash</dt><dd className="breakable">{block.manifestHash}</dd></dl>
     <p id={statusId} role="status" aria-live="polite" aria-atomic="true" aria-label={`互動區塊 ${ordinal} 狀態`}>{status}</p>
-    {failure !== undefined && <p role="alert">{failure}</p>}
     {resolution?.status === "active" && <pre role="region" tabIndex={0} aria-label={`互動區塊 ${ordinal} Host output`} aria-describedby={statusId}>{canonicalJson(resolution.output)}</pre>}
     {resolution !== undefined && resolution.status !== "active" && <>{resolution.diagnostic !== undefined && <div role="note" aria-labelledby={`editor-plugin-block-${blockIndex}-diagnostic`}><h3 id={`editor-plugin-block-${blockIndex}-diagnostic`}>Plugin 診斷</h3><p>{resolution.diagnostic.code}</p><p>{resolution.diagnostic.remediation.message}</p></div>}<pre role="region" tabIndex={0} aria-label={`互動區塊 ${ordinal} 保留的來源`} aria-describedby={statusId}>{canonicalJson(resolution.source)}</pre></>}
   </section>;
@@ -255,6 +258,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const entryId = routeEntryId ?? generatedId.current;
   const timer = useRef<number | undefined>(undefined);
   const analysisGeneration = useRef(0);
+  const editorBlockGeneration = useRef(0);
   const reload = useRef<HTMLButtonElement>(null);
   const publishTrigger = useRef<HTMLButtonElement>(null);
   const cancelPublish = useRef<HTMLButtonElement>(null);
@@ -289,6 +293,8 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const adopt = (entry: AuthoringEntryDto): boolean => {
     const document = articleDocument(entry.current.content, entry.current.route);
     const article = document?.content.blocks.find((block) => block.kind === "article");
+    // 每次 adopt 都換掉 editing instance；比它更早發出的 editor-block response 一律作廢。
+    editorBlockGeneration.current += 1;
     if (document === undefined || article === undefined) { setError("目前 revision 無法作為 Article 編輯。"); return false; }
     setTitle(document.content.title); setRoute(document.route.slice(1)); setText(article.text); setSeo(document.content.seo); setBlocks(document.content.blocks); setBaseline(entry.current.revisionId); setSavedDocument(canonicalJson(document)); setEditorBlockResolutions(undefined); setEditorBlockFailure(undefined);
     return true;
@@ -301,14 +307,27 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     else if (published.reason instanceof CmsApiError && published.reason.status === 404) setPublishedPreview(null);
     else setPreviewError(message(published.reason));
   };
+  /**
+   * Editor 以 block index 對齊 resolution，因此只採用「與目前 editing instance 完全相符」的 response：
+   * generation 擋掉切換文章後才回來的 stale response（否則另一篇文章的 Host output 會落在這裡的 block 上）；
+   * revision/digest 擋掉 canonical drift；index 序列與單一 activeStateDigest 擋掉 partial 或跨 activation
+   * state 拼出來的 snapshot——Application 是逐 block 呼叫 Host，中途的 activation 變更會讓各 item 不同源。
+   */
   const refreshEditorBlocks = async (entry: AuthoringEntryDto): Promise<void> => {
+    const generation = editorBlockGeneration.current;
     const document = articleDocument(entry.current.content, entry.current.route);
-    if (document === undefined || !document.content.blocks.some((block) => block.kind === "interactive-demo")) return;
+    if (document === undefined) return;
+    const expected = document.content.blocks.flatMap((block, blockIndex) => block.kind === "interactive-demo" ? [blockIndex] : []);
+    if (expected.length === 0) return;
     try {
       const next = await api.editorBlocks(entryId);
-      if (next.entryId !== entryId || next.revisionId !== entry.current.revisionId || next.contentDigest !== entry.current.contentDigest) { setEditorBlockFailure("互動區塊狀態已變更，請重新載入文章。"); return; }
+      if (editorBlockGeneration.current !== generation) return;
+      const aligned = next.items.length === expected.length && expected.every((blockIndex, position) => next.items[position]?.blockIndex === blockIndex);
+      const singleState = next.items.every((item) => item.activeStateDigest === next.items[0]?.activeStateDigest);
+      if (next.entryId !== entryId || next.revisionId !== entry.current.revisionId || next.contentDigest !== entry.current.contentDigest || !aligned || !singleState) { setEditorBlockFailure("互動區塊狀態已變更，請重新載入文章。"); return; }
       setEditorBlockResolutions(next);
     } catch (reason) {
+      if (editorBlockGeneration.current !== generation) return;
       setEditorBlockFailure(message(reason));
     }
   };
@@ -394,6 +413,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     <h1>{isNew ? "新增文章" : "編輯文章"}</h1>
     {error !== undefined && <p role="alert">{error}</p>}
     {conflict && <><p role="alert">內容已由另一個頁面更新。</p><button ref={reload} onClick={load}>重新載入文章</button></>}
+    {editorBlockFailure !== undefined && <p role="alert">{editorBlockFailure}</p>}
     <p aria-live="polite" aria-atomic="true">{notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。")}</p>
     <section className="editor">
       <form onSubmit={(event) => void save(event)}>
