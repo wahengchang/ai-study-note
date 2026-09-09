@@ -1,8 +1,8 @@
 ---
 id: WI-062
-status: pending
+status: done
 title: CMS plugin-backed editor block integration
-work_group: null
+work_group: WG-023
 depends_on: ["WI-040", "WI-035", "WI-041", "WI-044"]
 ---
 

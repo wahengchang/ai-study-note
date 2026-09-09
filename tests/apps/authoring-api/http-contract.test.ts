@@ -160,6 +160,28 @@ test("actual listener proves current credential and saves a revision", async () 
   });
 });
 
+test("actual listener resolves missing current editor Plugin block as a source-preserving Host diagnostic", async () => {
+  await withAuthoringApi(async ({ apiKey, persistence }) => {
+    const content = { contract: "site-content/v1", title: "plugin entry", blocks: [{ kind: "article", text: "文章內容" }, { kind: "interactive-demo", identity: { id: "missing-demo", version: "1.0.0" }, hook: "cms/editor-block/resolve", manifestHash: `sha256:${"d".repeat(64)}`, source: { html: "<button>run</button>", css: "button{}", javascript: "void 0" }, staticFallback: "替代內容" }], seo: {} };
+    const bytes = canonicalJsonBytes(content);
+    if (!bytes.ok) throw new Error(bytes.error.code);
+    assert.equal(persistence.createRevision({ identity: { entryId: "plugin-entry", revisionId: "plugin-revision" }, schemaIdentity: { schemaId: "site-content", version: 1 }, contentBytes: bytes.value, contentDigest: sha256Digest(bytes.value), lineage: { operationId: "save-plugin-entry", operationKind: "SaveRevision" } }).ok, true);
+    assert.equal(persistence.setEntryPointers({ entryId: "plugin-entry", currentRevisionId: "plugin-revision", lineage: { revisionId: "plugin-revision", operationId: "save-plugin-entry", operationKind: "SaveRevision" } }).ok, true);
+    const resolved = await send("GET", "/v1/entries/plugin-entry/current/editor-blocks", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(resolved.status, 200);
+    assertResponseHeaders(resolved, "editor block resolution");
+    const dto = JSON.parse(resolved.body) as { items: readonly { status: string; source: unknown; diagnostic: { code: string; detail: { cause: string } } }[] };
+    assert.equal(dto.items.length, 1);
+    const item = dto.items[0];
+    assert.notEqual(item, undefined);
+    if (item === undefined) return;
+    assert.equal(item.status, "missing");
+    assert.deepEqual(item.source, { html: "<button>run</button>", css: "button{}", javascript: "void 0" });
+    assert.equal(item.diagnostic.code, "PLUGIN_BLOCK_MISSING");
+    assert.equal(item.diagnostic.detail.cause, "missing");
+  });
+});
+
 test("actual listener resolves the durable active Theme and preserves the preview wire contract without mutation", async () => {
   await withAuthoringApi(async ({ apiKey, digest, persistence, siteDefinition }) => {
     const revisions = [

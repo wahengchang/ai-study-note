@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { AuthoringReadFacade, CmsSeoAnalysisRequest, ContentTypeAdministration, DomainApplication, DomainApplicationFailure, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, SaveRevisionSuccess } from "../../core/application/index.js";
+import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, DomainApplication, DomainApplicationFailure, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, SaveRevisionSuccess } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import { parsePreviewInput, renderPreviewDocument, type ProjectionPreview } from "../../core/projection/index.js";
 import type { Context } from "hono";
@@ -11,7 +11,7 @@ import type { AuthoringCredentialAuthority } from "./credential-store.js";
 import { createBrowserBootstrapState } from "./browser-bootstrap.js";
 import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
-import { authoringEntrySchema, authoringErrorStatuses, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
+import { authoringEntrySchema, authoringErrorStatuses, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
 import type { BrowserSessionDto, BrowserTicketDto, PublishRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
@@ -52,17 +52,17 @@ const SAVE_BODY_LIMIT_REMEDIATION = "SaveRevision request 不得超過 4 MiB。"
 const PUBLISH_BODY_LIMIT_REMEDIATION = "PublishRevision request 不得超過 4 KiB。";
 const PROOF_BODY_LIMIT_REMEDIATION = "server-proof challenge 不得超過 4 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
 export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; projectionPreview: ProjectionPreview }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "entry-current" | "seo-analysis" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
-const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "entry-current", "content-types", "content-type", "entries", "entry", "entry-revisions"]);
+type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
+const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions"]);
 const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "entry-revisions"]);
-const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "entry-current", "seo-analysis", "content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "preview"]);
+const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "preview"]);
 
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
@@ -87,6 +87,7 @@ function routeFor(pathname: string): RouteClass {
   if (pathname === "/v1/plugins/activate") return "plugin-activate";
   if (pathname === "/v1/plugins/settings") return "plugin-settings";
   if (/^\/v1\/entries\/[^/%?#/]+\/current$/u.test(pathname)) return "entry-current";
+  if (/^\/v1\/entries\/[^/%?#/]+\/current\/editor-blocks$/u.test(pathname)) return "editor-blocks";
   if (/^\/v1\/entries\/[^/%?#/]+\/seo-analysis$/u.test(pathname)) return "seo-analysis";
   if (pathname === "/v1/content-types") return "content-types";
   if (/^\/v1\/content-types\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length))) return "content-type";
@@ -103,6 +104,7 @@ function templateFor(route: RouteClass, pathname: string): RouteTemplate {
   if (route === "plugin-activate") return "/v1/plugins/activate";
   if (route === "plugin-settings") return "/v1/plugins/settings";
   if (route === "entry-current") return "/v1/entries/:entryId/current";
+  if (route === "editor-blocks") return "/v1/entries/:entryId/current/editor-blocks";
   if (route === "seo-analysis") return "/v1/entries/:entryId/seo-analysis";
   if (route === "content-types") return "/v1/content-types";
   if (route === "content-type") return "/v1/content-types/:schemaId";
@@ -322,6 +324,10 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   app.get("/v1/entries/:entryId/current", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.domainApplication.readCurrentEntry(context.req.param("entryId") ?? "");
     return result.ok && authoringEntrySchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.get("/v1/entries/:entryId/current/editor-blocks", async (context) => authenticatedRead(context, input, async (requestId) => {
+    const result = await input.domainApplication.resolveCurrentCmsEditorBlocks({ contract: "cms-editor-block-resolutions-request/v1", entryId: context.req.param("entryId") ?? "" } satisfies CmsEditorBlockResolutionsRequest);
+    return result.ok && cmsEditorBlockResolutionsSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
   }));
   app.post("/v1/entries/:entryId/seo-analysis", async (context) => authenticatedJson(context, input, 4_194_304, "SEO analysis request 不得超過 4 MiB。", async (requestId, entryId, body) => {
     const parsed = cmsSeoAnalysisRequestSchema.safeParse(body);
