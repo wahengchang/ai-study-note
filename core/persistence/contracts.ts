@@ -152,7 +152,12 @@ export type PersistenceResult<T> =
   | Readonly<{ ok: false; error: PersistenceFailure }>;
 
 export interface PersistenceReadSnapshot {
+  getSchemaVersion(identity: SchemaVersionIdentity): PersistenceResult<SchemaVersionRecord>;
+  getLatestSchemaVersion(schemaId: string): PersistenceResult<SchemaVersionRecord>;
+  listLatestSchemaVersions(): PersistenceResult<readonly SchemaVersionRecord[]>;
   getRevision(identity: RevisionIdentity): PersistenceResult<RevisionRecord>;
+  listEntryPointers(): PersistenceResult<readonly EntryPointerRecord[]>;
+  listEntryRevisions(entryId: string): PersistenceResult<readonly RevisionRecord[]>;
   getEntryPointers(entryId: string): PersistenceResult<EntryPointerRecord>;
   listPublishedRevisionSelections(): PersistenceResult<readonly RevisionIdentity[]>;
   listRouteClaims(graph: "current" | "published"): PersistenceResult<readonly RouteClaimRecord[]>;

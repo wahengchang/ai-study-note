@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createAuthoringReadFacade, createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
@@ -48,6 +48,21 @@ function publishBody(expectedCurrentRevisionId: string, operationId = `publish-$
   return JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId, operationId });
 }
 function failureCode(response: RawResponse): string { return (JSON.parse(response.body) as { code: string }).code; }
+const previewContent = { contract: "site-content/v1", title: "Preview title", blocks: [{ kind: "article", text: "Preview body" }] } as const;
+function canonical(value: unknown): Uint8Array { const result = canonicalJsonBytes(value); if (!result.ok) throw new Error(result.error.code); return result.value; }
+function previewArtifact(selection: "current" | "published", entryId: string): Readonly<{ bytes: Uint8Array; previewDigest: string; bytesDigest: string }> {
+  const runtime = canonical({ runtime: "preview" }); const runtimeDigest = sha256Digest(runtime);
+  const manifest = { contract: "theme-manifest/v1", id: "preview-theme", version: "1.0.0", runtime: { file: "runtime.mjs", digest: runtimeDigest }, resources: [] } as const;
+  const manifestBytes = canonical(manifest); const contentBytes = canonical(previewContent); const contentDigest = sha256Digest(contentBytes);
+  const media = { contract: "renderer-media/v1", references: [], assets: [], objects: [] } as const;
+  const mediaSelectionDigest = sha256Digest(canonical({ contract: "renderer-media-selection/v1", references: [], assets: [], objects: [] }));
+  const route = { normalizedRoute: "/preview", owner: entryId, sourceRevisionId: "preview-r1" } as const;
+  const routeSelectionDigest = sha256Digest(canonical({ contract: "preview-route-selection/v1", graph: selection, claim: route }));
+  const plugins = { activeStateDigest: sha256Digest(canonical({ contract: "plugin-activation-state/v2", active: [], reactivationRequired: [] })), identities: [], renderers: [] } as const;
+  const unsigned = { contract: "preview-input/v1", subject: { entryId }, selection: { mode: selection, selectedRevision: { entryId, revisionId: "preview-r1" }, routeSelectionDigest, mediaSelectionDigest }, entry: { entryId, revisionId: "preview-r1", schemaIdentity: { schemaId: "article", version: 1 }, content: previewContent, contentDigest }, route, media, theme: { identity: { id: "preview-theme", version: "1.0.0", manifestHash: sha256Digest(manifestBytes) }, manifest, files: [{ role: "runtime", file: "runtime.mjs", digest: runtimeDigest, bytesBase64url: Buffer.from(runtime).toString("base64url") }] }, plugins } as const;
+  const previewDigest = sha256Digest(canonical(unsigned)); const bytes = canonical({ ...unsigned, previewDigest });
+  return { bytes, previewDigest, bytesDigest: sha256Digest(bytes) };
+}
 /** contract §7：每個 response 都必須帶四個固定 security header，且不得回任何 CORS header。 */
 function assertResponseHeaders(response: RawResponse, label: string): void {
   assert.equal(response.headers["cache-control"], "no-store, no-cache", `${label} cache-control`);
@@ -92,7 +107,7 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
       return application.publishRevision(args[0]);
     } };
     const log: AuthoringApiLogEvent[] = [];
-    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event) });
+    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, authoringReadFacade: createAuthoringReadFacade({ persistence: persistence.value }), projectionPreview: { preview: async ({ selection, subject }: { selection: "current" | "published"; subject: { entryId: string } }) => ({ ok: true, value: previewArtifact(selection, subject.entryId) }) } as never, themeIdentity: { id: "legacy-test", version: "1.0.0", manifestHash: "sha256:legacy" } as never, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event) });
     if (!started.ok) throw new Error(`${started.error.code}（127.0.0.1:43127 是否已被佔用？）`);
     close = started.value.close;
     const digest = (): string => { const state = persistence.value.canonicalState(); if (!state.ok) throw new Error(state.error.code); return state.value.digest; };
@@ -117,6 +132,34 @@ test("actual listener proves current credential and saves a revision", async () 
   });
 });
 
+test("article workspace endpoints admit only fixed-origin Bearer reads and preserve canonical state", async () => {
+  await withAuthoringApi(async ({ apiKey, digest }) => {
+    const bearer = { Authorization: `Bearer ${apiKey}` } as const;
+    const article = { contract: "content-type-create-request/v1", schemaIdentity: { schemaId: "article", version: 1 }, schema: { contract: "article-schema/v1", contentContract: "site-content/v1" } };
+    const created = await post("/v1/content-types", { ...bearer, "Content-Type": "application/json" }, JSON.stringify(article));
+    assert.equal(created.status, 201); assert.equal((JSON.parse(created.body) as { contract: string }).contract, "content-type/v1");
+    assert.equal((await post("/v1/content-types", { ...bearer, "Content-Type": "application/json" }, JSON.stringify(article))).status, 409);
+    const saved = await post("/v1/entries/preview-entry/revisions", { ...bearer, "Content-Type": "application/json" }, JSON.stringify({ contract: "save-revision-request/v1", revisionId: "preview-r1", operationId: "save-preview", schemaIdentity: { schemaId: "article", version: 1 }, content: previewContent, route: "/preview", assetVersions: [] }));
+    assert.equal(saved.status, 200);
+    const beforeReads = digest();
+    const types = await send("GET", "/v1/content-types", bearer); assert.equal(types.status, 200); assert.equal((JSON.parse(types.body) as { items: readonly { schemaIdentity: { schemaId: string } }[] }).items.some((item) => item.schemaIdentity.schemaId === "article"), true);
+    const type = await send("GET", "/v1/content-types/article", bearer); assert.equal(type.status, 200);
+    const entries = await send("GET", "/v1/entries", bearer); assert.equal(entries.status, 200); assert.equal((JSON.parse(entries.body) as { items: readonly { entryId: string }[] }).items.some((item) => item.entryId === "preview-entry"), true);
+    const browserReadWithoutOrigin = await send("GET", "/v1/entries", { ...bearer, "Sec-Fetch-Site": "same-origin" });
+    assert.equal(browserReadWithoutOrigin.status, 200, "same-origin browser fetch 可省略 Origin");
+    const detail = await send("GET", "/v1/entries/preview-entry", bearer); assert.equal(detail.status, 200); assert.equal((JSON.parse(detail.body) as { current: { revisionId: string } }).current.revisionId, "preview-r1");
+    const history = await send("GET", "/v1/entries/preview-entry/revisions", bearer); assert.equal(history.status, 200); assert.equal((JSON.parse(history.body) as { items: readonly { revisionId: string }[] }).items[0]?.revisionId, "preview-r1");
+    const preview = await post("/v1/preview", { ...bearer, "Content-Type": "application/json" }, JSON.stringify({ contract: "preview-request/v1", selection: "current", subject: { entryId: "preview-entry" } }));
+    assert.equal(preview.status, 200, preview.body); assert.match((JSON.parse(preview.body) as { document: string }).document, /Preview title/u);
+    assert.equal(digest(), beforeReads, "read and preview routes must not mutate canonical state");
+    const query = await send("GET", "/v1/entries?preview=1", bearer); assert.equal(query.status, 401); assert.equal(failureCode(query), "AUTHORIZATION_ALTERNATE_TRANSPORT");
+    const evilOrigin = await send("GET", "/v1/entries", { ...bearer, Origin: "https://evil.test", "Sec-Fetch-Site": "cross-site" }); assert.equal(evilOrigin.status, 403);
+    const method = await post("/v1/entries", { ...bearer, "Content-Type": "application/json" }, "{}"); assert.equal(method.status, 405);
+    const readBody = await send("GET", "/v1/entries", { ...bearer, "Content-Length": "1" }, "x"); assert.equal(readBody.status, 400);
+    assert.equal(digest(), beforeReads, "read rejection must not mutate canonical state");
+  });
+});
+
 test("CMS documents and manifest assets apply their independent Fetch Metadata gate", async () => {
   await withAuthoringApi(async ({ digest }) => {
     const before = digest();
@@ -127,6 +170,10 @@ test("CMS documents and manifest assets apply their independent Fetch Metadata g
     const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
     assert.equal(asset.status, 200);
     assert.equal(asset.body, "export {};");
+    const moduleAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: origin, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+    assert.equal(moduleAsset.status, 200, "瀏覽器 module asset 可帶 exact same-origin Origin");
+    const evilAssetOrigin = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: "https://evil.test", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
+    assert.equal(evilAssetOrigin.status, 403);
     const wrongDestination = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "style" });
     assert.equal(wrongDestination.status, 403);
     const encoded = await send("GET", "/cms/entries/a%2Fb", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
@@ -238,7 +285,7 @@ test("publish rejections stay outside the command seam and canonical state", asy
       { name: "evil origin", headers: { ...bearer, Origin: "https://evil.test", "Sec-Fetch-Site": "cross-site" }, body: publishBody("draft"), status: 403, code: "ORIGIN_FORBIDDEN" },
       { name: "exact origin without same-origin fetch metadata", headers: { ...bearer, Origin: origin, "Sec-Fetch-Site": "cross-site" }, body: publishBody("draft"), status: 403, code: "ORIGIN_FORBIDDEN" },
       { name: "OPTIONS", method: "OPTIONS", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
-      { name: "GET", method: "GET", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
+      { name: "GET", method: "GET", path: "/v1/entries/entry/publish", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
       { name: "unsupported media type", headers: { ...bearer, "Content-Type": "text/plain" }, body: publishBody("draft"), status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
       { name: "invalid schema", headers: bearer, body: JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: "draft", operationId: "op", extra: true }), status: 400, code: "INVALID_REQUEST_BODY" },
       { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },
@@ -303,7 +350,7 @@ test("every rejected transport shape fails closed with its contract status and m
       { name: "evil origin", headers: { ...bearer, Origin: "http://evil.test", "Sec-Fetch-Site": "cross-site" }, body: saveBody("r", "/a"), status: 403, code: "ORIGIN_FORBIDDEN" },
       { name: "exact origin without same-origin fetch metadata", headers: { ...bearer, Origin: origin, "Sec-Fetch-Site": "cross-site" }, body: saveBody("r", "/a"), status: 403, code: "ORIGIN_FORBIDDEN" },
       { name: "OPTIONS", method: "OPTIONS", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
-      { name: "GET", method: "GET", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
+      { name: "GET", method: "GET", path: "/v1/preview", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
       { name: "unsupported media type", headers: { ...bearer, "Content-Type": "text/plain" }, body: saveBody("r", "/a"), status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
       { name: "oversized body", headers: bearer, body: oversized, status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "SaveRevision request 不得超過 4 MiB。" },
       { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },

@@ -1,8 +1,8 @@
 ---
 id: WI-041
-status: pending
+status: done
 title: Content Type catalog 與 initial version
-work_group: null
+work_group: WG-023
 depends_on: []
 ---
 
@@ -15,4 +15,5 @@ depends_on: []
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #281；由 #241 planning parent 建立，status：planned。
+
+GitHub #281；Article v1 fixed schema identity／canonical schema 與 catalog transport 已交付，HTTP contract test 已實際通過。

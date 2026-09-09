@@ -1,8 +1,8 @@
 ---
 id: WI-044
-status: pending
+status: done
 title: Entry catalog/read history
-work_group: null
+work_group: WG-023
 depends_on: []
 ---
 
@@ -15,4 +15,5 @@ depends_on: []
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #284；由 #241 planning parent 建立，status：planned。
+
+GitHub #284；entry catalog、detail 與 immutable revision history transport 已由 Article workspace 使用，HTTP contract test 已實際通過。

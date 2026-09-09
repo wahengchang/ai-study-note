@@ -1,5 +1,6 @@
-import type { DomainApplicationFailureCode } from "../../core/application/index.js";
+import type { AuthoringReadFailureCode, DomainApplicationFailureCode } from "../../core/application/index.js";
 import type { PluginHostFailureCode } from "../../core/plugin-host/index.js";
+import type { JsonValue } from "../../core/foundation/index.js";
 import { z } from "zod";
 
 import { API_KEY_PATTERN, BROWSER_TICKET_PATTERN, SECRET_TEXT_PATTERN } from "./origin.js";
@@ -13,7 +14,7 @@ const messageRemediationSchema = z.object({ kind: z.literal("message"), message:
  * `JSON.stringify` 又會把該 key 整個丟掉。若不擋在 client 端，caller 會拿到
  * listener 回來的 `INVALID_REQUEST_BODY`，而不是本地的 `INVALID_CLIENT_REQUEST`。
  */
-const jsonContent = z.unknown().refine((value) => value !== undefined);
+const jsonContent = z.unknown().refine((value): value is JsonValue => value !== undefined);
 
 export const serverProofChallengeSchema = z.object({
   contract: z.literal("authoring-server-proof-challenge/v1"),
@@ -85,6 +86,48 @@ export const publishRevisionRequestSchema = z.object({
   operationId: z.string(),
 }).strict();
 
+const schemaIdentitySchema = z.object({ schemaId: z.string(), version: positiveInteger }).strict();
+const assetVersionIdentitySchema = z.object({ assetId: z.string(), assetVersionId: z.string() }).strict();
+const entryRevisionSchema = z.object({
+  revisionId: z.string(),
+  schemaIdentity: schemaIdentitySchema,
+  content: jsonContent,
+  contentDigest: z.string(),
+  route: z.string(),
+  lineage: z.object({ operationId: z.string(), operationKind: z.string() }).strict(),
+}).strict();
+const entryRevisionHistorySchema = entryRevisionSchema.extend({
+  references: z.array(assetVersionIdentitySchema),
+  restoredFromRevisionId: z.string().optional(),
+}).strict();
+
+export const contentTypeCreateRequestSchema = z.object({
+  contract: z.literal("content-type-create-request/v1"),
+  schemaIdentity: schemaIdentitySchema,
+  schema: jsonContent,
+}).strict();
+export const contentTypeSchema = z.object({
+  contract: z.literal("content-type/v1"),
+  schemaIdentity: schemaIdentitySchema,
+  schema: jsonContent,
+  schemaDigest: z.string(),
+}).strict();
+export const contentTypeListSchema = z.object({ contract: z.literal("content-type-list/v1"), items: z.array(contentTypeSchema) }).strict();
+export const entryListSchema = z.object({
+  contract: z.literal("entry-list/v1"),
+  items: z.array(z.object({ entryId: z.string(), currentRevisionId: z.string(), publishedRevisionId: z.string().optional() }).strict()),
+}).strict();
+export const entryDetailSchema = z.object({
+  contract: z.literal("entry-detail/v1"), entryId: z.string(), current: entryRevisionSchema, published: entryRevisionSchema.optional(),
+}).strict();
+export const entryRevisionListSchema = z.object({ contract: z.literal("entry-revision-list/v1"), entryId: z.string(), items: z.array(entryRevisionHistorySchema) }).strict();
+export const previewRequestSchema = z.object({
+  contract: z.literal("preview-request/v1"), selection: z.enum(["current", "published"]), subject: z.object({ entryId: z.string() }).strict(),
+}).strict();
+export const previewDocumentSchema = z.object({
+  contract: z.literal("preview-document/v1"), subject: z.object({ entryId: z.string() }).strict(), selection: z.enum(["current", "published"]), revisionId: z.string(), contentDigest: z.string(), document: z.string(),
+}).strict();
+
 export const publishRevisionSuccessSchema = z.object({
   contract: z.literal("publish-revision-success/v1"),
   entryId: z.string(),
@@ -119,7 +162,7 @@ export type TransportCode =
   | "UNSUPPORTED_MEDIA_TYPE"
   | "INTERNAL_SERVER_ERROR";
 
-type RemoteFailureCode = TransportCode | DomainApplicationFailureCode | PluginHostFailureCode;
+type RemoteFailureCode = TransportCode | AuthoringReadFailureCode | DomainApplicationFailureCode | PluginHostFailureCode;
 
 const transportStatuses: Readonly<Record<TransportCode, readonly number[]>> = {
   INVALID_REQUEST_FRAMING: [400], MISDIRECTED_REQUEST: [421], ORIGIN_FORBIDDEN: [403],
@@ -158,7 +201,8 @@ const pluginCodes = [
 
 const domainStatuses: Readonly<Record<DomainApplicationFailureCode, readonly number[]>> = Object.fromEntries(domainCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<DomainApplicationFailureCode, readonly number[]>>;
 const pluginStatuses: Readonly<Record<PluginHostFailureCode, readonly number[]>> = Object.fromEntries(pluginCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<PluginHostFailureCode, readonly number[]>>;
-const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...domainStatuses, ...pluginStatuses };
+const authoringReadStatuses: Readonly<Record<AuthoringReadFailureCode, readonly number[]>> = { INVALID_CONTENT_TYPE: [422], CONTENT_TYPE_CONFLICT: [409], CONTENT_TYPE_NOT_FOUND: [404], ENTRY_NOT_FOUND: [404], AUTHORING_READ_FAILED: [500] };
+const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...authoringReadStatuses, ...domainStatuses, ...pluginStatuses };
 
 export type AuthoringRemoteErrorCode = keyof typeof statusByCode;
 
@@ -170,7 +214,7 @@ export const authoringErrorSchema = z.object({
   contract: z.literal("authoring-error/v1"),
   requestId: z.string(),
   code: z.string().refine((code) => authoringErrorStatuses(code) !== undefined),
-  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost"]),
+  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "AuthoringReadFacade"]),
   subjectIds: stringArray,
   remediation: messageRemediationSchema,
 }).strict();
@@ -186,3 +230,12 @@ export type SaveRevisionSuccessDto = Readonly<z.infer<typeof saveRevisionSuccess
 export type PublishRevisionRequestDto = Readonly<z.infer<typeof publishRevisionRequestSchema>>;
 export type PublishRevisionSuccessDto = Readonly<z.infer<typeof publishRevisionSuccessSchema>>;
 export type AuthoringErrorDto = Readonly<z.infer<typeof authoringErrorSchema>>;
+
+export type ContentTypeCreateRequestDto = Readonly<z.infer<typeof contentTypeCreateRequestSchema>>;
+export type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
+export type ContentTypeListDto = Readonly<z.infer<typeof contentTypeListSchema>>;
+export type EntryListDto = Readonly<z.infer<typeof entryListSchema>>;
+export type EntryDetailDto = Readonly<z.infer<typeof entryDetailSchema>>;
+export type EntryRevisionListDto = Readonly<z.infer<typeof entryRevisionListSchema>>;
+export type PreviewRequestDto = Readonly<z.infer<typeof previewRequestSchema>>;
+export type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;

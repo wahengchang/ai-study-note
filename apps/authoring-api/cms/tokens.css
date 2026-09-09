@@ -1,4 +1,60 @@
-:root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #f7f5ef; color: #1d2b24; }
+:root {
+  color-scheme: light;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  background: #f7f5ef;
+  color: #1d2b24;
+}
+
+* { box-sizing: border-box; }
 body { margin: 0; min-width: 20rem; }
-main { max-width: 72rem; margin: 0 auto; padding: 3rem 1.5rem; }
-h1:focus-visible { outline: 3px solid #175c42; outline-offset: .25rem; }
+a { color: #0f5132; }
+a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible, h1:focus-visible, [role="alert"]:focus-visible, [role="status"]:focus-visible { outline: 3px solid #175c42; outline-offset: .25rem; }
+button, input, textarea { font: inherit; }
+button, .button-link { border: 1px solid #175c42; border-radius: .25rem; background: #175c42; color: #fff; cursor: pointer; padding: .55rem .8rem; text-decoration: none; }
+button[disabled] { cursor: wait; opacity: .65; }
+
+.cms-shell { min-height: 100vh; display: grid; grid-template-rows: auto 1fr auto; }
+.cms-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem max(1.5rem, calc((100% - 72rem) / 2)); border-bottom: 1px solid #bfd0c5; background: #fffdf7; }
+.cms-brand { color: inherit; font-weight: 700; text-decoration: none; }
+.cms-header nav { display: flex; flex-wrap: wrap; gap: .75rem; }
+.cms-header [aria-current="page"] { font-weight: 700; text-decoration-thickness: .16rem; }
+main { width: min(100%, 72rem); margin: 0 auto; padding: 3rem 1.5rem; }
+h1 { margin-top: 0; }
+footer { padding: 1rem 1.5rem; border-top: 1px solid #bfd0c5; color: #45594c; text-align: center; }
+
+.skip-link { position: absolute; top: .5rem; left: .5rem; z-index: 2; transform: translateY(-200%); background: #fff; padding: .5rem; }
+.skip-link:focus { transform: translateY(0); }
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.cms-error { width: min(72rem, calc(100% - 3rem)); margin: 1rem auto 0; border-left: .3rem solid #a62a21; background: #fff1ef; color: #741b16; padding: .75rem 1rem; }
+.cms-actions { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; margin: 1rem 0; }
+
+.entry-list { display: grid; gap: .75rem; padding: 0; list-style: none; }
+.entry-list li { display: grid; gap: .25rem; border: 1px solid #bfd0c5; border-radius: .4rem; background: #fffdf7; padding: .9rem 1rem; }
+.entry-list a { font-weight: 700; }
+.entry-list span { color: #45594c; }
+
+.workspace-layout { display: grid; grid-template-columns: minmax(0, 1fr) minmax(17rem, 23rem); gap: 2rem; align-items: start; }
+.editor-pane, .workspace-sidebar { border: 1px solid #bfd0c5; border-radius: .4rem; background: #fffdf7; padding: 1.25rem; }
+.workspace-sidebar { position: sticky; top: 1rem; }
+.workspace-sidebar > :first-child { margin-top: 0; }
+.entry-form { display: grid; gap: .6rem; }
+.entry-form input, .entry-form textarea { width: 100%; border: 1px solid #82978a; border-radius: .25rem; background: #fff; color: inherit; padding: .55rem; }
+.entry-form textarea { resize: vertical; }
+.entry-form button { justify-self: start; margin-top: .4rem; }
+
+.cms-preview { margin-top: 1.5rem; }
+.cms-preview [role="tablist"] { display: flex; gap: .35rem; border-bottom: 1px solid #82978a; }
+.cms-preview [role="tab"] { border: 0; border-radius: .25rem .25rem 0 0; background: transparent; color: #1d2b24; }
+.cms-preview [role="tab"][aria-selected="true"] { background: #dcebe1; font-weight: 700; }
+.cms-preview iframe { width: 100%; min-height: 22rem; margin-top: .75rem; border: 1px solid #82978a; background: #fff; }
+
+.cms-dialog-backdrop { position: fixed; inset: 0; display: grid; place-items: center; padding: 1rem; background: rgb(15 31 23 / 65%); }
+.cms-dialog { width: min(100%, 32rem); border: 1px solid #1d2b24; border-radius: .4rem; background: #fffdf7; padding: 1.5rem; box-shadow: 0 .5rem 2rem rgb(0 0 0 / 25%); }
+.cms-dialog h2 { margin-top: 0; }
+
+@media (max-width: 44rem) {
+  .cms-header { align-items: flex-start; flex-direction: column; }
+  .workspace-layout { grid-template-columns: 1fr; }
+  .workspace-sidebar { position: static; }
+  main { padding: 2rem 1rem; }
+}
