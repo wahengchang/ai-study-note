@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BrowserRouter, Link, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Link, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { z, type ZodType } from "zod";
 
 import "./tokens.css";
@@ -147,8 +147,12 @@ class CmsApiClient {
   }
 }
 
+function entryStatusText(status: EntryCatalogDto["items"][number]["status"]): string {
+  return status === "draft" ? "草稿" : status === "published" ? "已發布" : "已發布，有未發布變更";
+}
+
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <><a className="skip" href="#workspace">跳到內容</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><Link to="/cms">文章</Link><Link to="/cms/entries/new">新增文章</Link><Link to="/cms/plugins">外掛</Link></nav></header><main id="workspace">{children}</main></>;
+  return <><a className="skip" href="#workspace">跳到內容</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" tabIndex={-1}>{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -159,8 +163,19 @@ function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element 
     void api.listEntries().then((value) => setEntries(value.items)).catch((reason: unknown) => setError(message(reason)));
   }, [api]);
   useEffect(load, [load]);
-  if (entries === undefined) return <Layout><h1>文章</h1>{error === undefined ? <p aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  return <Layout><h1>文章</h1>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><thead><tr><th>標題</th><th>狀態</th><th>網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entry.status}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
+  if (entries === undefined) return <Layout><h1>文章全覽</h1>{error === undefined ? <p aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  return <Layout><h1>文章全覽</h1>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><caption>所有文章</caption><thead><tr><th scope="col">標題</th><th scope="col">狀態</th><th scope="col">網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entryStatusText(entry.status)}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
+}
+
+function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const [entries, setEntries] = useState<EntryCatalogDto["items"]>();
+  const [error, setError] = useState<string>();
+  const load = useCallback((): void => {
+    setEntries(undefined); setError(undefined);
+    void api.listEntries().then((value) => setEntries(value.items)).catch((reason: unknown) => setError(message(reason)));
+  }, [api]);
+  useEffect(load, [load]);
+  return <Layout><h1>CMS 文章工作台</h1><p>建立、編輯並發布文章；發布只會更新已發布版本。</p><p><Link className="action-link" to="/cms/entries/new">建立文章</Link> <Link to="/cms/entries">查看所有文章</Link></p><section aria-labelledby="workspace-entries"><h2 id="workspace-entries">文章概覽</h2>{entries === undefined ? error === undefined ? <p aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></> : entries.length === 0 ? <p>尚無文章。建立第一篇文章後會顯示於文章列表。</p> : <ul>{entries.slice(0, 5).map((entry) => <li key={entry.entryId}><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link>（{entryStatusText(entry.status)}）</li>)}</ul>}</section></Layout>;
 }
 
 function Plugins({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -263,6 +278,9 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const publishTrigger = useRef<HTMLButtonElement>(null);
   const cancelPublish = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
+  const status = useRef<HTMLParagraphElement>(null);
+  const currentPreviewTab = useRef<HTMLButtonElement>(null);
+  const publishedPreviewTab = useRef<HTMLButtonElement>(null);
   const [title, setTitle] = useState("");
   const [route, setRoute] = useState("");
   const [text, setText] = useState("");
@@ -284,12 +302,23 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const [currentPreview, setCurrentPreview] = useState<string>();
   const [publishedPreview, setPublishedPreview] = useState<string | null>();
   const [previewError, setPreviewError] = useState<string>();
+  const [previewSelection, setPreviewSelection] = useState<"current" | "published">("current");
   const normalized = useMemo(() => normalizeDocument(title, route, text, seo, blocks), [blocks, route, seo, text, title]);
   const normalizedBytes = useMemo(() => canonicalJson(normalized), [normalized]);
   const valid = isValidDocument(normalized);
   const isNew = baseline === null && savedDocument === undefined;
   const dirty = isNew || normalizedBytes !== savedDocument;
   const focusConflict = (): void => { setConflict(true); setNotice(""); setError(undefined); };
+  const selectPreview = (selection: "current" | "published", focus = false): void => {
+    setPreviewSelection(selection);
+    if (focus) (selection === "current" ? currentPreviewTab : publishedPreviewTab).current?.focus();
+  };
+  const previewKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "Home" || event.key === "End") {
+      event.preventDefault();
+      selectPreview(event.key === "ArrowLeft" || event.key === "Home" ? "current" : "published", true);
+    }
+  };
   const adopt = (entry: AuthoringEntryDto): boolean => {
     const document = articleDocument(entry.current.content, entry.current.route);
     const article = document?.content.blocks.find((block) => block.kind === "article");
@@ -345,6 +374,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   }, [api, create, entryId]);
   useEffect(load, [load]);
   useEffect(() => { if (conflict) reload.current?.focus(); }, [conflict]);
+  useEffect(() => { if (notice === "已發布。") status.current?.focus(); }, [notice]);
   useEffect(() => {
     const generation = ++analysisGeneration.current;
     if (timer.current !== undefined) clearTimeout(timer.current);
@@ -403,7 +433,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     } catch (reason) {
       if (reason instanceof CmsApiError && reason.status === 409) focusConflict();
       else setError(message(reason));
-    } finally { setEntryBusy(false); publishTrigger.current?.focus(); }
+    } finally { setEntryBusy(false); }
   };
   if (loading) return <Layout><h1>編輯文章</h1><p aria-busy="true">正在載入文章。</p></Layout>;
   if (notFound) return <Layout><h1>編輯文章</h1><p role="alert">找不到這篇文章。</p><button onClick={load}>重試</button></Layout>;
@@ -414,7 +444,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     {error !== undefined && <p role="alert">{error}</p>}
     {conflict && <><p role="alert">內容已由另一個頁面更新。</p><button ref={reload} onClick={load}>重新載入文章</button></>}
     {editorBlockFailure !== undefined && <p role="alert">{editorBlockFailure}</p>}
-    <p aria-live="polite" aria-atomic="true">{notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。")}</p>
+    <p ref={status} role="status" tabIndex={-1} aria-live="polite" aria-atomic="true">{notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。")}</p>
     <section className="editor">
       <form onSubmit={(event) => void save(event)}>
         <label>標題<input required aria-invalid={!valid && title.trim() === ""} value={title} onChange={(event) => { setTitle(event.target.value); if (route === "") setRoute(slugify(event.target.value)); }} disabled={mutationLocked} /></label>
@@ -425,7 +455,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
         <button type="submit" disabled={!valid || !dirty || mutationLocked}>{entryBusy ? "正在儲存…" : "儲存"}</button>
         <button ref={publishTrigger} type="button" onClick={openPublish} disabled={baseline === null || dirty || mutationLocked}>發布</button>
       </form>
-      <div className="preview-column"><SeoPreview analysis={analysis} busy={analysisBusy} invalid={!valid} failure={analysisFailure} /><aside><h2>目前頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前頁面預覽" sandbox="" srcDoc={currentPreview} />}<h2>已發布頁面預覽</h2>{publishedPreview === null ? <p>尚未發布</p> : publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布頁面預覽" sandbox="" srcDoc={publishedPreview} />}</aside></div>
+      <div className="preview-column"><SeoPreview analysis={analysis} busy={analysisBusy} invalid={!valid} failure={analysisFailure} /><aside><h2>頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}<div role="tablist" aria-label="頁面預覽版本"><button ref={currentPreviewTab} id="current-preview-tab" type="button" role="tab" tabIndex={previewSelection === "current" ? 0 : -1} aria-selected={previewSelection === "current"} aria-controls="current-preview-panel" onClick={() => selectPreview("current")} onKeyDown={previewKeyDown}>目前版本</button><button ref={publishedPreviewTab} id="published-preview-tab" type="button" role="tab" tabIndex={previewSelection === "published" ? 0 : -1} aria-selected={previewSelection === "published"} aria-controls="published-preview-panel" onClick={() => selectPreview("published")} onKeyDown={previewKeyDown}>已發布版本</button></div>{previewSelection === "current" ? <section id="current-preview-panel" role="tabpanel" aria-labelledby="current-preview-tab">{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前版本頁面預覽" sandbox="" srcDoc={currentPreview} />}</section> : <section id="published-preview-panel" role="tabpanel" aria-labelledby="published-preview-tab">{publishedPreview === null || publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布版本頁面預覽" sandbox="" srcDoc={publishedPreview} />}</section>}</aside></div>
     </section>
     <dialog ref={dialog} aria-labelledby="publish-dialog-title"><h2 id="publish-dialog-title">發布文章</h2><p>發布只會更新已發布版本。</p><button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
   </Layout>;
@@ -433,7 +463,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><Routes><Route path="/cms" element={<EntryList api={api} />} /><Route path="/cms/" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
 }
 
 function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {
