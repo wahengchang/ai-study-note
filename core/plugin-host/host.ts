@@ -1,7 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
-import type { ActivePluginSnapshot, ActivePublicPluginRenderer, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CmsSeoAnalysisInputV1, CmsSeoAnalysisOutputV1, CmsSeoAnalysisResult, CreatePluginHostInput, PluginActivationIdentity, PluginActivationSnapshot, PluginActivationState, PluginCapability, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PluginPublicHookId, PluginSettingsRecord, PluginSettingsSnapshot, PluginSettingsState, PreparedPublicBuildSnapshot, PreparedSaveRevisionValidators, PublicBuildSnapshot, PublicPluginBuildRequestV1, PublicSeoSnapshot, SaveRevisionContentGuard, SaveRevisionValidatorInput, SeoPageContributionV1, SeoPluginSettingsV1, SeoSiteContributionV1, ValidatedSaveRevisionContent, VerifiedPluginResource } from "./contracts.js";
+import type { ActivePluginSnapshot, ActivePublicPluginRenderer, CmsEditorBlockIdentity, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CmsSeoAnalysisInputV1, CmsSeoAnalysisOutputV1, CmsSeoAnalysisResult, CreatePluginHostInput, PluginActivationIdentity, PluginActivationSnapshot, PluginActivationState, PluginCapability, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PluginPublicHookId, PluginSettingsRecord, PluginSettingsSnapshot, PluginSettingsState, PreparedPublicBuildSnapshot, PreparedSaveRevisionValidators, PublicBuildSnapshot, PublicPluginBuildRequestV1, PublicSeoSnapshot, SaveRevisionContentGuard, SaveRevisionValidatorInput, SeoPageContributionV1, SeoPluginSettingsV1, SeoSiteContributionV1, ValidatedSaveRevisionContent, VerifiedPluginResource } from "./contracts.js";
 import { isCanonicalPluginId, pluginHostError, pluginHostFailure, type PluginDiagnosticDetail, type PluginHostFailure } from "./failures.js";
 import { isExactSemver, readManifest } from "./manifest.js";
 import { loadVerifiedPluginModule } from "./module-loader.js";
@@ -36,6 +36,15 @@ export function validatePluginActivationIdentity(value: unknown): PluginHostResu
 function identity(value: unknown): PluginActivationIdentity | null {
   const validated = validatePluginActivationIdentity(value);
   return validated.ok ? validated.value : null;
+}
+
+function editorIdentity(value: unknown): CmsEditorBlockIdentity | null {
+  if (!exact(value, ["id", "version", "hook", "manifestHash"]) || !isCanonicalPluginId(value.id) || typeof value.version !== "string" || !isExactSemver(value.version) || value.hook !== "cms/editor-block/resolve" || typeof value.manifestHash !== "string" || !isDigest(value.manifestHash)) return null;
+  return Object.freeze({ id: value.id, version: value.version, hook: value.hook, manifestHash: value.manifestHash });
+}
+
+function sameEditorIdentity(left: CmsEditorBlockIdentity, right: PluginActivationIdentity): boolean {
+  return left.id === right.id && left.version === right.version && left.manifestHash === right.manifestHash;
 }
 
 function same(left: PluginActivationIdentity, right: PluginActivationIdentity): boolean {
@@ -439,7 +448,7 @@ class Host implements PluginHost {
   resolveCmsEditorBlock(input: CmsEditorBlockSource): Promise<PluginHostResult<CmsEditorBlockResolution>> {
     return this.serial(async () => {
       if (!exact(input, ["contract", "entryId", "revisionId", "pluginIdentity", "source"]) || input.contract !== "cms-editor-block-source/v1" || typeof input.entryId !== "string" || typeof input.revisionId !== "string") return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
-      const wanted = identity(input.pluginIdentity);
+      const wanted = editorIdentity(input.pluginIdentity);
       const source = json(input.source);
       if (wanted === null || source === null) return pluginHostError("INVALID_PLUGIN_HOST_INPUT");
       const evidence: CmsEditorBlockSourceEvidence = Object.freeze({ contract: input.contract, entryId: input.entryId, revisionId: input.revisionId, pluginIdentity: wanted, source: source.value, sourceBytes: source.bytes, sourceDigest: source.digest });
@@ -458,8 +467,8 @@ class Host implements PluginHost {
 
       let status: "inactive" | "missing" | "identity-changed" | null = null;
       if (item.status === "source-missing") status = "missing";
-      else if (item.status === "evidence-mismatch" || actual === null || !same(wanted, actual)) status = "identity-changed";
-      else if (!state.state.active.some((entry) => same(entry, wanted))) status = "inactive";
+      else if (item.status === "evidence-mismatch" || actual === null || !sameEditorIdentity(wanted, actual)) status = "identity-changed";
+      else if (!state.state.active.some((entry) => sameEditorIdentity(wanted, entry))) status = "inactive";
       if (status !== null) {
         const code = status === "missing" ? "PLUGIN_BLOCK_MISSING" : status === "identity-changed" ? "PLUGIN_BLOCK_IDENTITY_CHANGED" : "PLUGIN_BLOCK_INACTIVE";
         const cause = status === "missing" ? "missing" : status === "identity-changed" ? "identity-changed" : "inactive";
@@ -470,7 +479,7 @@ class Host implements PluginHost {
       if (!(await revalidateTrustedRoots(this.roots))) return pluginHostError("INVALID_TRUSTED_ROOT");
       const authorized = await this.state();
       if (!authorized.ok) return authorized;
-      if (authorized.value.digest !== state.digest || !authorized.value.state.active.some((entry) => same(entry, wanted))) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT", wanted.id);
+      if (authorized.value.digest !== state.digest || !authorized.value.state.active.some((entry) => actual !== null && same(entry, actual))) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT", wanted.id);
       const declaration = item.value.manifest.callbacks.find((callback) => callback.hook === "cms/editor-block/resolve");
       if (declaration === undefined) return pluginHostError("PLUGIN_CAPABILITY_DENIED", wanted.id, editorDetail(wanted.id, evidence.entryId, "capability-denied"));
       const module = await loadVerifiedPluginModule({ entryBytes: item.value.entryBytes, manifestHash: item.value.manifestHash, callbacks: item.value.manifest.callbacks, pluginId: wanted.id });
@@ -478,7 +487,7 @@ class Host implements PluginHost {
       if (!(await revalidateTrustedRoots(this.roots))) return pluginHostError("INVALID_TRUSTED_ROOT");
       const afterModule = await this.state();
       if (!afterModule.ok) return afterModule;
-      if (afterModule.value.digest !== authorized.value.digest || !afterModule.value.state.active.some((entry) => same(entry, wanted))) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT", wanted.id);
+      if (afterModule.value.digest !== authorized.value.digest || !afterModule.value.state.active.some((entry) => actual !== null && same(entry, actual))) return pluginHostError("INVALID_PLUGIN_OPERATION_SNAPSHOT", wanted.id);
       const callbackSource = json(source.value);
       if (callbackSource === null) return pluginHostError("PLUGIN_CALLBACK_RESULT_INVALID", wanted.id, editorDetail(wanted.id, evidence.entryId, "invalid-result"));
       const callbackInput: CmsEditorBlockResolverInput = Object.freeze({ contract: "cms-editor-block-resolver-input/v1", entryId: evidence.entryId, revisionId: evidence.revisionId, source: callbackSource.value });

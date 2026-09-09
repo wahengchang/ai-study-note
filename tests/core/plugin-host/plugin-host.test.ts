@@ -226,7 +226,7 @@ function assertFailure<T>(result: PluginHostResult<T>, code: string): asserts re
 }
 
 function source(identity: PluginActivationIdentity) {
-  return { contract: "cms-editor-block-source/v1" as const, entryId: "entry-a", revisionId: "revision-a", pluginIdentity: identity, source: { nested: { value: "source" } } };
+  return { contract: "cms-editor-block-source/v1" as const, entryId: "entry-a", revisionId: "revision-a", pluginIdentity: { id: identity.id, version: identity.version, hook: "cms/editor-block/resolve" as const, manifestHash: identity.manifestHash }, source: { nested: { value: "source" } } };
 }
 
 function assertSanitized(value: unknown, fixtureValue: Fixture): void {

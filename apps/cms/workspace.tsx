@@ -18,19 +18,36 @@ const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hoo
 const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: digestSchema, settingsStateDigest: digestSchema, plugins: z.array(z.object({ identity: pluginIdentitySchema, status: z.enum(["inactive", "active", "reactivation-required"]), settings: z.object({ settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema, settingsDigest: digestSchema }).strict().optional() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
 const cmsSeoAnalysisResponseSchema = z.object({ contract: z.literal("cms-seo-analysis-response/v1"), documentDigest: digestSchema, status: z.enum(["available", "unavailable"]), preview: z.object({ title: z.string(), description: z.string().optional(), canonicalUrl: z.string().url().optional() }).strict().optional(), suggestions: z.array(z.object({ code: z.string() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
 const previewDocumentSchema = z.object({ contract: z.literal("preview-document/v1"), selection: z.enum(["current", "published"]), subject: z.object({ entryId: z.string() }).strict(), revisionId: z.string(), contentDigest: digestSchema, document: z.string() }).strict();
+const interactiveDemoBlockSchema = z.object({
+  kind: z.literal("interactive-demo"),
+  identity: z.object({ id: z.string().min(1), version: z.string().min(1) }).strict(),
+  hook: z.literal("cms/editor-block/resolve"),
+  manifestHash: digestSchema,
+  source: z.object({ html: z.string(), css: z.string(), javascript: z.string() }).strict(),
+  staticFallback: z.string().min(1),
+}).strict();
+const articleBlockSchema = z.object({ kind: z.literal("article"), text: z.string().min(1) }).strict();
+const structuredContentSchema = z.object({ contract: z.literal("site-content/v1"), title: z.string().min(1), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), seo: z.object({ title: z.string().min(1).optional(), description: z.string().min(1).optional(), canonicalPath: z.string().min(1).optional() }).strict() }).strict();
+const cmsEditorBlockDiagnosticSchema = z.object({ code: z.enum(["PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED"]), owner: z.literal("PluginHost"), subjectIds: z.array(z.string()), remediation: z.object({ kind: z.literal("message"), message: z.string() }).strict(), detail: z.object({ pluginId: z.string(), hook: z.literal("cms/editor-block/resolve"), capability: z.literal("cms-editor-block-resolution"), entryId: z.string(), cause: z.enum(["inactive", "missing", "identity-changed"]) }).strict() }).strict();
+const cmsEditorBlockResolutionSchema = z.object({ blockIndex: z.number().int().nonnegative(), pluginIdentity: z.object({ id: z.string(), version: z.string(), hook: z.literal("cms/editor-block/resolve"), manifestHash: digestSchema }).strict(), source: z.object({ html: z.string(), css: z.string(), javascript: z.string() }).strict(), sourceDigest: digestSchema, activeStateDigest: digestSchema, status: z.enum(["active", "inactive", "missing", "identity-changed"]), output: jsonContent.optional(), outputDigest: digestSchema.optional(), diagnostic: cmsEditorBlockDiagnosticSchema.optional() }).strict().superRefine((value, context) => {
+  if (value.status === "active" && (value.output === undefined || value.outputDigest === undefined || value.diagnostic !== undefined)) context.addIssue({ code: "custom", message: "CMS_EDITOR_BLOCK_RESOLUTION_INVALID" });
+  if (value.status !== "active" && (value.output !== undefined || value.outputDigest !== undefined || value.diagnostic === undefined || value.diagnostic.code !== `PLUGIN_BLOCK_${value.status === "identity-changed" ? "IDENTITY_CHANGED" : value.status.toUpperCase()}` || value.diagnostic.detail.cause !== value.status)) context.addIssue({ code: "custom", message: "CMS_EDITOR_BLOCK_RESOLUTION_INVALID" });
+});
+const cmsEditorBlockResolutionsSchema = z.object({ contract: z.literal("cms-editor-block-resolutions/v1"), entryId: z.string(), revisionId: z.string(), contentDigest: digestSchema, stateDigest: digestSchema, items: z.array(cmsEditorBlockResolutionSchema) }).strict();
 const saveRevisionSuccessSchema = z.unknown();
 const publishRevisionSuccessSchema = z.unknown();
 type AuthoringEntryDto = Readonly<z.infer<typeof authoringEntrySchema>>;
+type CmsEditorBlockResolutionsDto = Readonly<z.infer<typeof cmsEditorBlockResolutionsSchema>>;
 type CmsSeoAnalysisResponseDto = Readonly<z.infer<typeof cmsSeoAnalysisResponseSchema>>;
 type EntryCatalogDto = Readonly<z.infer<typeof entryCatalogSchema>>;
 type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManagementSnapshotSchema>>;
 type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
-
-
+type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
+type StructuredBlock = StructuredContent["blocks"][number];
+type InteractiveDemoBlock = Extract<StructuredBlock, Readonly<{ kind: "interactive-demo" }>>;
 
 const seoKeys = ["title", "description", "canonicalPath"] as const;
-type Seo = Readonly<{ title?: string; description?: string; canonicalPath?: string }>;
-type StructuredContent = Readonly<{ contract: "site-content/v1"; title: string; blocks: readonly [Readonly<{ kind: "article"; text: string }>]; seo: Seo }>;
+type Seo = Readonly<{ title?: string | undefined; description?: string | undefined; canonicalPath?: string | undefined }>;
 type NormalizedDocument = Readonly<{ content: StructuredContent; route: string }>;
 export { openAuthoringSession } from "./session.js";
 
@@ -67,25 +84,22 @@ function normalizeSeo(value: Seo): Seo {
   return result as Seo;
 }
 
-function normalizeDocument(title: string, route: string, text: string, seo: Seo): NormalizedDocument {
+function normalizeDocument(title: string, route: string, text: string, seo: Seo, blocks: readonly StructuredBlock[] = [{ kind: "article", text }]): NormalizedDocument {
   const normalizedRoute = route.trim().startsWith("/") ? route.trim() : `/${route.trim()}`;
-  return { content: { contract: "site-content/v1", title, blocks: [{ kind: "article", text }], seo: normalizeSeo(seo) }, route: normalizedRoute };
+  return { content: { contract: "site-content/v1", title, blocks: blocks.map((block) => block.kind === "article" ? { kind: "article", text } : block), seo: normalizeSeo(seo) }, route: normalizedRoute };
 }
 
 function articleDocument(value: unknown, route: string): NormalizedDocument | undefined {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return undefined;
-  const record = value as Readonly<Record<string, unknown>>;
-  if (record.contract !== "site-content/v1" || typeof record.title !== "string" || !Array.isArray(record.blocks) || record.blocks.length !== 1) return undefined;
-  const block = record.blocks[0];
-  if (typeof block !== "object" || block === null || Array.isArray(block) || (block as Record<string, unknown>).kind !== "article" || typeof (block as Record<string, unknown>).text !== "string") return undefined;
-  if (typeof record.seo !== "object" || record.seo === null || Array.isArray(record.seo) || !Object.keys(record.seo).every((key) => (seoKeys as readonly string[]).includes(key))) return undefined;
-  const seo = record.seo as Readonly<Record<string, unknown>>;
-  if (seoKeys.some((key) => seo[key] !== undefined && (typeof seo[key] !== "string" || seo[key] === ""))) return undefined;
-  return normalizeDocument(record.title, route, (block as Readonly<{ text: string }>).text, seo as Seo);
+  const parsed = structuredContentSchema.safeParse(value);
+  if (!parsed.success) return undefined;
+  const articles = parsed.data.blocks.filter((block) => block.kind === "article");
+  if (articles.length !== 1) return undefined;
+  return normalizeDocument(parsed.data.title, route, articles[0]!.text, parsed.data.seo, parsed.data.blocks);
 }
 
 function isValidDocument(document: NormalizedDocument): boolean {
-  return document.content.title.trim() !== "" && document.route !== "/" && document.route.startsWith("/") && document.content.blocks[0].text.trim() !== "";
+  const article = document.content.blocks.find((block) => block.kind === "article");
+  return article !== undefined && document.content.title.trim() !== "" && document.route !== "/" && document.route.startsWith("/") && article.text.trim() !== "";
 }
 
 function slugify(title: string): string {
@@ -98,6 +112,7 @@ class CmsApiClient {
 
   listEntries(): Promise<EntryCatalogDto> { return this.json("/v1/entries", entryCatalogSchema); }
   current(entryId: string): Promise<AuthoringEntryDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current`, authoringEntrySchema); }
+  editorBlocks(entryId: string): Promise<CmsEditorBlockResolutionsDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current/editor-blocks`, cmsEditorBlockResolutionsSchema); }
   plugins(): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins", pluginManagementSnapshotSchema); }
   replaceSettings(body: Record<string, unknown>): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins/settings", pluginManagementSnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   activate(body: Record<string, unknown>): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins/activate", pluginManagementSnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
@@ -211,6 +226,30 @@ function SeoPreview({ analysis, busy, invalid, failure }: Readonly<{ analysis: C
   return <aside><section aria-label="SEO 預覽" aria-busy={busy}><h2>SEO 預覽</h2><p aria-live="polite" aria-atomic="true">{status}</p>{!invalid && !busy && failure === undefined && analysis?.status === "available" && <>{analysis.preview?.title !== undefined && <h3>{analysis.preview.title}</h3>}{analysis.preview?.description !== undefined && <p>{analysis.preview.description}</p>}{analysis.preview?.canonicalUrl !== undefined && <p className="breakable">{analysis.preview.canonicalUrl}</p>}<ul>{suggestions.map((suggestion) => <li key={suggestion.code}>{suggestion.code}</li>)}</ul></>}</section></aside>;
 }
 
+/**
+ * `failure` 只驅動這個 block 的 status text；對應的 `role="alert"` 由 Editor 統一渲染一次。
+ * 一份 document 可含多個 interactive block，逐 block 重複 alert 會讓同一則訊息被 AT 播報多次。
+ */
+function EditorPluginBlock({ block, blockIndex, resolution, failure }: Readonly<{ block: InteractiveDemoBlock; blockIndex: number; resolution: CmsEditorBlockResolutionsDto["items"][number] | undefined; failure: string | undefined }>): React.JSX.Element {
+  const ordinal = blockIndex + 1;
+  const headingId = `editor-plugin-block-${blockIndex}-heading`;
+  const statusId = `editor-plugin-block-${blockIndex}-status`;
+  const identity = `${block.identity.id}@${block.identity.version}`;
+  const status = resolution === undefined
+    ? failure === undefined ? `正在解析外掛 ${identity}。` : failure
+    : resolution.status === "active" ? `外掛 ${identity} 已啟用；已顯示 Host output。`
+      : resolution.status === "inactive" ? `外掛 ${identity} 尚未啟用；已保留原始內容。`
+        : resolution.status === "missing" ? `找不到外掛 ${identity}；已保留原始內容。`
+          : `外掛 ${identity} identity 已變更；已保留原始內容。`;
+  return <section aria-labelledby={headingId} aria-busy={resolution === undefined && failure === undefined}>
+    <h2 id={headingId}>互動區塊 {ordinal}</h2>
+    <dl><dt>Plugin</dt><dd>{identity}</dd><dt>Manifest hash</dt><dd className="breakable">{block.manifestHash}</dd></dl>
+    <p id={statusId} role="status" aria-live="polite" aria-atomic="true" aria-label={`互動區塊 ${ordinal} 狀態`}>{status}</p>
+    {resolution?.status === "active" && <pre role="region" tabIndex={0} aria-label={`互動區塊 ${ordinal} Host output`} aria-describedby={statusId}>{canonicalJson(resolution.output)}</pre>}
+    {resolution !== undefined && resolution.status !== "active" && <>{resolution.diagnostic !== undefined && <div role="note" aria-labelledby={`editor-plugin-block-${blockIndex}-diagnostic`}><h3 id={`editor-plugin-block-${blockIndex}-diagnostic`}>Plugin 診斷</h3><p>{resolution.diagnostic.code}</p><p>{resolution.diagnostic.remediation.message}</p></div>}<pre role="region" tabIndex={0} aria-label={`互動區塊 ${ordinal} 保留的來源`} aria-describedby={statusId}>{canonicalJson(resolution.source)}</pre></>}
+  </section>;
+}
+
 function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }>): React.JSX.Element {
   const { entryId: routeEntryId } = useParams();
   const navigate = useNavigate();
@@ -219,6 +258,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const entryId = routeEntryId ?? generatedId.current;
   const timer = useRef<number | undefined>(undefined);
   const analysisGeneration = useRef(0);
+  const editorBlockGeneration = useRef(0);
   const reload = useRef<HTMLButtonElement>(null);
   const publishTrigger = useRef<HTMLButtonElement>(null);
   const cancelPublish = useRef<HTMLButtonElement>(null);
@@ -227,6 +267,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const [route, setRoute] = useState("");
   const [text, setText] = useState("");
   const [seo, setSeo] = useState<Seo>({});
+  const [blocks, setBlocks] = useState<readonly StructuredBlock[]>([{ kind: "article", text: "" }]);
   const [baseline, setBaseline] = useState<string | null>(null);
   const [savedDocument, setSavedDocument] = useState<string>();
   const [loading, setLoading] = useState(!create);
@@ -238,10 +279,12 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const [analysisBusy, setAnalysisBusy] = useState(false);
   const [analysis, setAnalysis] = useState<CmsSeoAnalysisResponseDto>();
   const [analysisFailure, setAnalysisFailure] = useState<string>();
+  const [editorBlockResolutions, setEditorBlockResolutions] = useState<CmsEditorBlockResolutionsDto>();
+  const [editorBlockFailure, setEditorBlockFailure] = useState<string>();
   const [currentPreview, setCurrentPreview] = useState<string>();
   const [publishedPreview, setPublishedPreview] = useState<string | null>();
   const [previewError, setPreviewError] = useState<string>();
-  const normalized = useMemo(() => normalizeDocument(title, route, text, seo), [title, route, text, seo]);
+  const normalized = useMemo(() => normalizeDocument(title, route, text, seo, blocks), [blocks, route, seo, text, title]);
   const normalizedBytes = useMemo(() => canonicalJson(normalized), [normalized]);
   const valid = isValidDocument(normalized);
   const isNew = baseline === null && savedDocument === undefined;
@@ -249,8 +292,11 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const focusConflict = (): void => { setConflict(true); setNotice(""); setError(undefined); };
   const adopt = (entry: AuthoringEntryDto): boolean => {
     const document = articleDocument(entry.current.content, entry.current.route);
-    if (document === undefined) { setError("目前 revision 無法作為 Article 編輯。"); return false; }
-    setTitle(document.content.title); setRoute(document.route.slice(1)); setText(document.content.blocks[0].text); setSeo(document.content.seo); setBaseline(entry.current.revisionId); setSavedDocument(canonicalJson(document));
+    const article = document?.content.blocks.find((block) => block.kind === "article");
+    // 每次 adopt 都換掉 editing instance；比它更早發出的 editor-block response 一律作廢。
+    editorBlockGeneration.current += 1;
+    if (document === undefined || article === undefined) { setError("目前 revision 無法作為 Article 編輯。"); return false; }
+    setTitle(document.content.title); setRoute(document.route.slice(1)); setText(article.text); setSeo(document.content.seo); setBlocks(document.content.blocks); setBaseline(entry.current.revisionId); setSavedDocument(canonicalJson(document)); setEditorBlockResolutions(undefined); setEditorBlockFailure(undefined);
     return true;
   };
   const refreshPreviews = async (): Promise<void> => {
@@ -261,16 +307,40 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     else if (published.reason instanceof CmsApiError && published.reason.status === 404) setPublishedPreview(null);
     else setPreviewError(message(published.reason));
   };
+  /**
+   * Editor 以 block index 對齊 resolution，因此只採用「與目前 editing instance 完全相符」的 response：
+   * generation 擋掉切換文章後才回來的 stale response（否則另一篇文章的 Host output 會落在這裡的 block 上）；
+   * revision/digest 擋掉 canonical drift；index 序列與單一 activeStateDigest 擋掉 partial 或跨 activation
+   * state 拼出來的 snapshot——Application 是逐 block 呼叫 Host，中途的 activation 變更會讓各 item 不同源。
+   */
+  const refreshEditorBlocks = async (entry: AuthoringEntryDto): Promise<void> => {
+    const generation = editorBlockGeneration.current;
+    const document = articleDocument(entry.current.content, entry.current.route);
+    if (document === undefined) return;
+    const expected = document.content.blocks.flatMap((block, blockIndex) => block.kind === "interactive-demo" ? [blockIndex] : []);
+    if (expected.length === 0) return;
+    try {
+      const next = await api.editorBlocks(entryId);
+      if (editorBlockGeneration.current !== generation) return;
+      const aligned = next.items.length === expected.length && expected.every((blockIndex, position) => next.items[position]?.blockIndex === blockIndex);
+      const singleState = next.items.every((item) => item.activeStateDigest === next.items[0]?.activeStateDigest);
+      if (next.entryId !== entryId || next.revisionId !== entry.current.revisionId || next.contentDigest !== entry.current.contentDigest || !aligned || !singleState) { setEditorBlockFailure("互動區塊狀態已變更，請重新載入文章。"); return; }
+      setEditorBlockResolutions(next);
+    } catch (reason) {
+      if (editorBlockGeneration.current !== generation) return;
+      setEditorBlockFailure(message(reason));
+    }
+  };
   const load = useCallback((): void => {
     if (create) return;
     setLoading(true); setNotFound(false); setError(undefined);
     void api.current(entryId).then(async (entry) => {
-      if (adopt(entry)) await refreshPreviews();
+      if (adopt(entry)) await Promise.all([refreshPreviews(), refreshEditorBlocks(entry)]);
     }).catch((reason: unknown) => {
       if (reason instanceof CmsApiError && reason.status === 404) setNotFound(true);
       else setError(message(reason));
     }).finally(() => setLoading(false));
-  // refreshPreviews and adopt intentionally use the current editing instance.
+  // refreshPreviews、refreshEditorBlocks 和 adopt 都刻意使用目前 editing instance。
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [api, create, entryId]);
   useEffect(load, [load]);
@@ -311,7 +381,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
       await api.save(entryId, baseline, normalized);
       const refreshed = await api.current(entryId);
       if (!adopt(refreshed)) return;
-      await refreshPreviews();
+      await Promise.all([refreshPreviews(), refreshEditorBlocks(refreshed)]);
       setNotice("已儲存。");
       if (create) navigate(`/cms/entries/${entryId}`, { replace: true });
     } catch (reason) {
@@ -327,7 +397,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
       await api.publish(entryId, baseline);
       const refreshed = await api.current(entryId);
       if (!adopt(refreshed)) return;
-      await refreshPreviews();
+      await Promise.all([refreshPreviews(), refreshEditorBlocks(refreshed)]);
       setNotice("已發布。");
       dialog.current?.close();
     } catch (reason) {
@@ -338,7 +408,27 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   if (loading) return <Layout><h1>編輯文章</h1><p aria-busy="true">正在載入文章。</p></Layout>;
   if (notFound) return <Layout><h1>編輯文章</h1><p role="alert">找不到這篇文章。</p><button onClick={load}>重試</button></Layout>;
   const mutationLocked = entryBusy || conflict;
-  return <Layout><h1>{isNew ? "新增文章" : "編輯文章"}</h1>{error !== undefined && <p role="alert">{error}</p>}{conflict && <><p role="alert">內容已由另一個頁面更新。</p><button ref={reload} onClick={load}>重新載入文章</button></>}<p aria-live="polite" aria-atomic="true">{notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。")}</p><section className="editor"><form onSubmit={(event) => void save(event)}><label>標題<input required aria-invalid={!valid && title.trim() === ""} value={title} onChange={(event) => { setTitle(event.target.value); if (route === "") setRoute(slugify(event.target.value)); }} disabled={mutationLocked} /></label><label>網址代稱<input required value={route} onChange={(event) => setRoute(event.target.value)} disabled={mutationLocked} /></label><label>本文<textarea required value={text} onChange={(event) => setText(event.target.value)} disabled={mutationLocked} /></label><fieldset><legend>SEO</legend><p>留白時使用文章標題</p><label>SEO 標題<input value={seo.title ?? ""} onChange={(event) => setSeo((current) => ({ ...current, title: event.target.value }))} disabled={mutationLocked} /></label><p>留白時會顯示 SEO 建議</p><label>Meta description<textarea value={seo.description ?? ""} onChange={(event) => setSeo((current) => ({ ...current, description: event.target.value }))} disabled={mutationLocked} /></label><p>留白時使用文章網址；站內路徑須以 / 開頭</p><label>Canonical path<input value={seo.canonicalPath ?? ""} onChange={(event) => setSeo((current) => ({ ...current, canonicalPath: event.target.value }))} disabled={mutationLocked} /></label></fieldset><button type="submit" disabled={!valid || !dirty || mutationLocked}>{entryBusy ? "正在儲存…" : "儲存"}</button><button ref={publishTrigger} type="button" onClick={openPublish} disabled={baseline === null || dirty || mutationLocked}>發布</button></form><div className="preview-column"><SeoPreview analysis={analysis} busy={analysisBusy} invalid={!valid} failure={analysisFailure} /><aside><h2>目前頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前頁面預覽" sandbox="" srcDoc={currentPreview} />}<h2>已發布頁面預覽</h2>{publishedPreview === null ? <p>尚未發布</p> : publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布頁面預覽" sandbox="" srcDoc={publishedPreview} />}</aside></div></section><dialog ref={dialog} aria-labelledby="publish-dialog-title"><h2 id="publish-dialog-title">發布文章</h2><p>發布只會更新已發布版本。</p><button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog></Layout>;
+  const resolutionsByBlockIndex = new Map(editorBlockResolutions?.items.map((item) => [item.blockIndex, item]));
+  return <Layout>
+    <h1>{isNew ? "新增文章" : "編輯文章"}</h1>
+    {error !== undefined && <p role="alert">{error}</p>}
+    {conflict && <><p role="alert">內容已由另一個頁面更新。</p><button ref={reload} onClick={load}>重新載入文章</button></>}
+    {editorBlockFailure !== undefined && <p role="alert">{editorBlockFailure}</p>}
+    <p aria-live="polite" aria-atomic="true">{notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。")}</p>
+    <section className="editor">
+      <form onSubmit={(event) => void save(event)}>
+        <label>標題<input required aria-invalid={!valid && title.trim() === ""} value={title} onChange={(event) => { setTitle(event.target.value); if (route === "") setRoute(slugify(event.target.value)); }} disabled={mutationLocked} /></label>
+        <label>網址代稱<input required value={route} onChange={(event) => setRoute(event.target.value)} disabled={mutationLocked} /></label>
+        <label>本文<textarea required value={text} onChange={(event) => setText(event.target.value)} disabled={mutationLocked} /></label>
+        {normalized.content.blocks.map((block, blockIndex) => block.kind === "interactive-demo" && <EditorPluginBlock key={`${block.identity.id}\0${blockIndex}`} block={block} blockIndex={blockIndex} resolution={resolutionsByBlockIndex.get(blockIndex)} failure={editorBlockFailure} />)}
+        <fieldset><legend>SEO</legend><p>留白時使用文章標題</p><label>SEO 標題<input value={seo.title ?? ""} onChange={(event) => setSeo((current) => ({ ...current, title: event.target.value }))} disabled={mutationLocked} /></label><p>留白時會顯示 SEO 建議</p><label>Meta description<textarea value={seo.description ?? ""} onChange={(event) => setSeo((current) => ({ ...current, description: event.target.value }))} disabled={mutationLocked} /></label><p>留白時使用文章網址；站內路徑須以 / 開頭</p><label>Canonical path<input value={seo.canonicalPath ?? ""} onChange={(event) => setSeo((current) => ({ ...current, canonicalPath: event.target.value }))} disabled={mutationLocked} /></label></fieldset>
+        <button type="submit" disabled={!valid || !dirty || mutationLocked}>{entryBusy ? "正在儲存…" : "儲存"}</button>
+        <button ref={publishTrigger} type="button" onClick={openPublish} disabled={baseline === null || dirty || mutationLocked}>發布</button>
+      </form>
+      <div className="preview-column"><SeoPreview analysis={analysis} busy={analysisBusy} invalid={!valid} failure={analysisFailure} /><aside><h2>目前頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前頁面預覽" sandbox="" srcDoc={currentPreview} />}<h2>已發布頁面預覽</h2>{publishedPreview === null ? <p>尚未發布</p> : publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布頁面預覽" sandbox="" srcDoc={publishedPreview} />}</aside></div>
+    </section>
+    <dialog ref={dialog} aria-labelledby="publish-dialog-title"><h2 id="publish-dialog-title">發布文章</h2><p>發布只會更新已發布版本。</p><button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
+  </Layout>;
 }
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {

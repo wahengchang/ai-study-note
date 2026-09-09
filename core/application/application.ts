@@ -1,12 +1,15 @@
-import { canonicalJsonBytes, copyBytes, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
+import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
 import type { AssetVersionIdentity, RestoreAssetCommandDescriptor } from "../media/index.js";
-import type { PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
+import type { CmsEditorBlockSource, PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
 import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal } from "../site-definition/index.js";
 
 import type {
   AuthoringEntryV1,
   ChangeRouteRequest,
   ChangeRouteSuccess,
+  CmsEditorBlockResolutions,
+  CmsEditorBlockResolutionsRequest,
+  CmsEditorBlockResolutionItem,
   CmsSeoAnalysisRequest,
   CmsSeoAnalysisResponse,
   DomainApplication,
@@ -36,6 +39,8 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_PLUGIN_ACTIVATION_REQUEST: "請修正 Plugin activation request。",
   INVALID_PLUGIN_SETTINGS_REQUEST: "請修正 Plugin settings request。",
   INVALID_SEO_ANALYSIS_REQUEST: "請修正 CMS SEO analysis request。",
+  INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST: "請修正 CMS editor block resolution request。",
+  CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED: "CMS editor block 目前無法解析；原始內容未變更。",
   ENTRY_NOT_FOUND: "找不到指定文章。",
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
@@ -77,6 +82,10 @@ function plugin<T>(error: PluginHostFailure | CoreFailure): DomainApplicationRes
   return error.owner === "PluginHost" && error.code !== "PLUGIN_VALIDATION_SERVICE_FAILED" ? { ok: false, error } : fail("SAVE_REVISION_FAILED");
 }
 
+function pluginEditorBlocks<T>(error: PluginHostFailure | CoreFailure): DomainApplicationResult<T> {
+  return error.owner === "PluginHost" ? { ok: false, error } : fail("CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED");
+}
+
 function canonicalContent(value: JsonValue): CanonicalContent | null {
   const canonical = canonicalJsonBytes(value);
   if (!canonical.ok) return null;
@@ -100,6 +109,35 @@ function verifiedSourceContent(bytes: Uint8Array, digest: Digest): CanonicalCont
   } catch {
     return null;
   }
+}
+
+function editorBlockSources(content: JsonValue, entryId: string, revisionId: string): readonly Readonly<{ blockIndex: number; source: CmsEditorBlockSource }>[] | null {
+  if (typeof content !== "object" || content === null || Array.isArray(content)) return null;
+  const document = ownEnumerableFields(content, ["contract", "title", "blocks", "seo"]);
+  if (document === null || document.contract !== "site-content/v1" || !Array.isArray(document.blocks)) return null;
+  const sources: Readonly<{ blockIndex: number; source: CmsEditorBlockSource }>[] = [];
+  for (const [blockIndex, block] of document.blocks.entries()) {
+    if (typeof block !== "object" || block === null || Array.isArray(block)) return null;
+    const kind = Object.getOwnPropertyDescriptor(block, "kind");
+    if (kind === undefined || !("value" in kind)) return null;
+    if (kind.value !== "interactive-demo") continue;
+    const demo = ownEnumerableFields(block, ["kind", "identity", "hook", "manifestHash", "source", "staticFallback"]);
+    if (demo === null || demo.kind !== "interactive-demo" || demo.hook !== "cms/editor-block/resolve" || typeof demo.manifestHash !== "string" || !isDigest(demo.manifestHash) || !text(demo.staticFallback) || typeof demo.identity !== "object" || demo.identity === null || Array.isArray(demo.identity) || typeof demo.source !== "object" || demo.source === null || Array.isArray(demo.source)) return null;
+    const identity = ownEnumerableFields(demo.identity, ["id", "version"]);
+    const source = ownEnumerableFields(demo.source, ["html", "css", "javascript"]);
+    if (identity === null || source === null || !text(identity.id) || !text(identity.version) || !Object.values(source).every((value) => typeof value === "string")) return null;
+    sources.push(Object.freeze({
+      blockIndex,
+      source: Object.freeze({
+        contract: "cms-editor-block-source/v1",
+        entryId,
+        revisionId,
+        pluginIdentity: Object.freeze({ id: identity.id, version: identity.version, hook: "cms/editor-block/resolve", manifestHash: demo.manifestHash as Digest }),
+        source: Object.freeze({ html: source.html as string, css: source.css as string, javascript: source.javascript as string }),
+      }),
+    }));
+  }
+  return Object.freeze(sources);
 }
 
 export function createDomainApplication({ persistence, siteDefinition, dataMedia, schemaValidator, pluginHost }: DomainApplicationDependencies): DomainApplication {
@@ -333,10 +371,38 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       const state = persistence.canonicalState();
       if (!revision.ok || !routes.ok || !state.ok) return fail("SAVE_REVISION_FAILED", "Content", [entryId]);
       const content = verifiedSourceContent(revision.value.contentBytes, revision.value.contentDigest);
+
       const route = routes.value.claims.find((claim) => claim.owner === entryId && claim.sourceRevisionId === revision.value.identity.revisionId);
       const references = persistence.getRevisionReferences(revision.value.identity);
       if (content === null || route === undefined || !references.ok) return fail("SAVE_REVISION_FAILED", "Content", [entryId]);
       return { ok: true, value: { contract: "authoring-entry/v1", entryId, current: { revisionId: revision.value.identity.revisionId, schemaIdentity: revision.value.schemaIdentity, content: content.value, contentDigest: revision.value.contentDigest, route: route.normalizedRoute, assets: references.value.map((reference) => reference.assetVersion).sort((left, right) => left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : left.assetVersionId < right.assetVersionId ? -1 : left.assetVersionId > right.assetVersionId ? 1 : 0) }, stateDigest: state.value.digest } };
+    },
+    async resolveCurrentCmsEditorBlocks(request: CmsEditorBlockResolutionsRequest): Promise<DomainApplicationResult<CmsEditorBlockResolutions>> {
+      if (request.contract !== "cms-editor-block-resolutions-request/v1" || !text(request.entryId)) return fail("INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST");
+      const pointer = persistence.getEntryPointers(request.entryId);
+      if (!pointer.ok) return fail(pointer.error.code === "ENTRY_POINTER_NOT_FOUND" ? "ENTRY_NOT_FOUND" : "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED", "Content", [request.entryId]);
+      const revision = persistence.getRevision({ entryId: request.entryId, revisionId: pointer.value.currentRevisionId });
+      const state = persistence.canonicalState();
+      if (!revision.ok || !state.ok) return fail("CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED", "Content", [request.entryId]);
+      const content = verifiedSourceContent(revision.value.contentBytes, revision.value.contentDigest);
+      const sources = content === null ? null : editorBlockSources(content.value, request.entryId, revision.value.identity.revisionId);
+      if (sources === null) return fail("CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED", "Content", [request.entryId]);
+      const items: CmsEditorBlockResolutionItem[] = [];
+      for (const item of sources) {
+        const resolved = await pluginHost.resolveCmsEditorBlock(item.source);
+        if (!resolved.ok) return pluginEditorBlocks(resolved.error);
+        const common = {
+          blockIndex: item.blockIndex,
+          pluginIdentity: resolved.value.source.pluginIdentity,
+          source: resolved.value.source.source,
+          sourceDigest: resolved.value.source.sourceDigest,
+          activeStateDigest: resolved.value.activeStateDigest,
+        };
+        items.push(resolved.value.status === "active"
+          ? { ...common, status: "active", output: resolved.value.output, outputDigest: resolved.value.outputDigest }
+          : { ...common, status: resolved.value.status, diagnostic: resolved.value.diagnostic });
+      }
+      return { ok: true, value: { contract: "cms-editor-block-resolutions/v1", entryId: request.entryId, revisionId: revision.value.identity.revisionId, contentDigest: revision.value.contentDigest, stateDigest: state.value.digest, items } };
     },
 
     async analyzeCmsSeo(request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisResponse>> {

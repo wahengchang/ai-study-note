@@ -1,7 +1,7 @@
 import type { Digest, JsonValue, MessageRemediation } from "../foundation/index.js";
 import type { AssetVersionIdentity, DataMedia, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { EntryPointerRecord, OperationLineageIdentity, PersistenceStore, RevisionRecord, RevisionReferenceRecord, SchemaVersionIdentity, SchemaVersionRecord } from "../persistence/index.js";
-import type { CmsSeoAnalysisResult, PluginActivationIdentity, PluginHost, PluginHostFailure, SeoPluginSettingsV1 } from "../plugin-host/index.js";
+import type { CmsEditorBlockIdentity, CmsSeoAnalysisResult, PluginActivationIdentity, PluginHost, PluginHostFailure, SeoPluginSettingsV1 } from "../plugin-host/index.js";
 import type { RouteClaim, RouteClaimReplacementProposal, RouteClaimReplacementResult, SiteDefinition } from "../site-definition/index.js";
 
 export type SaveRevisionRequest = Readonly<{ entryId: string; revisionId: string; operationId: string; expectedCurrentRevisionId: string | null; schemaIdentity: SchemaVersionIdentity; content: JsonValue; route: string; assetVersions: readonly AssetVersionIdentity[] }>;
@@ -21,7 +21,7 @@ export type RestoreRevisionSuccess = Readonly<{
   stateDigest: Digest;
 }>;
 export type ChangeRouteSuccess = Readonly<RouteClaimReplacementResult & { entryPointer: EntryPointerRecord; lineageIdentity: OperationLineageIdentity; stateDigest: Digest }>;
-export type DomainApplicationFailureCode = "INVALID_SAVE_REVISION_REQUEST" | "INVALID_PUBLISH_REVISION_REQUEST" | "INVALID_RESTORE_REVISION_REQUEST" | "INVALID_CHANGE_ROUTE_REQUEST" | "INVALID_PLUGIN_ACTIVATION_REQUEST" | "INVALID_PLUGIN_SETTINGS_REQUEST" | "INVALID_SEO_ANALYSIS_REQUEST" | "ENTRY_NOT_FOUND" | "CURRENT_REVISION_MISMATCH" | "MEDIA_REFERENCE_NOT_FOUND" | "MEDIA_REFERENCE_CONFLICT" | "SCHEMA_INVALID" | "MEDIA_UNAVAILABLE" | "BLOCKED_ARCHIVED_MEDIA_RESTORE" | "ROUTE_CONFLICT" | "ROUTE_CHANGE_REQUIRED" | "STALE_ROUTE_PROPOSAL" | "SAVE_REVISION_FAILED" | "PUBLISH_REVISION_FAILED" | "RESTORE_REVISION_FAILED" | "CHANGE_ROUTE_FAILED";
+export type DomainApplicationFailureCode = "INVALID_SAVE_REVISION_REQUEST" | "INVALID_PUBLISH_REVISION_REQUEST" | "INVALID_RESTORE_REVISION_REQUEST" | "INVALID_CHANGE_ROUTE_REQUEST" | "INVALID_PLUGIN_ACTIVATION_REQUEST" | "INVALID_PLUGIN_SETTINGS_REQUEST" | "INVALID_SEO_ANALYSIS_REQUEST" | "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST" | "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED" | "ENTRY_NOT_FOUND" | "CURRENT_REVISION_MISMATCH" | "MEDIA_REFERENCE_NOT_FOUND" | "MEDIA_REFERENCE_CONFLICT" | "SCHEMA_INVALID" | "MEDIA_UNAVAILABLE" | "BLOCKED_ARCHIVED_MEDIA_RESTORE" | "ROUTE_CONFLICT" | "ROUTE_CHANGE_REQUIRED" | "STALE_ROUTE_PROPOSAL" | "SAVE_REVISION_FAILED" | "PUBLISH_REVISION_FAILED" | "RESTORE_REVISION_FAILED" | "CHANGE_ROUTE_FAILED";
 export type DomainApplicationCommandFailure = Readonly<{ code: DomainApplicationFailureCode; owner: "DomainApplication" | "Content" | "DataMedia" | "SiteDefinition"; subjectIds: readonly string[]; remediation: MessageRemediation; restoreCommands?: readonly RestoreAssetCommandDescriptor[] }>;
 export type DomainApplicationFailure = DomainApplicationCommandFailure | PluginHostFailure;
 export type DomainApplicationResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: DomainApplicationFailure }>;
@@ -30,7 +30,19 @@ export type PluginActivationRequest = Readonly<{ contract: "plugin-activation-re
 export type PluginSettingsReplaceRequest = Readonly<{ contract: "plugin-settings-replace-request/v1"; identity: PluginActivationIdentity; expectedSettingsStateDigest: Digest; settingsContract: "seo-plugin-settings/v1"; settings: SeoPluginSettingsV1 }>;
 export type CmsSeoAnalysisRequest = Readonly<{ contract: "cms-seo-analysis-request/v1"; entryId: string; expectedCurrentRevisionId: string | null; schemaIdentity: SchemaVersionIdentity; content: JsonValue; route: string; documentDigest: Digest }>;
 export type CmsSeoAnalysisResponse = Readonly<{ contract: "cms-seo-analysis-response/v1"; documentDigest: Digest; status: CmsSeoAnalysisResult["status"]; preview?: Readonly<{ title: string; description?: string; canonicalUrl?: string }>; suggestions: CmsSeoAnalysisResult["suggestions"]; diagnostics: CmsSeoAnalysisResult["diagnostics"] }>;
+export type CmsEditorBlockResolutionsRequest = Readonly<{ contract: "cms-editor-block-resolutions-request/v1"; entryId: string }>;
+export type CmsEditorBlockResolutionItem = Readonly<{
+  blockIndex: number;
+  pluginIdentity: CmsEditorBlockIdentity;
+  source: JsonValue;
+  sourceDigest: Digest;
+  activeStateDigest: Digest;
+} & (
+  | Readonly<{ status: "active"; output: JsonValue; outputDigest: Digest }>
+  | Readonly<{ status: "inactive" | "missing" | "identity-changed"; diagnostic: PluginHostFailure }>
+)>;
+export type CmsEditorBlockResolutions = Readonly<{ contract: "cms-editor-block-resolutions/v1"; entryId: string; revisionId: string; contentDigest: Digest; stateDigest: Digest; items: readonly CmsEditorBlockResolutionItem[] }>;
 export type AuthoringEntryV1 = Readonly<{ contract: "authoring-entry/v1"; entryId: string; current: Readonly<{ revisionId: string; schemaIdentity: SchemaVersionIdentity; content: JsonValue; contentDigest: Digest; route: string; assets: readonly AssetVersionIdentity[] }>; stateDigest: Digest }>;
-export interface DomainApplication { saveRevision(request: SaveRevisionCommandRequest): Promise<DomainApplicationResult<SaveRevisionSuccess>>; publishRevision(request: PublishRevisionRequest): Promise<DomainApplicationResult<PublishRevisionSuccess>>; restoreRevision(request: RestoreRevisionRequest): Promise<DomainApplicationResult<RestoreRevisionSuccess>>; changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>>; listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; activatePlugin(request: PluginActivationRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; replacePluginSettings(request: PluginSettingsReplaceRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; readCurrentEntry(entryId: string): Promise<DomainApplicationResult<AuthoringEntryV1>>; analyzeCmsSeo(request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisResponse>>; }
+export interface DomainApplication { saveRevision(request: SaveRevisionCommandRequest): Promise<DomainApplicationResult<SaveRevisionSuccess>>; publishRevision(request: PublishRevisionRequest): Promise<DomainApplicationResult<PublishRevisionSuccess>>; restoreRevision(request: RestoreRevisionRequest): Promise<DomainApplicationResult<RestoreRevisionSuccess>>; changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>>; listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; activatePlugin(request: PluginActivationRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; replacePluginSettings(request: PluginSettingsReplaceRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; readCurrentEntry(entryId: string): Promise<DomainApplicationResult<AuthoringEntryV1>>; resolveCurrentCmsEditorBlocks(request: CmsEditorBlockResolutionsRequest): Promise<DomainApplicationResult<CmsEditorBlockResolutions>>; analyzeCmsSeo(request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisResponse>>; }
 export type PublishRevisionSuccess = Readonly<{ revision: RevisionRecord; publishedPointer: EntryPointerRecord; publishedClaim: RouteClaim; lineageIdentity: OperationLineageIdentity; stateDigest: Digest }>;
 export type DomainApplicationDependencies = Readonly<{ persistence: PersistenceStore; siteDefinition: SiteDefinition; dataMedia: DataMedia; schemaValidator: RevisionSchemaValidator; pluginHost: PluginHost }>;

@@ -49,11 +49,17 @@ export type PluginSettingsStatePort = Readonly<{
 }>;
 export type PluginSettingsSnapshot = Readonly<{ stateDigest: Digest; records: readonly PluginSettingsRecord[] }>;
 
+export type CmsEditorBlockIdentity = Readonly<{
+  id: string;
+  version: string;
+  hook: "cms/editor-block/resolve";
+  manifestHash: Digest;
+}>;
 export type CmsEditorBlockSource = Readonly<{
   contract: "cms-editor-block-source/v1";
   entryId: string;
   revisionId: string;
-  pluginIdentity: PluginActivationIdentity;
+  pluginIdentity: CmsEditorBlockIdentity;
   source: JsonValue;
 }>;
 export type CmsEditorBlockSourceEvidence = Readonly<CmsEditorBlockSource & { sourceBytes: Uint8Array; sourceDigest: Digest }>;
