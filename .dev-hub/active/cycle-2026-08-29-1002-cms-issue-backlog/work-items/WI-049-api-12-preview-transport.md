@@ -1,8 +1,8 @@
 ---
 id: WI-049
-status: pending
+status: done
 title: Preview transport
-work_group: null
+work_group: WG-024
 depends_on: []
 ---
 
@@ -15,4 +15,5 @@ depends_on: []
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #289；由 #241 planning parent 建立，status：planned。
+
+GitHub #289；`POST /v1/preview` 已在 `site-reset` 交付，只回 server-rendered `preview-document/v1`，`http-contract.test.ts` 覆蓋 current／published 與 fail-closed。實作來自 #332／#334，不是 #337。

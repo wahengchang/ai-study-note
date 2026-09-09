@@ -18,4 +18,8 @@ depends_on: ["WI-040", "WI-035", "WI-041", "WI-044", "WI-049"]
 
 ## Notes
 
-GitHub #315；本計畫唯一進入 UI 實作的 Work Item。
+`site-reset` 的 `apps/cms/workspace.tsx` 已交付 `/cms`、`/cms/entries/new`、
+`/cms/entries/:entryId` 的 article workflow：save、current／published preview、dirty publish lock 與
+`<dialog>` 二段 Publish；但缺少 #315 acceptance 要求的 `/cms/entries` 明確 history route。因此不可將
+現有測試視為四條 canonical route 的 browser/a11y gate，WI-056 維持 `pending`，待獨立 Work Group 補齊。
+實作來自 #332／#334，不是 #337；#337 不合併。
