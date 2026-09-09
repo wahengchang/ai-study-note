@@ -1,9 +1,9 @@
 ---
 name: handoff
-description: >-
-  Compact the current conversation into a handoff document for another agent to
-  pick up.
+description: Compact the current conversation into a handoff document for another agent to pick up.
+disable-model-invocation: true
 ---
+
 Write a concise handoff in the response message so a fresh team member agent can continue the work.
 
 Only write a handoff document to the temporary directory of the user's OS—not the current workspace—when the user explicitly requests a file.

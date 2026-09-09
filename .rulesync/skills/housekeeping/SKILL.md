@@ -1,9 +1,9 @@
 ---
 name: housekeeping
-description: >-
-  Clean up a merged feature branch, identify follow-up repository updates, and
-  report base-branch sync without changing the base branch.
+description: Clean up a merged feature branch, identify follow-up repository updates, and report base-branch sync without changing the base branch.
+disable-model-invocation: true
 ---
+
 # Post-Merge Housekeeping
 
 The PR for the current feature branch has been merged. Run post-merge housekeeping.

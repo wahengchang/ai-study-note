@@ -3,6 +3,7 @@ name: handoff
 description: >-
   Compact the current conversation into a handoff document for another agent to
   pick up.
+disable-model-invocation: true
 ---
 Write a concise handoff in the response message so a fresh team member agent can continue the work.
 

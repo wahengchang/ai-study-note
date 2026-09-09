@@ -3,6 +3,7 @@ name: housekeeping
 description: >-
   Clean up a merged feature branch, identify follow-up repository updates, and
   report base-branch sync without changing the base branch.
+disable-model-invocation: true
 ---
 # Post-Merge Housekeeping
 

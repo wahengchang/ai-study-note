@@ -34,6 +34,12 @@ globs:
 
 文件、決策背景、ASCII 圖與資料夾 `README.md` 的判斷與維護，必須遵循 `docs/INDEX.md` 的「文件與圖表原則」及「維護規則」。程式碼變更行為、邊界、資料流、公開介面、維運方式或既有程序時，必須在同一變更更新受影響的文件與鄰近 ASCII flow 註解。
 
+## AI 指令與技能同步
+
+- AI 指令與技能的 canonical source 只在 `.rulesync/`：規則寫在 `.rulesync/rules/`，技能寫在 `.rulesync/skills/<name>/SKILL.md`（同目錄的其他檔案會一併同步，可作為延伸參考）。
+- 根目錄 `AGENTS.md`、`CLAUDE.md` 與 `.agents/`、`.claude/`、`.opencode/` 下的 skills 都是 `npm run sync:ai` 的生成輸出，不得直接編輯；只存在於生成輸出、沒有 `.rulesync/` 來源的技能，會在下一次同步被刪除。
+- 變更 `.rulesync/` 後必須執行 `npm run sync:ai` 並一併提交生成輸出；`npm run check:ai-sync` 用來驗證輸出已同步。
+
 ## 開發溝通語言
 
 - 開發溝通一律使用臺灣繁體中文（`zh-TW`），包括 AI 回覆、計畫、程式碼註解、提交訊息與文件；程式碼識別字與既有外部 API／產品名稱除外。

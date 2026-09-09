@@ -1,10 +1,9 @@
 ---
 name: to-tickets
-description: >-
-  Break a plan, spec, or the current conversation into a set of tracer-bullet
-  Dev Hub Work Items, each declaring its blocking edges, written into the active
-  Cycle under `.dev-hub/active/`.
+description: Break a plan, spec, or the current conversation into a set of tracer-bullet Dev Hub Work Items, each declaring its blocking edges, written into the active Cycle under `.dev-hub/active/`.
+disable-model-invocation: true
 ---
+
 # To Tickets
 
 Break a plan, spec, or conversation into a set of **tickets**: tracer-bullet vertical slices, each declaring the tickets that **block** it.
