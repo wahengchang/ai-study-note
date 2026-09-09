@@ -6,7 +6,7 @@ work_items: ["WI-063"]
 owner: Main
 branch: feature/cms-route-a11y-gate
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/cms-route-a11y-gate
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/342
 ---
 
 # CMS canonical route accessibility gate
