@@ -54,5 +54,5 @@ export function contributePageSeo(input) {
 export function contributeSiteSeo(input) {
   const settings = object(input) && object(input.settings) ? input.settings : {};
   const publicSiteUrl = text(settings.publicSiteUrl);
-  return { contract: "public-seo-site-contribution/v1", contribution: { publicSiteUrl } };
+  return { contract: "public-seo-site-contribution/v1", contribution: { publicSiteUrl, indexing: settings.indexing } };
 }

@@ -1,7 +1,9 @@
 import { pathToFileURL } from "node:url";
 import { parseArgs } from "node:util";
 
-import { migrateDatabase } from "../../core/persistence/index.js";
+import { getSiteContentSchemaEvidence } from "../../core/content/index.js";
+
+import { migrateDatabaseWithSchemaEvidence } from "../../core/persistence/index.js";
 
 export type CliIo = Readonly<{
   stdout: (text: string) => void;
@@ -28,7 +30,7 @@ export function runDbMigrate(argv: readonly string[], io: CliIo): number {
     return 2;
   }
 
-  const result = migrateDatabase({ databasePath });
+  const result = migrateDatabaseWithSchemaEvidence({ databasePath }, getSiteContentSchemaEvidence());
   if (!result.ok) {
     io.stderr(`DB_MIGRATE_FAILED code=${result.error.code}\n`);
     return 1;

@@ -1,3 +1,5 @@
+import { timingSafeEqual } from "node:crypto";
+
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
 import type { AssetVersionIdentity, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { CmsEditorBlockSource, PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
@@ -39,6 +41,7 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_PLUGIN_ACTIVATION_REQUEST: "請修正 Plugin activation request。",
   INVALID_PLUGIN_SETTINGS_REQUEST: "請修正 Plugin settings request。",
   INVALID_SEO_ANALYSIS_REQUEST: "請修正 CMS SEO analysis request。",
+  CMS_SEO_ANALYSIS_FAILED: "CMS SEO analysis 目前無法完成；canonical state 未變更。",
   INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST: "請修正 CMS editor block resolution request。",
   CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED: "CMS editor block 目前無法解析；原始內容未變更。",
   ENTRY_NOT_FOUND: "找不到指定文章。",
@@ -98,6 +101,14 @@ function canonicalContent(value: JsonValue): CanonicalContent | null {
   } catch {
     return null;
   }
+}
+
+function sameSchemaIdentity(left: Readonly<{ schemaId: string; version: number }>, right: Readonly<{ schemaId: string; version: number }>): boolean {
+  return left.schemaId === right.schemaId && left.version === right.version;
+}
+
+function sameDigest(left: Digest, right: unknown): boolean {
+  return typeof right === "string" && isDigest(right) && timingSafeEqual(Buffer.from(left), Buffer.from(right));
 }
 
 function verifiedSourceContent(bytes: Uint8Array, digest: Digest): CanonicalContent | null {
@@ -407,17 +418,39 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
 
     async analyzeCmsSeo(request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisResponse>> {
       const route = normalizeRoute(request.route);
+      const content = canonicalContent(request.content);
       const bytes = canonicalJsonBytes({ entryId: request.entryId, expectedCurrentRevisionId: request.expectedCurrentRevisionId, schemaIdentity: request.schemaIdentity, content: request.content, route: request.route });
-      if (request.contract !== "cms-seo-analysis-request/v1" || route === null || route.normalizedRoute !== request.route || !bytes.ok || sha256Digest(bytes.value) !== request.documentDigest) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+      if (request.contract !== "cms-seo-analysis-request/v1" || !text(request.entryId) || route === null || route.normalizedRoute !== request.route || content === null || !bytes.ok || !sameDigest(sha256Digest(bytes.value), request.documentDigest)) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+
+      const pointer = persistence.getEntryPointers(request.entryId);
+      if (!pointer.ok) return pointer.error.code === "ENTRY_POINTER_NOT_FOUND" ? fail("ENTRY_NOT_FOUND", "Content", [request.entryId]) : fail("CMS_SEO_ANALYSIS_FAILED");
+      if (pointer.value.currentRevisionId !== request.expectedCurrentRevisionId) return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
+      const revision = persistence.getRevision({ entryId: request.entryId, revisionId: pointer.value.currentRevisionId });
+      const routes = siteDefinition.snapshot("current");
+      if (!revision.ok || !routes.ok) return fail("CMS_SEO_ANALYSIS_FAILED");
+      const currentRoute = routes.value.claims.find((claim) => claim.owner === request.entryId && claim.sourceRevisionId === pointer.value.currentRevisionId);
+      if (!sameSchemaIdentity(revision.value.schemaIdentity, request.schemaIdentity) || currentRoute === undefined || currentRoute.normalizedRoute !== route.normalizedRoute) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+      const schema = persistence.getSchemaVersion(request.schemaIdentity);
+      if (!schema.ok) return schema.error.code === "SCHEMA_VERSION_NOT_FOUND" ? fail("INVALID_SEO_ANALYSIS_REQUEST") : fail("CMS_SEO_ANALYSIS_FAILED");
+      try {
+        if (!schemaValidator.validate({ schema: schema.value, contentBytes: content.bytes, contentDigest: content.digest }).ok) return fail("SCHEMA_INVALID", "Content", [request.schemaIdentity.schemaId]);
+      } catch {
+        return fail("CMS_SEO_ANALYSIS_FAILED");
+      }
+
       const settings = await pluginHost.getSettingsSnapshot();
-      const record = settings.ok ? settings.value.records.find((item) => item.identity.id === "seo-basics") : undefined;
+      if (!settings.ok) return plugin<CmsSeoAnalysisResponse>(settings.error);
+      const record = settings.value.records.find((item) => item.identity.id === "seo-basics");
       if (record === undefined) return { ok: true, value: { contract: "cms-seo-analysis-response/v1", documentDigest: request.documentDigest, status: "unavailable", suggestions: [], diagnostics: [] } };
-      const input = { contract: "cms-seo-analysis-input/v1" as const, entryId: request.entryId, schemaIdentity: request.schemaIdentity, content: request.content, route: request.route, settings: record.settings };
+      const input = { contract: "cms-seo-analysis-input/v1" as const, entryId: request.entryId, schemaIdentity: request.schemaIdentity, content: content.value, route: route.normalizedRoute, settings: record.settings };
       const inputBytes = canonicalJsonBytes(input);
       if (!inputBytes.ok) return fail("INVALID_SEO_ANALYSIS_REQUEST");
       const result = await pluginHost.analyzeCmsSeo({ ...input, inputDigest: sha256Digest(inputBytes.value) });
       if (!result.ok) return plugin<CmsSeoAnalysisResponse>(result.error);
-      return { ok: true, value: { contract: "cms-seo-analysis-response/v1", documentDigest: request.documentDigest, status: result.value.status, ...(result.value.preview === undefined ? {} : { preview: { title: result.value.preview.title, ...(result.value.preview.description === undefined ? {} : { description: result.value.preview.description }), ...(result.value.preview.canonicalPath === undefined ? {} : { canonicalUrl: new URL(result.value.preview.canonicalPath.slice(1), record.settings.publicSiteUrl.endsWith("/") ? record.settings.publicSiteUrl : `${record.settings.publicSiteUrl}/`).toString() }) } }), suggestions: result.value.suggestions, diagnostics: result.value.diagnostics } };
+      const preview = result.value.preview;
+      const canonical = preview?.canonicalPath === undefined ? undefined : siteDefinition.resolvePublicRouteUrl({ publicSiteUrl: record.settings.publicSiteUrl, normalizedRoute: preview.canonicalPath });
+      if (canonical !== undefined && !canonical.ok) return fail("CMS_SEO_ANALYSIS_FAILED");
+      return { ok: true, value: { contract: "cms-seo-analysis-response/v1", documentDigest: request.documentDigest, status: result.value.status, ...(preview === undefined ? {} : { preview: { title: preview.title, ...(preview.description === undefined ? {} : { description: preview.description }), ...(canonical === undefined ? {} : { canonicalUrl: canonical.value }) } }), suggestions: result.value.suggestions, diagnostics: result.value.diagnostics } };
     },
     async saveRevision(request: SaveRevisionCommandRequest) {
       const command = normalizeSaveRevisionCommand(request);

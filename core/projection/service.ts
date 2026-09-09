@@ -83,11 +83,13 @@ function seoText(value: unknown): value is string { return typeof value === "str
 function publicSeo(snapshot: PublicSeoSnapshot, dependencies: ProjectionDependencies): ProjectionResult<RendererSeo> {
   if (snapshot.status === "omitted") return { ok: true, value: Object.freeze({ status: "omitted", pages: Object.freeze([]), omissionDigest: snapshot.omissionDigest }) };
   let publicSiteUrl: string | undefined;
+  let indexing: "allow" | "disallow" | undefined;
   if (snapshot.site.length > 1) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
   if (snapshot.site.length === 1) {
     const contribution = snapshot.site[0]!.contribution.contribution;
-    if (!exact(contribution, ["publicSiteUrl"]) || !seoText(contribution.publicSiteUrl)) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
+    if (!exact(contribution, ["publicSiteUrl", "indexing"]) || !seoText(contribution.publicSiteUrl) || (contribution.indexing !== "allow" && contribution.indexing !== "disallow")) return { ok: false, error: projectionFailure("PROJECTION_ENCODING_FAILED") };
     publicSiteUrl = contribution.publicSiteUrl;
+    indexing = contribution.indexing;
   }
   const pages: RendererSeoPage[] = [];
   for (const item of snapshot.page) {
@@ -106,7 +108,7 @@ function publicSeo(snapshot: PublicSeoSnapshot, dependencies: ProjectionDependen
     }
   }
   pages.sort((left, right) => compare(left.route, right.route));
-  return { ok: true, value: Object.freeze({ status: "available", pages: Object.freeze(pages), ...(publicSiteUrl === undefined ? {} : { publicSiteUrl }), omissionDigest: snapshot.omissionDigest }) };
+  return { ok: true, value: Object.freeze({ status: "available", pages: Object.freeze(pages), ...(publicSiteUrl === undefined || indexing === undefined ? {} : { publicSiteUrl, indexing }), omissionDigest: snapshot.omissionDigest }) };
 }
 async function materialize(input: Readonly<{ dependencies: ProjectionDependencies; captured: Captured; snapshot: PublicBuildSnapshot }>): Promise<ProjectionResult<Materialized>> {
   let total = 0; const objects = new Map<string, Readonly<{ objectDigest: Digest; byteLength: number; bytesBase64url: string }>>();

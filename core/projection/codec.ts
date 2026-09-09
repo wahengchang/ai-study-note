@@ -99,9 +99,10 @@ function theme(value: unknown): boolean {
   });
 }
 function seo(value: unknown): boolean {
-  if (!exact(value, ["status", "pages", "omissionDigest"], ["publicSiteUrl"]) || (value.status !== "available" && value.status !== "omitted") || !digest(value.omissionDigest) || !Array.isArray(value.pages)) return false;
-  if (value.status === "omitted") return !Object.hasOwn(value, "publicSiteUrl") && value.pages.length === 0;
-  if (Object.hasOwn(value, "publicSiteUrl") && (typeof value.publicSiteUrl !== "string" || /[\r\n\0]/u.test(value.publicSiteUrl))) return false;
+  if (!exact(value, ["status", "pages", "omissionDigest"], ["publicSiteUrl", "indexing"]) || (value.status !== "available" && value.status !== "omitted") || !digest(value.omissionDigest) || !Array.isArray(value.pages)) return false;
+  if (value.status === "omitted") return !Object.hasOwn(value, "publicSiteUrl") && !Object.hasOwn(value, "indexing") && value.pages.length === 0;
+  if (Object.hasOwn(value, "publicSiteUrl") !== Object.hasOwn(value, "indexing")) return false;
+  if (Object.hasOwn(value, "publicSiteUrl") && (typeof value.publicSiteUrl !== "string" || /[\r\n\0]/u.test(value.publicSiteUrl) || (value.indexing !== "allow" && value.indexing !== "disallow"))) return false;
   const routes: string[] = [];
   for (const page of value.pages) {
     if (!exact(page, ["route", "canonicalUrl"], ["title", "description", "jsonLd"]) || typeof page.route !== "string" || normalizeRoute(page.route)?.normalizedRoute !== page.route || typeof page.canonicalUrl !== "string" || /[\r\n\0]/u.test(page.canonicalUrl) || (Object.hasOwn(page, "title") && !text(page.title)) || (Object.hasOwn(page, "description") && !text(page.description))) return false;

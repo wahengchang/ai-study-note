@@ -11,6 +11,33 @@ const migrationFilename = /^(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.sql$/;
 
 export type MigrationSource = Readonly<{ filename: string; sqlBytes: Uint8Array }>;
 
+export type SchemaEvidenceReconciliation = Readonly<{ identity: Readonly<{ schemaId: string; version: number }>; schemaBytes: Uint8Array; schemaDigest: string }>;
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
+}
+
+function reconcileSchemaEvidence(database: SqliteAdapter, evidence: SchemaEvidenceReconciliation): void {
+  const existing = database.get(
+    "SELECT schema_bytes, schema_digest FROM schema_versions WHERE schema_id = ? AND version = ?",
+    evidence.identity.schemaId,
+    evidence.identity.version,
+  );
+  if (existing === undefined) {
+    database.run(
+      "INSERT INTO schema_versions (schema_id, version, schema_bytes, schema_digest) VALUES (?, ?, ?, ?)",
+      evidence.identity.schemaId,
+      evidence.identity.version,
+      evidence.schemaBytes,
+      evidence.schemaDigest,
+    );
+    return;
+  }
+  if (!(existing.schema_bytes instanceof Uint8Array) || existing.schema_digest !== evidence.schemaDigest || !equalBytes(existing.schema_bytes, evidence.schemaBytes)) {
+    throw new Error("schema evidence mismatch");
+  }
+}
+
 type PreparedMigration = Readonly<{
   sequence: number;
   filename: string;
@@ -55,6 +82,7 @@ export function shippedMigrationSources(): readonly MigrationSource[] | null {
 export function migrateDatabaseWithSources(
   input: Readonly<{ databasePath: string }>,
   sources: readonly MigrationSource[],
+  reconciliation?: SchemaEvidenceReconciliation,
 ): PersistenceResult<MigrationSummary> {
   if (!validDatabasePath(input.databasePath)) return persistenceResultFailure("INVALID_DATABASE_PATH");
 
@@ -80,6 +108,19 @@ export function migrateDatabaseWithSources(
     const appliedCount = isEmpty ? 0 : state.ledger.length;
     const pending = migrations.slice(appliedCount);
     if (pending.length === 0) {
+      if (reconciliation !== undefined) {
+        try {
+          const existing = database.get(
+            "SELECT schema_bytes, schema_digest FROM schema_versions WHERE schema_id = ? AND version = ?",
+            reconciliation.identity.schemaId,
+            reconciliation.identity.version,
+          );
+          if (existing === undefined) database.transaction(() => reconcileSchemaEvidence(database, reconciliation));
+          else if (!(existing.schema_bytes instanceof Uint8Array) || existing.schema_digest !== reconciliation.schemaDigest || !equalBytes(existing.schema_bytes, reconciliation.schemaBytes)) return persistenceResultFailure("MIGRATION_FAILED");
+        } catch {
+          return persistenceResultFailure("MIGRATION_FAILED");
+        }
+      }
       return { ok: true, value: { appliedMigrationIds: [], currentMigrationId: expectedCurrent.migrationId } };
     }
 
@@ -97,6 +138,7 @@ export function migrateDatabaseWithSources(
         }
         database.exec(`PRAGMA application_id = ${applicationId}`);
         database.exec(`PRAGMA user_version = ${migrations.length}`);
+        if (reconciliation !== undefined) reconcileSchemaEvidence(database, reconciliation);
       });
     } catch {
       return persistenceResultFailure("MIGRATION_FAILED");
