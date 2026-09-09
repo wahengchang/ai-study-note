@@ -19,6 +19,8 @@
 
 - `site-reset` 是儲存庫的預設主整合分支。
 - 不得將已合併 feature 或 integration branch 的提交 cherry-pick 至 `site-reset`；所有進入該分支的變更必須遵循核准的 PR／merge 流程。
+- 每次 housekeeping 清理已合併分支後，必須確認 `site-reset` worktree 乾淨，並以 `git pull --ff-only origin site-reset` 同步；dirty worktree 或 fast-forward 失敗會阻擋下一個工作。
+- 只有本機 `site-reset` 與 `origin/site-reset` 相同時，才能建立下一個 branch 或 worktree。
 
 ## 專案文件
 

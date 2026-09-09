@@ -28,9 +28,12 @@ Scan for repository artifacts that may need an update now that the feature has l
 
 Report concrete findings and recommended follow-up. Do **not** apply updates automatically.
 
-## 3. Base-branch sync check
+## 3. Base-branch synchronization
 
-Report whether the base branch is ahead of, behind, or diverged from its tracked remote. Do **not** pull, fetch, rebase, merge, or otherwise update the base branch.
+1. After feature-branch cleanup, identify the `site-reset` worktree.
+2. Confirm that worktree is clean. If it is dirty, report the blocker and do not update it.
+3. Run `git pull --ff-only origin site-reset` in the clean `site-reset` worktree. Do not rebase or create a merge commit.
+4. Confirm local `site-reset` equals `origin/site-reset`. The next branch or worktree must be created from this synchronized base.
 
 ## Report
 
