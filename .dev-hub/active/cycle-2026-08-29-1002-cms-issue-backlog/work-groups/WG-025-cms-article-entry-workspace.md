@@ -6,7 +6,7 @@ work_items: ["WI-056"]
 owner: Main
 branch: feature/cms-article-workspace
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/341
 ---
 
 # CMS article entry workspace
