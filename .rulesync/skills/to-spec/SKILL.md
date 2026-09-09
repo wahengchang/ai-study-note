@@ -1,9 +1,9 @@
 ---
 name: to-spec
-description: >-
-  Turn the current conversation into a spec file under `specs/`: no interview,
-  just synthesis of what you've already discussed.
+description: "Turn the current conversation into a spec file under `specs/`: no interview, just synthesis of what you've already discussed."
+disable-model-invocation: true
 ---
+
 This skill takes the current conversation context and codebase understanding and produces a spec. Do NOT interview the user; just synthesize what you already know.
 
 Specs live under `specs/` in this repository. `contracts/README.md` is the single contract for approved scope and design constraints: a spec may only split approved work into detail, never expand scope. Code and its tests remain the SSOT for implemented behaviour, so a spec must not describe planned work as if it already exists.

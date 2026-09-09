@@ -2,6 +2,7 @@
 name: do-work
 description: 從 Dev Hub 進行中的 Cycle 領取一個可執行 Work Item，完成理解、實作、驗證與該 Work Group 唯一 PR，收尾後停止。
 ---
+
 本技能每次只處理一個 Work Item：認領、實作、驗證、建立或更新該 Work Group 唯一 PR，完成 Dev Hub 收尾後立即停止。下一個 Work Item 必須由人工再次呼叫 `/do-work`；本技能不得遞迴呼叫自己，也不呼叫其他 workflow skill。
 
 Cycle／Work Item／Work Group 的命名、固定 schema、狀態值、完成閘門與 commit 規則，一律以 `docs/dev-hub-workflow.md` 為唯一來源；本技能只描述單一 Work Item 的執行順序，不複製那些規則。

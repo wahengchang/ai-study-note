@@ -1,9 +1,8 @@
 ---
 name: writing-for-agents
-description: >-
-  撰寫給 agent 讀的文件時使用；建立或修改 skill、`.rulesync/rules/` 規則，或任何 agent 會讀的規格、README 與
-  prompt 時適用。
+description: 撰寫給 agent 讀的文件時使用；建立或修改 skill、`.rulesync/rules/` 規則，或任何 agent 會讀的規格、README 與 prompt 時適用。
 ---
+
 # Writing for Agents
 
 本技能是撰寫「agent 會讀的文件」時的參考：skill、`.rulesync/rules/` 下的專案規則、規格、runtime prompt、README。包裝形式不同，寫法相同——同一組槓桿讓 agent 每次執行都走同樣的**流程**，而不是產出同樣的文字。

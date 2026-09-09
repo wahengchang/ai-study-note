@@ -1,6 +1,7 @@
 ---
 name: demo-e2e
 description: 用可見 Chromium 實際示範一次已完成的 end-to-end 行為，並保留結果畫面。
+disable-model-invocation: true
 ---
 Don't tell me it works. Show me the behavior. 啟動實際 app，用可見（非 headless）的 Chromium 親自走完本次變更的主要 end-to-end flow，讓使用者看到具體 input → observable output；tests、screenshots 或 source inspection 都不能替代。
 

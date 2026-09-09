@@ -1,9 +1,8 @@
 ---
 name: ai-x
-description: >-
-  以不同 underlying model 的獨立 AI 提供第二意見，或執行直到證據收斂的跨模型共識審查；適用於
-  code、diff、研究、分析、計畫、設計與其他交付成果。
+description: 以不同 underlying model 的獨立 AI 提供第二意見，或執行直到證據收斂的跨模型共識審查；適用於 code、diff、研究、分析、計畫、設計與其他交付成果。
 ---
+
 # ai-x — 雙模式跨模型審查
 
 ## 模式選擇
