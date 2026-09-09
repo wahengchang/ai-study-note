@@ -6,7 +6,7 @@ work_items: ["WI-035", "WI-041", "WI-044", "WI-049"]
 owner: Main
 branch: chore/pr-337-supersession-record
 worktree: .dev-hub/worktrees/pr-337-supersession-record
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/339
 ---
 
 # Article／read seam 交付歸屬與 PR #337 取代紀錄
