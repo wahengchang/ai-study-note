@@ -1,6 +1,6 @@
 import { valid as semverValid } from "semver";
-import { copyBytes, isDigest, sha256Digest } from "../foundation/index.js";
-import type { ThemeHost, ThemeHostResult, ThemeIdentity, ThemeManifestV1, VerifiedThemePackage } from "./contracts.js";
+import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } from "../foundation/index.js";
+import type { ThemeActivationSnapshot, ThemeActivationStatePort, ThemeHost, ThemeHostResult, ThemeIdentity, ThemeManifestV1, VerifiedThemePackage } from "./contracts.js";
 import { isCanonicalThemeId, themeHostFailure, type ThemeHostFailure } from "./failures.js";
 import { parseThemeManifest } from "./manifest.js";
 import { compareCodeUnits } from "./ordering.js";
@@ -45,6 +45,45 @@ type SlotOutcome =
 type Collected = Readonly<{ ok: true; values: readonly SlotOutcome[] }> | Readonly<{ ok: false; error: ThemeHostFailure }>;
 type CollectOptions = Readonly<{ select: (identity: ThemeIdentity) => boolean; retainBytes: boolean }>;
 
+type ActivationState = Readonly<{ active: ThemeIdentity | null; digest: Digest }>;
+
+function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  return value !== null
+    && typeof value === "object"
+    && !Array.isArray(value)
+    && Object.keys(value).length === keys.length
+    && keys.every((key) => Object.hasOwn(value, key));
+}
+
+function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
+  if (left.byteLength !== right.byteLength) return false;
+  for (let index = 0; index < left.byteLength; index += 1) if (left[index] !== right[index]) return false;
+  return true;
+}
+
+function copyIdentity(identity: ThemeIdentity): ThemeIdentity {
+  return Object.freeze({ id: identity.id, version: identity.version, manifestHash: identity.manifestHash });
+}
+
+function copyTheme(theme: VerifiedThemePackage): VerifiedThemePackage {
+  return Object.freeze({
+    identity: copyIdentity(theme.identity),
+    manifest: Object.freeze({
+      contract: "theme-manifest/v1",
+      id: theme.manifest.id,
+      version: theme.manifest.version,
+      runtime: Object.freeze({ file: theme.manifest.runtime.file, digest: theme.manifest.runtime.digest }),
+      resources: Object.freeze(theme.manifest.resources.map((resource) => Object.freeze({ file: resource.file, digest: resource.digest }))),
+    }),
+  });
+}
+
+function activationSnapshot(state: ActivationState): ThemeActivationSnapshot {
+  return state.active === null
+    ? Object.freeze({ stateDigest: state.digest })
+    : Object.freeze({ active: copyIdentity(state.active), stateDigest: state.digest });
+}
+
 const maximumSlots = 256;
 const maximumResources = 128;
 const maximumManifestBytes = 1_048_576;
@@ -77,6 +116,39 @@ function validIdentity(value: unknown): value is ThemeIdentity {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const input = value as Record<string, unknown>;
   return Object.keys(input).length === 3 && isCanonicalThemeId(input.id) && typeof input.version === "string" && semverValid(input.version) === input.version && typeof input.manifestHash === "string" && isDigest(input.manifestHash);
+}
+
+function parseActivationState(record: unknown): ActivationState | null {
+  if (!exact(record, ["bytes", "digest"]) || !(record.bytes instanceof Uint8Array) || typeof record.digest !== "string" || !isDigest(record.digest)) return null;
+  const bytes = copyBytes(record.bytes);
+  if (sha256Digest(bytes) !== record.digest) return null;
+  let value: unknown;
+  try {
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
+  } catch {
+    return null;
+  }
+  const canonical = canonicalJsonBytes(value);
+  if (!canonical.ok || !equalBytes(canonical.value, bytes)) return null;
+  if (exact(value, ["contract"]) && value.contract === "theme-activation-state/v1") return Object.freeze({ active: null, digest: record.digest });
+  if (!exact(value, ["contract", "active"]) || value.contract !== "theme-activation-state/v1" || !validIdentity(value.active)) return null;
+  return Object.freeze({ active: copyIdentity(value.active), digest: record.digest });
+}
+
+function nextActivationState(identity: ThemeIdentity): Readonly<{ bytes: Uint8Array; digest: Digest }> | null {
+  const encoded = canonicalJsonBytes(Object.freeze({ contract: "theme-activation-state/v1" as const, active: copyIdentity(identity) }));
+  return encoded.ok ? Object.freeze({ bytes: copyBytes(encoded.value), digest: sha256Digest(encoded.value) }) : null;
+}
+
+async function readActivationState(port: ThemeActivationStatePort): Promise<ThemeHostResult<ActivationState>> {
+  try {
+    const state = parseActivationState(await port.read());
+    return state === null
+      ? Object.freeze({ ok: false, error: themeHostFailure("THEME_ACTIVATION_STATE_FAILURE") })
+      : Object.freeze({ ok: true, value: state });
+  } catch {
+    return Object.freeze({ ok: false, error: themeHostFailure("THEME_ACTIVATION_STATE_FAILURE") });
+  }
 }
 
 async function mapBounded<T, R>(items: readonly T[], limit: number, run: (item: T) => Promise<R>): Promise<readonly R[]> {
@@ -218,19 +290,22 @@ async function resolveIdentity(roots: TrustedRoots, identity: ThemeIdentity, ret
   return collected.ok ? resolved(collected.values, identity) : collected;
 }
 
-export function themeHost(roots: TrustedRoots): ThemeHost {
+export function themeHost(roots: TrustedRoots, activationState: ThemeActivationStatePort): ThemeHost {
   return Object.freeze({
     async discover() {
       const collected = await collect(roots, { select: () => true, retainBytes: false });
       if (!collected.ok) return collected;
       const values = normalizedValues(collected.values);
-      const candidates = values.filter(isValidated).map((value) => value.identity).sort((left, right) => compareCodeUnits(left.id, right.id) || compareCodeUnits(left.version, right.version) || compareCodeUnits(left.manifestHash, right.manifestHash));
+      const candidates = values
+        .filter(isValidated)
+        .map((value) => copyIdentity(value.identity))
+        .sort((left, right) => compareCodeUnits(left.id, right.id) || compareCodeUnits(left.version, right.version) || compareCodeUnits(left.manifestHash, right.manifestHash));
       return Object.freeze({ ok: true, value: Object.freeze({ candidates: Object.freeze(candidates), rejections: orderedRejections(values) }) });
     },
     async resolveExact(input) {
       if (!validIdentity(input?.identity)) return Object.freeze({ ok: false, error: themeHostFailure("INVALID_THEME_HOST_INPUT") });
       const result = await resolveIdentity(roots, input.identity, false);
-      return result.ok ? Object.freeze({ ok: true, value: result.value.descriptor }) : result;
+      return result.ok ? Object.freeze({ ok: true, value: copyTheme(result.value.descriptor) }) : result;
     },
     async readVerifiedFile(input) {
       if (!validIdentity(input?.identity) || typeof input?.file !== "string") return Object.freeze({ ok: false, error: themeHostFailure("INVALID_THEME_HOST_INPUT") });
@@ -240,6 +315,51 @@ export function themeHost(roots: TrustedRoots): ThemeHost {
       return bytes === undefined
         ? Object.freeze({ ok: false, error: themeHostFailure("THEME_FILE_NOT_DECLARED", input.identity.id) })
         : Object.freeze({ ok: true, value: copyBytes(bytes) });
+    },
+    async getActivationSnapshot() {
+      const state = await readActivationState(activationState);
+      return state.ok ? Object.freeze({ ok: true, value: activationSnapshot(state.value) }) : state;
+    },
+    async activate(input) {
+      if (!exact(input, ["identity", "expectedActivationStateDigest"]) || !validIdentity(input.identity) || !isDigest(input.expectedActivationStateDigest)) {
+        return Object.freeze({ ok: false, error: themeHostFailure("INVALID_THEME_HOST_INPUT") });
+      }
+      const current = await readActivationState(activationState);
+      if (!current.ok) return current;
+      if (current.value.digest !== input.expectedActivationStateDigest) {
+        return Object.freeze({ ok: false, error: themeHostFailure("THEME_ACTIVATION_STATE_CONFLICT") });
+      }
+      const resolved = await resolveIdentity(roots, input.identity, false);
+      if (!resolved.ok) return resolved;
+      const next = nextActivationState(input.identity);
+      if (next === null) return Object.freeze({ ok: false, error: themeHostFailure("THEME_ACTIVATION_STATE_FAILURE") });
+      try {
+        if (!(await activationState.compareAndReplace({
+          expectedDigest: current.value.digest,
+          next: Object.freeze({ bytes: copyBytes(next.bytes), digest: next.digest }),
+        }))) {
+          return Object.freeze({ ok: false, error: themeHostFailure("THEME_ACTIVATION_STATE_CONFLICT") });
+        }
+      } catch {
+        return Object.freeze({ ok: false, error: themeHostFailure("THEME_ACTIVATION_STATE_FAILURE") });
+      }
+      return Object.freeze({ ok: true, value: activationSnapshot(Object.freeze({ active: copyIdentity(input.identity), digest: next.digest })) });
+    },
+    async resolveActive() {
+      const current = await readActivationState(activationState);
+      if (!current.ok) return current;
+      if (current.value.active === null) return Object.freeze({ ok: false, error: themeHostFailure("THEME_NOT_ACTIVE") });
+      const resolved = await resolveIdentity(roots, current.value.active, false);
+      return resolved.ok
+        ? Object.freeze({
+          ok: true,
+          value: Object.freeze({
+            identity: copyIdentity(current.value.active),
+            activationStateDigest: current.value.digest,
+            theme: copyTheme(resolved.value.descriptor),
+          }),
+        })
+        : resolved;
     },
   });
 }

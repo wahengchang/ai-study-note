@@ -44,7 +44,7 @@ export async function runCmsServe(argv: readonly string[], environment: NodeJS.P
     return 1;
   }
   const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
-  const runtime = await startCmsRuntime({ repositoryRoot, databasePath: parsed.databasePath, objectsRoot: parsed.objectsRoot, installedPluginsRoot: parsed.installedPluginsRoot, installedThemesRoot: parsed.installedThemesRoot, cmsAssetsRoot: resolve(repositoryRoot, "dist", "cms"), themeIdentity: parsed.themeIdentity, credential: { homeDirectory, ...(environment.XDG_CONFIG_HOME === undefined ? {} : { xdgConfigHome: environment.XDG_CONFIG_HOME }) }, logger: () => undefined });
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath: parsed.databasePath, mediaRoot: parsed.objectsRoot, installedPluginsRoot: parsed.installedPluginsRoot, installedThemesRoot: parsed.installedThemesRoot, cmsAssetsRoot: resolve(repositoryRoot, "dist", "cms"), credential: { homeDirectory, ...(environment.XDG_CONFIG_HOME === undefined ? {} : { xdgConfigHome: environment.XDG_CONFIG_HOME }) }, logger: () => undefined });
   if (!runtime.ok) {
     io.stderr(`CMS_SERVE_FAILED code=${runtime.error.code}\n`);
     return 1;

@@ -7,8 +7,8 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
-import type { PersistenceStore } from "../../../core/persistence/index.js";
+import { migrateDatabase, openPersistence, type PersistenceStore } from "../../../core/persistence/index.js";
+import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
 
 // `/école` 與 `/facile`、`note-a` 與 `note_a` 在 ICU collation 下的順序與 code-unit 順序相反，
 // 因此可分辨 store 是否讓 locale／ICU 版本決定 record 排序與 canonical state digest。
@@ -79,6 +79,14 @@ test("canonical state bytes order every record set by code unit and stay inserti
       assert.equal(state.ok, true);
       if (!state.ok) throw new Error("canonicalState");
       const decoded = new TextDecoder().decode(state.value.bytes);
+      const payload = JSON.parse(decoded) as Readonly<{
+        pluginActivationStates: readonly Readonly<{ singleton: number; stateDigest: string }>[];
+        themeActivationStates: readonly Readonly<{ singleton: number; stateDigest: string }>[];
+        pluginSettingsStates: readonly Readonly<{ singleton: number; stateDigest: string }>[];
+      }>;
+      assert.deepEqual(payload.pluginActivationStates, [{ singleton: 1, stateDigest: "sha256:985e60b44ed61f591efd0bc40828adf42164e10c05892a88860896899d40c7a7" }]);
+      assert.deepEqual(payload.themeActivationStates, [{ singleton: 1, stateDigest: "sha256:2d3bd9fd385ef0f4dad9d7026da41a3a39fa04850e0e05ea98322cf5d0230430" }]);
+      assert.deepEqual(payload.pluginSettingsStates, [{ singleton: 1, stateDigest: "sha256:c890fac912180a420c855ee7e05adf0dc94d7e8ef0fba033604dc4156f0a013e" }]);
       const claimOrder = [...decoded.matchAll(/"normalizedRoute":"([^"]*)"/g)].map((match) => JSON.parse(`"${match[1]}"`) as string);
       assert.deepEqual(claimOrder, ["/a-b", "/facile", accented]);
       const revisionOrder = [...decoded.matchAll(/"entryId":"([^"]*)"/g)].map((match) => match[1]!);
@@ -87,6 +95,44 @@ test("canonical state bytes order every record set by code unit and stay inserti
     });
   }
   assert.equal(digests[0], digests[1]);
+});
+
+test("canonical state reports absent singleton rows as empty arrays and zero counts", () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "persistence-missing-singletons-"));
+  const databasePath = path.join(directory, "cms.sqlite");
+  try {
+    assert.equal(migrateDatabase({ databasePath }).ok, true);
+    const database = openSqliteAdapter(databasePath);
+    for (const [trigger, table] of [
+      ["prevent_plugin_activation_state_delete", "plugin_activation_state"],
+      ["prevent_theme_activation_state_delete", "theme_activation_state"],
+      ["prevent_plugin_settings_state_delete", "plugin_settings_state"],
+    ] as const) {
+      database.exec(`DROP TRIGGER ${trigger}`);
+      database.run(`DELETE FROM ${table} WHERE singleton = 1`);
+    }
+    database.close();
+    const opened = openPersistence({ databasePath });
+    assert.equal(opened.ok, true);
+    if (!opened.ok) throw new Error("Persistence store did not reopen");
+    const state = opened.value.canonicalState();
+    assert.equal(state.ok, true);
+    if (!state.ok) throw new Error("canonicalState");
+    const payload = JSON.parse(new TextDecoder().decode(state.value.bytes)) as Readonly<{
+      pluginActivationStates: readonly unknown[];
+      themeActivationStates: readonly unknown[];
+      pluginSettingsStates: readonly unknown[];
+    }>;
+    assert.deepEqual(payload.pluginActivationStates, []);
+    assert.deepEqual(payload.themeActivationStates, []);
+    assert.deepEqual(payload.pluginSettingsStates, []);
+    assert.equal(state.value.counts.pluginActivationStates, 0);
+    assert.equal(state.value.counts.themeActivationStates, 0);
+    assert.equal(state.value.counts.pluginSettingsStates, 0);
+    opened.value.close();
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("the same ordering contract holds under a collation-divergent locale", { skip: process.env[childMarker] === "1" }, () => {

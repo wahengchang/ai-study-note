@@ -1,6 +1,6 @@
 ---
 id: WI-002
-status: pending
+status: done
 title: SEO basics happy path
 work_group: WG-002
 depends_on: ["WI-001"]
@@ -18,4 +18,4 @@ runtime、契約測試、CMS browser flow 與 deterministic public build 全部�
 
 ## Notes
 
-#307 已合併／關閉；WI-002 可執行。#308 runtime 尚未實作。
+#307 已合併／關閉；#308 runtime、契約測試與 deterministic production build 已完成。

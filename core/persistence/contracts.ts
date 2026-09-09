@@ -25,12 +25,17 @@ export type PublishedAssetReference = Readonly<{ entryId: string; revisionId: st
 export type MediaStartupSnapshot = Readonly<{ pendingIntents: readonly MediaImportIntent[]; assetVersions: readonly AssetVersionRecord[] }>;
 export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
 export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
+export type ThemeActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
+export type CompareAndReplaceThemeActivationStateInput = Readonly<{ expectedDigest: Digest; next: ThemeActivationStateRecord }>;
+export type PluginSettingsStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
+export type CompareAndReplacePluginSettingsStateInput = Readonly<{ expectedDigest: Digest; next: PluginSettingsStateRecord }>;
+
 
 export type PersistenceCanonicalState = Readonly<{
   contract: "persistence-canonical-state/v2";
   bytes: Uint8Array;
   digest: Digest;
-  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
+  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
 }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
@@ -159,6 +164,8 @@ export interface PersistenceReadSnapshot {
   getReadyAssetVersion(identity: AssetVersionIdentity): PersistenceResult<ReadyAssetVersionRecord>;
   getRevisionReferences(revision: RevisionIdentity): PersistenceResult<readonly RevisionReferenceRecord[]>;
   readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
+  readThemeActivationState(): PersistenceResult<ThemeActivationStateRecord>;
+  readPluginSettingsState(): PersistenceResult<PluginSettingsStateRecord>;
 }
 
 export interface PersistenceTransaction extends PersistenceReadSnapshot {
@@ -189,6 +196,8 @@ export interface PersistenceTransaction extends PersistenceReadSnapshot {
 
 export interface PersistenceStore extends PersistenceTransaction {
   compareAndReplacePluginActivationState(input: CompareAndReplacePluginActivationStateInput): PersistenceResult<boolean>;
+  compareAndReplaceThemeActivationState(input: CompareAndReplaceThemeActivationStateInput): PersistenceResult<boolean>;
+  compareAndReplacePluginSettingsState(input: CompareAndReplacePluginSettingsStateInput): PersistenceResult<boolean>;
   readMediaStartupSnapshot(): PersistenceResult<MediaStartupSnapshot>;
   runReadSnapshot<T, E>(operation: (snapshot: PersistenceReadSnapshot) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
   ownsActiveReadSnapshot(snapshot: object): boolean;

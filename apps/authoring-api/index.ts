@@ -19,12 +19,15 @@ export { runSaveRevisionCli, saveRevisionMain } from "./save-revision-cli.js";
 export type { SaveRevisionCliEnvironment, SaveRevisionCliIo } from "./save-revision-cli.js";
 export { openCmsMain, runOpenCmsCli } from "./open-cms-cli.js";
 export type { OpenCmsCliEnvironment, OpenCmsCliIo } from "./open-cms-cli.js";
+export { cmsServeMain, runCmsServe } from "./cms-serve-cli.js";
+export type { CmsServeCliIo } from "./cms-serve-cli.js";
 export {
   API_KEY_PATTERN,
   AUTHORING_AUTHORITY,
   AUTHORING_HOST,
   AUTHORING_ORIGIN,
   AUTHORING_PORT,
+  AUTHORING_RESOURCE_ID_PATTERN,
   BROWSER_TICKET_PATTERN,
   redactSecrets,
 } from "./origin.js";
@@ -50,12 +53,14 @@ export {
   browserSessionSchema,
   browserTicketMintRequestSchema,
   browserTicketSchema,
+  cmsSeoAnalysisResponseSchema,
   contentTypeCatalogSchema,
   contentTypeSchema,
   createContentTypeRequestSchema,
   entryCatalogSchema,
   entryDetailSchema,
   entryRevisionCatalogSchema,
+  pluginManagementSnapshotSchema,
   previewDocumentSchema,
   previewRequestSchema,
   publishRevisionRequestSchema,
@@ -63,6 +68,7 @@ export {
   saveRevisionRequestSchema,
   saveRevisionSuccessSchema,
   serverProofChallengeSchema,
+  authoringEntrySchema,
   serverProofSchema,
 } from "./transport-contracts.js";
 export type {
@@ -72,6 +78,7 @@ export type {
   BrowserSessionExchangeDto,
   BrowserTicketDto,
   BrowserTicketMintRequestDto,
+  AuthoringEntryDto,
   ContentTypeCatalogDto,
   ContentTypeDto,
   CreateContentTypeRequestDto,
@@ -79,11 +86,13 @@ export type {
   EntryDetailDto,
   EntryRevisionCatalogDto,
   PreviewDocumentDto,
+  CmsSeoAnalysisResponseDto,
   PreviewRequestDto,
   PublishRevisionRequestDto,
   PublishRevisionSuccessDto,
   SaveRevisionRequestDto,
   SaveRevisionSuccessDto,
+  PluginManagementSnapshotDto,
   ServerProofChallengeDto,
   ServerProofDto,
 } from "./transport-contracts.js";

@@ -10,6 +10,9 @@ export const themeHostFailureCodes = [
   "THEME_IDENTITY_CONFLICT",
   "THEME_RUNTIME_INVALID",
   "THEME_FILE_NOT_DECLARED",
+  "THEME_NOT_ACTIVE",
+  "THEME_ACTIVATION_STATE_CONFLICT",
+  "THEME_ACTIVATION_STATE_FAILURE",
 ] as const;
 
 export type ThemeHostFailureCode = (typeof themeHostFailureCodes)[number];
@@ -30,6 +33,9 @@ const messages: Readonly<Record<ThemeHostFailureCode, string>> = {
   THEME_IDENTITY_CONFLICT: "同一 Theme id/version 出現多個 installed slots。",
   THEME_RUNTIME_INVALID: "Theme runtime 不符合 self-contained module 要求。",
   THEME_FILE_NOT_DECLARED: "要求的 Theme file 未在 manifest 宣告。",
+  THEME_NOT_ACTIVE: "尚未啟用 Theme。",
+  THEME_ACTIVATION_STATE_CONFLICT: "Theme activation state 已變更。",
+  THEME_ACTIVATION_STATE_FAILURE: "Theme activation state 操作未完成。",
 };
 
 export function isCanonicalThemeId(value: unknown): value is string {

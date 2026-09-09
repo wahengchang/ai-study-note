@@ -8,6 +8,7 @@ export type {
   ParsedRendererInput,
   PreviewInput,
   PreviewInputArtifact,
+  PublishedProjectionResult,
   ProjectionDependencies,
   ProjectionFailure,
   ProjectionFailureCode,

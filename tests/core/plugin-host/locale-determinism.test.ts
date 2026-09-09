@@ -11,6 +11,8 @@ import {
   createPluginHost,
   type PluginActivationState,
   type PluginActivationStatePort,
+  type PluginSettingsState,
+  type PluginSettingsStatePort,
   type PluginManifestV1,
 } from "../../../core/plugin-host/index.js";
 
@@ -56,6 +58,16 @@ class MemoryActivationStatePort implements PluginActivationStatePort {
   }
 }
 
+class MemorySettingsStatePort implements PluginSettingsStatePort {
+  public state: PluginSettingsState = { contract: "plugin-settings-state/v1", records: [] };
+  public async read(): Promise<PluginSettingsState> { return this.state; }
+  public async compareAndReplace(input: Readonly<{ expectedDigest: Digest; nextState: PluginSettingsState }>): Promise<boolean> {
+    if (input.expectedDigest !== sha256Digest(bytes(this.state))) return false;
+    this.state = input.nextState;
+    return true;
+  }
+}
+
 function manifestFor(pluginDirectory: string, pluginId: string, files: readonly string[]): PluginManifestV1 {
   return {
     manifestVersion: "plugin-manifest/v1",
@@ -63,7 +75,7 @@ function manifestFor(pluginDirectory: string, pluginId: string, files: readonly 
     version: "1.0.0",
     trustedLocal: true,
     hookContract: "plugin-hooks/v1",
-    capabilities: ["save-revision-validator", "cms-editor-block-resolution"],
+    capabilities: ["cms-editor-block-resolution", "save-revision-validator"],
     entry: { file: "index.mjs", digest: sha256Digest(readFileSync(path.join(pluginDirectory, "index.mjs"))) },
     callbacks: [
       { hook: "save-revision/validate", exportName: "validateSaveRevision", priority: 10 },
@@ -95,7 +107,7 @@ test("identity and manifest hash follow code-unit order, not the host locale", a
     const installedRoot = path.join(directory, "installed");
     const expected = pluginIds.map((pluginId) => stage(installedRoot, pluginId));
     const port = new MemoryActivationStatePort();
-    const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: installedRoot, activationState: port });
+    const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: installedRoot, activationState: port, settingsState: new MemorySettingsStatePort() });
     assert.equal(created.ok, true);
     if (!created.ok) return;
 
@@ -106,7 +118,16 @@ test("identity and manifest hash follow code-unit order, not the host locale", a
       const candidate = report.value.candidates.find((item) => item.id === pluginId);
       assert.notEqual(candidate, undefined);
       if (candidate === undefined) return;
-      const activated = await created.value.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash } });
+      const settings = await created.value.getSettingsSnapshot();
+      assert.equal(settings.ok, true);
+      if (!settings.ok) return;
+      const identity = { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash, capabilities: candidate.capabilities };
+      const saved = await created.value.replaceSettings({ identity, expectedSettingsStateDigest: settings.value.stateDigest, settingsContract: "seo-plugin-settings/v1", settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: "https://example.test/", indexing: "allow" } });
+      assert.equal(saved.ok, true);
+      const active = await created.value.getActiveSnapshot();
+      assert.equal(active.ok, true);
+      if (!active.ok) return;
+      const activated = await created.value.activate({ identity, expectedActivationStateDigest: active.value.digest });
       assert.equal(activated.ok, true, activated.ok ? "" : activated.error.code);
     }
     assert.deepEqual(port.state.active.map((identity) => identity.id), [...pluginIds].sort());

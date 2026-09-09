@@ -1,6 +1,6 @@
 ---
 id: WG-002
-status: planned
+status: completed
 title: SEO basics happy path
 work_items: ["WI-002"]
 owner: Main
@@ -17,4 +17,4 @@ pr: null
 
 ## Verification
 
-尚未執行。#308 runtime 尚未實作；開始時須記錄 targeted tests、repository checks、browser/build/omission 實測。
+已通過 `npm run check`（typecheck、architecture、cms build、240 tests）。production temp roots 已實跑 package、migrate、Theme activation、CMS asset build、CMS listener 與兩次相同 digest site build；Browser device 對 `/cms/plugins` 的導覽逾時，但完整 suite 的 Playwright CMS workflow 已通過。

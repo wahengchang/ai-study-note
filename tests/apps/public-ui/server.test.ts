@@ -19,7 +19,7 @@ async function fixture() {
   const html = new TextEncoder().encode("<!doctype html><main id=main-content>公開</main>");
   const css = new TextEncoder().encode("body{color:black}");
   const binary = new Uint8Array([0, 1, 2, 3]);
-  const provenance = { publishedRevisionIds: [], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media"), theme: { id: "theme", version: "1", manifestHash: digest("theme") }, plugins: [] };
+  const provenance = { publishedRevisionIds: [], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media"), theme: { id: "theme", version: "1", manifestHash: digest("theme") }, plugins: [], seo: { count: 0, digest: digest("seo") } };
   const routes = [{ route: "/guide", filePath: "pages/guide/index.html" }];
   const files = [{ path: "assets/cover.png", bytes: binary, digest: sha256Digest(binary) }, { path: "assets/data.bin", bytes: binary, digest: sha256Digest(binary) }, { path: "assets/dot..name.txt", bytes: binary, digest: sha256Digest(binary) }, { path: "assets/font.woff2", bytes: binary, digest: sha256Digest(binary) }, { path: "assets/site.css", bytes: css, digest: sha256Digest(css) }, { path: "pages/guide/index.html", bytes: html, digest: sha256Digest(html) }];
   const built = delivery.value.deliver({ contract: "renderer-output/v1", rendererInputDigest: digest("input"), provenance, routes, files, outputDigest: digest({ provenance, routes, files: files.map((file) => ({ path: file.path, digest: file.digest })) }) });

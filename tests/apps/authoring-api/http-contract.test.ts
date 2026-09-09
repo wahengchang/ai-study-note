@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createPublishedContentReadModel } from "../../../core/content/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
@@ -55,8 +55,8 @@ function send(method: string, pathname: string, headers: Headers, body?: string)
   return deferred.promise;
 }
 function post(pathname: string, headers: Headers, body: string): Promise<RawResponse> { return send("POST", pathname, headers, body); }
-function saveBody(revisionId: string, route: string): string {
-  return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [] });
+function saveBody(revisionId: string, route: string, expectedCurrentRevisionId: string | null = null): string {
+  return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [] });
 }
 function publishBody(expectedCurrentRevisionId: string, operationId = `publish-${expectedCurrentRevisionId}`): string {
   return JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId, operationId });
@@ -93,7 +93,7 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     const persistence = openPersistence({ databasePath }); if (!persistence.ok) throw new Error(persistence.error.code); closePersistence = () => persistence.value.close();
     const schema = canonicalJsonBytes({ type: "object" }); if (!schema.ok) throw new Error(schema.error.code);
     assert.equal(persistence.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schema.value, schemaDigest: sha256Digest(schema.value) }).ok, true);
-    const pluginHost = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: persistence.value }) }); if (!pluginHost.ok) throw new Error(pluginHost.error.code);
+    const pluginHost = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: persistence.value }), settingsState: createPersistencePluginSettingsStatePort({ persistence: persistence.value }) }); if (!pluginHost.ok) throw new Error(pluginHost.error.code);
     const objects = createLocalMediaObjectStore({ objectsRoot: path.join(directory, "objects") }); if (!objects.ok) throw new Error(objects.error.code);
     const media = startDataMedia({ persistence: persistence.value, objectStore: objects.value }); if (!media.ok) throw new Error(media.error.code);
     const credentials = createLocalAuthoringCredentialAuthority({ homeDirectory: directory, xdgConfigHome: path.join(directory, "config") });
@@ -109,7 +109,27 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     const log: AuthoringApiLogEvent[] = [];
     const contentReadModel = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] }); if (!contentReadModel.ok) throw new Error(contentReadModel.error.code);
     const themeIdentity = installTheme(themesRoot);
-    const themeHost = await createThemeHost({ repositoryRoot: process.cwd(), installedThemesRoot: themesRoot }); if (!themeHost.ok) throw new Error(themeHost.error.code);
+    const themeHost = await createThemeHost({
+      repositoryRoot: process.cwd(),
+      installedThemesRoot: themesRoot,
+      activationState: {
+        async read() {
+          const state = persistence.value.readThemeActivationState();
+          if (!state.ok) throw new Error(state.error.code);
+          return Object.freeze({ bytes: new Uint8Array(state.value.bytes), digest: state.value.digest });
+        },
+        async compareAndReplace(input) {
+          const replaced = persistence.value.compareAndReplaceThemeActivationState({
+            expectedDigest: input.expectedDigest,
+            next: Object.freeze({ bytes: new Uint8Array(input.next.bytes), digest: input.next.digest }),
+          });
+          if (!replaced.ok) throw new Error(replaced.error.code);
+          return replaced.value;
+        },
+      },
+    }); if (!themeHost.ok) throw new Error(themeHost.error.code);
+    const activation = await themeHost.value.getActivationSnapshot(); if (!activation.ok) throw new Error(activation.error.code);
+    const activated = await themeHost.value.activate({ identity: themeIdentity, expectedActivationStateDigest: activation.value.stateDigest }); if (!activated.ok) throw new Error(activated.error.code);
     const projectionPreview = createProjectionPreview({ persistence: persistence.value, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value, themeHost: themeHost.value, pluginHost: pluginHost.value });
     const authoringReadFacade = createAuthoringReadFacade({ persistence: persistence.value, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value });
     const contentTypeAdministration = createContentTypeAdministration({ persistence: persistence.value, validator: createAjvSchemaValidator() });
@@ -141,9 +161,9 @@ test("actual listener proves current credential and saves a revision", async () 
 test("actual listener pins Theme identity and preserves the preview wire contract without mutation", async () => {
   await withAuthoringApi(async ({ apiKey, digest, persistence, siteDefinition }) => {
     const revisions = [
-      { revisionId: "published", content: { contract: "site-content/v1", title: "published title", blocks: [{ kind: "article", text: "published text" }] } },
-      { revisionId: "draft", content: { contract: "site-content/v1", title: "draft title", blocks: [{ kind: "article", text: "draft text" }] } },
-      { revisionId: "only-draft", content: { contract: "site-content/v1", title: "only draft", blocks: [{ kind: "article", text: "only draft text" }] } },
+      { revisionId: "published", content: { contract: "site-content/v1", title: "published title", blocks: [{ kind: "article", text: "published text" }], seo: {} } },
+      { revisionId: "draft", content: { contract: "site-content/v1", title: "draft title", blocks: [{ kind: "article", text: "draft text" }], seo: {} } },
+      { revisionId: "only-draft", content: { contract: "site-content/v1", title: "only draft", blocks: [{ kind: "article", text: "only draft text" }], seo: {} } },
     ] as const;
     for (const revision of revisions) {
       const bytes = canonicalJsonBytes(revision.content);
@@ -160,12 +180,12 @@ test("actual listener pins Theme identity and preserves the preview wire contrac
     const before = digest();
     const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" } as const;
     const current = await post("/v1/preview", headers, JSON.stringify({ contract: "preview-request/v1", selection: "current", subject: { entryId: "preview-entry" } }));
-    assert.equal(current.status, 200);
+    assert.equal(current.status, 200, current.body);
     assertResponseHeaders(current, "current preview");
     assert.deepEqual(Object.keys(JSON.parse(current.body) as object).sort(), ["contentDigest", "contract", "document", "revisionId", "selection", "subject"]);
     assert.equal(current.body.includes("draft text"), true);
     const published = await post("/v1/preview", headers, JSON.stringify({ contract: "preview-request/v1", selection: "published", subject: { entryId: "preview-entry" } }));
-    assert.equal(published.status, 200);
+    assert.equal(published.status, 200, published.body);
     assertResponseHeaders(published, "published preview");
     assert.equal(published.body.includes("published text"), true);
     assert.equal(published.body.includes("draft text"), false);
@@ -223,8 +243,8 @@ test("authenticated /v1 routes admit originless same-origin GET but never an ori
       ["cross-site GET", await send("GET", "/v1/entries", { ...bearer, ...fetchMetadata, "Sec-Fetch-Site": "cross-site" }), 403],
       ["foreign Origin GET", await send("GET", "/v1/entries", { ...bearer, Origin: "https://attacker.example", ...fetchMetadata }), 403],
       ["originless same-origin POST", await post("/v1/preview", { ...json, ...fetchMetadata }, previewBody), 403],
-      ["exact Origin POST", await post("/v1/preview", { ...json, Origin: origin, ...fetchMetadata }, previewBody), 404],
-      ["CLI POST without Fetch Metadata", await post("/v1/preview", json, previewBody), 404],
+      ["exact Origin POST", await post("/v1/entries/absent/seo-analysis/nested", { ...json, Origin: origin, ...fetchMetadata }, previewBody), 404],
+      ["CLI POST without Fetch Metadata", await post("/v1/entries/absent/seo-analysis/nested", json, previewBody), 404],
     ] as const) {
       assert.equal(response.status, status, name);
       if (status === 403) assert.equal(failureCode(response), "ORIGIN_FORBIDDEN", name);

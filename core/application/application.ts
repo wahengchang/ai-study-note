@@ -1,17 +1,23 @@
-import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
+import { canonicalJsonBytes, copyBytes, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
 import type { AssetVersionIdentity, RestoreAssetCommandDescriptor } from "../media/index.js";
-import type { PluginHostFailure } from "../plugin-host/index.js";
-import type { PublishedRouteClaimProposal, RouteClaim, RouteClaimReplacementProposal } from "../site-definition/index.js";
+import type { PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
+import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal } from "../site-definition/index.js";
 
 import type {
+  AuthoringEntryV1,
   ChangeRouteRequest,
   ChangeRouteSuccess,
+  CmsSeoAnalysisRequest,
+  CmsSeoAnalysisResponse,
   DomainApplication,
   DomainApplicationCommandFailure,
   DomainApplicationDependencies,
   DomainApplicationFailure,
   DomainApplicationFailureCode,
   DomainApplicationResult,
+  PluginActivationRequest,
+  PluginManagementSnapshotV1,
+  PluginSettingsReplaceRequest,
   PublishRevisionRequest,
   PublishRevisionSuccess,
   RestoreRevisionRequest,
@@ -27,6 +33,10 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   INVALID_PUBLISH_REVISION_REQUEST: "請修正 PublishRevision request。",
   INVALID_RESTORE_REVISION_REQUEST: "請修正 RestoreRevision request。",
   INVALID_CHANGE_ROUTE_REQUEST: "請修正 ChangeRoute request。",
+  INVALID_PLUGIN_ACTIVATION_REQUEST: "請修正 Plugin activation request。",
+  INVALID_PLUGIN_SETTINGS_REQUEST: "請修正 Plugin settings request。",
+  INVALID_SEO_ANALYSIS_REQUEST: "請修正 CMS SEO analysis request。",
+  ENTRY_NOT_FOUND: "找不到指定文章。",
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
   MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
@@ -63,8 +73,8 @@ function fail<T>(
   return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] }, ...(restoreCommands === undefined ? {} : { restoreCommands }) } };
 }
 
-function plugin(error: PluginHostFailure): DomainApplicationResult<never> {
-  return error.code === "PLUGIN_VALIDATION_SERVICE_FAILED" ? fail("SAVE_REVISION_FAILED") : { ok: false, error };
+function plugin<T>(error: PluginHostFailure | CoreFailure): DomainApplicationResult<T> {
+  return error.owner === "PluginHost" && error.code !== "PLUGIN_VALIDATION_SERVICE_FAILED" ? { ok: false, error } : fail("SAVE_REVISION_FAILED");
 }
 
 function canonicalContent(value: JsonValue): CanonicalContent | null {
@@ -110,7 +120,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     return fail(operationFailure[operation], "SiteDefinition", [entryId]);
   };
 
-  const executeSaveRevision = async (request: SaveRevisionRequest, expectedCurrentRevisionId?: string): Promise<DomainApplicationResult<SaveRevisionSuccess>> => {
+  const executeSaveRevision = async (request: SaveRevisionRequest, expectedCurrentRevisionId: string | null): Promise<DomainApplicationResult<SaveRevisionSuccess>> => {
     if (!validSave(request) || duplicate(request.assetVersions)) return fail("INVALID_SAVE_REVISION_REQUEST");
     const initial = canonicalContent(request.content);
     if (initial === null) return fail("INVALID_SAVE_REVISION_REQUEST");
@@ -131,17 +141,24 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     if (!claim.ok) return route(claim.error.code, request.entryId, "SaveRevision");
     if (!dataMedia.requireReadyAssetVersions(request.assetVersions).ok) return mediaUnavailable(request.assetVersions);
 
+    const current = persistence.getEntryPointers(request.entryId);
+    if (expectedCurrentRevisionId === null) {
+      if (current.ok) return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
+      if (current.error.code !== "ENTRY_POINTER_NOT_FOUND") return fail("SAVE_REVISION_FAILED");
+    } else if (!current.ok || current.value.currentRevisionId !== expectedCurrentRevisionId) {
+      return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
+    }
+
     const prepared = await pluginHost.prepareSaveRevisionValidators({ entryId: request.entryId });
     if (!prepared.ok) return plugin(prepared.error as PluginHostFailure);
 
     const result = persistence.runTransaction<SaveRevisionSuccess, DomainApplicationFailure>((transaction) => {
       const prior = transaction.getEntryPointers(request.entryId);
-      if (expectedCurrentRevisionId !== undefined) {
-        if (!prior.ok || prior.value.currentRevisionId !== expectedCurrentRevisionId) {
-          return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
-        }
-      } else if (!prior.ok && prior.error.code !== "ENTRY_POINTER_NOT_FOUND") {
-        return fail("SAVE_REVISION_FAILED");
+      if (expectedCurrentRevisionId === null) {
+        if (prior.ok) return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
+        if (prior.error.code !== "ENTRY_POINTER_NOT_FOUND") return fail("SAVE_REVISION_FAILED");
+      } else if (!prior.ok || prior.value.currentRevisionId !== expectedCurrentRevisionId) {
+        return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
       }
 
       const token = siteDefinition.validateCurrentClaimInTransaction(claim.value, transaction);
@@ -258,6 +275,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         entryId: request.entryId,
         revisionId: request.revisionId,
         operationId: request.operationId,
+        expectedCurrentRevisionId: request.expectedCurrentRevisionId,
         schemaIdentity: source.value.schemaIdentity,
         content: sourceContent.value,
         route: selected.value.claim.normalizedRoute,
@@ -267,12 +285,79 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     );
   };
 
+
   return {
+    async listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>> {
+      const [discovery, activation, settings] = await Promise.all([pluginHost.discover(), pluginHost.getActivationSnapshot(), pluginHost.getSettingsSnapshot()]);
+      if (!discovery.ok) return plugin<PluginManagementSnapshotV1>(discovery.error);
+      if (!activation.ok) return plugin<PluginManagementSnapshotV1>(activation.error);
+      if (!settings.ok) return plugin<PluginManagementSnapshotV1>(settings.error);
+      const active = new Set(activation.value.active.map((identity) => pluginKey(identity)));
+      return {
+        ok: true,
+        value: {
+          contract: "plugin-management-snapshot/v1",
+          activationStateDigest: activation.value.digest,
+          settingsStateDigest: settings.value.stateDigest,
+          plugins: [...discovery.value.candidates].sort((left, right) => left.id < right.id ? -1 : left.id > right.id ? 1 : 0).map((identity) => {
+            const key = pluginKey(identity);
+            const setting = settings.value.records.find((record) => pluginKey(record.identity) === key);
+            return {
+              identity,
+              status: active.has(key) ? "active" as const : activation.value.reactivationRequired.some((item) => pluginKey(item) === key) ? "reactivation-required" as const : "inactive" as const,
+              ...(setting === undefined ? {} : { settings: { settingsContract: setting.settingsContract, settings: setting.settings, settingsDigest: setting.settingsDigest } }),
+            };
+          }),
+          diagnostics: [...discovery.value.rejections],
+        },
+      };
+    },
+
+    async activatePlugin(request: PluginActivationRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>> {
+      if (request.contract !== "plugin-activation-request/v1") return fail("INVALID_PLUGIN_ACTIVATION_REQUEST");
+      const activated = await pluginHost.activate(request);
+      return activated.ok ? this.listPlugins() : plugin<PluginManagementSnapshotV1>(activated.error);
+    },
+
+    async replacePluginSettings(request: PluginSettingsReplaceRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>> {
+      if (request.contract !== "plugin-settings-replace-request/v1" || request.settingsContract !== "seo-plugin-settings/v1") return fail("INVALID_PLUGIN_SETTINGS_REQUEST");
+      const replaced = await pluginHost.replaceSettings(request);
+      return replaced.ok ? this.listPlugins() : plugin<PluginManagementSnapshotV1>(replaced.error);
+    },
+
+    async readCurrentEntry(entryId: string): Promise<DomainApplicationResult<AuthoringEntryV1>> {
+      const pointer = persistence.getEntryPointers(entryId);
+      if (!pointer.ok) return fail(pointer.error.code === "ENTRY_POINTER_NOT_FOUND" ? "ENTRY_NOT_FOUND" : "SAVE_REVISION_FAILED", "Content", [entryId]);
+      const revision = persistence.getRevision({ entryId, revisionId: pointer.value.currentRevisionId });
+      const routes = siteDefinition.snapshot("current");
+      const state = persistence.canonicalState();
+      if (!revision.ok || !routes.ok || !state.ok) return fail("SAVE_REVISION_FAILED", "Content", [entryId]);
+      const content = verifiedSourceContent(revision.value.contentBytes, revision.value.contentDigest);
+      const route = routes.value.claims.find((claim) => claim.owner === entryId && claim.sourceRevisionId === revision.value.identity.revisionId);
+      const references = persistence.getRevisionReferences(revision.value.identity);
+      if (content === null || route === undefined || !references.ok) return fail("SAVE_REVISION_FAILED", "Content", [entryId]);
+      return { ok: true, value: { contract: "authoring-entry/v1", entryId, current: { revisionId: revision.value.identity.revisionId, schemaIdentity: revision.value.schemaIdentity, content: content.value, contentDigest: revision.value.contentDigest, route: route.normalizedRoute, assets: references.value.map((reference) => reference.assetVersion).sort((left, right) => left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : left.assetVersionId < right.assetVersionId ? -1 : left.assetVersionId > right.assetVersionId ? 1 : 0) }, stateDigest: state.value.digest } };
+    },
+
+    async analyzeCmsSeo(request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisResponse>> {
+      const route = normalizeRoute(request.route);
+      const bytes = canonicalJsonBytes({ entryId: request.entryId, expectedCurrentRevisionId: request.expectedCurrentRevisionId, schemaIdentity: request.schemaIdentity, content: request.content, route: request.route });
+      if (request.contract !== "cms-seo-analysis-request/v1" || route === null || route.normalizedRoute !== request.route || !bytes.ok || sha256Digest(bytes.value) !== request.documentDigest) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+      const settings = await pluginHost.getSettingsSnapshot();
+      const record = settings.ok ? settings.value.records.find((item) => item.identity.id === "seo-basics") : undefined;
+      if (record === undefined) return { ok: true, value: { contract: "cms-seo-analysis-response/v1", documentDigest: request.documentDigest, status: "unavailable", suggestions: [], diagnostics: [] } };
+      const input = { contract: "cms-seo-analysis-input/v1" as const, entryId: request.entryId, schemaIdentity: request.schemaIdentity, content: request.content, route: request.route, settings: record.settings };
+      const inputBytes = canonicalJsonBytes(input);
+      if (!inputBytes.ok) return fail("INVALID_SEO_ANALYSIS_REQUEST");
+      const result = await pluginHost.analyzeCmsSeo({ ...input, inputDigest: sha256Digest(inputBytes.value) });
+      if (!result.ok) return plugin<CmsSeoAnalysisResponse>(result.error);
+      return { ok: true, value: { contract: "cms-seo-analysis-response/v1", documentDigest: request.documentDigest, status: result.value.status, ...(result.value.preview === undefined ? {} : { preview: { title: result.value.preview.title, ...(result.value.preview.description === undefined ? {} : { description: result.value.preview.description }), ...(result.value.preview.canonicalPath === undefined ? {} : { canonicalUrl: new URL(result.value.preview.canonicalPath.slice(1), record.settings.publicSiteUrl.endsWith("/") ? record.settings.publicSiteUrl : `${record.settings.publicSiteUrl}/`).toString() }) } }), suggestions: result.value.suggestions, diagnostics: result.value.diagnostics } };
+    },
     async saveRevision(request: SaveRevisionCommandRequest) {
       const command = normalizeSaveRevisionCommand(request);
       if (command === null) return fail("INVALID_SAVE_REVISION_REQUEST");
       return command.kind === "save"
-        ? executeSaveRevision(command.request)
+        ? executeSaveRevision(command.request, command.request.expectedCurrentRevisionId)
         : executeMediaReferenceReplacement(command.request);
     },
 
@@ -716,4 +801,8 @@ function sameBytes(left: Uint8Array, right: Uint8Array): boolean {
   if (left.byteLength !== right.byteLength) return false;
   for (let index = 0; index < left.byteLength; index += 1) if (left[index] !== right[index]) return false;
   return true;
+}
+
+function pluginKey(identity: PluginActivationIdentity): string {
+  return `${identity.id}\0${identity.version}\0${identity.hookContract}\0${identity.manifestHash}\0${identity.capabilities.join("\0")}`;
 }

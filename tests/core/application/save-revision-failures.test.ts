@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
-import type { DomainApplication, DomainApplicationDependencies } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
+import type { DomainApplicationDependencies, SaveRevisionRequest } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import type { DataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
@@ -49,9 +49,9 @@ function digestOf(store: PersistenceStore): string {
   return state.value.digest;
 }
 
-function request(overrides: Partial<Parameters<DomainApplication["saveRevision"]>[0]> = {}) {
+function request(overrides: Partial<SaveRevisionRequest> = {}): SaveRevisionRequest {
   return {
-    entryId: "entry-a", revisionId: "draft-1", operationId: "save-1",
+    entryId: "entry-a", revisionId: "draft-1", operationId: "save-1", expectedCurrentRevisionId: null,
     schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "draft" },
     route: "/guide", assetVersions: [], ...overrides,
   };
@@ -67,6 +67,7 @@ async function withStore(prefix: string, body: (store: PersistenceStore, pluginH
       repositoryRoot: process.cwd(),
       installedPluginsRoot: installedRoot,
       activationState: createPersistencePluginActivationStatePort({ persistence: store }),
+      settingsState: createPersistencePluginSettingsStatePort({ persistence: store }),
     });
     assert.equal(created.ok, true);
     if (!created.ok) return;
@@ -143,7 +144,7 @@ test("SaveRevision moves only the current pointer and preserves the published po
       entryId: "entry-a", currentRevisionId: "draft-1", publishedRevisionId: "draft-1",
       lineage: { revisionId: "draft-1", operationId: "publish-1", operationKind: "PublishRevision" },
     }).ok, true);
-    const second = await app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2" }));
+    const second = await app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2", expectedCurrentRevisionId: "draft-1" }));
     assert.equal(second.ok, true, second.ok ? "" : second.error.code);
     if (!second.ok) return;
     assert.equal(second.value.currentPointer.currentRevisionId, "draft-2");

@@ -31,7 +31,7 @@ test("renderer input stays published-only while current preview exposes only its
     const store = opened.value;
     const schema = canonical({ type: "object" });
     assert.equal(store.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schema, schemaDigest: sha256Digest(schema) }).ok, true);
-    for (const [revisionId, content] of [["r1", { contract: "site-content/v1", title: "published", blocks: [{ kind: "article", text: "published" }] }], ["r2", { contract: "site-content/v1", title: "DRAFT_SECRET", blocks: [{ kind: "article", text: "DRAFT_SECRET" }] }]] as const) {
+    for (const [revisionId, content] of [["r1", { contract: "site-content/v1", title: "published", blocks: [{ kind: "article", text: "published" }], seo: {} }], ["r2", { contract: "site-content/v1", title: "DRAFT_SECRET", blocks: [{ kind: "article", text: "DRAFT_SECRET" }], seo: {} }]] as const) {
       const bytes = canonical(content);
       assert.equal(store.createRevision({ identity: { entryId: "entry-a", revisionId }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: bytes, contentDigest: sha256Digest(bytes), lineage: { operationId: `save-${revisionId}`, operationKind: "SaveRevision" } }).ok, true);
     }
@@ -56,6 +56,10 @@ test("renderer input stays published-only while current preview exposes only its
         async read(): Promise<PluginActivationState> { return Object.freeze({ contract: "plugin-activation-state/v2", active: Object.freeze([]), reactivationRequired: Object.freeze([]) }); },
         async compareAndReplace(): Promise<boolean> { return false; },
       },
+      settingsState: {
+        async read() { return Object.freeze({ contract: "plugin-settings-state/v1" as const, records: Object.freeze([]) }); },
+        async compareAndReplace(): Promise<boolean> { return false; },
+      },
     });
     assert.equal(pluginHost.ok, true);
     if (!pluginHost.ok) return;
@@ -66,26 +70,37 @@ test("renderer input stays published-only while current preview exposes only its
     writeFileSync(path.join(themeDirectory, "runtime.mjs"), runtime, { mode: 0o600 });
     const manifest = canonical({ contract: "theme-manifest/v1", id: "safe-theme", version: "1.0.0", runtime: { file: "runtime.mjs", digest: sha256Digest(runtime) }, resources: [] });
     writeFileSync(path.join(themeDirectory, "theme.json"), manifest, { mode: 0o600 });
-    const themeHost = await createThemeHost({ repositoryRoot, installedThemesRoot: themes });
+    const activeThemeState = canonical({ contract: "theme-activation-state/v1", active: { id: "safe-theme", version: "1.0.0", manifestHash: sha256Digest(manifest) } });
+    const themeHost = await createThemeHost({
+      repositoryRoot,
+      installedThemesRoot: themes,
+      activationState: Object.freeze({
+        async read() {
+          return Object.freeze({ bytes: new Uint8Array(activeThemeState), digest: sha256Digest(activeThemeState) });
+        },
+        async compareAndReplace() {
+          return false;
+        },
+      }),
+    });
     assert.equal(themeHost.ok, true);
     if (!themeHost.ok) return;
     const contentReadModel = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
     assert.equal(contentReadModel.ok, true);
     if (!contentReadModel.ok) return;
     const projection = createProjectionPreview({ persistence: store, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value, pluginHost: pluginHost.value, themeHost: themeHost.value });
-    const themeIdentity = { id: "safe-theme", version: "1.0.0", manifestHash: sha256Digest(manifest) } as const;
-    const rendered = await projection.produceRendererInput({ themeIdentity });
+    const rendered = await projection.produceRendererInput({});
     assert.equal(rendered.ok, true);
     if (!rendered.ok) return;
-    const renderedText = new TextDecoder().decode(rendered.value.bytes);
+    const renderedText = new TextDecoder().decode(rendered.value.artifact.bytes);
     assert.equal(renderedText.includes("DRAFT_SECRET"), false);
-    assert.equal(parseRendererInput(rendered.value.bytes).ok, true);
-    const current = await projection.preview({ selection: "current", subject: { entryId: "entry-a" }, themeIdentity });
+    assert.equal(parseRendererInput(rendered.value.artifact.bytes).ok, true);
+    const current = await projection.preview({ selection: "current", subject: { entryId: "entry-a" } });
     assert.equal(current.ok, true);
     if (!current.ok) return;
     assert.equal(new TextDecoder().decode(current.value.bytes).includes("DRAFT_SECRET"), true);
     assert.equal(parsePreviewInput(current.value.bytes).ok, true);
-    const published = await projection.preview({ selection: "published", subject: { entryId: "entry-a" }, themeIdentity });
+    const published = await projection.preview({ selection: "published", subject: { entryId: "entry-a" } });
     assert.equal(published.ok, true);
     if (!published.ok) return;
     assert.equal(new TextDecoder().decode(published.value.bytes).includes("DRAFT_SECRET"), false);

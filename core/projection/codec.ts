@@ -33,12 +33,15 @@ function structuredSeo(value: unknown): boolean {
   return exact(value, [], SEO_KEYS) && SEO_KEYS.every((key) => !Object.hasOwn(value, key) || text(value[key]));
 }
 function structuredContent(value: unknown): boolean {
-  if (!exact(value, ["contract", "title", "blocks"], ["seo"]) || value.contract !== "site-content/v1" || !text(value.title) || !Array.isArray(value.blocks)) return false;
-  if (Object.hasOwn(value, "seo") && !structuredSeo(value.seo)) return false;
+  if (!exact(value, ["contract", "title", "blocks", "seo"]) || value.contract !== "site-content/v1" || !text(value.title) || !Array.isArray(value.blocks) || !structuredSeo(value.seo)) return false;
   return value.blocks.every((block) => {
     if (exact(block, ["kind", "text"])) return block.kind === "article" && typeof block.text === "string" && block.text.length > 0;
     if (exact(block, ["kind", "html", "staticFallback"])) return block.kind === "raw-full-page" && typeof block.html === "string" && block.html.length > 0 && typeof block.staticFallback === "string" && block.staticFallback.length > 0;
-    return exact(block, ["kind", "pluginIdentity", "source", "staticFallback"]) && block.kind === "interactive-demo" && validatePluginActivationIdentity(block.pluginIdentity).ok && exact(block.source, ["html", "css", "javascript"]) && typeof block.source.html === "string" && typeof block.source.css === "string" && typeof block.source.javascript === "string" && typeof block.staticFallback === "string" && block.staticFallback.length > 0;
+    return exact(block, ["kind", "identity", "hook", "manifestHash", "source", "staticFallback"]) && block.kind === "interactive-demo"
+      && exact(block.identity, ["id", "version"]) && text(block.identity.id) && typeof block.identity.version === "number" && Number.isSafeInteger(block.identity.version) && block.identity.version > 0
+      && block.hook === "cms/editor-block/resolve" && digest(block.manifestHash)
+      && exact(block.source, ["html", "css", "javascript"]) && typeof block.source.html === "string" && typeof block.source.css === "string" && typeof block.source.javascript === "string"
+      && typeof block.staticFallback === "string" && block.staticFallback.length > 0;
   });
 }
 function rendererEntry(value: unknown): boolean {
@@ -79,12 +82,11 @@ function media(value: unknown): value is RendererMedia {
   return assets.every((asset) => byObject.get(String(asset.objectDigest))?.byteLength === asset.byteLength);
 }
 function theme(value: unknown): boolean {
-  if (!exact(value, ["identity", "manifest", "files"]) || !Array.isArray(value.files)) return false;
+  if (!exact(value, ["identity", "manifest", "files", "activationStateDigest"]) || !digest(value.activationStateDigest) || !Array.isArray(value.files)) return false;
   const identity: unknown = value.identity;
   if (!exact(identity, ["id", "version", "manifestHash"]) || !text(identity.id) || !text(identity.version) || !digest(identity.manifestHash)) return false;
   const encoded = canonicalJsonBytes(value.manifest);
   if (!encoded.ok) return false;
-  // 重用 ThemeHost 的 manifest parser seam，避免 Projection 另外複製一份 manifest 規則。
   const parsed = parseThemeManifest(encoded.value);
   if (!parsed.ok || parsed.value.identity.id !== identity.id || parsed.value.identity.version !== identity.version || parsed.value.identity.manifestHash !== identity.manifestHash) return false;
   const files = value.files as readonly unknown[];
@@ -96,12 +98,25 @@ function theme(value: unknown): boolean {
       && embedded(entry.bytesBase64url, Buffer.from(entry.bytesBase64url, "base64url").byteLength, expected.file.digest);
   });
 }
+function seo(value: unknown): boolean {
+  if (!exact(value, ["status", "pages", "omissionDigest"], ["publicSiteUrl"]) || (value.status !== "available" && value.status !== "omitted") || !digest(value.omissionDigest) || !Array.isArray(value.pages)) return false;
+  if (value.status === "omitted") return !Object.hasOwn(value, "publicSiteUrl") && value.pages.length === 0;
+  if (Object.hasOwn(value, "publicSiteUrl") && (typeof value.publicSiteUrl !== "string" || /[\r\n\0]/u.test(value.publicSiteUrl))) return false;
+  const routes: string[] = [];
+  for (const page of value.pages) {
+    if (!exact(page, ["route", "canonicalUrl"], ["title", "description", "jsonLd"]) || typeof page.route !== "string" || normalizeRoute(page.route)?.normalizedRoute !== page.route || typeof page.canonicalUrl !== "string" || /[\r\n\0]/u.test(page.canonicalUrl) || (Object.hasOwn(page, "title") && !text(page.title)) || (Object.hasOwn(page, "description") && !text(page.description))) return false;
+    try { if (new URL(page.canonicalUrl).protocol !== "https:") return false; } catch { return false; }
+    if (Object.hasOwn(page, "jsonLd") && !canonicalJsonBytes(page.jsonLd as JsonValue).ok) return false;
+    routes.push(page.route);
+  }
+  return ascending(routes) && routes.length === new Set(routes).size;
+}
 function plugins(value: unknown): boolean {
-  if (!exact(value, ["activeStateDigest", "identities", "renderers"]) || !digest(value.activeStateDigest) || !Array.isArray(value.identities) || !Array.isArray(value.renderers)) return false;
+  if (!exact(value, ["activationStateDigest", "identities", "renderers", "seo"], ["settingsStateDigest"]) || !digest(value.activationStateDigest) || (Object.hasOwn(value, "settingsStateDigest") && !digest(value.settingsStateDigest)) || !Array.isArray(value.identities) || !Array.isArray(value.renderers) || !seo(value.seo)) return false;
   const identities = value.identities as readonly unknown[];
   if (!identities.every((identity) => validatePluginActivationIdentity(identity).ok)) return false;
   const activeState = canonicalJsonBytes({ contract: "plugin-activation-state/v2", active: identities, reactivationRequired: [] });
-  if (!activeState.ok || sha256Digest(activeState.value) !== value.activeStateDigest) return false;
+  if (!activeState.ok || sha256Digest(activeState.value) !== value.activationStateDigest) return false;
   const identityIds = identities.map((identity) => (identity as Readonly<{ id: string }>).id);
   if (!ascending(identityIds)) return false;
   const identityById = new Map(identities.map((identity) => [(identity as Readonly<{ id: string }>).id, identity]));

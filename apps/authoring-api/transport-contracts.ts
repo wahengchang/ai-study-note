@@ -73,6 +73,7 @@ export const saveRevisionRequestSchema = z.object({
   contract: z.literal("save-revision-request/v1"),
   revisionId: z.string(),
   operationId: z.string(),
+  expectedCurrentRevisionId: z.string().nullable(),
   schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(),
   content: jsonContent,
   route: z.string(),
@@ -116,6 +117,16 @@ export const publishRevisionSuccessSchema = z.object({
   lineageIdentity: z.object({ entryId: z.string(), revisionId: z.string(), operationId: z.string() }).strict(),
   stateDigest: z.string(),
 }).strict();
+
+const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
+const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: digestSchema, capabilities: z.array(z.string()) }).strict();
+const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string().url(), indexing: z.enum(["allow", "disallow"]) }).strict();
+export const pluginActivationRequestSchema = z.object({ contract: z.literal("plugin-activation-request/v1"), identity: pluginIdentitySchema, expectedActivationStateDigest: digestSchema }).strict();
+export const pluginSettingsReplaceRequestSchema = z.object({ contract: z.literal("plugin-settings-replace-request/v1"), identity: pluginIdentitySchema, expectedSettingsStateDigest: digestSchema, settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema }).strict();
+export const cmsSeoAnalysisRequestSchema = z.object({ contract: z.literal("cms-seo-analysis-request/v1"), entryId: z.string(), expectedCurrentRevisionId: z.string().nullable(), schemaIdentity: schemaIdentitySchema, content: jsonContent, route: z.string(), documentDigest: digestSchema }).strict();
+export const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: digestSchema, settingsStateDigest: digestSchema, plugins: z.array(z.object({ identity: pluginIdentitySchema, status: z.enum(["inactive", "active", "reactivation-required"]), settings: z.object({ settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema, settingsDigest: digestSchema }).strict().optional() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
+export const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()) }).strict(), stateDigest: digestSchema }).strict();
+export const cmsSeoAnalysisResponseSchema = z.object({ contract: z.literal("cms-seo-analysis-response/v1"), documentDigest: digestSchema, status: z.enum(["available", "unavailable"]), preview: z.object({ title: z.string(), description: z.string().optional(), canonicalUrl: z.string().url().optional() }).strict().optional(), suggestions: z.array(z.object({ code: z.string() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
 
 export type TransportCode =
   | "INVALID_REQUEST_FRAMING" | "MISDIRECTED_REQUEST" | "ORIGIN_FORBIDDEN"
@@ -180,3 +191,6 @@ export type EntryRevisionCatalogDto = Readonly<z.infer<typeof entryRevisionCatal
 export type PreviewRequestDto = Readonly<z.infer<typeof previewRequestSchema>>;
 export type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
 export type AuthoringErrorDto = Readonly<z.infer<typeof authoringErrorSchema>>;
+export type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManagementSnapshotSchema>>;
+export type AuthoringEntryDto = Readonly<z.infer<typeof authoringEntrySchema>>;
+export type CmsSeoAnalysisResponseDto = Readonly<z.infer<typeof cmsSeoAnalysisResponseSchema>>;

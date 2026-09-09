@@ -2,7 +2,7 @@
 id: cycle-2026-09-07-1024-seo-plugin-happy-path
 status: active
 created_at: 2026-09-07T10:24:29+08:00
-updated_at: 2026-09-07T10:32:11+08:00
+updated_at: 2026-09-09T13:53:43+08:00
 ---
 
 # SEO Plugin Happy Path

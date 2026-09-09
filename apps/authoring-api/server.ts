@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { AuthoringReadFacade, ContentTypeAdministration, DomainApplication, DomainApplicationFailure, PublishRevisionSuccess, SaveRevisionSuccess } from "../../core/application/index.js";
+import type { AuthoringReadFacade, CmsSeoAnalysisRequest, ContentTypeAdministration, DomainApplication, DomainApplicationFailure, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, SaveRevisionSuccess } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import { parsePreviewInput, renderPreviewDocument, type ProjectionPreview } from "../../core/projection/index.js";
 import type { ThemeIdentity } from "../../core/theme-host/index.js";
@@ -12,7 +12,7 @@ import type { AuthoringCredentialAuthority } from "./credential-store.js";
 import { createBrowserBootstrapState } from "./browser-bootstrap.js";
 import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
-import { authoringErrorStatuses, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
+import { authoringEntrySchema, authoringErrorStatuses, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, saveRevisionRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
 import type { BrowserSessionDto, BrowserTicketDto, PublishRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
@@ -53,19 +53,17 @@ const SAVE_BODY_LIMIT_REMEDIATION = "SaveRevision request 不得超過 4 MiB。"
 const PUBLISH_BODY_LIMIT_REMEDIATION = "PublishRevision request 不得超過 4 KiB。";
 const PROOF_BODY_LIMIT_REMEDIATION = "server-proof challenge 不得超過 4 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/assets/:asset" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
 export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; projectionPreview: ProjectionPreview; themeIdentity: ThemeIdentity }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "cms-document" | "cms-asset" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
-/** GET 為主的 read route：只有 collection route 額外接受 POST。 */
-const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "entries", "entry", "entry-revisions"]);
+type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "entry-current" | "seo-analysis" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
+const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "entry-current", "content-types", "content-type", "entries", "entry", "entry-revisions"]);
 const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "entry-revisions"]);
-/** 需要 Bearer credential 與 browser／CLI origin 判定的 authoring route。 */
-const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "preview"]);
+const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "entry-current", "seo-analysis", "content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "preview"]);
 
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
@@ -81,11 +79,16 @@ function values(headers: HeaderMap, name: string): readonly string[] { return he
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
 /** dynamic ID 與 asset path 都不接受 percent encoding，防止 URL 與 canonical identity 脫節。 */
 function routeFor(pathname: string): RouteClass {
-  if (pathname === "/cms" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || (/^\/cms\/(?:entries|content-types)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
+  if (pathname === "/cms" || pathname === "/cms/plugins" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || (/^\/cms\/(?:entries|content-types)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
   if (/^\/cms\/assets\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(pathname)) return "cms-asset";
   if (pathname === "/_local/server-proof") return "proof";
   if (pathname === "/_local/browser-tickets") return "browser-ticket";
   if (pathname === "/_local/browser-session") return "browser-session";
+  if (pathname === "/v1/plugins") return "plugins";
+  if (pathname === "/v1/plugins/activate") return "plugin-activate";
+  if (pathname === "/v1/plugins/settings") return "plugin-settings";
+  if (/^\/v1\/entries\/[^/%?#/]+\/current$/u.test(pathname)) return "entry-current";
+  if (/^\/v1\/entries\/[^/%?#/]+\/seo-analysis$/u.test(pathname)) return "seo-analysis";
   if (pathname === "/v1/content-types") return "content-types";
   if (/^\/v1\/content-types\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length))) return "content-type";
   if (pathname === "/v1/entries") return "entries";
@@ -95,8 +98,13 @@ function routeFor(pathname: string): RouteClass {
   return /^\/v1\/entries\/[^/%?#/]+\/publish$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length, -"/publish".length)) ? "publish" : "unknown";
 }
 function templateFor(route: RouteClass, pathname: string): RouteTemplate {
-  if (route === "cms-document") return pathname === "/cms" ? "/cms" : pathname === "/cms/entries" ? "/cms/entries" : pathname === "/cms/entries/new" ? "/cms/entries/new" : pathname === "/cms/content-types" ? "/cms/content-types" : pathname === "/cms/content-types/new" ? "/cms/content-types/new" : pathname.startsWith("/cms/content-types/") ? "/cms/content-types/:schemaId" : "/cms/entries/:entryId";
+  if (route === "cms-document") return pathname === "/cms" ? "/cms" : pathname === "/cms/plugins" ? "/cms/plugins" : pathname === "/cms/entries" ? "/cms/entries" : pathname === "/cms/entries/new" ? "/cms/entries/new" : pathname === "/cms/content-types" ? "/cms/content-types" : pathname === "/cms/content-types/new" ? "/cms/content-types/new" : pathname.startsWith("/cms/content-types/") ? "/cms/content-types/:schemaId" : "/cms/entries/:entryId";
   if (route === "cms-asset") return "/cms/assets/:asset";
+  if (route === "plugins") return "/v1/plugins";
+  if (route === "plugin-activate") return "/v1/plugins/activate";
+  if (route === "plugin-settings") return "/v1/plugins/settings";
+  if (route === "entry-current") return "/v1/entries/:entryId/current";
+  if (route === "seo-analysis") return "/v1/entries/:entryId/seo-analysis";
   if (route === "content-types") return "/v1/content-types";
   if (route === "content-type") return "/v1/content-types/:schemaId";
   if (route === "entries") return "/v1/entries";
@@ -296,6 +304,32 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
       return bootstrapSecretResponse(dto, 200);
     } finally { admission.value.dispose(); }
   });
+  app.get("/v1/plugins", async (context) => authenticatedRead(context, input, async (requestId) => {
+    const result = await input.domainApplication.listPlugins();
+    return result.ok && pluginManagementSnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/plugins/activate", async (context) => authenticatedJson(context, input, 65_536, "Plugin activation request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
+    const parsed = pluginActivationRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.activatePlugin(parsed.data as PluginActivationRequest);
+    return result.ok && pluginManagementSnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/plugins/settings", async (context) => authenticatedJson(context, input, 65_536, "Plugin settings request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
+    const parsed = pluginSettingsReplaceRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.replacePluginSettings(parsed.data as PluginSettingsReplaceRequest);
+    return result.ok && pluginManagementSnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.get("/v1/entries/:entryId/current", async (context) => authenticatedRead(context, input, async (requestId) => {
+    const result = await input.domainApplication.readCurrentEntry(context.req.param("entryId") ?? "");
+    return result.ok && authoringEntrySchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/entries/:entryId/seo-analysis", async (context) => authenticatedJson(context, input, 4_194_304, "SEO analysis request 不得超過 4 MiB。", async (requestId, entryId, body) => {
+    const parsed = cmsSeoAnalysisRequestSchema.safeParse(body);
+    if (!parsed.success || parsed.data.entryId !== entryId) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.analyzeCmsSeo({ ...parsed.data, content: parsed.data.content as JsonValue } as CmsSeoAnalysisRequest);
+    return result.ok && cmsSeoAnalysisResponseSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
   app.post("/v1/entries/:entryId/revisions", async (context) => authenticatedJson(context, input, SAVE_BODY_LIMIT, SAVE_BODY_LIMIT_REMEDIATION, async (requestId, entryId, body) => {
     const parsed = saveRevisionRequestSchema.safeParse(body);
     if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
@@ -337,7 +371,7 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   }));
   app.post("/v1/preview", async (context) => authenticatedJson(context, input, 4_096, "Preview request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
     const parsed = previewRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const artifact = await input.projectionPreview.preview({ selection: parsed.data.selection, subject: parsed.data.subject, themeIdentity: input.themeIdentity });
+    const artifact = await input.projectionPreview.preview({ selection: parsed.data.selection, subject: parsed.data.subject });
     if (!artifact.ok) return projectionError(requestId, artifact.error);
     const preview = parsePreviewInput(artifact.value.bytes);
     if (!preview.ok) return projectionError(requestId, preview.error);

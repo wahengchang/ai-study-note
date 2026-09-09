@@ -1,0 +1,19 @@
+:root { color-scheme: light; font-family: system-ui, sans-serif; line-height: 1.6; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #f8fafc; color: #172033; }
+a { color: #075985; }
+:where(a, button, iframe, [tabindex]):focus-visible { outline: 3px solid #f59e0b; outline-offset: 3px; }
+.skip-link { position: absolute; left: 1rem; top: -4rem; padding: .5rem .75rem; background: #172033; color: #fff; z-index: 1; }
+.skip-link:focus { top: 1rem; }
+.site-header, main, .site-footer { width: min(100% - 2rem, 72rem); margin-inline: auto; }
+.site-header { padding-block: 1.5rem; }
+.site-header p { margin: 0; color: #475569; }
+.site-nav ul { display: flex; flex-wrap: wrap; gap: .75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+main { padding-block: 1.5rem 3rem; }
+article { padding: clamp(1rem, 4vw, 3rem); background: #fff; border: 1px solid #cbd5e1; border-radius: .75rem; }
+h1 { line-height: 1.2; }
+.embedded-content { margin-block: 1.5rem; padding: 1rem; border: 1px solid #94a3b8; border-radius: .5rem; }
+.embedded-content iframe { width: 100%; min-height: 18rem; border: 1px solid #64748b; }
+.embedded-fallback { margin-top: 1rem; }
+.site-footer { padding-block: 1.5rem; color: #475569; }
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto; } }

@@ -5,14 +5,13 @@ import path from "node:path";
 import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { migrateDatabase } from "../../../core/persistence/index.js";
+import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import { createLocalAuthoringCredentialAuthority, startCmsRuntime } from "../../../apps/authoring-api/index.js";
 import type { ThemeIdentity } from "../../../core/theme-host/index.js";
 
-import { runCmsServe } from "../../../apps/authoring-api/serve.js";
+import { runCmsServe } from "../../../apps/authoring-api/cms-serve-cli.js";
 
-const digest = `sha256:${"a".repeat(64)}`;
-const baseArguments = ["--database", "/tmp/cms.sqlite", "--objects-root", "/tmp/objects", "--installed-plugins-root", "/tmp/plugins", "--installed-themes-root", "/tmp/themes", "--theme-id", "safe-theme", "--theme-version", "1.0.0", "--theme-manifest-hash", digest] as const;
+const baseArguments = ["--database", "/tmp/cms.sqlite", "--media-root", "/tmp/objects", "--installed-plugins-root", "/tmp/plugins", "--installed-themes-root", "/tmp/themes", "--cms-assets-root", "/tmp/cms"] as const;
 
 function capture(): Readonly<{ output: string[]; io: Readonly<{ stdout(text: string): void; stderr(text: string): void }> }> {
   const output: string[] = [];
@@ -30,13 +29,10 @@ function installTheme(themesRoot: string): ThemeIdentity {
   return { id: "safe-theme", version: "1.0.0", manifestHash: sha256Digest(manifest.value) };
 }
 
-test("cms:serve rejects missing, duplicate, malformed, unknown, and positional Theme arguments before startup", async () => {
+test("cms:serve rejects missing, duplicate, malformed, unknown, and positional arguments before startup", async () => {
   const cases = [
-    baseArguments.filter((argument) => argument !== "--theme-id" && argument !== "safe-theme"),
-    [...baseArguments, "--theme-id", "other-theme"],
-    baseArguments.map((argument) => argument === "safe-theme" ? "Safe-Theme" : argument),
-    baseArguments.map((argument) => argument === "1.0.0" ? "v1.0.0" : argument),
-    baseArguments.map((argument) => argument === digest ? "sha256:ABC" : argument),
+    baseArguments.filter((argument) => argument !== "--cms-assets-root" && argument !== "/tmp/cms"),
+    [...baseArguments, "--database", "/tmp/other.sqlite"],
     [...baseArguments, "--unknown", "x"],
     [...baseArguments, "unexpected"],
   ] as const;
@@ -66,7 +62,18 @@ test("CMS runtime resolves the exact installed Theme before its listener and clo
     const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: directory, xdgConfigHome: path.join(directory, "config") });
     assert.equal((await credential.transition("provision")).ok, true);
     const themeIdentity = installTheme(installedThemesRoot);
-    const runtime = await startCmsRuntime({ repositoryRoot, databasePath, objectsRoot, installedPluginsRoot, installedThemesRoot, cmsAssetsRoot, themeIdentity, credential: { homeDirectory: directory, xdgConfigHome: path.join(directory, "config") }, logger: () => undefined });
+    const store = openPersistence({ databasePath });
+    assert.equal(store.ok, true);
+    if (!store.ok) throw new Error("open persistence");
+    const activation = store.value.readThemeActivationState();
+    assert.equal(activation.ok, true);
+    if (!activation.ok) throw new Error("read theme activation state");
+    const state = canonicalJsonBytes({ contract: "theme-activation-state/v1", active: themeIdentity });
+    assert.equal(state.ok, true);
+    if (!state.ok) throw new Error("encode theme activation state");
+    assert.equal(store.value.compareAndReplaceThemeActivationState({ expectedDigest: activation.value.digest, next: { bytes: state.value, digest: sha256Digest(state.value) } }).ok, true);
+    store.value.close();
+    const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot: objectsRoot, installedPluginsRoot, installedThemesRoot, cmsAssetsRoot, credential: { homeDirectory: directory, xdgConfigHome: path.join(directory, "config") }, logger: () => undefined });
     assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
     if (runtime.ok) await runtime.value.close();
   } finally {

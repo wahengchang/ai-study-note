@@ -1,7 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort } from "../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
 import { createPublishedContentReadModel } from "../../core/content/index.js";
 import { type MessageRemediation } from "../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../core/media/index.js";
@@ -9,7 +9,7 @@ import { openPersistence, type PersistenceStore } from "../../core/persistence/i
 import { createPluginHost } from "../../core/plugin-host/index.js";
 import { createProjectionPreview } from "../../core/projection/index.js";
 import { createSiteDefinition } from "../../core/site-definition/index.js";
-import { createThemeHost, type ThemeIdentity } from "../../core/theme-host/index.js";
+import { createThemeHost, type ThemeActivationStatePort } from "../../core/theme-host/index.js";
 
 import { loadCmsAssets } from "./cms-assets.js";
 import { createLocalAuthoringCredentialAuthority, type LocalAuthoringCredentialInput } from "./credential-store.js";
@@ -19,7 +19,7 @@ import { startAuthoringApi, type AuthoringApiLogEvent, type RunningAuthoringApi 
 export type CmsRuntimeFailureCode = "INVALID_CMS_RUNTIME_INPUT" | "CMS_ASSETS_UNAVAILABLE" | "CMS_CREDENTIAL_UNAVAILABLE" | "CMS_PERSISTENCE_UNAVAILABLE" | "CMS_MEDIA_UNAVAILABLE" | "CMS_PLUGIN_HOST_UNAVAILABLE" | "CMS_THEME_HOST_UNAVAILABLE" | "CMS_PROJECTION_UNAVAILABLE" | "CMS_LISTENER_UNAVAILABLE";
 export type CmsRuntimeFailure = Readonly<{ code: CmsRuntimeFailureCode; owner: "CmsRuntime"; subjectIds: readonly []; remediation: MessageRemediation }>;
 export type CmsRuntimeResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: CmsRuntimeFailure }>;
-export type StartCmsRuntimeInput = Readonly<{ repositoryRoot: string; databasePath: string; objectsRoot: string; installedPluginsRoot: string; installedThemesRoot: string; cmsAssetsRoot: string; themeIdentity: ThemeIdentity; credential: LocalAuthoringCredentialInput; logger: (event: AuthoringApiLogEvent) => void }>;
+export type StartCmsRuntimeInput = Readonly<{ repositoryRoot: string; databasePath: string; mediaRoot: string; installedPluginsRoot: string; installedThemesRoot: string; cmsAssetsRoot: string; credential: LocalAuthoringCredentialInput; logger: (event: AuthoringApiLogEvent) => void }>;
 export interface RunningCmsRuntime { readonly origin: RunningAuthoringApi["origin"]; close(): Promise<void>; }
 
 function failure<T>(code: CmsRuntimeFailureCode): CmsRuntimeResult<T> {
@@ -44,9 +44,30 @@ function trustedDatabase(path: string): boolean {
   }
 }
 
+function createPersistenceThemeActivationStatePort(
+  { persistence }: Readonly<{ persistence: Pick<PersistenceStore, "readThemeActivationState" | "compareAndReplaceThemeActivationState"> }>,
+): ThemeActivationStatePort {
+  return Object.freeze({
+    async read() {
+      const state = persistence.readThemeActivationState();
+      if (!state.ok) throw new Error("theme activation state read");
+      return Object.freeze({ bytes: new Uint8Array(state.value.bytes), digest: state.value.digest });
+    },
+    async compareAndReplace(input) {
+      const replaced = persistence.compareAndReplaceThemeActivationState({
+        expectedDigest: input.expectedDigest,
+        next: Object.freeze({ bytes: new Uint8Array(input.next.bytes), digest: input.next.digest }),
+      });
+      if (!replaced.ok) throw new Error("theme activation state replace");
+      return replaced.value;
+    },
+  });
+}
+
+
 
 export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsRuntimeResult<RunningCmsRuntime>> {
-  if (!isAbsolute(input.repositoryRoot) || !isAbsolute(input.databasePath) || !isAbsolute(input.objectsRoot) || !isAbsolute(input.installedPluginsRoot) || !isAbsolute(input.installedThemesRoot) || !isAbsolute(input.cmsAssetsRoot) || typeof input.logger !== "function") return failure("INVALID_CMS_RUNTIME_INPUT");
+  if (!isAbsolute(input.repositoryRoot) || !isAbsolute(input.databasePath) || !isAbsolute(input.mediaRoot) || !isAbsolute(input.installedPluginsRoot) || !isAbsolute(input.installedThemesRoot) || !isAbsolute(input.cmsAssetsRoot) || typeof input.logger !== "function") return failure("INVALID_CMS_RUNTIME_INPUT");
   const repositoryRoot = resolve(input.repositoryRoot);
   if (resolve(input.cmsAssetsRoot) !== resolve(repositoryRoot, "dist", "cms") || !trustedDirectory(resolve(input.cmsAssetsRoot))) return failure("CMS_ASSETS_UNAVAILABLE");
   if (!trustedDatabase(input.databasePath)) return failure("CMS_PERSISTENCE_UNAVAILABLE");
@@ -64,12 +85,12 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const opened = openPersistence({ databasePath: input.databasePath });
     if (!opened.ok) return failure("CMS_PERSISTENCE_UNAVAILABLE");
     persistence = opened.value;
-    const objectStore = createLocalMediaObjectStore({ objectsRoot: input.objectsRoot });
+    const objectStore = createLocalMediaObjectStore({ objectsRoot: input.mediaRoot });
     if (!objectStore.ok) return failure("CMS_MEDIA_UNAVAILABLE");
     const dataMedia = startDataMedia({ persistence, objectStore: objectStore.value });
     if (!dataMedia.ok) return failure("CMS_MEDIA_UNAVAILABLE");
     const siteDefinition = createSiteDefinition({ persistence });
-    const pluginHost = await createPluginHost({ repositoryRoot, installedPluginsRoot: input.installedPluginsRoot, activationState: createPersistencePluginActivationStatePort({ persistence }) });
+    const pluginHost = await createPluginHost({ repositoryRoot, installedPluginsRoot: input.installedPluginsRoot, activationState: createPersistencePluginActivationStatePort({ persistence }), settingsState: createPersistencePluginSettingsStatePort({ persistence }) });
     if (!pluginHost.ok) return failure("CMS_PLUGIN_HOST_UNAVAILABLE");
     const contentReadModel = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
     if (!contentReadModel.ok) return failure("CMS_PROJECTION_UNAVAILABLE");
@@ -77,12 +98,16 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const domainApplication = createDomainApplication({ persistence, siteDefinition, dataMedia: dataMedia.value, schemaValidator, pluginHost: pluginHost.value });
     const authoringReadFacade = createAuthoringReadFacade({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value });
     const contentTypeAdministration = createContentTypeAdministration({ persistence, validator: schemaValidator });
-    const themeHost = await createThemeHost({ repositoryRoot, installedThemesRoot: input.installedThemesRoot });
+    const themeHost = await createThemeHost({
+      repositoryRoot,
+      installedThemesRoot: input.installedThemesRoot,
+      activationState: createPersistenceThemeActivationStatePort({ persistence }),
+    });
     if (!themeHost.ok) return failure("CMS_THEME_HOST_UNAVAILABLE");
-    const theme = await themeHost.value.resolveExact({ identity: input.themeIdentity });
-    if (!theme.ok) return failure("CMS_THEME_HOST_UNAVAILABLE");
+    const activeTheme = await themeHost.value.resolveActive();
+    if (!activeTheme.ok) return failure("CMS_THEME_HOST_UNAVAILABLE");
     const projectionPreview = createProjectionPreview({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value, themeHost: themeHost.value, pluginHost: pluginHost.value });
-    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, projectionPreview, themeIdentity: input.themeIdentity });
+    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, projectionPreview, themeIdentity: activeTheme.value.identity });
     if (!started.ok) return failure("CMS_LISTENER_UNAVAILABLE");
     listener = started.value;
     let closed = false;
