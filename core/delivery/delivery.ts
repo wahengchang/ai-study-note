@@ -77,13 +77,14 @@ function route(value: unknown): value is string {
   return typeof value === "string" && value.startsWith("/") && !value.includes("\\") && !value.includes("%") && !value.includes("//") && (value === "/" || !value.endsWith("/")) && !value.split("/").some((segment) => segment === "." || segment === "..");
 }
 function provenance(value: unknown): boolean {
-  if (!exact(value, ["publishedRevisionIds", "routeGraphDigest", "mediaSelectionDigest", "theme", "plugins"]) || !Array.isArray(value.publishedRevisionIds) || typeof value.routeGraphDigest !== "string" || !isDigest(value.routeGraphDigest) || typeof value.mediaSelectionDigest !== "string" || !isDigest(value.mediaSelectionDigest) || !exact(value.theme, ["id", "version", "manifestHash"]) || !Array.isArray(value.plugins)) return false;
+  if (!exact(value, ["publishedRevisionIds", "routeGraphDigest", "mediaSelectionDigest", "theme", "plugins", "seo"]) || !Array.isArray(value.publishedRevisionIds) || typeof value.routeGraphDigest !== "string" || !isDigest(value.routeGraphDigest) || typeof value.mediaSelectionDigest !== "string" || !isDigest(value.mediaSelectionDigest) || !exact(value.theme, ["id", "version", "manifestHash"]) || !Array.isArray(value.plugins) || !exact(value.seo, ["count", "digest"])) return false;
   const theme = value.theme as Readonly<{ id: unknown; version: unknown; manifestHash: unknown }>;
   if (typeof theme.id !== "string" || typeof theme.version !== "string" || typeof theme.manifestHash !== "string" || !isDigest(theme.manifestHash)) return false;
   const revisions = value.publishedRevisionIds as readonly Readonly<{ entryId: unknown; revisionId: unknown }>[];
   if (!revisions.every((item) => typeof item.entryId === "string" && typeof item.revisionId === "string") || !sortedUnique(revisions.map((item) => `${item.entryId as string}\u0000${item.revisionId as string}`))) return false;
   const plugins = value.plugins as readonly Readonly<{ id: unknown; version: unknown; manifestHash: unknown }>[];
-  return plugins.every((item) => typeof item.id === "string" && typeof item.version === "string" && typeof item.manifestHash === "string" && isDigest(item.manifestHash)) && sortedUnique(plugins.map((item) => item.id as string));
+  const seo = value.seo as Readonly<{ count: unknown; digest: unknown }>;
+  return plugins.every((item) => typeof item.id === "string" && typeof item.version === "string" && typeof item.manifestHash === "string" && isDigest(item.manifestHash)) && sortedUnique(plugins.map((item) => item.id as string)) && Number.isSafeInteger(seo.count) && (seo.count as number) >= 0 && typeof seo.digest === "string" && isDigest(seo.digest);
 }
 function validManifest(value: unknown, expectedDigest: Digest): value is ArtifactManifest {
   const input = value as { contract: unknown; rendererInputDigest: unknown; provenance: unknown; totalDigest: unknown; files: unknown; routes: unknown };

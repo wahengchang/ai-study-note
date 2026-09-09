@@ -24,7 +24,7 @@ export const BROWSER_TICKET_PATTERN = /^asn_bt_v1_[A-Za-z0-9_-]{43}$/u;
  * 各自寫死會讓 CLI 接受、client 拒絕（或反之）的 entryId 產生無法解釋的
  * `INVALID_CLIENT_REQUEST`。
  */
-export const ENTRY_ID_PATTERN = /^[A-Za-z0-9._~-]+$/u;
+export const AUTHORING_RESOURCE_ID_PATTERN = /^[A-Za-z0-9._~-]+$/u;
 /** diagnostic 輸出前用來遮蔽 credential 與 browser ticket 的 canary pattern。 */
 export const REDACTION_PATTERN = /asn_(?:v1|bt_v1)_[A-Za-z0-9_-]+/gu;
 export const REDACTION_PLACEHOLDER = "[REDACTED]";

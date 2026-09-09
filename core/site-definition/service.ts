@@ -127,6 +127,16 @@ export function createSiteDefinition({ persistence }: Readonly<{ persistence: Si
     } catch { return fail("SITE_DEFINITION_STORAGE_FAILURE"); }
   };
   return {
+    resolvePublicRouteUrl(input) {
+      if (!isObject(input) || typeof input.publicSiteUrl !== "string" || typeof input.normalizedRoute !== "string") return fail("INVALID_SITE_DEFINITION_INPUT");
+      const normalized = input.normalizedRoute === "/" ? { normalizedRoute: "/" } : normalizeRoute(input.normalizedRoute);
+      if (normalized === null || normalized.normalizedRoute !== input.normalizedRoute) return fail("INVALID_ROUTE", [input.normalizedRoute]);
+      try {
+        const base = new URL(input.publicSiteUrl);
+        if (base.protocol !== "https:" || base.username.length > 0 || base.password.length > 0 || base.search.length > 0 || base.hash.length > 0 || !base.pathname.endsWith("/") || base.href !== input.publicSiteUrl) return fail("INVALID_SITE_DEFINITION_INPUT");
+        return { ok: true, value: input.normalizedRoute === "/" ? base.href : new URL(`${input.normalizedRoute.slice(1)}/`, base).href };
+      } catch { return fail("INVALID_SITE_DEFINITION_INPUT"); }
+    },
     snapshot(graph) { return graph === "current" || graph === "published" ? graphSnapshot(graph) : fail("INVALID_SITE_DEFINITION_INPUT"); },
     snapshotInReadSnapshot(graph, snapshot) {
       if (graph !== "current" && graph !== "published") return fail("INVALID_SITE_DEFINITION_INPUT");

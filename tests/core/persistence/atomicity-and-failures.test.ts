@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
+import { canonicalJsonBytes, sha256Digest, type Digest } from "../../../core/foundation/index.js";
+import { migrateDatabase, openPersistence, type PersistenceStore } from "../../../core/persistence/index.js";
 import { openSqliteAdapter, sqliteConstraintKind, sqliteFailureCode } from "../../../core/persistence/sqlite-adapter.js";
 
 function fixture(): Readonly<{ directory: string; databasePath: string }> {
@@ -38,6 +38,62 @@ function readyStore(databasePath: string) {
   );
   return opened.value;
 }
+type OpaqueStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
+
+function canonicalOpaqueState(contract: string): OpaqueStateRecord {
+  const bytes = canonicalJsonBytes({ contract });
+  assert.equal(bytes.ok, true);
+  if (!bytes.ok) throw new Error("Foundation canonical JSON unexpectedly failed");
+  return { bytes: bytes.value, digest: sha256Digest(bytes.value) };
+}
+
+function assertOpaqueStateCas(
+  name: string,
+  read: PersistenceStore["readPluginActivationState"],
+  replace: PersistenceStore["compareAndReplacePluginActivationState"],
+): void {
+  const initial = read();
+  assert.equal(initial.ok, true, `${name} initial read`);
+  if (!initial.ok) throw new Error(`${name} initial state unavailable`);
+  const originalBytes = initial.value.bytes.slice();
+  initial.value.bytes.fill(0);
+  const defensive = read();
+  assert.equal(defensive.ok, true, `${name} defensive read`);
+  if (!defensive.ok) throw new Error(`${name} defensive state unavailable`);
+  assert.deepEqual(defensive.value.bytes, originalBytes);
+
+  const malformedBytes = new TextEncoder().encode('{"contract":"malformed","records":[],"a":1}');
+  const malformed = replace({
+    expectedDigest: defensive.value.digest,
+    next: { bytes: malformedBytes, digest: sha256Digest(malformedBytes) },
+  });
+  assert.equal(malformed.ok, false, `${name} malformed CAS`);
+  if (!malformed.ok) assert.equal(malformed.error.code, "NON_CANONICAL_BYTES");
+  const afterMalformed = read();
+  assert.equal(afterMalformed.ok, true);
+  if (!afterMalformed.ok) throw new Error(`${name} unavailable after malformed CAS`);
+  assert.equal(afterMalformed.value.digest, defensive.value.digest);
+
+  const stale = canonicalOpaqueState(`test-${name}-stale/v1`);
+  assert.deepEqual(
+    replace({ expectedDigest: stale.digest, next: canonicalOpaqueState(`test-${name}-next/v1`) }),
+    { ok: true, value: false },
+    `${name} stale CAS`,
+  );
+  const afterStale = read();
+  assert.equal(afterStale.ok, true);
+  if (!afterStale.ok) throw new Error(`${name} unavailable after stale CAS`);
+  assert.equal(afterStale.value.digest, defensive.value.digest);
+
+  const next = canonicalOpaqueState(`test-${name}-next/v1`);
+  assert.deepEqual(replace({ expectedDigest: defensive.value.digest, next }), { ok: true, value: true }, `${name} successful CAS`);
+  const replaced = read();
+  assert.equal(replaced.ok, true);
+  if (!replaced.ok) throw new Error(`${name} replacement unavailable`);
+  assert.deepEqual(replaced.value.bytes, next.bytes);
+  assert.equal(replaced.value.digest, next.digest);
+}
+
 
 test("canonical and digest failures are fixed and sanitized", () => {
   const value = fixture();
@@ -70,6 +126,40 @@ test("canonical and digest failures are fixed and sanitized", () => {
     assert.equal(absent.ok, false);
     if (!absent.ok) assert.equal(absent.error.code, "REVISION_NOT_FOUND");
     store.close();
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("opaque plugin, theme, and settings state CAS paths reject unsafe mutations", () => {
+  const value = fixture();
+  try {
+    const store = readyStore(value.databasePath);
+    assertOpaqueStateCas("plugin-activation", () => store.readPluginActivationState(), (input) => store.compareAndReplacePluginActivationState(input));
+    assertOpaqueStateCas("theme-activation", () => store.readThemeActivationState(), (input) => store.compareAndReplaceThemeActivationState(input));
+    assertOpaqueStateCas("plugin-settings", () => store.readPluginSettingsState(), (input) => store.compareAndReplacePluginSettingsState(input));
+    store.close();
+
+    const database = openSqliteAdapter(value.databasePath);
+    database.exec("CREATE TRIGGER reject_plugin_settings_state_update BEFORE UPDATE ON plugin_settings_state BEGIN SELECT RAISE(ABORT, 'test storage fault'); END");
+    database.close();
+    const reopened = openPersistence({ databasePath: value.databasePath });
+    assert.equal(reopened.ok, true);
+    if (!reopened.ok) throw new Error("Persistence store did not reopen");
+    const before = reopened.value.readPluginSettingsState();
+    assert.equal(before.ok, true);
+    if (!before.ok) throw new Error("Plugin settings state unavailable");
+    const failed = reopened.value.compareAndReplacePluginSettingsState({
+      expectedDigest: before.value.digest,
+      next: canonicalOpaqueState("test-plugin-settings-fault/v1"),
+    });
+    assert.equal(failed.ok, false);
+    if (!failed.ok) assert.equal(failed.error.code, "STORAGE_FAILURE");
+    const after = reopened.value.readPluginSettingsState();
+    assert.equal(after.ok, true);
+    if (!after.ok) throw new Error("Plugin settings state unavailable after fault");
+    assert.deepEqual(after.value, before.value);
+    reopened.value.close();
   } finally {
     rmSync(value.directory, { recursive: true, force: true });
   }

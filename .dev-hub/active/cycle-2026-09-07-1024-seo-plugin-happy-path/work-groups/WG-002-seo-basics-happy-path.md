@@ -1,11 +1,11 @@
 ---
 id: WG-002
-status: planned
+status: completed
 title: SEO basics happy path
 work_items: ["WI-002"]
 owner: Main
-branch: feature/seo-basics-happy-path
-worktree: .dev-hub/worktrees/seo-basics-happy-path
+branch: feature/site-reset-seo-basics
+worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset
 pr: null
 ---
 
@@ -13,8 +13,8 @@ pr: null
 
 ## Delivery
 
-從已合併 #307 contract 建立 feature worktree，完成 #308 runtime、測試、文件與 production happy path。
+在 `site-reset` 整合基線完成 #308：seo-basics、CMS authoring、Theme、published projection、Renderer、Delivery 與 CLI happy path。
 
 ## Verification
 
-尚未執行。#308 runtime 尚未實作；開始時須記錄 targeted tests、repository checks、browser/build/omission 實測。
+已通過 `npm run check`（typecheck、architecture、CMS build、237 tests）；production temp root 已實跑 Plugin／Theme package、10 個 migration、Theme activation 與 `site:build`，產物 digest 為 `sha256:3a2ed8d81c19c27e34f4c292192c4f4662e0e1843a3579975bc0b9e0d40fb90f`。

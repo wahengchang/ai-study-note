@@ -42,19 +42,29 @@ test("empty database migrates once and rerun preserves current storage", () => {
           "0006-add-revision-references",
           "0007-add-plugin-activation-state",
           "0008-add-schema-migration-lineage",
+          "0009-add-theme-activation-state",
+          "0010-add-plugin-settings-state",
         ],
-        currentMigrationId: "0008-add-schema-migration-lineage",
+        currentMigrationId: "0010-add-plugin-settings-state",
       },
     });
     const database = openSqliteAdapter(fixture.databasePath);
     assert.equal(database.get("PRAGMA application_id")?.application_id, 1095324500);
-    assert.equal(database.get("PRAGMA user_version")?.user_version, 8);
-    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 8);
+    assert.equal(database.get("PRAGMA user_version")?.user_version, 10);
+    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 10);
+    assert.deepEqual({ ...database.get("SELECT state_bytes AS bytes, state_digest AS digest FROM theme_activation_state WHERE singleton = 1") }, {
+      bytes: new TextEncoder().encode('{"contract":"theme-activation-state/v1"}'),
+      digest: "sha256:2d3bd9fd385ef0f4dad9d7026da41a3a39fa04850e0e05ea98322cf5d0230430",
+    });
+    assert.deepEqual({ ...database.get("SELECT state_bytes AS bytes, state_digest AS digest FROM plugin_settings_state WHERE singleton = 1") }, {
+      bytes: new TextEncoder().encode('{"contract":"plugin-settings-state/v1","records":[]}'),
+      digest: "sha256:c890fac912180a420c855ee7e05adf0dc94d7e8ef0fba033604dc4156f0a013e",
+    });
     database.close();
     const before = digestFile(fixture.databasePath);
     assert.deepEqual(migrateDatabase({ databasePath: fixture.databasePath }), {
       ok: true,
-      value: { appliedMigrationIds: [], currentMigrationId: "0008-add-schema-migration-lineage" },
+      value: { appliedMigrationIds: [], currentMigrationId: "0010-add-plugin-settings-state" },
     });
     assert.equal(digestFile(fixture.databasePath), before);
   } finally {
