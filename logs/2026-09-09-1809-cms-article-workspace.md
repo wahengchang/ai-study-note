@@ -32,4 +32,4 @@ completed_at: 2026-09-09T18:09:02+08:00
 ## 相關 Branch／PR
 
 - Branch：`feat/article-workspace-runtime`
-- PR：尚未建立
+- PR：https://github.com/wahengchang/ai-study-note/pull/337

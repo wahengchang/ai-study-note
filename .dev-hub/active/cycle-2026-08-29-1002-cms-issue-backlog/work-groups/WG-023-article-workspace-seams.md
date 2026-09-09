@@ -6,7 +6,7 @@ work_items: ["WI-035", "WI-041", "WI-044", "WI-049", "WI-056"]
 owner: Main
 branch: feat/article-workspace-runtime
 worktree: .dev-hub/worktrees/article-workspace-runtime
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/337
 ---
 
 # Article workspace runtime
