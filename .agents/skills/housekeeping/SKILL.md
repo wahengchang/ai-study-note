@@ -32,6 +32,12 @@ Report concrete findings and recommended follow-up. Do **not** apply updates aut
 
 Report whether the base branch is ahead of, behind, or diverged from its tracked remote. Do **not** pull, fetch, rebase, merge, or otherwise update the base branch.
 
+## 4. Goal cleanup
+
+1. Check whether the completed task belongs to the current goal.
+2. This includes AI-tooling goals, such as OMP, Claude, or Codex.
+3. If it belongs to the goal, mark the goal done and drop it.
+
 ## Report
 
 State:
