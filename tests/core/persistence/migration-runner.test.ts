@@ -6,7 +6,9 @@ import path from "node:path";
 import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { migrateDatabase } from "../../../core/persistence/index.js";
+import { getSiteContentSchemaEvidence } from "../../../core/content/index.js";
+
+import { migrateDatabase, migrateDatabaseWithSchemaEvidence } from "../../../core/persistence/index.js";
 import { migrateDatabaseWithSources, shippedMigrationSources, type MigrationSource } from "../../../core/persistence/migrations.js";
 import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
 
@@ -29,7 +31,7 @@ function shippedSources(): readonly MigrationSource[] {
 test("empty database migrates once and rerun preserves current storage", () => {
   const fixture = temporaryDatabase();
   try {
-    const first = migrateDatabase({ databasePath: fixture.databasePath });
+    const first = migrateDatabaseWithSchemaEvidence({ databasePath: fixture.databasePath }, getSiteContentSchemaEvidence());
     assert.deepEqual(first, {
       ok: true,
       value: {
@@ -60,9 +62,14 @@ test("empty database migrates once and rerun preserves current storage", () => {
       bytes: new TextEncoder().encode('{"contract":"plugin-settings-state/v1","records":[]}'),
       digest: "sha256:c890fac912180a420c855ee7e05adf0dc94d7e8ef0fba033604dc4156f0a013e",
     });
+    const siteContent = getSiteContentSchemaEvidence();
+    assert.deepEqual(
+      { ...database.get("SELECT schema_bytes AS bytes, schema_digest AS digest FROM schema_versions WHERE schema_id = ? AND version = ?", "site-content", 1) },
+      { bytes: siteContent.schemaBytes, digest: siteContent.schemaDigest },
+    );
     database.close();
     const before = digestFile(fixture.databasePath);
-    assert.deepEqual(migrateDatabase({ databasePath: fixture.databasePath }), {
+    assert.deepEqual(migrateDatabaseWithSchemaEvidence({ databasePath: fixture.databasePath }, siteContent), {
       ok: true,
       value: { appliedMigrationIds: [], currentMigrationId: "0010-add-plugin-settings-state" },
     });
@@ -92,6 +99,32 @@ test("forward migration preserves prior canonical evidence byte-for-byte", () =>
     const after = afterDatabase.get("SELECT content_bytes, content_digest FROM revisions WHERE entry_id = ? AND revision_id = ?", "entry", "r1");
     afterDatabase.close();
     assert.deepEqual(after, before);
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});
+
+test("production migration reconciles only absent exact site-content schema evidence", () => {
+  const fixture = temporaryDatabase();
+  try {
+    assert.equal(migrateDatabaseWithSources({ databasePath: fixture.databasePath }, shippedSources().slice(0, 1)).ok, true);
+    const database = openSqliteAdapter(fixture.databasePath);
+    const incompatible = canonicalJsonBytes({ type: "object" });
+    assert.equal(incompatible.ok, true);
+    if (!incompatible.ok) return;
+    database.run(
+      "INSERT INTO schema_versions (schema_id, version, schema_bytes, schema_digest) VALUES (?, ?, ?, ?)",
+      "site-content",
+      1,
+      incompatible.value,
+      sha256Digest(incompatible.value),
+    );
+    database.close();
+    const before = digestFile(fixture.databasePath);
+    const result = migrateDatabaseWithSchemaEvidence({ databasePath: fixture.databasePath }, getSiteContentSchemaEvidence());
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.error.code, "MIGRATION_FAILED");
+    assert.equal(digestFile(fixture.databasePath), before);
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }

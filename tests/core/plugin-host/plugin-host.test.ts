@@ -542,6 +542,28 @@ test("active snapshot and validator preflight latch all drift before loading any
   }
 });
 
+test("Plugin settings 只接受 canonical HTTPS public site URL 且拒絕時零寫入", async () => {
+  const value = fixture();
+  try {
+    const pluginHost = await host(value);
+    const candidate = exactCandidate(await pluginHost.discover(), "activation-probe");
+    const settings = await pluginHost.getSettingsSnapshot();
+    assert.equal(settings.ok, true);
+    if (!settings.ok) return;
+    const result = await pluginHost.replaceSettings({
+      identity: candidate,
+      expectedSettingsStateDigest: settings.value.stateDigest,
+      settingsContract: "seo-plugin-settings/v1",
+      settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: "https://example.test", indexing: "allow" },
+    });
+    assertFailure(result, "INVALID_PLUGIN_SETTINGS");
+    assert.equal(value.settings.writes, 0);
+    assert.deepEqual(value.settings.state.records, []);
+  } finally {
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
 test("trusted-root replacement and unsafe mode fail closed without state writes or execution", async () => {
   resetProbe();
   const value = fixture();

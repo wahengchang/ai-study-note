@@ -12,7 +12,7 @@ function canonical(value: unknown): Uint8Array {
   return result.value;
 }
 function digest(value: unknown): `sha256:${string}` { return sha256Digest(canonical(value)); }
-function artifact(input: Readonly<{ themeSource?: string; pluginSource?: string; media?: boolean; seo?: boolean; routes?: readonly string[]; stylesheet?: boolean }> = {}) {
+function artifact(input: Readonly<{ themeSource?: string; pluginSource?: string; media?: boolean; seo?: boolean; indexing?: "allow" | "disallow"; routes?: readonly string[]; stylesheet?: boolean }> = {}) {
   const claimedRoutes = input.routes ?? ["/guide"];
   const stylesheetResources = input.stylesheet ? "['assets/theme.css']" : "[]";
   const themeSource = input.themeSource ?? `export function render(input) { return { contract: 'theme-render-output/v1', pages: input.routes.map((route) => ({ route: route.normalizedRoute, language: 'zh-Hant', bodyHtml: '<h1>' + input.entries[0].content.title + '</h1>' + input.entries[0].blocks.join(''), stylesheetResources: ${stylesheetResources} })) }; }`;
@@ -37,7 +37,7 @@ function artifact(input: Readonly<{ themeSource?: string; pluginSource?: string;
     routes: { contract: "route-graph-snapshot/v1" as const, normalization: "route-normalization/v1" as const, graph: "published" as const, claims },
     media,
     theme: { identity: themeIdentity, manifest, activationStateDigest: digest({ contract: "theme-activation-state/v1", active: themeIdentity }), files: [{ role: "runtime" as const, file: "runtime.mjs", digest: manifest.runtime.digest, bytesBase64url: Buffer.from(themeSource).toString("base64url") }, ...themeResources.map((resource) => ({ role: "resource" as const, file: resource.file, digest: resource.digest, bytesBase64url: Buffer.from(themeStylesheet).toString("base64url") }))] },
-    plugins: { activationStateDigest: activeStateDigest, settingsStateDigest: digest({ contract: "plugin-settings-state/v1", records: [] }), identities: [identity], renderers: [{ identity, manifest: pluginManifest, entryBytesBase64url: Buffer.from(pluginSource).toString("base64url"), entryDigest: sha256Digest(new TextEncoder().encode(pluginSource)), resources: [], callbacks: [{ hook: "public/assets/emit" as const, exportName: "assets", priority: 10 }, { hook: "public/block/render" as const, exportName: "block", priority: 10 }] }], seo: input.seo ? { status: "available" as const, pages: [{ route: "/guide", title: "SEO 公開", description: "說明", canonicalUrl: "https://example.test/guide/", jsonLd: { "@context": "https://schema.org", "@type": "Article" } }], publicSiteUrl: "https://example.test/", omissionDigest: digest({ omissions: [] }) } : { status: "omitted" as const, pages: [], omissionDigest: digest({ omissions: [] }) } },
+    plugins: { activationStateDigest: activeStateDigest, settingsStateDigest: digest({ contract: "plugin-settings-state/v1", records: [] }), identities: [identity], renderers: [{ identity, manifest: pluginManifest, entryBytesBase64url: Buffer.from(pluginSource).toString("base64url"), entryDigest: sha256Digest(new TextEncoder().encode(pluginSource)), resources: [], callbacks: [{ hook: "public/assets/emit" as const, exportName: "assets", priority: 10 }, { hook: "public/block/render" as const, exportName: "block", priority: 10 }] }], seo: input.seo ? { status: "available" as const, pages: [{ route: "/guide", title: "SEO 公開", description: "說明", canonicalUrl: "https://example.test/guide/", jsonLd: { "@context": "https://schema.org", "@type": "Article" } }], publicSiteUrl: "https://example.test/", indexing: input.indexing ?? "allow", omissionDigest: digest({ omissions: [] }) } : { status: "omitted" as const, pages: [], omissionDigest: digest({ omissions: [] }) } },
   };
   const full = { ...payload, inputDigest: sha256Digest(canonical(payload)) };
   const bytes = canonical(full);
@@ -61,6 +61,13 @@ test("Renderer produces ordered SEO head and public site files from prepared con
   assert.match(page, /<title>SEO 公開<\/title><meta name="description" content="說明"><link rel="canonical" href="https:\/\/example\.test\/guide\/">/u);
   assert.match(new TextDecoder().decode(result.value.files.find((file) => file.path === "sitemap.xml")!.bytes), /https:\/\/example\.test\/guide\//u);
   assert.match(new TextDecoder().decode(result.value.files.find((file) => file.path === "robots.txt")!.bytes), /Sitemap: https:\/\/example\.test\/sitemap\.xml/u);
+});
+
+test("Renderer 依 sealed SEO indexing 輸出精確 robots 規則", async () => {
+  const result = await createStaticRenderer().render(artifact({ seo: true, indexing: "disallow" }));
+  assert.equal(result.ok, true);
+  if (!result.ok) return;
+  assert.equal(new TextDecoder().decode(result.value.files.find((file) => file.path === "robots.txt")!.bytes), "User-agent: *\nDisallow: /\nSitemap: https://example.test/sitemap.xml\n");
 });
 
 test("Renderer 在載入 module 前拒絕 media evidence", async () => {

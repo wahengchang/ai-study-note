@@ -18,7 +18,7 @@ import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
-import { createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi } from "../../../apps/authoring-api/index.js";
+import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -584,4 +584,9 @@ test("the client rejects an in-process request whose serialized body the listene
     assert.deepEqual(result, { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } }, "JSON.stringify 會丟掉 undefined content，必須在送出前擋下");
     assert.deepEqual(await createLocalAuthoringClient(credentialLocation(directory)).saveRevision({ entryId: "a/b", request: JSON.parse(saveBody("r", "/a")) }), { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } });
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("CMS SEO domain failure code 具有契約化 HTTP status", () => {
+  assert.deepEqual(authoringErrorStatuses("INVALID_SEO_ANALYSIS_REQUEST"), [422]);
+  assert.deepEqual(authoringErrorStatuses("CMS_SEO_ANALYSIS_FAILED"), [500]);
 });

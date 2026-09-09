@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
+
 import type { ActivePluginSnapshot, ActivePublicPluginRenderer, CmsEditorBlockIdentity, CmsEditorBlockResolution, CmsEditorBlockSource, CmsEditorBlockSourceEvidence, CmsEditorBlockResolverInput, CmsEditorBlockResolverOutput, CmsSeoAnalysisInputV1, CmsSeoAnalysisOutputV1, CmsSeoAnalysisResult, CreatePluginHostInput, PluginActivationIdentity, PluginActivationSnapshot, PluginActivationState, PluginCapability, PluginDiscoveryReport, PluginHost, PluginHostResult, PluginManifestV1, PluginPublicHookId, PluginSettingsRecord, PluginSettingsSnapshot, PluginSettingsState, PreparedPublicBuildSnapshot, PreparedSaveRevisionValidators, PublicBuildSnapshot, PublicPluginBuildRequestV1, PublicSeoSnapshot, SaveRevisionContentGuard, SaveRevisionValidatorInput, SeoPageContributionV1, SeoPluginSettingsV1, SeoSiteContributionV1, ValidatedSaveRevisionContent, VerifiedPluginResource } from "./contracts.js";
 import { isCanonicalPluginId, pluginHostError, pluginHostFailure, type PluginDiagnosticDetail, type PluginHostFailure } from "./failures.js";
 import { isExactSemver, readManifest } from "./manifest.js";
@@ -86,7 +87,7 @@ function parseSeoSettings(value: unknown): SeoPluginSettingsV1 | null {
   if (!exact(value, ["contract", "publicSiteUrl", "indexing"]) || value.contract !== "seo-plugin-settings/v1" || typeof value.publicSiteUrl !== "string" || value.publicSiteUrl.length === 0 || (value.indexing !== "allow" && value.indexing !== "disallow")) return null;
   try {
     const url = new URL(value.publicSiteUrl);
-    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "") return null;
+    if (url.protocol !== "https:" || url.username !== "" || url.password !== "" || url.search !== "" || url.hash !== "" || (url.pathname !== "/" && !url.pathname.endsWith("/")) || url.href !== value.publicSiteUrl) return null;
   } catch {
     return null;
   }

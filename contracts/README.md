@@ -2,7 +2,7 @@
 
 - **Contract ID**: `CMS-BASIC-CONTRACTS-V1`
 - **核准日期**：2026-08-26
-- **SEO target**：#307 的 SEO clauses 已核准；#308 為 **已核准、待實作**。本檔不得把 #308 target 寫成現行 runtime 行為。
+- **SEO target**：#307 的 SEO clauses 已核准；#308 已在 `site-reset` 實作。本檔記錄其核准 contract，程式碼與對應測試是現行 runtime 行為的 SSOT。
 
 ## Scope and authority
 
@@ -22,7 +22,7 @@
 - `DataMedia` owns immutable object/version/logical-asset/reference state. Public selection is published pointer → revision references → available asset version → checksum object; missing, archived or corrupt evidence fails before projection.
 - `ProjectionPreview` is the only `renderer-input/v1` producer. It reads published pointers/routes/media only; preview is read-only and distinguishes `current` from `published`. Raw full-page and Interactive Demo retain their approved privilege, sandbox and non-empty static-fallback boundaries.
 
-### #308 approved target — Content and save baseline
+### #308 contract — Content and save baseline
 
 - `Content` owns the sole revision shape: `StructuredContent={contract:"site-content/v1",title,blocks,seo}` and `StructuredSeo={title?,description?,canonicalPath?}`. `seo` is required; any present string is non-empty; CMS trim-to-empty omits that field. Unknown/null/array/empty values fail closed. Optional `seo` is not a supported contract.
 - The sole schema identity/evidence is immutable `SiteContentSchemaIdentity={schemaId:"site-content",version:1}` and defensive-copy `{identity,schema,schemaBytes,schemaDigest}` from `getSiteContentSchemaEvidence()`. Schema is Draft 2020-12, `$id:"site-content/v1"`, root exact/required `contract,title,blocks,seo`; subordinate block/schema details remain in Content public types, parser and tests.
@@ -36,7 +36,7 @@
 
 - Persistence owns transactions, immutable revisions/pointers and `persistence-canonical-state/v2`. Cross-host ordering and canonical bytes use locale-independent JSON code-unit order, never `localeCompare`.
 
-### #308 approved target — CAS state
+### #308 contract — CAS state
 
 - Reuse the opaque-bytes/digest singleton CAS pattern; do not create a second store. `theme_activation_state` and `plugin_settings_state` are `STRICT(singleton=1,state_bytes,state_digest)` with prevent-delete triggers.
 - `0009-add-theme-activation-state.sql` seeds JCS `{"contract":"theme-activation-state/v1"}`; `0010-add-plugin-settings-state.sql` seeds JCS `{"contract":"plugin-settings-state/v1","records":[]}`. Each has its SHA-256. Fresh migration has ten rows and current migration `0010-add-plugin-settings-state`.
@@ -49,7 +49,7 @@
 
 `core/theme-host/index.ts` owns installed-root discovery, manifest/identity validation and defensive verified-file evidence. `ThemeIdentity={id,version,manifestHash}` is manifest-derived; duplicate `{id,version}` candidates fail closed. Trusted roots/files must be current-UID-owned, safe-mode regular files; symlink/path/evidence drift fails closed. Runtime bytes are verified but not executed by ThemeHost and may not import dependencies.
 
-### #308 approved target — durable active Theme
+### #308 contract — durable active Theme
 
 - Add `ThemeActivationStatePort`, `ThemeActivationSnapshot={active?:ThemeIdentity,stateDigest}`, `getActivationSnapshot()`, CAS `activate({identity,expectedActivationStateDigest})`, and `resolveActive(): ThemeHostResult<{identity,activationStateDigest,theme:VerifiedThemePackage}>`.
 - `theme:activate --id study-notes` discovers exactly one candidate and CAS-writes its complete `{id,version,manifestHash}` using a fresh digest. Zero candidate, same-ID multi-version ambiguity, malformed/empty state, evidence drift or stale CAS fails with no write.
@@ -61,7 +61,7 @@
 
 `PluginHost` owns trusted installed Plugin discovery, explicit hook catalog, immutable callback input and hook ordering (priority then Plugin ID). Public Plugin rendering receives published renderer input only; it cannot read authoring revision state. Missing/inactive callback owners never gain direct SQL, media, route-graph or artifact-directory access.
 
-### #308 approved target — Plugin identity/settings/execution
+### #308 contract — Plugin identity/settings/execution
 
 - `PluginActivationIdentity` is required exact `{id,version,hookContract,manifestHash,capabilities}`. Capabilities are code-unit sorted and exactly match the manifest. `activate` and `deactivate` require `expectedActivationStateDigest`; `CreatePluginHostInput` requires the settings port.
 - The additive catalog includes `cms/seo/analyze` ↔ `cms-seo-analysis`, `public/seo/page` ↔ `public-seo-page-contribution`, and `public/seo/site` ↔ `public-seo-site-contribution`; at most one callback per Plugin/hook.
@@ -79,7 +79,7 @@
 
 Before secret/auth/body parsing, every `/_local` and `/v1` route rejects Cookie and query. The middleware order is Host/forwarded → Origin/Fetch Metadata → Bearer → media/body/schema → Application; admission failure runs no command or canonical mutation. Browser `POST` requires exact Origin, exactly one `Sec-Fetch-Site:same-origin`, and Bearer. API `GET` requires exact Host/Bearer/exactly one same-origin Fetch Site, with absent Origin or one exact Origin. CLI keeps its existing absent-Origin/no-Fetch-Metadata Bearer profile.
 
-### #308 approved target — Application façade and finite routes
+### #308 contract — Application façade and finite routes
 - `Application` is the only authoring façade for existing type/catalog/history/Save/Publish/current/published Preview plus `readCurrentEntry`, `resolveCurrentCmsEditorBlocks`, `listPlugins`, `activatePlugin`, `replacePluginSettings`, `analyzeCmsSeo`. Authoring API/browser code must not call Projection, ThemeHost, PluginHost or Persistence directly.
 - `PluginManagementSnapshotV1={contract:"plugin-management-snapshot/v1",activationStateDigest,settingsStateDigest,plugins,diagnostics}`; Plugin items use current verified evidence and, only on exact identity match, settings `{settingsContract:"seo-plugin-settings/v1",settings:SeoPluginSettingsV1,settingsDigest}`. Items sort by ID; diagnostics sort by code/scope. Requests are exact `plugin-activation-request/v1 {identity,expectedActivationStateDigest}` and `plugin-settings-replace-request/v1 {identity,expectedSettingsStateDigest,settingsContract:"seo-plugin-settings/v1",settings}`; both CAS mutations return a fresh snapshot.
 - `CmsSeoAnalysisRequest` is exact `{contract:"cms-seo-analysis-request/v1",entryId,expectedCurrentRevisionId,schemaIdentity,content,route,documentDigest}` where `documentDigest=SHA-256(JCS({entryId,expectedCurrentRevisionId,schemaIdentity,content,route}))`. Application recomputes it constant-time, validates schema/content/normalized route/baseline, then has SiteDefinition form the absolute canonical URL. `ENTRY_NOT_FOUND`, `CURRENT_REVISION_MISMATCH`, `INVALID_SEO_ANALYSIS_REQUEST` leave unrelated state unchanged.
@@ -87,7 +87,7 @@ Before secret/auth/body parsing, every `/_local` and `/v1` route rejects Cookie 
 - Add only finite routes: `GET /v1/plugins`, `POST /v1/plugins/activate`, `POST /v1/plugins/settings`, `GET /v1/entries/:entryId/current`, `GET /v1/entries/:entryId/current/editor-blocks`, `POST /v1/entries/:entryId/seo-analysis`. GET miss is `404`; CAS conflict or Plugin operation snapshot drift is `409`; invalid request/digest/identity/settings `422`; callback SEO unavailable and editor block `inactive|missing|identity-changed` are `200`; inability to form a DTO from storage/Application fault `500`. Central classification rejects unknown, trailing-slash, nested, encoded paths and `OPTIONS`.
 - CMS browser code moves to the sole `apps/cms/index.ts` entry. It owns Plugin settings/activation and entry-editor SEO UI plus source-preserving Plugin editor-block UI: normalized-document dirty/save bytes retain every canonical interactive block, while active Host output and safe Host diagnostics are derived display-only bytes. The editor has normalized-document dirty/save/analysis bytes, 400ms trailing analysis, stale-response suppression, conflict lock/reload focus, and accessible status. SEO unavailable is non-blocking; SEO never disables eligible Save/Publish.
 
-### #308 approved target — CMS document admission
+### #308 contract — CMS document admission
 
 CMS document routing is a finite exact allowlist: `GET /cms`, `GET /cms/`, `GET /cms/entries/new`, `GET /cms/entries/:entryId`, and `GET /cms/plugins`. Built assets are admitted only from the built manifest allowlist. `GET /cms/plugins` **must** be in both the CMS-document allowlist and the central logger's document route-template union; no `/cms/*`, prefix, history, SPA or wildcard fallback is permitted.
 
@@ -99,7 +99,7 @@ Every CMS document route, including `/cms/plugins`, requires exact Host; documen
 
 Renderer consumes Projection's immutable renderer input; Delivery creates immutable artifact directories with a manifest, verifies route/file closure and bytes before write, and uses sibling staging then atomic rename. Identical verified artifacts are re-deliverable without mutation; changed input changes provenance. Public rendering remains published-only.
 
-### #308 approved target — prepared published build
+### #308 contract — prepared published build
 
 - Projection reads published content/routes/media only, builds code-unit sorted `{entryId,revisionId,schemaIdentity,route,content}` input, calls `resolvePublicBuildSnapshot()` exactly once, materializes only prepared evidence, validates its token exactly once, then rereads/compares published selection and active Theme evidence before renderer encoding. Current/draft never enter Host input, diagnostic, digest or output.
 - Projection returns `PublishedProjectionResult={artifact,diagnostics}`. It converts typed SEO path DTOs to absolute URLs through SiteDefinition; diagnostics/omission evidence are sidecar/internal provenance only.

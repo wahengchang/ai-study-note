@@ -1,6 +1,6 @@
 import type { MigrationSummary, PersistenceResult, PersistenceStore } from "./contracts.js";
 import { persistenceResultFailure } from "./failures.js";
-import { migrateDatabaseWithSources, openCurrentDatabase, shippedMigrationSources } from "./migrations.js";
+import { migrateDatabaseWithSources, openCurrentDatabase, shippedMigrationSources, type SchemaEvidenceReconciliation } from "./migrations.js";
 import { createPersistenceStore } from "./store.js";
 
 export type {
@@ -62,10 +62,18 @@ export type {
   TransactionDecision,
 } from "./contracts.js";
 
+export type { SchemaEvidenceReconciliation } from "./migrations.js";
+
 export function migrateDatabase(input: Readonly<{ databasePath: string }>): PersistenceResult<MigrationSummary> {
   const sources = shippedMigrationSources();
   if (sources === null) return persistenceResultFailure("MIGRATION_FAILED");
   return migrateDatabaseWithSources(input, sources);
+}
+
+export function migrateDatabaseWithSchemaEvidence(input: Readonly<{ databasePath: string }>, evidence: SchemaEvidenceReconciliation): PersistenceResult<MigrationSummary> {
+  const sources = shippedMigrationSources();
+  if (sources === null) return persistenceResultFailure("MIGRATION_FAILED");
+  return migrateDatabaseWithSources(input, sources, evidence);
 }
 
 export function openPersistence(input: Readonly<{ databasePath: string }>): PersistenceResult<PersistenceStore> {
