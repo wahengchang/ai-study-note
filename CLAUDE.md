@@ -15,6 +15,11 @@
 - 只有上述定義的「大型工作」必須在執行前閱讀並遵循 `docs/dev-hub-workflow.md`；純問答、小型修正與唯讀查詢不建立 Cycle。該檔是 `.dev-hub/` 狀態流程的唯一操作入口。
 - `.dev-hub/active/` 只保存進行中的 Cycle 協作狀態。Cycle 完成時整包刪除，永久摘要改寫入上述 `logs/` 工作紀錄；因此查詢已完成工作一律看 `logs/`，不看 `.dev-hub/`。
 
+## Git 分支策略
+
+- `site-reset` 是儲存庫的預設主整合分支。
+- 不得將已合併 feature 或 integration branch 的提交 cherry-pick 至 `site-reset`；所有進入該分支的變更必須遵循核准的 PR／merge 流程。
+
 ## 專案文件
 
 修改程式碼前：
