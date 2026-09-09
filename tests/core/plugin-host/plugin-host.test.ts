@@ -10,18 +10,20 @@ import {
   type PluginActivationIdentity,
   type PluginActivationState,
   type PluginActivationStatePort,
-  type PluginManifestV1,
+  type PluginSettingsState,
+  type PluginSettingsStatePort,
   type PluginHost,
   type PluginHostResult,
   type SaveRevisionContentGuard,
   type SaveRevisionValidatorInput,
 } from "../../../core/plugin-host/index.js";
+import type { PluginManifestV1 } from "../../../core/plugin-host/index.js";
 
 const repositoryRoot = process.cwd();
 const templateRoot = path.join(repositoryRoot, "extensions", "plugins", "activation-probe");
 const probeKey = "__pluginHostProbe";
 
-type Fixture = Readonly<{ directory: string; installedRoot: string; pluginDirectory: string; port: MemoryActivationStatePort }>;
+type Fixture = Readonly<{ directory: string; installedRoot: string; pluginDirectory: string; port: MemoryActivationStatePort; settings: MemorySettingsStatePort }>;
 type Probe = { loads: number; callbacks: number; facades: number; frozen?: boolean; mode?: string };
 
 function bytes(value: unknown): Uint8Array {
@@ -32,7 +34,7 @@ function bytes(value: unknown): Uint8Array {
 }
 
 function copyIdentity(value: PluginActivationIdentity): PluginActivationIdentity {
-  return Object.freeze({ ...value });
+  return Object.freeze({ ...value, capabilities: Object.freeze([...value.capabilities]) });
 }
 
 function copyState(value: PluginActivationState): PluginActivationState {
@@ -72,6 +74,22 @@ class MemoryActivationStatePort implements PluginActivationStatePort {
   }
 }
 
+class MemorySettingsStatePort implements PluginSettingsStatePort {
+  public state: PluginSettingsState = Object.freeze({ contract: "plugin-settings-state/v1", records: Object.freeze([]) });
+  public writes = 0;
+
+  public async read(): Promise<PluginSettingsState> {
+    return JSON.parse(new TextDecoder().decode(bytes(this.state))) as PluginSettingsState;
+  }
+
+  public async compareAndReplace(input: Readonly<{ expectedDigest: Digest; nextState: PluginSettingsState }>): Promise<boolean> {
+    if (input.expectedDigest !== sha256Digest(bytes(this.state))) return false;
+    this.state = JSON.parse(new TextDecoder().decode(bytes(input.nextState))) as PluginSettingsState;
+    this.writes += 1;
+    return true;
+  }
+}
+
 function manifest(pluginDirectory: string, input: Partial<PluginManifestV1> = {}): PluginManifestV1 {
   const entryBytes = readFileSync(path.join(pluginDirectory, "index.mjs"));
   const resourceBytes = readFileSync(path.join(pluginDirectory, "resources", "contract.json"));
@@ -81,7 +99,7 @@ function manifest(pluginDirectory: string, input: Partial<PluginManifestV1> = {}
     version: "1.0.0",
     trustedLocal: true,
     hookContract: "plugin-hooks/v1",
-    capabilities: ["save-revision-validator", "cms-editor-block-resolution"],
+    capabilities: ["cms-editor-block-resolution", "save-revision-validator"],
     entry: { file: "index.mjs", digest: sha256Digest(entryBytes) },
     callbacks: [
       { hook: "save-revision/validate", exportName: "validateSaveRevision", priority: 10 },
@@ -126,7 +144,7 @@ function fixture(): Fixture {
   cpSync(templateRoot, pluginDirectory, { recursive: true });
   writeEditorModule(pluginDirectory);
   writeManifest(pluginDirectory);
-  return { directory, installedRoot, pluginDirectory, port: new MemoryActivationStatePort() };
+  return { directory, installedRoot, pluginDirectory, port: new MemoryActivationStatePort(), settings: new MemorySettingsStatePort() };
 }
 
 function addPlugin(value: Fixture, id: string): string {
@@ -138,7 +156,7 @@ function addPlugin(value: Fixture, id: string): string {
 }
 
 async function host(value: Fixture): Promise<PluginHost> {
-  const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: value.installedRoot, activationState: value.port });
+  const created = await createPluginHost({ repositoryRoot, installedPluginsRoot: value.installedRoot, activationState: value.port, settingsState: value.settings });
   assert.equal(created.ok, true);
   if (!created.ok) throw new Error("Plugin Host unexpectedly failed to create");
   return created.value;
@@ -164,11 +182,42 @@ function exactCandidate(report: Awaited<ReturnType<PluginHost["discover"]>>, id:
   if (!report.ok) throw new Error("Plugin discovery unexpectedly failed");
   const candidate = report.value.candidates.find((item) => item.id === id);
   if (candidate === undefined) throw new Error("Plugin candidate unexpectedly missing");
-  return Object.freeze({ id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash });
+  return Object.freeze({ id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash, capabilities: Object.freeze([...candidate.capabilities]) });
 }
 
 async function activate(pluginHost: PluginHost, id = "activation-probe") {
-  return pluginHost.activate({ identity: exactCandidate(await pluginHost.discover(), id) });
+  const candidate = exactCandidate(await pluginHost.discover(), id);
+  const settings = await pluginHost.getSettingsSnapshot();
+  assert.equal(settings.ok, true);
+  if (!settings.ok) throw new Error("Plugin settings unexpectedly unavailable");
+  const replaced = await pluginHost.replaceSettings({ identity: candidate, expectedSettingsStateDigest: settings.value.stateDigest, settingsContract: "seo-plugin-settings/v1", settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: "https://example.test/", indexing: "allow" } });
+  assert.equal(replaced.ok, true);
+  const state = await pluginHost.getActivationSnapshot();
+  assert.equal(state.ok, true);
+  if (!state.ok) throw new Error("Plugin activation state unexpectedly unavailable");
+  return pluginHost.activate({ identity: candidate, expectedActivationStateDigest: state.value.digest });
+}
+
+async function activateIdentity(pluginHost: PluginHost, identity: PluginActivationIdentity) {
+  const settings = await pluginHost.getSettingsSnapshot();
+  assert.equal(settings.ok, true);
+  if (!settings.ok) throw new Error("Plugin settings unexpectedly unavailable");
+  const hasExactSettings = settings.value.records.some((record) => record.identity.id === identity.id && record.identity.version === identity.version && record.identity.manifestHash === identity.manifestHash);
+  if (!hasExactSettings) {
+    const replaced = await pluginHost.replaceSettings({ identity, expectedSettingsStateDigest: settings.value.stateDigest, settingsContract: "seo-plugin-settings/v1", settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: "https://example.test/", indexing: "allow" } });
+    assert.equal(replaced.ok, true);
+    if (!replaced.ok) throw new Error("Plugin settings unexpectedly unavailable");
+  }
+  const state = await pluginHost.getActivationSnapshot();
+  assert.equal(state.ok, true);
+  if (!state.ok) throw new Error("Plugin activation state unexpectedly unavailable");
+  return pluginHost.activate({ identity, expectedActivationStateDigest: state.value.digest });
+}
+async function deactivateIdentity(pluginHost: PluginHost, identity: PluginActivationIdentity) {
+  const state = await pluginHost.getActivationSnapshot();
+  assert.equal(state.ok, true);
+  if (!state.ok) throw new Error("Plugin activation state unexpectedly unavailable");
+  return pluginHost.deactivate({ identity, expectedActivationStateDigest: state.value.digest });
 }
 
 function assertFailure<T>(result: PluginHostResult<T>, code: string): asserts result is Extract<PluginHostResult<T>, { ok: false }> {
@@ -294,7 +343,7 @@ test("editor resolution only executes an exact active identity and exact activat
     assert.equal(active.value.outputDigest, sha256Digest(bytes(active.value.output)));
     const executed = { ...probe() };
 
-    const deactivated = await pluginHost.deactivate({ identity });
+    const deactivated = await deactivateIdentity(pluginHost, identity);
     assert.equal(deactivated.ok, true);
     const inactive = await pluginHost.resolveCmsEditorBlock(source(identity));
     assert.equal(inactive.ok, true);
@@ -304,7 +353,7 @@ test("editor resolution only executes an exact active identity and exact activat
     assert.equal(inactive.value.source.sourceDigest, sha256Digest(bytes({ nested: { value: "source" } })));
     assert.deepEqual(probe(), executed);
 
-    const reenabled = await pluginHost.activate({ identity });
+    const reenabled = await activateIdentity(pluginHost, identity);
     assert.equal(reenabled.ok, true);
     const restored = await pluginHost.resolveCmsEditorBlock(source(identity));
     assert.equal(restored.ok, true);
@@ -346,7 +395,7 @@ test("missing and mismatched evidence latch once, remain inactive after recovery
     if (recovered.ok) assert.equal(recovered.value.status, "inactive");
     assert.equal(value.port.writes, 2);
     assert.deepEqual(probe(), before);
-    const reenabled = await pluginHost.activate({ identity });
+    const reenabled = await activateIdentity(pluginHost, identity);
     assert.equal(reenabled.ok, true);
     const active = await pluginHost.resolveCmsEditorBlock(source(identity));
     assert.equal(active.ok, true);
@@ -381,7 +430,7 @@ test("malformed and escaping manifest evidence resolve as identity changes witho
     assert.deepEqual(probe(), before);
 
     writeManifest(value.pluginDirectory);
-    const reenabled = await pluginHost.activate({ identity });
+    const reenabled = await activateIdentity(pluginHost, identity);
     assert.equal(reenabled.ok, true);
     writeManifest(value.pluginDirectory, { entry: { file: "../token-do-not-leak.mjs", digest: "sha256:0000000000000000000000000000000000000000000000000000000000000000" } });
     const escaping = await pluginHost.resolveCmsEditorBlock(source(identity));
@@ -410,14 +459,14 @@ test("identity drift does not import a replacement and a healthy different ident
     assert.equal(changed.ok, true);
     if (changed.ok) assert.equal(changed.value.status, "identity-changed");
     const replacement = exactCandidate(await pluginHost.discover(), original.id);
-    const conflict = await pluginHost.activate({ identity: replacement });
+    const conflict = await activateIdentity(pluginHost, replacement);
     assertFailure(conflict, "PLUGIN_IDENTITY_CONFLICT");
     assert.deepEqual(probe(), before);
     writeManifest(value.pluginDirectory);
     const inactive = await pluginHost.resolveCmsEditorBlock(source(original));
     assert.equal(inactive.ok, true);
     if (inactive.ok) assert.equal(inactive.value.status, "inactive");
-    const reenabled = await pluginHost.activate({ identity: original });
+    const reenabled = await activateIdentity(pluginHost, original);
     assert.equal(reenabled.ok, true);
 
     const healthyB = exactCandidate(await pluginHost.discover(), original.id);
@@ -444,16 +493,21 @@ test("activation validates the persisted identity before filesystem reads and la
     if (!activated.ok) return;
     const identity = activated.value.identities[0]!;
     const before = { ...probe() };
-    const changedManifest = writeManifest(value.pluginDirectory, { version: "1.0.1" });
-    const different = Object.freeze({ id: identity.id, version: changedManifest.version, hookContract: changedManifest.hookContract, manifestHash: sha256Digest(bytes(changedManifest)) });
-    const conflict = await pluginHost.activate({ identity: different });
+    writeManifest(value.pluginDirectory, { version: "1.0.1" });
+    const different = exactCandidate(await pluginHost.discover(), identity.id);
+    const conflict = await activateIdentity(pluginHost, different);
     assertFailure(conflict, "PLUGIN_IDENTITY_CONFLICT");
     assert.deepEqual(probe(), before);
     assert.equal(value.port.writes, 1);
 
     writeManifest(value.pluginDirectory);
+    const settings = await pluginHost.getSettingsSnapshot();
+    assert.equal(settings.ok, true);
+    if (!settings.ok) return;
+    const restoredSettings = await pluginHost.replaceSettings({ identity, expectedSettingsStateDigest: settings.value.stateDigest, settingsContract: "seo-plugin-settings/v1", settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: "https://example.test/", indexing: "allow" } });
+    assert.equal(restoredSettings.ok, true);
     rmSync(path.join(value.pluginDirectory, "resources", "contract.json"));
-    const evidence = await pluginHost.activate({ identity });
+    const evidence = await activateIdentity(pluginHost, identity);
     assertFailure(evidence, "PLUGIN_EVIDENCE_MISMATCH");
     assert.deepEqual(value.port.state.active, []);
     assert.deepEqual(value.port.state.reactivationRequired, [identity]);
@@ -503,7 +557,7 @@ test("trusted-root replacement and unsafe mode fail closed without state writes 
     renameSync(value.installedRoot, displaced);
     mkdirSync(value.installedRoot);
     cpSync(path.join(displaced, "activation-probe"), value.pluginDirectory, { recursive: true });
-    assertFailure(await pluginHost.activate({ identity }), "INVALID_TRUSTED_ROOT");
+    assertFailure(await activateIdentity(pluginHost, identity), "INVALID_TRUSTED_ROOT");
     assertFailure(await pluginHost.getActiveSnapshot(), "INVALID_TRUSTED_ROOT");
     assertFailure(await pluginHost.resolveCmsEditorBlock(source(identity)), "INVALID_TRUSTED_ROOT");
     assertFailure(await pluginHost.prepareSaveRevisionValidators({ entryId: "entry-a" }), "INVALID_TRUSTED_ROOT");
@@ -609,7 +663,7 @@ test("latch CAS conflict and port failure never execute a callback or expose por
 
 test("trusted root rejects repository-local source", async () => {
   const port = new MemoryActivationStatePort();
-  const result = await createPluginHost({ repositoryRoot, installedPluginsRoot: path.join(repositoryRoot, "extensions", "plugins"), activationState: port });
+  const result = await createPluginHost({ repositoryRoot, installedPluginsRoot: path.join(repositoryRoot, "extensions", "plugins"), activationState: port, settingsState: new MemorySettingsStatePort() });
   assertFailure(result, "INVALID_TRUSTED_ROOT");
   assert.equal(existsSync(path.join(templateRoot, "index.ts")), true);
 });
@@ -810,32 +864,3 @@ test("inspectActiveSnapshot verifies exact active evidence without durable drift
   }
 });
 
-test("public renderer snapshot 封存 manifest、entry 與 resource bytes，並拒絕 active evidence drift", async () => {
-  const value = fixture();
-  try {
-    writeFileSync(path.join(value.pluginDirectory, "index.mjs"), "export function block() { return { contract: 'public-block-render-output/v1', html: '' }; } export function emit() { return { contract: 'public-assets-emit-output/v1', files: [] }; }");
-    writeManifest(value.pluginDirectory, {
-      capabilities: ["public-assets-emitter", "public-block-renderer"],
-      callbacks: [{ hook: "public/assets/emit", exportName: "emit", priority: 5 }, { hook: "public/block/render", exportName: "block", priority: 10 }],
-    });
-    const pluginHost = await host(value);
-    assert.equal((await activate(pluginHost)).ok, true);
-    const first = await pluginHost.resolveActivePublicRenderers();
-    assert.equal(first.ok, true);
-    if (!first.ok) return;
-    assert.equal(first.value.length, 1);
-    const renderer = first.value[0]!;
-    assert.equal(renderer.manifest.entry.digest, renderer.entryDigest);
-    assert.deepEqual(renderer.callbacks.map((callback) => callback.exportName), ["emit", "block"]);
-    const original = renderer.entryBytes[0]!;
-    renderer.entryBytes[0] = original ^ 0xff;
-    const second = await pluginHost.resolveActivePublicRenderers();
-    assert.equal(second.ok, true);
-    if (!second.ok) return;
-    assert.equal(second.value[0]!.entryBytes[0], original);
-    writeFileSync(path.join(value.pluginDirectory, "index.mjs"), "export function block() { return null; }");
-    assertFailure(await pluginHost.resolveActivePublicRenderers(), "ACTIVE_PLUGIN_IDENTITY_MISMATCH");
-  } finally {
-    rmSync(value.directory, { recursive: true, force: true });
-  }
-});

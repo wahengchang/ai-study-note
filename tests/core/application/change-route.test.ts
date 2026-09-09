@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { ChangeRouteSuccess, DomainApplication, DomainApplicationResult } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
@@ -40,7 +40,7 @@ async function harness(directory: string): Promise<Harness> {
   if (!started.ok) throw new Error("startDataMedia");
   const installedPluginsRoot = path.join(directory, "installed");
   mkdirSync(installedPluginsRoot, { recursive: true });
-  const plugins = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot, activationState: createPersistencePluginActivationStatePort({ persistence: opened.value }) });
+  const plugins = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot, activationState: createPersistencePluginActivationStatePort({ persistence: opened.value }), settingsState: createPersistencePluginSettingsStatePort({ persistence: opened.value }) });
   assert.equal(plugins.ok, true);
   if (!plugins.ok) throw new Error("createPluginHost");
   const schema = canonicalJsonBytes({ type: "object" });
@@ -52,8 +52,8 @@ async function harness(directory: string): Promise<Harness> {
   return { databasePath, store: opened.value, site, application, media: started.value, plugins: plugins.value };
 }
 
-async function save(application: DomainApplication, entryId: string, revisionId: string, route: string, operationId = `save-${entryId}-${revisionId}`): Promise<void> {
-  const result = await application.saveRevision({ entryId, revisionId, operationId, schemaIdentity: { schemaId: "note", version: 1 }, content: { entryId, revisionId }, route, assetVersions: [] });
+async function save(application: DomainApplication, entryId: string, revisionId: string, route: string, expectedCurrentRevisionId: string | null = null, operationId = `save-${entryId}-${revisionId}`): Promise<void> {
+  const result = await application.saveRevision({ entryId, revisionId, operationId, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { entryId, revisionId }, route, assetVersions: [] });
   assert.equal(result.ok, true, result.ok ? "" : result.error.code);
 }
 
@@ -61,7 +61,7 @@ async function seedPublished(value: Harness, entryId = "entry-a", route = "/old"
   await save(value.application, entryId, "r1", route);
   const published = await value.application.publishRevision({ entryId, expectedCurrentRevisionId: "r1", operationId: `publish-${entryId}` });
   assert.equal(published.ok, true, published.ok ? "" : published.error.code);
-  await save(value.application, entryId, "r2", route);
+  await save(value.application, entryId, "r2", route, "r1");
 }
 
 function snapshots(site: SiteDefinition) {

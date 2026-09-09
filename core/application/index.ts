@@ -1,14 +1,22 @@
 export { createDomainApplication } from "./application.js";
 export { createPersistencePluginActivationStatePort } from "./plugin-activation-state-adapter.js";
+export { createPersistencePluginSettingsStatePort } from "./plugin-settings-state-adapter.js";
+export { createAuthoringReadFacade, createContentTypeAdministration } from "./authoring-read.js";
 export type {
+  AuthoringEntryV1,
   ChangeRouteRequest,
   ChangeRouteSuccess,
+  CmsSeoAnalysisRequest,
+  CmsSeoAnalysisResponse,
   DomainApplication,
   DomainApplicationCommandFailure,
   DomainApplicationDependencies,
   DomainApplicationFailure,
   DomainApplicationFailureCode,
   DomainApplicationResult,
+  PluginActivationRequest,
+  PluginManagementSnapshotV1,
+  PluginSettingsReplaceRequest,
   PublishRevisionRequest,
   PublishRevisionSuccess,
   RestoreRevisionRequest,
@@ -19,3 +27,20 @@ export type {
   SaveRevisionRequest,
   SaveRevisionSuccess,
 } from "./contracts.js";
+export type {
+  AuthoringReadFacade,
+  AuthoringReadFailure,
+  AuthoringReadFailureCode,
+  AuthoringReadResult,
+  ContentTypeAdministration,
+  ContentTypeAdministrationFailure,
+  ContentTypeAdministrationFailureCode,
+  ContentTypeAdministrationResult,
+  ContentTypeDefinitionValidator,
+  ContentTypeCatalog,
+  ContentTypeDocument,
+  CreateAuthoringReadFacadeInput,
+  EntryCatalog,
+  EntryDetail,
+  EntryRevisionCatalog,
+} from "./authoring-read.js";

@@ -7,11 +7,12 @@ export function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
 }
 
 // caller 與 parser 的輸入都可能是敵意 object（含會拋出的 proxy），因此 shape 檢查必須永不拋出。
-export function exact(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+export function exact(value: unknown, keys: readonly string[], optional: readonly string[] = []): value is Record<string, unknown> {
   try {
     if (value === null || typeof value !== "object" || Array.isArray(value) || Object.getPrototypeOf(value) !== Object.prototype) return false;
     const descriptors = Object.getOwnPropertyDescriptors(value);
-    return Object.keys(descriptors).length === keys.length && keys.every((key) => key in descriptors && "value" in descriptors[key]!);
+    return Object.keys(descriptors).every((key) => keys.includes(key) || optional.includes(key))
+      && keys.every((key) => key in descriptors && "value" in descriptors[key]!);
   } catch { return false; }
 }
 

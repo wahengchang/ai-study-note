@@ -5,7 +5,7 @@ import test from "node:test";
 import { tmpdir } from "node:os";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
+import { createThemeHost, type ThemeActivationStatePort, type ThemeIdentity } from "../../../core/theme-host/index.js";
 
 type Fixture = Readonly<{ base: string; repositoryRoot: string; installedThemesRoot: string }>;
 type Resource = Readonly<{ file: string; content: string }>;
@@ -20,6 +20,20 @@ async function fixture(): Promise<Fixture> {
 
 async function cleanup(value: Fixture): Promise<void> {
   await rm(value.base, { recursive: true, force: true });
+}
+
+function inactiveThemeActivationState(): ThemeActivationStatePort {
+  const canonical = canonicalJsonBytes({ contract: "theme-activation-state/v1" });
+  assert.equal(canonical.ok, true);
+  const record = Object.freeze({ bytes: canonical.value, digest: sha256Digest(canonical.value) });
+  return Object.freeze({
+    async read() {
+      return Object.freeze({ bytes: new Uint8Array(record.bytes), digest: record.digest });
+    },
+    async compareAndReplace() {
+      return false;
+    },
+  });
 }
 
 async function installTheme(input: Readonly<{
@@ -59,7 +73,7 @@ test("discovers external canonical Themes, resolves exact identity, and defensiv
   context.after(() => cleanup(roots));
   const first = await installTheme({ root: roots.installedThemesRoot, slot: "opaque-a", id: "example-theme", version: "1.0.0" });
   const second = await installTheme({ root: roots.installedThemesRoot, slot: "opaque-b", id: "example-theme", version: "2.0.0" });
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const discovery = await created.value.discover();
   assert.deepEqual(discovery, { ok: true, value: { candidates: [first, second], rejections: [] } });
@@ -88,7 +102,7 @@ test("fails closed for duplicate id/version even when one slot evidence drifts",
   const identity = await installTheme({ root: roots.installedThemesRoot, slot: "one", id: "duplicate-theme", version: "1.0.0" });
   await installTheme({ root: roots.installedThemesRoot, slot: "two", id: "duplicate-theme", version: "1.0.0" });
   await writeFile(path.join(roots.installedThemesRoot, "two", "assets/site.css"), "drift\n", { mode: 0o600 });
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const discovery = await created.value.discover();
   assert.equal(discovery.ok, true);
@@ -109,15 +123,15 @@ test("rejects invalid trusted roots and fail-closes evidence drift", async (cont
   const roots = await fixture();
   context.after(() => cleanup(roots));
   const identity = await installTheme({ root: roots.installedThemesRoot, slot: "safe", id: "safe-theme", version: "1.0.0" });
-  const relative = await createThemeHost({ repositoryRoot: "relative", installedThemesRoot: roots.installedThemesRoot });
+  const relative = await createThemeHost({ repositoryRoot: "relative", installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(relative.ok, false);
   if (relative.ok) throw new Error("expected failure");
   assert.equal(relative.error.code, "INVALID_TRUSTED_ROOT");
-  const nested = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: path.join(roots.repositoryRoot, "themes") });
+  const nested = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: path.join(roots.repositoryRoot, "themes"), activationState: inactiveThemeActivationState() });
   assert.equal(nested.ok, false);
   if (nested.ok) throw new Error("expected failure");
   assert.equal(nested.error.code, "INVALID_TRUSTED_ROOT");
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   await writeFile(path.join(roots.installedThemesRoot, "safe", "assets/site.css"), "changed\n", { mode: 0o600 });
   const bytes = await created.value.readVerifiedFile({ identity, file: "runtime.mjs" });
@@ -141,7 +155,7 @@ test("rejects symlinked evidence and every executable runtime import without exe
   const valid = await installTheme({ root: roots.installedThemesRoot, slot: "probe", id: "probe-theme", version: "1.0.0", runtime: probe });
   const imports = ["import './relative.mjs';", "import '/absolute.mjs';", "import 'package-name';", "import('package-name');", "import 'node:fs';"];
   await Promise.all(imports.map((runtime, index) => installTheme({ root: roots.installedThemesRoot, slot: `invalid-${index}`, id: `invalid-theme-${index}`, version: "1.0.0", runtime })));
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const discovery = await created.value.discover();
   assert.equal(discovery.ok, true);
@@ -170,11 +184,16 @@ test("rejects malformed caller input before touching the installed root", async 
   const roots = await fixture();
   context.after(() => cleanup(roots));
   const identity = await installTheme({ root: roots.installedThemesRoot, slot: "input", id: "input-theme", version: "1.0.0" });
-  const extraKey = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, extra: 1 } as unknown as Readonly<{ repositoryRoot: string; installedThemesRoot: string }>);
+  const extraKey = await createThemeHost({
+    repositoryRoot: roots.repositoryRoot,
+    installedThemesRoot: roots.installedThemesRoot,
+    activationState: inactiveThemeActivationState(),
+    extra: 1,
+  } as unknown as Readonly<{ repositoryRoot: string; installedThemesRoot: string; activationState: ThemeActivationStatePort }>);
   assert.equal(extraKey.ok, false);
   if (extraKey.ok) throw new Error("expected failure");
   assert.equal(extraKey.error.code, "INVALID_THEME_HOST_INPUT");
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const malformed: readonly unknown[] = [
     null,
@@ -200,7 +219,7 @@ test("separates unknown identity from same id/version evidence drift", async (co
   const roots = await fixture();
   context.after(() => cleanup(roots));
   const identity = await installTheme({ root: roots.installedThemesRoot, slot: "known", id: "known-theme", version: "1.0.0" });
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const absent = await created.value.resolveExact({ identity: { id: "absent-theme", version: "1.0.0", manifestHash: identity.manifestHash } });
   assert.equal(absent.ok, false);
@@ -230,7 +249,7 @@ test("rejects every non-canonical or unsafe manifest shape", async (context) => 
   await installManifestBytes(roots.installedThemesRoot, "non-module", { ...base, id: "non-module-theme", runtime: { file: "runtime.js", digest } });
   await mkdir(path.join(roots.installedThemesRoot, "non-canonical"), { recursive: true, mode: 0o700 });
   await writeFile(path.join(roots.installedThemesRoot, "non-canonical", "theme.json"), '{"id":"canonical-theme","contract":"theme-manifest/v1"}\n', { mode: 0o600 });
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const discovery = await created.value.discover();
   assert.equal(discovery.ok, true);
@@ -252,7 +271,7 @@ test("fails discovery closed when the installed root exceeds the slot bound", as
   const roots = await fixture();
   context.after(() => cleanup(roots));
   await Promise.all(Array.from({ length: 257 }, (_unused, index) => mkdir(path.join(roots.installedThemesRoot, `slot-${index}`), { recursive: true, mode: 0o700 })));
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const discovery = await created.value.discover();
   assert.equal(discovery.ok, false);
@@ -267,7 +286,7 @@ test("resolves a healthy Theme without depending on unrelated package evidence",
   const healthy = await installTheme({ root: roots.installedThemesRoot, slot: "healthy", id: "healthy-theme", version: "1.0.0" });
   await installTheme({ root: roots.installedThemesRoot, slot: "broken", id: "broken-theme", version: "1.0.0" });
   await writeFile(path.join(roots.installedThemesRoot, "broken", "assets/site.css"), "drift\n", { mode: 0o600 });
-  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot });
+  const created = await createThemeHost({ repositoryRoot: roots.repositoryRoot, installedThemesRoot: roots.installedThemesRoot, activationState: inactiveThemeActivationState() });
   assert.equal(created.ok, true);
   const resolved = await created.value.resolveExact({ identity: healthy });
   assert.equal(resolved.ok, true);

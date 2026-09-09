@@ -4,8 +4,8 @@ import type {
   AssetVersionAvailability,
   AssetVersionIdentity,
   AssetVersionRecord,
-  CompareAndReplacePluginActivationStateInput,
   CreateRevisionInput,
+  EntryPointerLineageRecord,
   EntryPointerRecord,
   MediaImportIntent,
   MediaStartupSnapshot,
@@ -17,7 +17,6 @@ import type {
   PersistenceReadSnapshot,
   PersistenceStore,
   PersistenceTransaction,
-  PluginActivationStateRecord,
   PublishedAssetReference,
   ReadyAssetVersionRecord,
   RevisionIdentity,
@@ -66,6 +65,8 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
       getReadyAssetVersion(identity: AssetVersionIdentity) { return record(() => transaction.getReadyAssetVersion(identity)); },
       listRouteClaims(graph: "current" | "published") { return record(() => transaction.listRouteClaims(graph)); },
       readPluginActivationState() { return record(() => transaction.readPluginActivationState()); },
+      readThemeActivationState() { return record(() => transaction.readThemeActivationState()); },
+      readPluginSettingsState() { return record(() => transaction.readPluginSettingsState()); },
     });
     try {
       return database.readTransaction(() => {
@@ -125,8 +126,12 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     deleteMediaImportIntentExact(input) { return atomic((transaction) => transaction.deleteMediaImportIntentExact(input)); },
     createRevisionReferences(revision, assetVersions) { return atomic((transaction) => transaction.createRevisionReferences(revision, assetVersions)); },
     createRevisionWithReferences(input) { return atomic((transaction) => transaction.createRevisionWithReferences(input)); },
-    readPluginActivationState() { return readPluginActivationState(database); },
-    compareAndReplacePluginActivationState(input) { return compareAndReplacePluginActivationState(database, input); },
+    readPluginActivationState() { return readOpaqueState(database, "plugin_activation_state"); },
+    compareAndReplacePluginActivationState(input) { return compareAndReplaceOpaqueState(database, "plugin_activation_state", input); },
+    readThemeActivationState() { return readOpaqueState(database, "theme_activation_state"); },
+    compareAndReplaceThemeActivationState(input) { return compareAndReplaceOpaqueState(database, "theme_activation_state", input); },
+    readPluginSettingsState() { return readOpaqueState(database, "plugin_settings_state"); },
+    compareAndReplacePluginSettingsState(input) { return compareAndReplaceOpaqueState(database, "plugin_settings_state", input); },
     readMediaStartupSnapshot() { return readMediaStartupSnapshot(database); },
     runReadSnapshot,
     ownsActiveReadSnapshot(snapshot) { return activeReadSnapshots.has(snapshot); },
@@ -222,6 +227,15 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       if (row === undefined) return refused("SCHEMA_VERSION_NOT_FOUND"); if (bytes === null || digest === null) return refused("STORAGE_FAILURE");
       return { ok: true, value: schemaRecord(identity, bytes, digest) };
     }); },
+    listSchemaVersions() { return reading(() => {
+      const items: SchemaVersionRecord[] = [];
+      for (const row of database.all("SELECT schema_id,version,schema_bytes,schema_digest FROM schema_versions")) {
+        const schemaId = text(row, "schema_id"), version = positive(row.version), bytes = byte(row, "schema_bytes"), digest = digestField(row, "schema_digest");
+        if (schemaId === null || version === null || bytes === null || digest === null) return refused("STORAGE_FAILURE");
+        items.push(schemaRecord({ schemaId, version }, bytes, digest));
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.identity.schemaId, right.identity.schemaId) || left.identity.version - right.identity.version) };
+    }); },
     createRevision(input) { return revision(input); },
     getRevision(identity) { return reading(() => {
       if (!validRevisionIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT");
@@ -230,6 +244,16 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       const schemaId = text(row, "schema_id"), version = positive(row.schema_version), bytes = byte(row, "content_bytes"), digest = digestField(row, "content_digest"), operationId = text(row, "operation_id"), operationKind = text(row, "operation_kind"), restored = nullableText(row, "restored_from_revision_id");
       if (schemaId === null || version === null || bytes === null || digest === null || operationId === null || operationKind === null || restored === undefined) return refused("STORAGE_FAILURE");
       return { ok: true, value: revisionRecord({ identity, schemaIdentity: { schemaId, version }, contentBytes: bytes, contentDigest: digest, ...(restored === null ? {} : { restoredFromRevisionId: restored }), lineage: { operationId, operationKind } }, bytes, digest) };
+    }); },
+    listEntryRevisions(entryId) { return reading(() => {
+      if (!validText(entryId)) return refused("INVALID_PERSISTENCE_INPUT");
+      const items: RevisionRecord[] = [];
+      for (const row of database.all("SELECT r.revision_id,r.schema_id,r.schema_version,r.content_bytes,r.content_digest,r.restored_from_revision_id,l.operation_id,l.operation_kind FROM revisions r JOIN operation_lineage l ON l.entry_id=r.entry_id AND l.revision_id=r.revision_id AND l.creates_revision=1 WHERE r.entry_id=?", entryId)) {
+        const revisionId = text(row, "revision_id"), schemaId = text(row, "schema_id"), version = positive(row.schema_version), bytes = byte(row, "content_bytes"), digest = digestField(row, "content_digest"), operationId = text(row, "operation_id"), operationKind = text(row, "operation_kind"), restored = nullableText(row, "restored_from_revision_id");
+        if (revisionId === null || schemaId === null || version === null || bytes === null || digest === null || operationId === null || operationKind === null || restored === undefined) return refused("STORAGE_FAILURE");
+        items.push(revisionRecord({ identity: { entryId, revisionId }, schemaIdentity: { schemaId, version }, contentBytes: bytes, contentDigest: digest, ...(restored === null ? {} : { restoredFromRevisionId: restored }), lineage: { operationId, operationKind } }, bytes, digest));
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.identity.revisionId, right.identity.revisionId)) };
     }); },
     getEntryPointers(entryId) { return reading(() => pointer(database.get("SELECT current_revision_id, published_revision_id FROM entry_pointers WHERE entry_id=?", entryId), entryId, refused)); },
     listPublishedRevisionSelections() { return reading(() => {
@@ -242,6 +266,26 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       }
       selections.sort((left, right) => compareCodeUnits(left.entryId, right.entryId) || compareCodeUnits(left.revisionId, right.revisionId));
       return { ok: true, value: Object.freeze(selections.map((selection) => Object.freeze({ ...selection }))) };
+    }); },
+    listEntryPointers() { return reading(() => {
+      const items: EntryPointerRecord[] = [];
+      for (const row of database.all("SELECT entry_id,current_revision_id,published_revision_id FROM entry_pointers")) {
+        const entryId = text(row, "entry_id");
+        const item = entryId === null ? undefined : pointer(row, entryId, refused);
+        if (item === undefined || !item.ok) return refused("STORAGE_FAILURE");
+        items.push(item.value);
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.entryId, right.entryId)) };
+    }); },
+    listEntryPointerLineage(entryId) { return reading(() => {
+      if (!validText(entryId)) return refused("INVALID_PERSISTENCE_INPUT");
+      const items: EntryPointerLineageRecord[] = [];
+      for (const row of database.all("SELECT operation_revision_id,operation_id,current_revision_id,published_revision_id FROM entry_pointer_lineage WHERE entry_id=?", entryId)) {
+        const revisionId = text(row, "operation_revision_id"), operationId = text(row, "operation_id"), currentRevisionId = text(row, "current_revision_id"), publishedRevisionId = nullableText(row, "published_revision_id");
+        if (revisionId === null || operationId === null || currentRevisionId === null || publishedRevisionId === undefined) return refused("STORAGE_FAILURE");
+        items.push({ entryId, currentRevisionId, ...(publishedRevisionId === null ? {} : { publishedRevisionId }), lineageIdentity: { entryId, revisionId, operationId } });
+      }
+      return { ok: true, value: items.sort((left, right) => compareCodeUnits(left.lineageIdentity.revisionId, right.lineageIdentity.revisionId) || compareCodeUnits(left.lineageIdentity.operationId, right.lineageIdentity.operationId)) };
     }); },
     setEntryPointers(input) { return guarded(() => {
       if (!validPointers(input)) return failed("INVALID_PERSISTENCE_INPUT");
@@ -300,15 +344,20 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     listPublishedAssetReferences(identity) { return reading(() => { if (!validAssetIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const values: PublishedAssetReference[] = []; for (const row of database.all("SELECT p.entry_id,p.published_revision_id FROM entry_pointers p JOIN revision_refs r ON r.entry_id=p.entry_id AND r.revision_id=p.published_revision_id WHERE p.published_revision_id IS NOT NULL AND r.asset_id=? AND r.asset_version_id=?", identity.assetId, identity.assetVersionId)) { const entryId = text(row, "entry_id"), revisionId = text(row, "published_revision_id"); if (entryId === null || revisionId === null) return refused("STORAGE_FAILURE"); values.push({ entryId, revisionId, assetVersion: { ...identity } }); } return { ok: true, value: values.sort((a, b) => compareCodeUnits(a.entryId, b.entryId) || compareCodeUnits(a.revisionId, b.revisionId)) }; }); },
     createRevisionReferences(identity, assetVersions) { return references(identity,assetVersions); },
     getRevisionReferences(identity) { return reading(() => { if(!validRevisionIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const items: RevisionReferenceRecord[]=[]; for(const row of database.all("SELECT asset_id,asset_version_id FROM revision_refs WHERE entry_id=? AND revision_id=?",identity.entryId,identity.revisionId)){const assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id");if(assetId===null||assetVersionId===null)return refused("STORAGE_FAILURE");items.push({revision:{...identity},assetVersion:{assetId,assetVersionId}});} return {ok:true,value:items.sort((a,b)=>compareAssetVersions(a.assetVersion,b.assetVersion))}; }); },
-    readPluginActivationState() { return reading(() => readPluginActivationState(database)); },
+    readPluginActivationState() { return reading(() => readOpaqueState(database, "plugin_activation_state")); },
+    readThemeActivationState() { return reading(() => readOpaqueState(database, "theme_activation_state")); },
+    readPluginSettingsState() { return reading(() => readOpaqueState(database, "plugin_settings_state")); },
     createRevisionWithReferences(input) { return guarded(() => { const created=revision(input.revision); if(!created.ok)return created; const createdReferences=references(input.revision.identity,input.assetVersions); if(!createdReferences.ok)return createdReferences; return {ok:true,value:{revision:created.value,references:createdReferences.value}}; }); },
     canonicalState() { return reading(() => canonicalState(database, refused)); },
   };
 }
 
-function readPluginActivationState(database: SqliteAdapter): PersistenceResult<PluginActivationStateRecord> {
+type OpaqueStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
+type OpaqueStateTable = "plugin_activation_state" | "theme_activation_state" | "plugin_settings_state";
+
+function readOpaqueState(database: SqliteAdapter, table: OpaqueStateTable): PersistenceResult<OpaqueStateRecord> {
   try {
-    const row = database.get("SELECT state_bytes, state_digest FROM plugin_activation_state WHERE singleton = 1");
+    const row = database.get(`SELECT state_bytes, state_digest FROM ${table} WHERE singleton = 1`);
     const bytes = row === undefined ? null : byte(row, "state_bytes");
     const digest = row === undefined ? null : digestField(row, "state_digest");
     return bytes === null || digest === null
@@ -319,9 +368,10 @@ function readPluginActivationState(database: SqliteAdapter): PersistenceResult<P
   }
 }
 
-function compareAndReplacePluginActivationState(
+function compareAndReplaceOpaqueState(
   database: SqliteAdapter,
-  input: CompareAndReplacePluginActivationStateInput,
+  table: OpaqueStateTable,
+  input: Readonly<{ expectedDigest: Digest; next: OpaqueStateRecord }>,
 ): PersistenceResult<boolean> {
   if (
     input === null || typeof input !== "object" || !isDigest(input.expectedDigest)
@@ -330,14 +380,14 @@ function compareAndReplacePluginActivationState(
   ) return persistenceResultFailure("INVALID_PERSISTENCE_INPUT");
   try {
     return database.transaction(() => {
-      const row = database.get("SELECT state_digest FROM plugin_activation_state WHERE singleton = 1");
+      const row = database.get(`SELECT state_digest FROM ${table} WHERE singleton = 1`);
       const currentDigest = row === undefined ? null : digestField(row, "state_digest");
       if (currentDigest === null) return persistenceResultFailure("STORAGE_FAILURE");
       if (currentDigest !== input.expectedDigest) return { ok: true, value: false };
       const canonical = validateCanonicalBytes(input.next.bytes, input.next.digest);
       if (!canonical.ok) return persistenceResultFailure(canonical.code);
       database.run(
-        "UPDATE plugin_activation_state SET state_bytes = ?, state_digest = ? WHERE singleton = 1",
+        `UPDATE ${table} SET state_bytes = ?, state_digest = ? WHERE singleton = 1`,
         copyBytes(canonical.bytes),
         canonical.digest,
       );
@@ -364,13 +414,16 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     const mediaAssets = collect("SELECT asset_id AS assetId FROM media_assets", ["assetId"]);
     const assetVersions = collect("SELECT v.asset_id AS assetId,v.asset_version_id AS assetVersionId,v.object_digest AS objectDigest,v.metadata_digest AS metadataDigest,a.availability FROM asset_versions v JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id", ["assetId", "assetVersionId", "objectDigest", "metadataDigest", "availability"]);
     const revisionReferences = collect("SELECT entry_id AS entryId,revision_id AS revisionId,asset_id AS assetId,asset_version_id AS assetVersionId FROM revision_refs", ["entryId", "revisionId", "assetId", "assetVersionId"]);
+    const pluginActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_activation_state", ["singleton", "stateDigest"]);
+    const themeActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM theme_activation_state", ["singleton", "stateDigest"]);
+    const pluginSettingsStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_settings_state", ["singleton", "stateDigest"]);
     const schemaMigrationExecutions = collect("SELECT operation_id AS operationId,source_schema_id AS sourceSchemaId,source_schema_version AS sourceSchemaVersion,target_schema_id AS targetSchemaId,target_schema_version AS targetSchemaVersion,mapping_identity AS mappingIdentity FROM schema_migration_executions", ["operationId", "sourceSchemaId", "sourceSchemaVersion", "targetSchemaId", "targetSchemaVersion", "mappingIdentity"]);
     const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);
     const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
-    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
     const bytes = canonicalJsonBytes(payload);
     if (!bytes.ok) return failed("STORAGE_FAILURE");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
   } catch {
     return failed("STORAGE_FAILURE");
   }

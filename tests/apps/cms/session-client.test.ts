@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { openAuthoringSession } from "../../../apps/authoring-api/cms/authoring-session.js";
+import { openAuthoringSession } from "../../../apps/cms/session.js";
 
 test("pagehide 在 browser-session exchange 期間中止 request 並鎖定 session", async () => {
   const originalFetch = globalThis.fetch;

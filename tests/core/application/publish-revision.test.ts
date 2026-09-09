@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { DomainApplication, DomainApplicationDependencies } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import type { DataMedia } from "../../../core/media/index.js";
@@ -55,15 +55,15 @@ async function withStore(body: (store: PersistenceStore, pluginHost: DomainAppli
     const store = openStore(directory);
     const installedRoot = path.join(directory, "installed");
     mkdirSync(installedRoot);
-    const host = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: store }) });
+    const host = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: createPersistencePluginActivationStatePort({ persistence: store }), settingsState: createPersistencePluginSettingsStatePort({ persistence: store }) });
     assert.equal(host.ok, true);
     if (!host.ok) return;
     try { await body(store, host.value); } finally { store.close(); }
   } finally { rmSync(directory, { recursive: true, force: true }); }
 }
 
-async function save(app: DomainApplication, revisionId: string, operationId: string) {
-  const result = await app.saveRevision({ entryId: "entry-a", revisionId, operationId, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route: "/guide", assetVersions: [] });
+async function save(app: DomainApplication, revisionId: string, operationId: string, expectedCurrentRevisionId: string | null = null) {
+  const result = await app.saveRevision({ entryId: "entry-a", revisionId, operationId, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route: "/guide", assetVersions: [] });
   assert.equal(result.ok, true, result.ok ? "" : result.error.code);
 }
 
@@ -84,7 +84,7 @@ test("PublishRevision moves only the published selection and records non-revisio
     assert.equal(afterCurrent.value.digest, beforeCurrent.value.digest);
     const lineage = store.getOperationLineage(published.value.lineageIdentity); assert.equal(lineage.ok, true); if (!lineage.ok) return;
     assert.equal(lineage.value.operationKind, "PublishRevision"); assert.equal(lineage.value.createsRevision, false);
-    await save(app, "draft-2", "save-2");
+    await save(app, "draft-2", "save-2", "draft-1");
     const republished = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-2", operationId: "publish-2" });
     assert.equal(republished.ok, true, republished.ok ? "" : republished.error.code);
     if (!republished.ok) return;
@@ -137,7 +137,7 @@ test("PublishRevision replaces an existing published claim when current route mo
     const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: noMedia, schemaValidator: acceptEverySchema, pluginHost });
     await save(app, "draft-1", "save-1");
     assert.equal((await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" })).ok, true);
-    await save(app, "draft-2", "save-2");
+    await save(app, "draft-2", "save-2", "draft-1");
     const moved = site.replaceRouteClaim({ graph: "current", owner: "entry-a", route: "/new-guide", sourceRevisionId: "draft-2" });
     assert.equal(moved.ok, true);
     const republished = await app.publishRevision({ entryId: "entry-a", expectedCurrentRevisionId: "draft-2", operationId: "publish-2" });

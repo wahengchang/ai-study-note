@@ -11,7 +11,7 @@ function canonical(value: unknown): Uint8Array { const result = canonicalJsonByt
 function digest(value: unknown) { return sha256Digest(canonical(value)); }
 function output(route = "/guide") {
   const bytes = new TextEncoder().encode("<main>public</main>\n");
-  const provenance = { publishedRevisionIds: [], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media"), theme: { id: "theme", version: "1.0.0", manifestHash: digest("theme") }, plugins: [] };
+  const provenance = { publishedRevisionIds: [], routeGraphDigest: digest("routes"), mediaSelectionDigest: digest("media"), theme: { id: "theme", version: "1.0.0", manifestHash: digest("theme") }, plugins: [], seo: { count: 0, digest: digest("seo") } };
   const routes = [{ route, filePath: "guide/index.html" }];
   const files = [{ path: "guide/index.html", bytes, digest: sha256Digest(bytes) }];
   return { contract: "renderer-output/v1" as const, rendererInputDigest: digest("input"), provenance, routes, files, outputDigest: digest({ provenance, routes, files: files.map((file) => ({ path: file.path, digest: file.digest })) }) };

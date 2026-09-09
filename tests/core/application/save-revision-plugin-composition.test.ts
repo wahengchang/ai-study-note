@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createDomainApplication, createPersistencePluginActivationStatePort } from "../../../core/application/index.js";
+import { createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import type { DomainApplication, DomainApplicationResult, RevisionSchemaValidator, SaveRevisionRequest } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest, type Digest, type JsonValue } from "../../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
@@ -45,6 +45,7 @@ function request(overrides: Partial<SaveRevisionRequest> = {}): SaveRevisionRequ
     entryId: "entry-a",
     revisionId: "draft-1",
     operationId: "save-1",
+    expectedCurrentRevisionId: "draft-0",
     schemaIdentity: { schemaId: "note", version: 1 },
     content: { title: "draft" },
     route: "/guide",
@@ -135,7 +136,7 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
     },
     compareAndReplace(input) { return realPort.compareAndReplace(input); },
   };
-  const created = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: activationPort });
+  const created = await createPluginHost({ repositoryRoot: process.cwd(), installedPluginsRoot: installedRoot, activationState: activationPort, settingsState: createPersistencePluginSettingsStatePort({ persistence: store }) });
   assert.equal(created.ok, true);
   if (!created.ok) throw new Error("plugin host creation failed");
   const pluginHost = created.value;
@@ -149,7 +150,7 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
     },
   };
   const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: media, schemaValidator, pluginHost });
-  const baselineSave = await app.saveRevision(request({ revisionId: "draft-0", operationId: "save-0", assetVersions: [{ assetId: "asset-a", assetVersionId: "version-a" }] }));
+  const baselineSave = await app.saveRevision(request({ revisionId: "draft-0", operationId: "save-0", expectedCurrentRevisionId: null, assetVersions: [{ assetId: "asset-a", assetVersionId: "version-a" }] }));
   assert.equal(baselineSave.ok, true);
   if (!baselineSave.ok) throw new Error("baseline SaveRevision failed");
   assert.equal(store.setEntryPointers({ entryId: "entry-a", currentRevisionId: "draft-0", publishedRevisionId: "draft-0", lineage: { revisionId: "draft-0", operationId: "publish-0", operationKind: "PublishRevision" } }).ok, true);
@@ -161,7 +162,16 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
   const candidate = discovered.value.candidates.find((item) => item.id === "application-validator");
   assert.notEqual(candidate, undefined);
   if (candidate === undefined) throw new Error("application validator candidate missing");
-  const activated = await pluginHost.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash } });
+  const settings = await pluginHost.getSettingsSnapshot();
+  assert.equal(settings.ok, true);
+  if (!settings.ok) throw new Error("plugin settings snapshot failed");
+  const savedSettings = await pluginHost.replaceSettings({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash, capabilities: candidate.capabilities }, expectedSettingsStateDigest: settings.value.stateDigest, settingsContract: "seo-plugin-settings/v1", settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: "https://example.test/", indexing: "allow" } });
+  assert.equal(savedSettings.ok, true, savedSettings.ok ? "" : JSON.stringify(savedSettings.error));
+  if (!savedSettings.ok) throw new Error("plugin settings failed");
+  const activation = await pluginHost.getActivationSnapshot();
+  assert.equal(activation.ok, true);
+  if (!activation.ok) throw new Error("plugin activation snapshot failed");
+  const activated = await pluginHost.activate({ identity: { id: candidate.id, version: candidate.version, hookContract: candidate.hookContract, manifestHash: candidate.manifestHash, capabilities: candidate.capabilities }, expectedActivationStateDigest: activation.value.digest });
   assert.equal(activated.ok, true, activated.ok ? "" : JSON.stringify(activated.error));
   if (!activated.ok) throw new Error("plugin activation failed");
 
@@ -261,7 +271,7 @@ test("SaveRevision consumes a real PluginHost snapshot before writes and returns
     assert.deepEqual(trace(value).map((item) => item.frozen), [true]);
     assert.deepEqual(value.site.snapshot("published"), { ok: true, value: before.published });
 
-    const second = await value.app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2", content: { title: "raw" } }));
+    const second = await value.app.saveRevision(request({ revisionId: "draft-2", operationId: "save-2", expectedCurrentRevisionId: "draft-1", content: { title: "raw" } }));
     assert.equal(second.ok, true);
     if (!second.ok) return;
     assert.deepEqual(JSON.parse(new TextDecoder().decode(second.value.revision.contentBytes)), { title: "raw" });
@@ -270,6 +280,20 @@ test("SaveRevision consumes a real PluginHost snapshot before writes and returns
     assert.equal(second.value.currentPointer.currentRevisionId, "draft-2");
     assert.equal(second.value.currentPointer.publishedRevisionId, "draft-0");
     assert.deepEqual(value.site.snapshot("published"), { ok: true, value: before.published });
+  } finally {
+    value.store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("stale SaveRevision baseline exits before the Plugin callback and preserves state", async () => {
+  const value = await fixture("accept");
+  try {
+    const before = baseline(value);
+    const result = await value.app.saveRevision(request({ expectedCurrentRevisionId: "stale" }));
+    assertApplicationFailure(result, "Content", "CURRENT_REVISION_MISMATCH", value.directory);
+    assert.deepEqual(trace(value), []);
+    await assertFailedCandidateState(value, before);
   } finally {
     value.store.close();
     rmSync(value.directory, { recursive: true, force: true });

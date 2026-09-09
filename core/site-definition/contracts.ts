@@ -30,6 +30,7 @@ export interface SiteDefinitionPersistence extends SiteDefinitionTransaction {
 
 export interface SiteDefinition {
   snapshot(graph: RouteGraph): SiteDefinitionResult<RouteGraphSnapshot>;
+  resolvePublicRouteUrl(input: Readonly<{ publicSiteUrl: string; normalizedRoute: string }>): SiteDefinitionResult<string>;
   snapshotInReadSnapshot(graph: RouteGraph, snapshot: SiteDefinitionReadSnapshot): SiteDefinitionResult<RouteGraphSnapshot>;
   prepareCurrentClaim(input: Readonly<{ owner: string; route: string; sourceRevisionId: string }>): SiteDefinitionResult<CurrentRouteClaimProposal>;
   validateCurrentClaimInTransaction(proposal: CurrentRouteClaimProposal, transaction: SiteDefinitionTransaction): SiteDefinitionResult<ValidatedCurrentRouteClaim>;

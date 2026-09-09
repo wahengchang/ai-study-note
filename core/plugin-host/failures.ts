@@ -9,6 +9,8 @@ export const pluginHostFailureCodes = [
   "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID",
   "PLUGIN_CALLBACK_FAILED", "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT",
   "PLUGIN_VALIDATION_SERVICE_FAILED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED",
+  "INVALID_PLUGIN_SETTINGS", "PLUGIN_SETTINGS_MISMATCH", "PLUGIN_SETTINGS_STATE_CONFLICT", "PLUGIN_SETTINGS_STATE_FAILURE",
+  "SEO_ANALYSIS_CONFLICT", "PUBLIC_BUILD_SNAPSHOT_STALE",
 ] as const;
 export type PluginHostFailureCode = (typeof pluginHostFailureCodes)[number];
 export type PluginDiagnosticDetail = Readonly<{
@@ -16,7 +18,7 @@ export type PluginDiagnosticDetail = Readonly<{
   hook: PluginHookId;
   capability: PluginCapability;
   entryId: string;
-  cause: "inactive" | "missing" | "identity-changed" | "rejected" | "invalid-result" | "callback-fault" | "capability-denied" | "reactivation-required";
+  cause: "inactive" | "missing" | "identity-changed" | "rejected" | "invalid-result" | "callback-fault" | "capability-denied" | "reactivation-required" | "settings-mismatch";
 }>;
 export type PluginHostFailure = Readonly<{
   code: PluginHostFailureCode;
@@ -38,6 +40,9 @@ const messages: Readonly<Record<PluginHostFailureCode, string>> = {
   PLUGIN_CALLBACK_FAILED: "Plugin callback 執行失敗。", PLUGIN_CAPABILITY_DENIED: "Plugin 未獲授權使用此 capability。",
   INVALID_PLUGIN_OPERATION_SNAPSHOT: "Plugin operation snapshot 無效或已使用。", PLUGIN_VALIDATION_SERVICE_FAILED: "Plugin replacement 驗證未完成。",
   ACTIVE_PLUGIN_SOURCE_MISSING: "Active Plugin 的 installed source 不可用。", ACTIVE_PLUGIN_REACTIVATION_REQUIRED: "請重新啟用受影響的 exact Plugin identity。",
+  INVALID_PLUGIN_SETTINGS: "Plugin 尚未儲存有效設定。", PLUGIN_SETTINGS_MISMATCH: "Plugin 設定與 exact identity 不相符。",
+  PLUGIN_SETTINGS_STATE_CONFLICT: "Plugin settings state 已變更。", PLUGIN_SETTINGS_STATE_FAILURE: "Plugin settings state 操作未完成。",
+  SEO_ANALYSIS_CONFLICT: "同時有多個 SEO analysis producer。", PUBLIC_BUILD_SNAPSHOT_STALE: "Public Plugin build snapshot 已失效。",
 };
 export function isCanonicalPluginId(value: unknown): value is string { return typeof value === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(value); }
 export function pluginHostFailure(code: PluginHostFailureCode, subjectId?: unknown, detail?: PluginDiagnosticDetail): PluginHostFailure {

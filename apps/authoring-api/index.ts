@@ -19,12 +19,15 @@ export { runSaveRevisionCli, saveRevisionMain } from "./save-revision-cli.js";
 export type { SaveRevisionCliEnvironment, SaveRevisionCliIo } from "./save-revision-cli.js";
 export { openCmsMain, runOpenCmsCli } from "./open-cms-cli.js";
 export type { OpenCmsCliEnvironment, OpenCmsCliIo } from "./open-cms-cli.js";
+export { cmsServeMain, runCmsServe } from "./cms-serve-cli.js";
+export type { CmsServeCliIo } from "./cms-serve-cli.js";
 export {
   API_KEY_PATTERN,
   AUTHORING_AUTHORITY,
   AUTHORING_HOST,
   AUTHORING_ORIGIN,
   AUTHORING_PORT,
+  AUTHORING_RESOURCE_ID_PATTERN,
   BROWSER_TICKET_PATTERN,
   redactSecrets,
 } from "./origin.js";
@@ -32,7 +35,10 @@ export { createBrowserBootstrapState } from "./browser-bootstrap.js";
 export { loadCmsAssets } from "./cms-assets.js";
 export type { CmsAsset, CmsAssets } from "./cms-assets.js";
 export type { BrowserBootstrapFailure, BrowserBootstrapState, BrowserTicketMint } from "./browser-bootstrap.js";
+export { createAjvSchemaValidator } from "./schema-validator.js";
 export { startAuthoringApi } from "./server.js";
+export { startCmsRuntime } from "./cms-runtime.js";
+export type { CmsRuntimeFailure, CmsRuntimeFailureCode, CmsRuntimeResult, RunningCmsRuntime, StartCmsRuntimeInput } from "./cms-runtime.js";
 export type {
   AuthoringApiLogEvent,
   AuthoringApiResult,
@@ -47,11 +53,22 @@ export {
   browserSessionSchema,
   browserTicketMintRequestSchema,
   browserTicketSchema,
+  cmsSeoAnalysisResponseSchema,
+  contentTypeCatalogSchema,
+  contentTypeSchema,
+  createContentTypeRequestSchema,
+  entryCatalogSchema,
+  entryDetailSchema,
+  entryRevisionCatalogSchema,
+  pluginManagementSnapshotSchema,
+  previewDocumentSchema,
+  previewRequestSchema,
   publishRevisionRequestSchema,
   publishRevisionSuccessSchema,
   saveRevisionRequestSchema,
   saveRevisionSuccessSchema,
   serverProofChallengeSchema,
+  authoringEntrySchema,
   serverProofSchema,
 } from "./transport-contracts.js";
 export type {
@@ -61,10 +78,21 @@ export type {
   BrowserSessionExchangeDto,
   BrowserTicketDto,
   BrowserTicketMintRequestDto,
+  AuthoringEntryDto,
+  ContentTypeCatalogDto,
+  ContentTypeDto,
+  CreateContentTypeRequestDto,
+  EntryCatalogDto,
+  EntryDetailDto,
+  EntryRevisionCatalogDto,
+  PreviewDocumentDto,
+  CmsSeoAnalysisResponseDto,
+  PreviewRequestDto,
   PublishRevisionRequestDto,
   PublishRevisionSuccessDto,
   SaveRevisionRequestDto,
   SaveRevisionSuccessDto,
+  PluginManagementSnapshotDto,
   ServerProofChallengeDto,
   ServerProofDto,
 } from "./transport-contracts.js";

@@ -35,6 +35,8 @@ const shippedMigrationFilenames: readonly string[] = [
   "0006-add-revision-references.sql",
   "0007-add-plugin-activation-state.sql",
   "0008-add-schema-migration-lineage.sql",
+  "0009-add-theme-activation-state.sql",
+  "0010-add-plugin-settings-state.sql",
 ];
 
 // 刻意不在 module top-level 讀檔：讀取失敗必須成為 structured failure，
