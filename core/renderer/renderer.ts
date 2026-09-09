@@ -13,6 +13,18 @@ type SeoPage = Readonly<{ title: string; description?: string; canonical: string
 function failure(code: RendererFailure["code"]): RendererResult<never> { return Object.freeze({ ok: false, error: Object.freeze({ code, owner: "Renderer", subjectIds: Object.freeze([]), remediation: Object.freeze({ kind: "message", message: "Renderer 無法從已封存的公開輸入建立 artifact。" }) }) }); }
 function compare(left: string, right: string): number { return left < right ? -1 : left > right ? 1 : 0; }
 function routePath(route: string): string { return `pages/${sha256Digest(new TextEncoder().encode(route)).slice("sha256:".length)}/index.html`; }
+/**
+ * artifact 內的檔案位置與公開 URL 是兩件事：
+ *
+ *   normalizedRoute `/a/b`  ──manifest.routes──▶  file `pages/<digest>/index.html`
+ *          │                                                  │
+ *          └── 公開 URL `<basePath>a/b/`  ◀── PublicDelivery／Pages 依 route 服務
+ *
+ * 瀏覽器以公開 URL（而非 artifact 路徑）解析文件內的相對 URL，因此頁內資源必須以
+ * route 深度計算相對路徑；改用固定兩層的 artifact 路徑會在 route 深度不是兩段、
+ * 或部署在 GitHub Pages project base path 之下時指向不存在的位置。
+ */
+function routeDirectory(route: string): string { return route === "/" ? "." : route.slice(1); }
 function escapeHtml(value: string): string { return value.replace(/[&<>"']/gu, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[character]!); }
 function escapeScript(value: string): string { return value.replace(/[<>&\u2028\u2029]/gu, (character) => ({ "<": "\\u003c", ">": "\\u003e", "&": "\\u0026", "\u2028": "\\u2028", "\u2029": "\\u2029" })[character]!); }
 const NativePromise = Promise;
@@ -71,7 +83,7 @@ function jsonLd(value: JsonValue): string | null {
   return bytes.ok ? escapeScript(new TextDecoder().decode(bytes.value)) : null;
 }
 function head(page: ThemePage, title: string, stylesheetPaths: readonly string[], seoPage?: SeoPage): string {
-  const links = stylesheetPaths.map((stylesheet) => `<link rel="stylesheet" href="${escapeHtml(path.posix.relative(path.posix.dirname(routePath(page.route)), stylesheet))}">`).join("");
+  const links = stylesheetPaths.map((stylesheet) => `<link rel="stylesheet" href="${escapeHtml(path.posix.relative(routeDirectory(page.route), stylesheet))}">`).join("");
   const structuredData = seoPage?.jsonLd === undefined ? "" : jsonLd(seoPage.jsonLd);
   const seo = seoPage === undefined || structuredData === null ? "" : `${seoPage.description === undefined ? "" : `<meta name="description" content="${escapeHtml(seoPage.description)}">`}<link rel="canonical" href="${escapeHtml(seoPage.canonical)}"><meta property="og:title" content="${escapeHtml(seoPage.title || title)}">${seoPage.description === undefined ? "" : `<meta property="og:description" content="${escapeHtml(seoPage.description)}">`}<meta property="og:url" content="${escapeHtml(seoPage.canonical)}"><meta property="og:type" content="article">${seoPage.jsonLd === undefined ? "" : `<script type="application/ld+json">${structuredData}</script>`}`;
   return `<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">${links}<title>${escapeHtml(seoPage?.title || title)}</title>${seo}`;

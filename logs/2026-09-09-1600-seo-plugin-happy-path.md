@@ -23,7 +23,14 @@ status: completed
 
 ## 已知限制／後續
 
-無。
+- Review 修正：Renderer 的頁內 stylesheet 相對 URL 原本以 artifact 檔案路徑（固定為
+  `pages/<digest>/index.html`）計算，但公開 URL 是 `<basePath><normalizedRoute>/`。route 深度不是
+  兩段、或部署在 GitHub Pages project base path 之下時，`<link rel="stylesheet">` 會指向不存在的
+  位置。已改以 route 深度計算並補上 regression test。
+- 未處理：`seo-plugin-settings/v1` 的 `indexing`（CMS 預設為「禁止搜尋引擎索引」）目前只被保存與
+  驗證，不影響任何公開輸出——`robots.txt` 固定輸出 `Allow: /`，頁面也不會產生 `noindex`。要接上它
+  需要擴充 `public-seo-site-contribution/v1` 與 `renderer-input/v1` 的 SEO 欄位（Projection、codec
+  strict parse、Renderer），屬於跨 owner 的 contract 變更，另立 Cycle 處理。
 
 ## 相關 Branch／PR
 
