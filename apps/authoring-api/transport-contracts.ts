@@ -88,15 +88,17 @@ export const publishRevisionRequestSchema = z.object({
 
 const schemaIdentitySchema = z.object({ schemaId: z.string(), version: positiveInteger }).strict();
 const assetVersionIdentitySchema = z.object({ assetId: z.string(), assetVersionId: z.string() }).strict();
-const entryRevisionSchema = z.object({
+const entryRevisionBaseSchema = z.object({
   revisionId: z.string(),
   schemaIdentity: schemaIdentitySchema,
   content: jsonContent,
   contentDigest: z.string(),
-  route: z.string(),
   lineage: z.object({ operationId: z.string(), operationKind: z.string() }).strict(),
 }).strict();
-const entryRevisionHistorySchema = entryRevisionSchema.extend({
+/** current／published 指標一定有 route claim；history 的舊 revision 已不持有 claim，因此 route 是 optional。 */
+const entryRevisionSchema = entryRevisionBaseSchema.extend({ route: z.string() }).strict();
+const entryRevisionHistorySchema = entryRevisionBaseSchema.extend({
+  route: z.string().optional(),
   references: z.array(assetVersionIdentitySchema),
   restoredFromRevisionId: z.string().optional(),
 }).strict();

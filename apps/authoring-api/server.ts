@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { AuthoringContentType, AuthoringEntryDetail, AuthoringEntryRevision, AuthoringReadFacade, AuthoringReadFailure, DomainApplication, DomainApplicationFailure, PublishRevisionSuccess, SaveRevisionSuccess } from "../../core/application/index.js";
+import type { AuthoringContentType, AuthoringEntryDetail, AuthoringEntryPointerRevision, AuthoringEntryRevision, AuthoringReadFacade, AuthoringReadFailure, DomainApplication, DomainApplicationFailure, PublishRevisionSuccess, SaveRevisionSuccess } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import { parsePreviewInput, renderPreviewDocument, type ProjectionPreview } from "../../core/projection/index.js";
 import type { ThemeIdentity } from "../../core/theme-host/index.js";
@@ -52,6 +52,7 @@ const PREVIEW_BODY_LIMIT = 4_096;
 const PROOF_BODY_LIMIT = 4_096;
 const SAVE_BODY_LIMIT_REMEDIATION = "SaveRevision request 不得超過 4 MiB。";
 const PUBLISH_BODY_LIMIT_REMEDIATION = "PublishRevision request 不得超過 4 KiB。";
+const PREVIEW_BODY_LIMIT_REMEDIATION = "Preview request 不得超過 4 KiB。";
 const PROOF_BODY_LIMIT_REMEDIATION = "server-proof challenge 不得超過 4 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
 export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/assets/:asset" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
@@ -171,15 +172,28 @@ function domainError(requestId: string, error: DomainApplicationFailure): Respon
   if (status === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   return response({ contract: "authoring-error/v1", requestId, code, owner, subjectIds, remediation: { kind: "message", message: rem.message.value } }, status);
 }
+/** read seam 的 remediation 與 code 綁在同一處，讓 CMS client 能直接顯示可行動的訊息。 */
+const AUTHORING_READ_REMEDIATION: Record<AuthoringReadFailure["code"], string> = {
+  INVALID_CONTENT_TYPE: "只接受 Article v1 的 exact schema identity 與 canonical schema。",
+  CONTENT_TYPE_CONFLICT: "該 content type 版本已註冊，無需重複建立。",
+  CONTENT_TYPE_NOT_FOUND: "找不到該 content type。",
+  ENTRY_NOT_FOUND: "找不到該內容項目。",
+  AUTHORING_READ_FAILED: "Authoring read seam 無法完成 request。",
+};
 function authoringReadError(requestId: string, error: AuthoringReadFailure): Response {
   const status = authoringErrorStatuses(error.code)?.[0] ?? 500;
-  return response({ contract: "authoring-error/v1", requestId, code: error.code, owner: error.owner, subjectIds: error.subjectIds, remediation: { kind: "message", message: "Authoring read seam 無法完成 request。" } }, status);
+  return response({ contract: "authoring-error/v1", requestId, code: error.code, owner: error.owner, subjectIds: error.subjectIds, remediation: { kind: "message", message: AUTHORING_READ_REMEDIATION[error.code] } }, status);
 }
 function contentTypeSuccess(value: AuthoringContentType): ContentTypeDto { return { contract: "content-type/v1", schemaIdentity: { ...value.schemaIdentity }, schema: value.schema, schemaDigest: value.schemaDigest }; }
-function entryRevisionSuccess(value: AuthoringEntryRevision): EntryDetailDto["current"] { return { revisionId: value.revisionId, schemaIdentity: { ...value.schemaIdentity }, content: value.content, contentDigest: value.contentDigest, route: value.route, lineage: { ...value.lineage } }; }
+function entryRevisionSuccess(value: AuthoringEntryPointerRevision): EntryDetailDto["current"] { return { revisionId: value.revisionId, schemaIdentity: { ...value.schemaIdentity }, content: value.content, contentDigest: value.contentDigest, route: value.route, lineage: { ...value.lineage } }; }
+/** history item 只在該 revision 仍持有 current／published claim 時帶 route。 */
+function entryHistorySuccess(value: AuthoringEntryRevision): EntryRevisionListDto["items"][number] { return { revisionId: value.revisionId, schemaIdentity: { ...value.schemaIdentity }, content: value.content, contentDigest: value.contentDigest, ...(value.route === undefined ? {} : { route: value.route }), lineage: { ...value.lineage }, references: value.references.map((reference) => ({ ...reference })), ...(value.restoredFromRevisionId === undefined ? {} : { restoredFromRevisionId: value.restoredFromRevisionId }) }; }
 function entryDetailSuccess(value: AuthoringEntryDetail): EntryDetailDto { return { contract: "entry-detail/v1", entryId: value.entryId, current: entryRevisionSuccess(value.current), ...(value.published === undefined ? {} : { published: entryRevisionSuccess(value.published) }) }; }
+/** subject 缺席與未發佈都是 404，但 remediation 必須說明是預覽 subject 而不是未知 route。 */
 function previewError(requestId: string, code: string): Response {
-  return errorResponse(requestId, code === "SUBJECT_NOT_FOUND" || code === "SUBJECT_NOT_PUBLISHED" ? "ROUTE_NOT_FOUND" : "INTERNAL_SERVER_ERROR", code === "SUBJECT_NOT_FOUND" || code === "SUBJECT_NOT_PUBLISHED" ? 404 : 500);
+  if (code === "SUBJECT_NOT_FOUND") return errorResponse(requestId, "ROUTE_NOT_FOUND", 404, "AuthoringApi", "找不到此預覽 subject 的內容項目。");
+  if (code === "SUBJECT_NOT_PUBLISHED") return errorResponse(requestId, "ROUTE_NOT_FOUND", 404, "AuthoringApi", "此內容項目尚未發佈，只能預覽目前版本。");
+  return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
 }
 function saveSuccess(value: SaveRevisionSuccess): SaveRevisionSuccessDto { return {
   contract: "save-revision-success/v1", entryId: value.revision.identity.entryId,
@@ -324,10 +338,10 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const entryId = context.req.param("entryId"); if (entryId === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
     const listed = input.authoringReadFacade.listEntryRevisions(entryId);
     if (!listed.ok) return authoringReadError(requestId, listed.error);
-    const dto: EntryRevisionListDto = { contract: "entry-revision-list/v1", entryId, items: listed.value.map((item) => ({ ...entryRevisionSuccess(item), references: item.references.map((reference) => ({ ...reference })), ...(item.restoredFromRevisionId === undefined ? {} : { restoredFromRevisionId: item.restoredFromRevisionId }) })) };
+    const dto: EntryRevisionListDto = { contract: "entry-revision-list/v1", entryId, items: listed.value.map(entryHistorySuccess) };
     return entryRevisionListSchema.safeParse(dto).success ? response(dto, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   }));
-  app.post("/v1/preview", async (context) => authenticatedJson(context, input, PREVIEW_BODY_LIMIT, PUBLISH_BODY_LIMIT_REMEDIATION, async (requestId, _entryId, body) => {
+  app.post("/v1/preview", async (context) => authenticatedJson(context, input, PREVIEW_BODY_LIMIT, PREVIEW_BODY_LIMIT_REMEDIATION, async (requestId, _entryId, body) => {
     const parsed = previewRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const artifact = await input.projectionPreview.preview({ selection: parsed.data.selection, subject: parsed.data.subject, themeIdentity: input.themeIdentity });
     if (!artifact.ok) return previewError(requestId, artifact.error.code);

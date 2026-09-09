@@ -3,8 +3,10 @@ import type { AssetVersionIdentity, EntryPointerRecord, PersistenceFailure, Pers
 
 export type AuthoringContentType = Readonly<{ schemaIdentity: SchemaVersionIdentity; schema: JsonValue; schemaDigest: string }>;
 export type AuthoringEntrySummary = Readonly<{ entryId: string; currentRevisionId: string; publishedRevisionId?: string }>;
-export type AuthoringEntryRevision = Readonly<{ revisionId: string; schemaIdentity: SchemaVersionIdentity; content: JsonValue; contentDigest: string; route: string; lineage: Readonly<{ operationId: string; operationKind: string }>; references: readonly AssetVersionIdentity[]; restoredFromRevisionId?: string }>;
-export type AuthoringEntryDetail = Readonly<{ entryId: string; current: AuthoringEntryRevision; published?: AuthoringEntryRevision }>;
+/** route claim 只綁 current／published 指標，因此 history 的舊 revision 沒有可讀的 route。 */
+export type AuthoringEntryRevision = Readonly<{ revisionId: string; schemaIdentity: SchemaVersionIdentity; content: JsonValue; contentDigest: string; route?: string; lineage: Readonly<{ operationId: string; operationKind: string }>; references: readonly AssetVersionIdentity[]; restoredFromRevisionId?: string }>;
+export type AuthoringEntryPointerRevision = AuthoringEntryRevision & Readonly<{ route: string }>;
+export type AuthoringEntryDetail = Readonly<{ entryId: string; current: AuthoringEntryPointerRevision; published?: AuthoringEntryPointerRevision }>;
 export type AuthoringReadFailureCode = "INVALID_CONTENT_TYPE" | "CONTENT_TYPE_CONFLICT" | "CONTENT_TYPE_NOT_FOUND" | "ENTRY_NOT_FOUND" | "AUTHORING_READ_FAILED";
 export type AuthoringReadFailure = Readonly<{ code: AuthoringReadFailureCode; owner: "AuthoringReadFacade"; subjectIds: readonly string[] }>;
 export type AuthoringReadResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: AuthoringReadFailure }>;
@@ -59,12 +61,17 @@ function routeFor(claims: readonly RouteClaimRecord[], entryId: string, revision
   return claims.find((claim) => claim.owner === entryId && claim.sourceRevisionId === revisionId)?.normalizedRoute;
 }
 function revision(snapshot: PersistenceReadSnapshot, record: RevisionRecord, route: string | undefined): AuthoringReadResult<AuthoringEntryRevision> {
-  if (route === undefined) return failure("AUTHORING_READ_FAILED", [record.identity.entryId, record.identity.revisionId]);
   const content = parseCanonical(record.contentBytes, record.contentDigest);
   if (content === undefined) return failure("AUTHORING_READ_FAILED", [record.identity.entryId, record.identity.revisionId]);
   const references = snapshot.getRevisionReferences(record.identity);
   if (!references.ok) return persistence(references);
-  return { ok: true, value: Object.freeze({ revisionId: record.identity.revisionId, schemaIdentity: Object.freeze({ ...record.schemaIdentity }), content, contentDigest: record.contentDigest, route, lineage: Object.freeze({ ...record.lineage }), references: Object.freeze(references.value.map((item) => Object.freeze({ ...item.assetVersion })).sort((left, right) => codeUnit(left.assetId, right.assetId) || codeUnit(left.assetVersionId, right.assetVersionId))), ...(record.restoredFromRevisionId === undefined ? {} : { restoredFromRevisionId: record.restoredFromRevisionId }) }) };
+  return { ok: true, value: Object.freeze({ revisionId: record.identity.revisionId, schemaIdentity: Object.freeze({ ...record.schemaIdentity }), content, contentDigest: record.contentDigest, ...(route === undefined ? {} : { route }), lineage: Object.freeze({ ...record.lineage }), references: Object.freeze(references.value.map((item) => Object.freeze({ ...item.assetVersion })).sort((left, right) => codeUnit(left.assetId, right.assetId) || codeUnit(left.assetVersionId, right.assetVersionId))), ...(record.restoredFromRevisionId === undefined ? {} : { restoredFromRevisionId: record.restoredFromRevisionId }) }) };
+}
+/** current／published 指標一定持有 route claim；缺 route 代表 persistence 不一致，必須 fail closed。 */
+function pointerRevision(snapshot: PersistenceReadSnapshot, record: RevisionRecord, route: string | undefined): AuthoringReadResult<AuthoringEntryPointerRevision> {
+  const value = revision(snapshot, record, route);
+  if (!value.ok) return value;
+  return value.value.route === undefined ? failure("AUTHORING_READ_FAILED", [record.identity.entryId, record.identity.revisionId]) : { ok: true, value: value.value as AuthoringEntryPointerRevision };
 }
 
 export function createAuthoringReadFacade(input: Readonly<{ persistence: PersistenceStore }>): AuthoringReadFacade {
@@ -116,14 +123,14 @@ export function createAuthoringReadFacade(input: Readonly<{ persistence: Persist
         if (!current.ok) return persistence<AuthoringEntryDetail>(current);
         const currentClaims = snapshot.listRouteClaims("current");
         if (!currentClaims.ok) return persistence<AuthoringEntryDetail>(currentClaims);
-        const currentDto = revision(snapshot, current.value, routeFor(currentClaims.value, entryId, current.value.identity.revisionId));
+        const currentDto = pointerRevision(snapshot, current.value, routeFor(currentClaims.value, entryId, current.value.identity.revisionId));
         if (!currentDto.ok) return currentDto;
         if (pointers.value.publishedRevisionId === undefined) return { ok: true, value: Object.freeze({ entryId, current: currentDto.value }) };
         const published = snapshot.getRevision({ entryId, revisionId: pointers.value.publishedRevisionId });
         if (!published.ok) return persistence<AuthoringEntryDetail>(published);
         const publishedClaims = snapshot.listRouteClaims("published");
         if (!publishedClaims.ok) return persistence<AuthoringEntryDetail>(publishedClaims);
-        const publishedDto = revision(snapshot, published.value, routeFor(publishedClaims.value, entryId, published.value.identity.revisionId));
+        const publishedDto = pointerRevision(snapshot, published.value, routeFor(publishedClaims.value, entryId, published.value.identity.revisionId));
         if (!publishedDto.ok) return publishedDto;
         return { ok: true, value: Object.freeze({ entryId, current: currentDto.value, published: publishedDto.value }) };
       }));

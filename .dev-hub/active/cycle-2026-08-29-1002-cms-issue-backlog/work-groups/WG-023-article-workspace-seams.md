@@ -25,3 +25,7 @@ pr: https://github.com/wahengchang/ai-study-note/pull/337
 ## Verification
 
 2026-09-09：`npm run typecheck`、`npm run cms:build`、`node --import tsx --test tests/apps/authoring-api/http-contract.test.ts`（15/15）通過。實際 Chromium desktop flow 完成 empty → 建立 Article v1 → save/current preview → dirty publish lock → Escape dialog focus return → confirm publish → published preview；驗證 titled empty-sandbox iframe、skip link、roving preview tabs 與 focus return。
+
+## Review 後續
+
+2026-09-09：PR #337 review 後修正 history route 在 revision 被取代後整條回 500 的缺陷（`route` 改為 optional，指標 revision 仍 required），並修正新草稿建立後目錄未刷新、多 block 內容儲存時靜默丟失，以及 read／preview remediation 訊息。驗證與限制見 `logs/2026-09-09-2050-pr-337-review-followup.md`。

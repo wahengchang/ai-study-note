@@ -31,13 +31,13 @@ function newId(prefix: string): string {
 }
 
 
+/** 工作台只寫回單一 article block；接受多 block 內容會在儲存時靜默丟掉其他 block，因此只認 exact 形狀。 */
 function articleDraft(value: unknown): ArticleDraft | undefined {
   if (typeof value !== "object" || value === null || Array.isArray(value) || !("contract" in value) || !("title" in value) || !("blocks" in value)) return undefined;
-  if (value.contract !== "site-content/v1" || typeof value.title !== "string" || !Array.isArray(value.blocks)) return undefined;
-  for (const block of value.blocks) {
-    if (typeof block === "object" && block !== null && !Array.isArray(block) && "kind" in block && "text" in block && block.kind === "article" && typeof block.text === "string") return { title: value.title, body: block.text };
-  }
-  return undefined;
+  if (value.contract !== "site-content/v1" || typeof value.title !== "string" || !Array.isArray(value.blocks) || value.blocks.length !== 1) return undefined;
+  const block: unknown = value.blocks[0];
+  if (typeof block !== "object" || block === null || Array.isArray(block) || !("kind" in block) || !("text" in block)) return undefined;
+  return block.kind === "article" && typeof block.text === "string" && Object.keys(block).length === 2 ? { title: value.title, body: block.text } : undefined;
 }
 
 function articleContent(draft: ArticleDraft): Readonly<{ contract: "site-content/v1"; title: string; blocks: readonly Readonly<{ kind: "article"; text: string }>[] }> {
@@ -264,6 +264,8 @@ function CmsWorkspace({ session }: Readonly<{ session: AuthoringSession }>): Rea
       setStatus("版本已儲存，正在更新目前預覽。");
       if (route.page === "new") {
         setSavedSignature(draftSignature(id, entryRoute, draft));
+        const created = await listEntries(session);
+        setEntries(created.items);
         navigate(`/cms/entries/${encodeURIComponent(id)}`);
       } else {
         await refreshEntry(id);

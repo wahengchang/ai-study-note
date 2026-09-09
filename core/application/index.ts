@@ -4,6 +4,7 @@ export { createAuthoringReadFacade } from "./authoring-read-facade.js";
 export type {
   AuthoringContentType,
   AuthoringEntryDetail,
+  AuthoringEntryPointerRevision,
   AuthoringEntryRevision,
   AuthoringEntrySummary,
   AuthoringReadFacade,

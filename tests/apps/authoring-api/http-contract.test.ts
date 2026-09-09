@@ -149,6 +149,9 @@ test("article workspace endpoints admit only fixed-origin Bearer reads and prese
     assert.equal(browserReadWithoutOrigin.status, 200, "same-origin browser fetch 可省略 Origin");
     const detail = await send("GET", "/v1/entries/preview-entry", bearer); assert.equal(detail.status, 200); assert.equal((JSON.parse(detail.body) as { current: { revisionId: string } }).current.revisionId, "preview-r1");
     const history = await send("GET", "/v1/entries/preview-entry/revisions", bearer); assert.equal(history.status, 200); assert.equal((JSON.parse(history.body) as { items: readonly { revisionId: string }[] }).items[0]?.revisionId, "preview-r1");
+    assert.equal((JSON.parse(history.body) as { items: readonly { route?: string }[] }).items[0]?.route, "/preview", "仍持有 current claim 的 revision 必須帶 route");
+    const missing = await send("GET", "/v1/entries/absent-entry", bearer); assert.equal(missing.status, 404); assert.equal(failureCode(missing), "ENTRY_NOT_FOUND");
+    assert.equal((await send("GET", "/v1/content-types/absent", bearer)).status, 404);
     const preview = await post("/v1/preview", { ...bearer, "Content-Type": "application/json" }, JSON.stringify({ contract: "preview-request/v1", selection: "current", subject: { entryId: "preview-entry" } }));
     assert.equal(preview.status, 200, preview.body); assert.match((JSON.parse(preview.body) as { document: string }).document, /Preview title/u);
     assert.equal(digest(), beforeReads, "read and preview routes must not mutate canonical state");
@@ -157,6 +160,27 @@ test("article workspace endpoints admit only fixed-origin Bearer reads and prese
     const method = await post("/v1/entries", { ...bearer, "Content-Type": "application/json" }, "{}"); assert.equal(method.status, 405);
     const readBody = await send("GET", "/v1/entries", { ...bearer, "Content-Length": "1" }, "x"); assert.equal(readBody.status, 400);
     assert.equal(digest(), beforeReads, "read rejection must not mutate canonical state");
+  });
+});
+
+/** route claim 只綁 current／published；沒有這條測試，第二次儲存後整條 history 會 500。 */
+test("entry history keeps superseded revisions readable after the route claim moves", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const bearer = { Authorization: `Bearer ${apiKey}` } as const;
+    const json = { ...bearer, "Content-Type": "application/json" } as const;
+    for (const revisionId of ["r1", "r2", "r3"]) assert.equal((await post("/v1/entries/history-entry/revisions", json, saveBody(revisionId, "/history"))).status, 200);
+    assert.equal((await post("/v1/entries/history-entry/publish", json, publishBody("r3"))).status, 200);
+    assert.equal((await post("/v1/entries/history-entry/revisions", json, saveBody("r4", "/history"))).status, 200);
+    const history = await send("GET", "/v1/entries/history-entry/revisions", bearer);
+    assert.equal(history.status, 200, history.body);
+    const items = (JSON.parse(history.body) as { items: readonly { revisionId: string; route?: string }[] }).items;
+    assert.deepEqual(items.map((item) => item.revisionId), ["r1", "r2", "r3", "r4"], "history 必須回全部 revision，並以 code-unit identity 排序");
+    assert.deepEqual(items.filter((item) => item.route !== undefined).map((item) => item.revisionId), ["r3", "r4"], "只有仍持有 published／current claim 的 revision 帶 route");
+    const detail = await send("GET", "/v1/entries/history-entry", bearer);
+    assert.equal(detail.status, 200);
+    const parsed = JSON.parse(detail.body) as { current: { revisionId: string; route: string }; published?: { revisionId: string; route: string } };
+    assert.equal(parsed.current.route, "/history");
+    assert.equal(parsed.published?.revisionId, "r3");
   });
 });
 
