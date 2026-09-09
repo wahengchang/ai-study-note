@@ -6,7 +6,7 @@ work_items: ["WI-062"]
 owner: Main
 branch: feat/cms-plugin-editor-integration
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/334
 ---
 
 # CMS plugin editor integration

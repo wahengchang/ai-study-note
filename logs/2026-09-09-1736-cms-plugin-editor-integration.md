@@ -4,8 +4,7 @@ work_item: WI-062
 work_group: WG-023
 completed_at: 2026-09-09T17:36:54+08:00
 status: completed
-branch: feat/cms-plugin-editor-integration
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/334
 ---
 
 # CMS plugin editor integration
