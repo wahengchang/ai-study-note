@@ -11,6 +11,7 @@ import { runDbMigrate } from "../../../apps/cli/db-migrate.js";
 import { runPluginPackage, runThemePackage } from "../../../apps/cli/package.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
 import { runThemeActivate } from "../../../apps/cli/theme-activate.js";
 
 function capture(): Readonly<{ output: string[]; io: Readonly<{ stdout(text: string): void; stderr(text: string): void }> }> {
@@ -136,6 +137,103 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
   } finally {
     await browser?.close();
     await runtime.value.close();
+  }
+});
+
+test("真實 CMS runtime 在 CAS reload 後保留 taxonomy binding 並發布", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-taxonomy-binding-browser-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(runDbMigrate(["--database", databasePath], capture().io), 0);
+  const opened = openPersistence({ databasePath });
+  assert.equal(opened.ok, true, opened.ok ? "" : opened.error.code);
+  if (!opened.ok) return;
+  try {
+    const taxonomy = createTaxonomy({ persistence: opened.value });
+    const created = taxonomy.createTaxonomy({ contract: "taxonomy-create-request/v1", taxonomyId: "topics", label: "Topics" });
+    assert.equal(created.ok, true, created.ok ? "" : created.error.code);
+    if (!created.ok) return;
+    const alpha = taxonomy.executeCommand("topics", { contract: "taxonomy-command/v1", kind: "create-term", expectedStateDigest: created.value.stateDigest, termId: "alpha", label: "Alpha", slug: "alpha", order: 10 });
+    assert.equal(alpha.ok, true, alpha.ok ? "" : alpha.error.code);
+    if (!alpha.ok) return;
+    const beta = taxonomy.executeCommand("topics", { contract: "taxonomy-command/v1", kind: "create-term", expectedStateDigest: alpha.value.snapshot.stateDigest, termId: "beta", label: "Beta", slug: "beta", order: 20 });
+    assert.equal(beta.ok, true, beta.ok ? "" : beta.error.code);
+    if (!beta.ok) return;
+  } finally {
+    opened.value.close();
+  }
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  const client = createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  const entryId = "taxonomy-bound-entry";
+  const content = (title: string, text: string) => ({ contract: "site-content/v1" as const, title, blocks: [{ kind: "article" as const, text }], seo: {} });
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    const seeded = await client.saveRevision({ entryId, request: { contract: "save-revision-request/v1", revisionId: "bound-alpha", operationId: "bound-alpha-save", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "site-content", version: 1 }, content: content("Taxonomy Alpha", "以 Alpha 建立。"), route: "/taxonomy-bound-entry", assetVersions: [], taxonomyTerms: [{ taxonomyId: "topics", termId: "alpha" }] } });
+    assert.equal(seeded.ok, true, seeded.ok ? "" : seeded.error.code);
+    if (!seeded.ok) return;
+    const initiallyPublished = await client.publishRevision({ entryId, request: { contract: "publish-revision-request/v1", expectedCurrentRevisionId: "bound-alpha", operationId: "bound-alpha-publish" } });
+    assert.equal(initiallyPublished.ok, true, initiallyPublished.ok ? "" : initiallyPublished.error.code);
+    if (!initiallyPublished.ok) return;
+    const minted = await client.mintBrowserTicket();
+    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
+    if (!minted.ok) return;
+    browser = await chromium.launch();
+    const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
+    await page.goto(`${runtime.value.origin}/cms/entries/${entryId}#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "編輯文章", exact: true }).waitFor();
+    const competing = await client.saveRevision({ entryId, request: { contract: "save-revision-request/v1", revisionId: "bound-beta-external", operationId: "bound-beta-external-save", expectedCurrentRevisionId: "bound-alpha", schemaIdentity: { schemaId: "site-content", version: 1 }, content: content("Taxonomy Beta 外部更新", "以 Beta 更新。"), route: "/taxonomy-bound-entry", assetVersions: [], taxonomyTerms: [{ taxonomyId: "topics", termId: "beta" }] } });
+    assert.equal(competing.ok, true, competing.ok ? "" : competing.error.code);
+    if (!competing.ok) return;
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("過期 CMS 修改");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("內容已由另一個頁面更新。", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "重新載入文章", exact: true }).click();
+    await page.waitForFunction(() => Array.from(document.querySelectorAll("input")).some((input) => input.value === "Taxonomy Beta 外部更新"));
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("CMS 保留 Beta binding");
+    assert.equal(await page.getByRole("button", { name: "儲存", exact: true }).isDisabled(), false);
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "發布", exact: true }).click();
+    await page.getByRole("button", { name: "確認發布", exact: true }).click();
+    await page.getByText("已發布。", { exact: true }).waitFor();
+  } finally {
+    await browser?.close();
+    await runtime.value.close();
+  }
+  const verified = openPersistence({ databasePath });
+  assert.equal(verified.ok, true, verified.ok ? "" : verified.error.code);
+  if (!verified.ok) return;
+  try {
+    const pointers = verified.value.getEntryPointers(entryId);
+    assert.equal(pointers.ok, true, pointers.ok ? "" : pointers.error.code);
+    if (!pointers.ok || pointers.value.publishedRevisionId === undefined) return;
+    const current = verified.value.getRevisionTaxonomyBindings({ entryId, revisionId: pointers.value.currentRevisionId });
+    const published = verified.value.getRevisionTaxonomyBindings({ entryId, revisionId: pointers.value.publishedRevisionId });
+    assert.equal(current.ok && published.ok, true);
+    if (!current.ok || !published.ok) return;
+    const evidence = { taxonomyId: "topics", termId: "beta", label: "Beta", slug: "beta", order: 20 };
+    const evidenceBytes = canonicalJsonBytes(evidence);
+    assert.equal(evidenceBytes.ok, true);
+    if (!evidenceBytes.ok) return;
+    const expected = [{ taxonomyId: "topics", termId: "beta", evidence, evidenceDigest: sha256Digest(evidenceBytes.value) }];
+    assert.deepEqual(current.value, expected);
+    assert.deepEqual(published.value, expected);
+  } finally {
+    verified.value.close();
   }
 });
 

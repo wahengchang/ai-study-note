@@ -1,8 +1,8 @@
 ---
 id: WI-066
-status: pending
+status: done
 title: CMS taxonomy binding preservation
-work_group: null
+work_group: WG-032
 depends_on: ["WI-043"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-043"]
 
 ## Notes
 
-GitHub #283／PR #348 後續；planned。實作前由 reviewer 與 security-reviewer 交叉審閱 CMS → Authoring API → Application 的 identity-preservation 資料流與 zero-write failure boundary。
+GitHub #283／PR #348 後續；由 WG-032 完成。reviewer 與 security-reviewer 確認只可從 `AuthoringEntryV1` 投影 exact `{taxonomyId,termId}`，transport／Application 既有 strict admission、CAS 與 transaction materialization 已維持 zero-write failure；未加入 selector、current catalog fallback 或 immutable evidence 回送。
