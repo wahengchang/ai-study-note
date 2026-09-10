@@ -147,6 +147,9 @@ test("taxonomy migration rejects unresolved mappings atomically and appends repl
     setupTerms(value.taxonomy);
     appendRevision(value.store, "source", [{ taxonomyId: "topics", termId: "alpha" }]);
     assert.equal(value.store.setEntryPointers({ entryId: "entry", currentRevisionId: "source", publishedRevisionId: "source", lineage: { revisionId: "source", operationId: "publish-source", operationKind: "PublishRevision" } }).ok, true);
+    // 真實 entry 的兩個 graph 都有 route claim；migration 搬動 pointer 時 claim 必須跟著走。
+    assert.equal(value.store.replaceRouteClaim({ graph: "current", normalizedRoute: "/guide", owner: "entry", sourceRevisionId: "source" }).ok, true);
+    assert.equal(value.store.replaceRouteClaim({ graph: "published", normalizedRoute: "/guide", owner: "entry", sourceRevisionId: "source" }).ok, true);
 
     const beforeUnresolved = stateDigest(value.store);
     const unresolved = value.taxonomy.executeCommand("topics", { contract: "taxonomy-command/v1", kind: "migrate-bindings", operationId: "unresolved", mappings: [{ source: { taxonomyId: "topics", termId: "alpha" }, replacement: { taxonomyId: "topics", termId: "missing" } }], replacements: [{ entryId: "entry", sourceRevisionId: "source", replacementRevisionId: "replacement" }], expectedStateDigest: snapshot(value.taxonomy).stateDigest });
@@ -170,6 +173,35 @@ test("taxonomy migration rejects unresolved mappings atomically and appends repl
     if (!pointers.ok) return;
     assert.equal(pointers.value.currentRevisionId, "replacement");
     assert.equal(pointers.value.publishedRevisionId, "replacement");
+    for (const graph of ["current", "published"] as const) {
+      const claims = value.store.listRouteClaims(graph);
+      assert.equal(claims.ok, true);
+      if (!claims.ok) return;
+      assert.deepEqual(claims.value.map((claim) => ({ ...claim })), [{ graph, normalizedRoute: "/guide", owner: "entry", sourceRevisionId: "replacement" }]);
+    }
+  } finally {
+    value.store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
+
+test("taxonomy migration fails closed when a moved pointer has no route claim to follow", () => {
+  const value = start();
+  try {
+    setupTerms(value.taxonomy);
+    appendRevision(value.store, "source", [{ taxonomyId: "topics", termId: "alpha" }]);
+    assert.equal(value.store.setEntryPointers({ entryId: "entry", currentRevisionId: "source", publishedRevisionId: "source", lineage: { revisionId: "source", operationId: "publish-source", operationKind: "PublishRevision" } }).ok, true);
+
+    const before = stateDigest(value.store);
+    const migrated = value.taxonomy.executeCommand("topics", {
+      contract: "taxonomy-command/v1", kind: "migrate-bindings", operationId: "migrate-without-claim",
+      mappings: [{ source: { taxonomyId: "topics", termId: "alpha" }, replacement: { taxonomyId: "topics", termId: "beta" } }],
+      replacements: [{ entryId: "entry", sourceRevisionId: "source", replacementRevisionId: "replacement" }],
+      expectedStateDigest: snapshot(value.taxonomy).stateDigest,
+    });
+    assert.equal(migrated.ok, false);
+    if (!migrated.ok) { assert.equal(migrated.error.code, "TAXONOMY_MAPPING_UNRESOLVABLE"); assert.equal(migrated.error.owner, "Taxonomy"); }
+    assert.equal(stateDigest(value.store), before);
   } finally {
     value.store.close();
     rmSync(value.directory, { recursive: true, force: true });

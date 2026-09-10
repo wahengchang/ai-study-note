@@ -224,6 +224,8 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
                 lineage: { revisionId: plan.replacement.revisionId, operationId: command.operationId, operationKind: "MigrateTaxonomyBindings" },
               });
               if (!updated.ok) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [plan.source.entryId, plan.source.revisionId]);
+              const repointed = repointRouteClaims(transaction, plan);
+              if (!repointed.ok) return repointed;
             }
             const migration: TaxonomyMigrationResult = {
               operationId: command.operationId,
@@ -314,6 +316,28 @@ function prepareMigration(
   }
   plans.sort((left, right) => compareCodeUnits(left.source.entryId, right.source.entryId) || compareCodeUnits(left.source.revisionId, right.source.revisionId));
   return { ok: true, value: { plans, sourceTerms, impact: usage.value } };
+}
+
+/**
+ * Route claim 以 `sourceRevisionId` 綁定 pointer 指向的 Revision：Application
+ * `readCurrentEntry` 與 published Projection 都要求 claim 與 pointer 指向同一個
+ * revisionId，否則分別是 `SAVE_REVISION_FAILED` 與 `UNRESOLVED_ROUTE_REFERENCE`。
+ * migration 既然搬動 current／published pointer，就必須在同一個 transaction 內把
+ * 對應 graph 的 claim 一起改指 replacement Revision；route 本身不變。
+ * 找不到可搬動的 claim 屬於 unresolvable state，整筆 migration fail closed。
+ */
+function repointRouteClaims(transaction: PersistenceTransaction, plan: MigrationPlan): TaxonomyResult<void> {
+  const unresolvable = taxonomyFailure<void>("TAXONOMY_MAPPING_UNRESOLVABLE", [plan.source.entryId, plan.source.revisionId]);
+  for (const graph of ["current", "published"] as const) {
+    if (!plan.pointers[graph]) continue;
+    const claims = transaction.listRouteClaims(graph);
+    if (!claims.ok) return unresolvable;
+    const claim = claims.value.find((value) => value.owner === plan.source.entryId && value.sourceRevisionId === plan.source.revisionId);
+    if (claim === undefined) return unresolvable;
+    const replaced = transaction.replaceRouteClaim({ graph, normalizedRoute: claim.normalizedRoute, owner: claim.owner, sourceRevisionId: plan.replacement.revisionId });
+    if (!replaced.ok) return unresolvable;
+  }
+  return { ok: true, value: undefined };
 }
 
 function commandResult(
