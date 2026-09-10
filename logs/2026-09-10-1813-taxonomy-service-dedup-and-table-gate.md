@@ -31,4 +31,4 @@
 ## 相關 Branch／PR
 
 - Branch：`fix/cms-taxonomy-workspace-review`
-- PR：待建立
+- PR：https://github.com/wahengchang/ai-study-note/pull/355

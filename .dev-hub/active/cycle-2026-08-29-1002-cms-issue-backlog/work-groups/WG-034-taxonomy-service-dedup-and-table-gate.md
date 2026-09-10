@@ -6,7 +6,7 @@ work_items: ["WI-067"]
 owner: Main
 branch: fix/cms-taxonomy-workspace-review
 worktree: null
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/355
 ---
 
 # Taxonomy service dedup 與 CMS taxonomy 表格 browser gate
