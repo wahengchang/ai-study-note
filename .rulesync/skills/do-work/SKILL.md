@@ -31,7 +31,11 @@ AI 指令與技能的 canonical source 是 `.rulesync/`：規則寫在 `.rulesyn
 
 沿用 repository 既有 pattern，先確認影響面與所有 caller，再完成 Work Item 的 acceptance criteria。bug 先以最便宜可靠的既有命令或場景重現，確認 root cause 後修正；修改 exported symbol 時確認所有 references，並清理 obsolete path。
 
-涉及 core module 時，實作前的計畫必須安排兩個不同角色的 agent 交叉審查（見 `AGENTS.md` 的 OMP 任務路由；跨模型第二意見用 `/ai-x`），並將結論納入實作決策。程式行為、邊界、資料流、公開介面或維運程序改變時，同步更新受影響文件與必要的鄰近 ASCII flow 註解。
+前端實作：不強制 Red／Green。
+
+非前端實作採 TDD：先新增或調整會失敗的 Tracer Bullet Test（Red），再以最小修改使其通過（Green）；紅綠紅綠交替，既有測試只有能證明修改前失敗時，才可作為 Red 證據。
+
+涉及 core module 時，實作前的計畫必須安排兩個不同角色的 agent 交叉審查（見 `AGENTS.md` 的 OMP 任務路由；跨模型第二意見用 `/ai-x`）。
 
 ## 4. 不可跳過的驗證 gate
 
