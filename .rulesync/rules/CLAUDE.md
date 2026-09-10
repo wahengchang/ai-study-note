@@ -46,7 +46,7 @@ globs:
 
 ## OMP 任務路由
 
-- 當平台 delegation policy 允許且確有必要委派時，依工作類型選擇最精確的 agent：唯讀研究使用 `scout` 或 `librarian`、UI/UX 使用 `designer`、程式碼審查使用 `reviewer`、安全審查使用 `security-reviewer`、機械性工作使用 `sonic`、實作使用 `task`。
+- 當平台 delegation policy 允許且確有必要委派時，依工作類型選擇最精確的 agent：唯讀研究使用 `scout` 或 `librarian`、UI/UX 使用 `designer`、程式碼審查使用 `reviewer`、機械性工作使用 `sonic`、實作使用 `task`；`security-reviewer` 只可由 Owner 明確要求，或由 `docs/dev-hub-workflow.md` 的 bounded Cycle final closeout gate 呼叫，不得用於個別修改、Work Item 或一般 PR。
 - 專案本地模型路由定義於 `.omp/config.yml`；當已設定的 role 適合工作時，不得臨時覆寫 agent 的模型。
 - 主 session 不會依任務語意自行切換模型；工作需要不同模型能力時，使用綁定 role 的 subagent。
-- 涉及核心組件（core module）的工作，必須在實作前的計畫階段安排至少兩個不同角色的 agent 交叉審查，以取得第二意見；可多輪交換意見至達成共識，並將結論納入實作計畫。
+- 涉及核心組件（core module）的工作，必須在實作前的計畫階段安排至少兩個不同角色的非 security-reviewer agent 交叉審查，以取得第二意見；可多輪交換意見至達成共識，並將結論納入實作計畫。

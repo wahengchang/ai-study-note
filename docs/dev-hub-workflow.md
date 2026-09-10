@@ -5,6 +5,8 @@
 ## 30 秒判斷
 
 只有符合專案既有定義的「大型工作」才建立 Cycle：跨多個檔案或元件、改變使用者可見行為／專案架構，或需要非直觀交接資訊。純問答、小型修正與唯讀查詢不建立。
+大型 Cycle 必須是 bounded Cycle：`Goal` 與 `Scope` 是可完成的有限交付，不得作為持續加入 Work Item 的 rolling backlog。是否需要安全專項不以修改行數、檔案數或 Work Group 數判斷。
+
 
 | 路徑 | 用途 | Git |
 | --- | --- | --- |
@@ -15,6 +17,29 @@
 | `dev-hub-*/` | 舊 handoff artifact，唯讀歷史，不作現行狀態 | 忽略 |
 
 Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的已核准範圍與設計約束，也不得覆蓋程式碼與對應測試所證明的已實作行為。
+## 安全專項 closeout gate
+
+新 bounded Cycle 的 `hub.md` 必須新增固定的 `## Security Review`，建立時寫 `Status: pending`。只有 final Work Group 在所有交付與行為驗證 ready 後判定一次；個別 Work Item、一般 PR、commit 或 implementation increment 不得提前呼叫 `security-reviewer`。
+
+只有至少一個 Work Group PR 改變下列 admission、validation、secret、trust root、isolation 或 untrusted-output encoding 邊界時，才需安全專項：
+
+1. Authoring HTTP admission：middleware order、Host／forwarded、Origin／Fetch Metadata、Bearer、Cookie／query rejection、route allowlist、loopback binding。
+2. CMS document admission：document route allowlist、built-asset manifest allowlist、document request semantics。
+3. Credential／secret lifecycle 與外洩防護：生成、rotation、server proof、one-time ticket、session bootstrap、log allowlist、credential redaction。
+4. Installed Plugin／Theme trust root：discovery、realpath／UID／safe-mode、manifest／digest／CAS、capability／hook binding、callback isolation。
+5. Published-only isolation 與 provenance：draft／current leakage、prepared-token validation、artifact immutability。
+6. Filesystem／path safety：repository subpath、traversal、staging 與 atomic rename。
+7. Untrusted output encoding：HTML／RCDATA／JSON-LD／XML escaping、meta／robots／sitemap injection、CR／LF／NUL rejection。
+
+純 domain／taxonomy／route-graph correctness、一般 persistence mechanism、type-only、UI／UX、refactor、文件、未改變上述邊界的測試與 build tooling 只走既有 correctness review。小型非 Cycle 工作即使涉及安全形狀功能，也不啟動 security specialist 或累積至日後審查；它仍必須執行直接受影響的 contract／regression tests。Owner 明確要求安全審查是唯一即時例外。
+
+`cycle-2026-08-29-1002-cms-issue-backlog` 整體 grandfather：不得改寫既有 completed 或 in-progress Work Item／Work Group provenance，也不回溯審查。規則生效後，該 Cycle 未認領的 pending Work Item 如會修改上述邊界，先建立含等價新 Work Item 的 bounded Cycle，再將 umbrella 原 Work Item 設為 `cancelled`，並在 `Notes` 指向新路徑。
+
+命中邊界時，final Work Group 必須為每個 boundary-touching Work Group 記錄 `WG id`、PR URL 與精確 head SHA，將這些 SHA 的 PR diff、相關 contract anchors 與實際驗證組成一份 review packet，並只對整包啟動一次 `security-reviewer` 初始審查。`hub.md` 保持 `Status: pending` 直到完成；完成後記錄 `Status: completed`、reviewer role／resolved model／session、packet heads 與 finding IDs，並在 final Work Group `Verification` 與完成 log 記錄同一證據。未命中時寫 `Status: not-required`，並在完成 log 記錄 `not-required`。
+
+finding 必須有穩定 ID、severity、evidence、impact、recommendation 與 verification。修正者只交回原 finding、修正 delta 與實際驗證給同一 reviewer session；reviewer 只重查未結 finding。若 delta 改變 trust model、增減邊界或超出 finding 範圍，審查擴至該 delta，仍屬同一次 Cycle review。未結 `BLOCKER`／`HIGH` 阻止 closeout；`MEDIUM`／`LOW` 可記錄 accepted-risk。
+
+已為相同 packet heads 記錄 `not-required` 或 `completed` 時，closeout retry 不得重跑；`completed` 的 packet head 在 closeout 前變動時，狀態回到 `pending`，由同一 reviewer 只檢查新增 delta。
 
 ## 最短執行路徑
 
@@ -38,6 +63,8 @@ Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的�
 - `Verification` 已記錄實際結果。
 - 必要 frontmatter 完整，沒有 Work Item 被重複認領。
 - 每個執行中的 Work Item 都有 Work Group；每個 Work Group 都有 Branch 與 Worktree。
+- 新 bounded Cycle 的 `## Security Review` 是 `not-required` 或 `completed`；`completed` 的 packet heads 仍與 closeout 時一致。
+
 
 `completed` 表示合併前已完成並通過驗證，不表示 PR 已 merged。`blocked` 必須在 Work Item 的 `Notes` 或 Work Group 的 `Verification` 寫明原因與解除條件；`cancelled` 必須寫明取消理由。
 
@@ -48,7 +75,7 @@ Dev Hub 只管理工作狀態與交付，不得覆蓋 `contracts/README.md` 的�
 
 - 目錄：`cycle-YYYY-MM-DD-HHmm-<english-kebab-slug>/`
 - `hub.md` frontmatter：`id`、`status`、`created_at`、`updated_at`
-- 正文：`Goal`、`Scope`、`Context`
+- 正文：`Goal`、`Scope`、`Context`；新 bounded Cycle 另有 `## Security Review`。
 - 狀態：`active | blocked | completed | cancelled`
 - 時間：含 UTC offset 的 ISO 8601
 
