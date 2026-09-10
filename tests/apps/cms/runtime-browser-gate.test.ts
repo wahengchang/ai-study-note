@@ -1,0 +1,127 @@
+import assert from "node:assert/strict";
+import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import test from "node:test";
+
+import { chromium } from "playwright";
+
+import { createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, startCmsRuntime } from "../../../apps/authoring-api/index.js";
+import { runDbMigrate } from "../../../apps/cli/db-migrate.js";
+import { runPluginPackage, runThemePackage } from "../../../apps/cli/package.js";
+import { runThemeActivate } from "../../../apps/cli/theme-activate.js";
+
+function capture(): Readonly<{ output: string[]; io: Readonly<{ stdout(text: string): void; stderr(text: string): void }> }> {
+  const output: string[] = [];
+  return { output, io: { stdout: (text) => { output.push(text); }, stderr: (text) => { output.push(text); } } };
+}
+
+test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/a11y journey", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-runtime-browser-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(runDbMigrate(["--database", databasePath], capture().io), 0);
+  assert.equal(await runPluginPackage(["--id", "seo-basics", "--installed-plugins-root", pluginsRoot], capture().io), 0);
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
+  assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
+  if (!minted.ok) { await runtime.value.close(); return; }
+  const browser = await chromium.launch();
+  try {
+    const context_ = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } });
+    const page = await context_.newPage();
+    await page.goto(`${runtime.value.origin}/cms#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "CMS 文章工作台", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms");
+    assert.equal(await page.getByText("Browser session 已建立。", { exact: true }).count(), 1);
+    assert.equal(await page.getByRole("main").getAttribute("aria-labelledby"), "page-title");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByRole("link", { name: "跳到主標題", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByRole("link", { name: "文章", exact: true }).click();
+    await page.getByRole("heading", { name: "文章全覽", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/entries");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByRole("link", { name: "建立第一篇文章", exact: true }).click();
+    await page.getByRole("heading", { name: "新增文章", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/entries/new");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("Runtime Article v1");
+    await page.getByRole("textbox", { name: "網址代稱", exact: true }).fill("runtime-article");
+    await page.getByRole("textbox", { name: "本文", exact: true }).fill("第一版真實 runtime 內容");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByRole("heading", { name: "編輯文章", exact: true }).waitFor();
+    assert.match(new URL(page.url()).pathname, /^\/cms\/entries\/[^/]+$/u);
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    const currentFrame = page.getByTitle("目前版本頁面預覽", { exact: true });
+    await currentFrame.waitFor();
+    assert.equal(await currentFrame.getAttribute("sandbox"), "");
+    const currentPreview = currentFrame.contentFrame();
+    assert.ok(currentPreview);
+    await currentPreview.getByText("Runtime Article v1", { exact: true }).waitFor();
+    const currentTab = page.getByRole("tab", { name: "目前版本", exact: true });
+    const publishedTab = page.getByRole("tab", { name: "已發布版本", exact: true });
+    await currentTab.focus();
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await publishedTab.getAttribute("aria-selected"), "true");
+    await page.keyboard.press("ArrowRight");
+    assert.equal(await currentTab.getAttribute("aria-selected"), "true");
+    const publish = page.getByRole("button", { name: "發布", exact: true });
+    await publish.click();
+    const dialog = page.getByRole("dialog", { name: "發布文章", exact: true });
+    await dialog.waitFor();
+    assert.match(await dialog.textContent() ?? "", /將發布目前 revision：/u);
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.querySelector("dialog")?.contains(document.activeElement)), true);
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await page.evaluate(() => document.querySelector("dialog")?.contains(document.activeElement)), true);
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector("dialog")?.open);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "發布");
+    await publish.click();
+    await page.getByRole("button", { name: "確認發布", exact: true }).click();
+    await page.getByText("已發布。", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "已發布。");
+    await publishedTab.click();
+    const publishedFrame = page.getByTitle("已發布版本頁面預覽", { exact: true });
+    await publishedFrame.waitFor();
+    assert.equal(await publishedFrame.getAttribute("sandbox"), "");
+    const publishedPreview = publishedFrame.contentFrame();
+    assert.ok(publishedPreview);
+    await publishedPreview.getByText("Runtime Article v1", { exact: true }).waitFor();
+    await page.setViewportSize({ width: 375, height: 844 });
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("Runtime Article v2");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "儲存", exact: true }).scrollIntoViewIfNeeded();
+    await currentTab.click();
+    const refreshedCurrentPreview = page.getByTitle("目前版本頁面預覽", { exact: true }).contentFrame();
+    assert.ok(refreshedCurrentPreview);
+    await refreshedCurrentPreview.getByText("Runtime Article v2", { exact: true }).waitFor();
+    await publishedTab.click();
+    const refreshedPublishedPreview = page.getByTitle("已發布版本頁面預覽", { exact: true }).contentFrame();
+    assert.ok(refreshedPublishedPreview);
+    await refreshedPublishedPreview.getByText("Runtime Article v1", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+    await page.getByRole("link", { name: "文章", exact: true }).click();
+    await page.getByText("已發布，有未發布變更", { exact: true }).waitFor();
+  } finally {
+    await browser.close();
+    await runtime.value.close();
+  }
+});
