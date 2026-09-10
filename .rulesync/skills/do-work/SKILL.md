@@ -22,6 +22,8 @@ AI 指令與技能的 canonical source 是 `.rulesync/`：規則寫在 `.rulesyn
 `.dev-hub/active/` 可能同時存在多個 Cycle。只有一個 active Cycle 時直接使用；超過一個時必須由使用者指定本輪 Cycle，不得自行挑選，也不得跨 Cycle 混用 Work Item。
 
 從該 Cycle 選取一個 `pending`、`work_group: null`、所有 `depends_on` 皆為 `done` 或 `cancelled` 的 Work Item；`blocked`、未解除依賴或已認領項目不得入選。沒有候選時回報「目前沒有可執行的 Dev Hub Work Item」，不做 mutation。
+認領 `cycle-2026-08-29-1002-cms-issue-backlog` 未認領的 pending Work Item 時，如它會修改 `docs/dev-hub-workflow.md` 列出的安全邊界，必須先依該文件建立含等價新 Work Item 的 bounded Cycle，再將 umbrella 原項目設為 `cancelled` 並在 `Notes` 指向新路徑；已完成或已認領項目的 provenance 不得改寫。
+
 
 寫碼前建立本輪專用 Work Group、branch 與 worktree，並依 `docs/dev-hub-workflow.md` 的固定 schema 將 Work Item 設為 `in_progress`、雙向連結其唯一 Work Group；不得建立只為認領狀態的預先 commit。
 
@@ -49,6 +51,8 @@ AI 指令與技能的 canonical source 是 `.rulesync/`：規則寫在 `.rulesyn
 
 - 非最後 Work Group：填入真實 PR URL，active Cycle 保留。
 - 最後 Work Group：確認所有 Work Item 與 Work Group 已達 `docs/dev-hub-workflow.md` 的完成閘門，建立 `logs/YYYY-MM-DD-HHmm-<cycle-slug>.md` 完成摘要，並刪除該 Cycle 目錄；其他 active Cycle 不受影響。
+安全專項只由 final Work Group 依 `docs/dev-hub-workflow.md` 的 bounded Cycle closeout gate 集中處理；個別 Work Item、一般 PR 與 implementation increment 不得呼叫 `security-reviewer`。
+
 
 PR title/body 使用繁體中文、以 outcome 為主；body 必須包含變更摘要、實際驗證命令與結果、剩餘風險，以及 Cycle／Work Item／Work Group 路徑。
 
