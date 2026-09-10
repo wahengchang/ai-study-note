@@ -1,6 +1,6 @@
 ---
 id: WI-046
-status: in_progress
+status: done
 title: Media library/import
 work_group: WG-036
 depends_on: ["WI-067"]

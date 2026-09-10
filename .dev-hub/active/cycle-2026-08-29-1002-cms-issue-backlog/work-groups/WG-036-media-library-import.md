@@ -1,12 +1,12 @@
 ---
 id: WG-036
-status: in_progress
+status: completed
 title: Media library/import API
 work_items: ["WI-046"]
 owner: Main
 branch: feature/media-library-import
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/media-library-import
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/360
 ---
 
 # Media library/import API
@@ -17,4 +17,4 @@ pr: null
 
 ## Verification
 
-待完成 DataMedia/CMS workspace non-owner cross-review、DataMedia/Application/HTTP contract tests、real listener security admission proof 與 domain validation 後記錄實際結果。
+DataMedia integrity 與 CMS workspace non-owner reviewer final ACCEPT。`npm run typecheck`、`npm run check:architecture`、`git diff --check`、`tests/core/media/local-import.test.ts` 與 real listener Media import/list smoke test 全數通過；regression 覆蓋 pending-over-ready precedence、storage-only stage collision 與 Persistence digest drift 的 fail-closed 409。PR #360 以 PR #359 的 branch 為 stacked base；未加入 detail commands 或 CMS UI。
