@@ -6,5 +6,7 @@ task:
     sonic: "@smol"
     task: "@default"
     designer: "@plan"
-    reviewer: "@slow"
+    reviewer: "openai-codex/gpt-5.6-sol:xhigh"
+    reviewer-deepseek: "opencode-go/deepseek-v4-flash:high"
     security-reviewer: "@slow"
+  showResolvedModelBadge: true

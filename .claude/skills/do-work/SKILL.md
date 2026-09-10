@@ -34,7 +34,7 @@ AI 指令與技能的 canonical source 是 `.rulesync/`：規則寫在 `.rulesyn
 
 非前端實作採 TDD：先新增或調整會失敗的 Tracer Bullet Test（Red），再以最小修改使其通過（Green）；紅綠紅綠交替，既有測試只有能證明修改前失敗時，才可作為 Red 證據。
 
-涉及 core module 時，實作前的計畫必須安排兩個不同角色的 agent 交叉審查（見 `AGENTS.md` 的 OMP 任務路由；跨模型第二意見用 `/ai-x`）。
+涉及 core module 時，實作前的計畫必須依 `.rulesync/subagents/` 的責任邊界，安排兩個職責不同且均非 owner 的專案子代理交叉審查；`.codex/agents/` 僅為 generated view。不得以 platform reviewer 或 `/ai-x` 的跨模型第二意見替代。
 
 ## 4. 不可跳過的驗證 gate
 
