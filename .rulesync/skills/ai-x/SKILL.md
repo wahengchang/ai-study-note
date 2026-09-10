@@ -20,14 +20,11 @@ description: 以不同 underlying model 的獨立 AI 提供第二意見，或執
 
 1. **Primary 先完成原始工作並自行驗證**，再建立 review packet；Reviewer 不替 Primary
    提案、實作或承擔最終決策。
-2. Reviewer 必須使用與 Primary **不同的 underlying model**，且第一次審查使用 fresh
-   session。OMP agent 名稱或 fresh session 本身不代表模型不同；執行前確認 resolved
-   reviewer model。本專案的 role 對模型映射見 `.omp/config.yml`：選一個綁定不同模型的
-   role（例如 `reviewer`／`security-reviewer` 對 `@slow`），不得臨時覆寫該 agent 的模型。
-   後續追問一律 resume 同一 Reviewer，不重建無上下文 agent。
-3. Reviewer 對 review target 一律 read-only；可讀 source、diff、文件並做非破壞性驗證，
+2. **Reviewer 模型選擇**：確認 Primary 的 resolved underlying model，從 `ChatGPT`、`Claude CLI`、`DeepSeek` 排除同模型後隨機排列可用候選。每個候選先使用能明確運行該模型的 host 原生 reviewer；否則使用該模型 CLI 做 read-only review。rate limit、額度不足或不可用時改下一個候選且不重試；全部失敗輸出 `BLOCKED`，reason 為 `review_unavailable`。OMP 只可使用 `.omp/config.yml` 已綁定且已確認的 role，不得覆寫模型。輸出必須記錄 Primary、候選順序、selected model 與 mechanism。
+3. 第一次審查使用 fresh session；後續追問一律 resume 同一 Reviewer，不重建無上下文 agent。
+4. Reviewer 對 review target 一律 read-only；可讀 source、diff、文件並做非破壞性驗證，
    不得修改 tracked product files、部署、發布或執行不可逆操作。
-4. Review packet 只含：原始要求、實際成果或 diff、必要 source/context、限制與 acceptance
+5. Review packet 只含：原始要求、實際成果或 diff、必要 source/context、限制與 acceptance
    criteria、已完成驗證。資料須足以讓 Reviewer 直接查證，不以 Primary 摘要代替證據。
 
 ## Light — Second opinion
