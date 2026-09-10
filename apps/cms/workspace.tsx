@@ -54,6 +54,7 @@ type InteractiveDemoBlock = Extract<StructuredBlock, Readonly<{ kind: "interacti
 const seoKeys = ["title", "description", "canonicalPath"] as const;
 type Seo = Readonly<{ title?: string | undefined; description?: string | undefined; canonicalPath?: string | undefined }>;
 type NormalizedDocument = Readonly<{ content: StructuredContent; route: string }>;
+type TaxonomyTermIdentity = Readonly<{ taxonomyId: string; termId: string }>;
 export { openAuthoringSession } from "./session.js";
 
 export class CmsApiError extends Error {
@@ -124,8 +125,8 @@ class CmsApiClient {
   replaceSettings(body: Record<string, unknown>): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins/settings", pluginManagementSnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   activate(body: Record<string, unknown>): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins/activate", pluginManagementSnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   analyze(entryId: string, body: Record<string, unknown>): Promise<CmsSeoAnalysisResponseDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/seo-analysis`, cmsSeoAnalysisResponseSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
-  save(entryId: string, baseline: string | null, document: NormalizedDocument): Promise<unknown> {
-    return this.json(`/v1/entries/${this.resourceId(entryId)}/revisions`, saveRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "save-revision-request/v1", revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: baseline, schemaIdentity: { schemaId: "site-content", version: 1 }, content: document.content, route: document.route, assetVersions: [], taxonomyTerms: [] }) });
+  save(entryId: string, baseline: string | null, document: NormalizedDocument, taxonomyTerms: readonly TaxonomyTermIdentity[]): Promise<unknown> {
+    return this.json(`/v1/entries/${this.resourceId(entryId)}/revisions`, saveRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "save-revision-request/v1", revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: baseline, schemaIdentity: { schemaId: "site-content", version: 1 }, content: document.content, route: document.route, assetVersions: [], taxonomyTerms: taxonomyTerms.map(({ taxonomyId, termId }) => ({ taxonomyId, termId })) }) });
   }
   publish(entryId: string, baseline: string): Promise<unknown> {
     return this.json(`/v1/entries/${this.resourceId(entryId)}/publish`, publishRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: baseline, operationId: crypto.randomUUID() }) });
@@ -371,6 +372,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const [seo, setSeo] = useState<Seo>({});
   const [blocks, setBlocks] = useState<readonly StructuredBlock[]>([{ kind: "article", text: "" }]);
   const [baseline, setBaseline] = useState<string | null>(null);
+  const [taxonomyTerms, setTaxonomyTerms] = useState<readonly TaxonomyTermIdentity[]>([]);
   const [savedDocument, setSavedDocument] = useState<string>();
   const [loading, setLoading] = useState(!create);
   const [notFound, setNotFound] = useState(false);
@@ -421,6 +423,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     editorBlockGeneration.current += 1;
     if (document === undefined || article === undefined) { setError("目前 revision 無法作為 Article 編輯。"); return false; }
     setTitle(document.content.title); setRoute(document.route.slice(1)); setText(article.text); setSeo(document.content.seo); setBlocks(document.content.blocks); setBaseline(entry.current.revisionId); setSavedDocument(canonicalJson(document)); setEditorBlockResolutions(undefined); setEditorBlockFailure(undefined);
+    setTaxonomyTerms(entry.current.taxonomyBindings.map(({ taxonomyId, termId }) => ({ taxonomyId, termId }))); setConflict(false);
     return true;
   };
   const refreshPreviews = async (): Promise<void> => {
@@ -503,7 +506,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     analysisGeneration.current += 1;
     setEntryBusy(true); setError(undefined); setNotice("");
     try {
-      await api.save(entryId, baseline, normalized);
+      await api.save(entryId, baseline, normalized, taxonomyTerms);
       const refreshed = await api.current(entryId);
       if (!adopt(refreshed)) return;
       await Promise.all([refreshPreviews(), refreshEditorBlocks(refreshed)]);
