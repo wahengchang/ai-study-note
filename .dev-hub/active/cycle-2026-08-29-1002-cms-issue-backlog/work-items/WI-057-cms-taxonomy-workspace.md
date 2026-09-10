@@ -1,8 +1,8 @@
 ---
 id: WI-057
-status: pending
+status: done
 title: CMS taxonomy administration workspace
-work_group: null
+work_group: WG-033
 depends_on: ["WI-040", "WI-035", "WI-043"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-043"]
 
 ## Notes
 
-GitHub #316；planned。
+GitHub #316；由 WG-033 完成。交付 finite exact CMS document routes、Application-only taxonomy list/create/detail UI 與 real `startCmsRuntime` Chromium/a11y gate；未加入 entry selector、歷史路由或 lifecycle command UI。

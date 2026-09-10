@@ -16,6 +16,9 @@ const contentTypeSchema = z.object({ contract: z.literal("content-type/v1"), sch
 const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSchema), stateDigest: digestSchema }).strict();
 const taxonomyBindingSchema = z.object({ taxonomyId: z.string(), termId: z.string(), evidence: z.object({ taxonomyId: z.string(), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe() }).strict(), evidenceDigest: digestSchema }).strict();
 const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()), taxonomyBindings: z.array(taxonomyBindingSchema) }).strict(), stateDigest: digestSchema }).strict();
+const taxonomyTermSchema = z.object({ taxonomyId: z.string(), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe(), state: z.enum(["live", "retired"]) }).strict();
+const taxonomySnapshotSchema = z.object({ contract: z.literal("taxonomy/v1"), taxonomy: z.object({ taxonomyId: z.string(), label: z.string() }).strict(), terms: z.array(taxonomyTermSchema), stateDigest: digestSchema }).strict();
+const taxonomyCatalogSchema = z.object({ contract: z.literal("taxonomy-catalog/v1"), taxonomies: z.array(z.object({ taxonomy: z.object({ taxonomyId: z.string(), label: z.string() }).strict(), stateDigest: digestSchema }).strict()) }).strict();
 const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string().url(), indexing: z.enum(["allow", "disallow"]) }).strict();
 const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: digestSchema, capabilities: z.array(z.string()) }).strict();
 const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: digestSchema, settingsStateDigest: digestSchema, plugins: z.array(z.object({ identity: pluginIdentitySchema, status: z.enum(["inactive", "active", "reactivation-required"]), settings: z.object({ settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema, settingsDigest: digestSchema }).strict().optional() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
@@ -47,6 +50,8 @@ type ContentTypeCatalogDto = Readonly<z.infer<typeof contentTypeCatalogSchema>>;
 type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
 type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManagementSnapshotSchema>>;
 type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
+type TaxonomySnapshotDto = Readonly<z.infer<typeof taxonomySnapshotSchema>>;
+type TaxonomyCatalogDto = Readonly<z.infer<typeof taxonomyCatalogSchema>>;
 type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
 type StructuredBlock = StructuredContent["blocks"][number];
 type InteractiveDemoBlock = Extract<StructuredBlock, Readonly<{ kind: "interactive-demo" }>>;
@@ -119,6 +124,9 @@ class CmsApiClient {
   listEntries(): Promise<EntryCatalogDto> { return this.json("/v1/entries", entryCatalogSchema); }
   contentTypes(): Promise<ContentTypeCatalogDto> { return this.json("/v1/content-types", contentTypeCatalogSchema); }
   createContentType(schemaId: string, schema: unknown): Promise<ContentTypeDto> { return this.json("/v1/content-types", contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "create-content-type-request/v1", schemaId: this.resourceId(schemaId), schema }) }); }
+  taxonomies(): Promise<TaxonomyCatalogDto> { return this.json("/v1/taxonomies", taxonomyCatalogSchema); }
+  createTaxonomy(taxonomyId: string, label: string): Promise<TaxonomySnapshotDto> { return this.json("/v1/taxonomies", taxonomySnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "taxonomy-create-request/v1", taxonomyId: this.resourceId(taxonomyId), label }) }); }
+  taxonomy(taxonomyId: string): Promise<TaxonomySnapshotDto> { return this.json(`/v1/taxonomies/${this.resourceId(taxonomyId)}`, taxonomySnapshotSchema); }
   current(entryId: string): Promise<AuthoringEntryDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current`, authoringEntrySchema); }
   editorBlocks(entryId: string): Promise<CmsEditorBlockResolutionsDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current/editor-blocks`, cmsEditorBlockResolutionsSchema); }
   plugins(): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins", pluginManagementSnapshotSchema); }
@@ -176,7 +184,7 @@ function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): Rea
 }
 
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -248,6 +256,46 @@ function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.
   const document = currentContentTypes(items)[0];
   if (document === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading><p role="alert">{error ?? "找不到內容類型。"}</p><button onClick={load}>重試</button></Layout>;
   return <Layout><PageHeading>內容類型：{document.schemaIdentity.schemaId}</PageHeading><p>目前版本：{document.schemaIdentity.version}</p><dl><dt>Schema digest</dt><dd className="breakable">{document.schemaDigest}</dd></dl><section aria-labelledby="content-type-history"><h2 id="content-type-history">版本歷程</h2><ol>{items.map((item) => <li key={item.schemaIdentity.version} aria-current={item.schemaIdentity.version === document.schemaIdentity.version ? "true" : undefined}>版本 {item.schemaIdentity.version}{item.schemaIdentity.version === document.schemaIdentity.version ? "（目前）" : ""}</li>)}</ol></section><section aria-labelledby="content-type-schema"><h2 id="content-type-schema">目前 JSON Schema</h2><pre className="schema"><code>{JSON.stringify(document.schema, null, 2)}</code></pre></section></Layout>;
+}
+
+function TaxonomyList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const [catalog, setCatalog] = useState<TaxonomyCatalogDto>();
+  const [error, setError] = useState<string>();
+  const load = useCallback((): void => { setCatalog(undefined); setError(undefined); void api.taxonomies().then(setCatalog).catch((reason: unknown) => setError(message(reason))); }, [api]);
+  useEffect(load, [load]);
+  if (catalog === undefined) return <Layout><PageHeading>分類全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入分類。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  return <Layout><PageHeading>分類全覽</PageHeading><p><Link className="action-link" to="/cms/taxonomies/new">建立分類</Link></p>{catalog.taxonomies.length === 0 ? <p>尚無分類。<Link to="/cms/taxonomies/new">建立第一個分類</Link></p> : <table><caption>所有分類</caption><thead><tr><th scope="col">名稱</th><th scope="col">Taxonomy ID</th></tr></thead><tbody>{catalog.taxonomies.map(({ taxonomy }) => <tr key={taxonomy.taxonomyId}><td><Link to={`/cms/taxonomies/${taxonomy.taxonomyId}`}>{taxonomy.label}</Link></td><td>{taxonomy.taxonomyId}</td></tr>)}</tbody></table>}</Layout>;
+}
+
+function TaxonomyNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const navigate = useNavigate();
+  const [taxonomyId, setTaxonomyId] = useState("");
+  const [label, setLabel] = useState("");
+  const [idError, setIdError] = useState<string>();
+  const [labelError, setLabelError] = useState<string>();
+  const [formError, setFormError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault(); setIdError(undefined); setLabelError(undefined); setFormError(undefined);
+    if (!AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) { setIdError("Taxonomy ID 只能使用英數字、句點、底線、連字號或波浪號。"); return; }
+    if (label.trim() === "") { setLabelError("請輸入分類名稱。"); return; }
+    setBusy(true);
+    try { const created = await api.createTaxonomy(taxonomyId, label.trim()); navigate(`/cms/taxonomies/${created.taxonomy.taxonomyId}`); } catch (reason) { setFormError(message(reason)); } finally { setBusy(false); }
+  };
+  return <Layout><PageHeading>建立分類</PageHeading><form aria-label="分類定義" onSubmit={(event) => void submit(event)}><label htmlFor="taxonomy-id">Taxonomy ID<input id="taxonomy-id" required value={taxonomyId} onChange={(event) => { setTaxonomyId(event.target.value); setIdError(undefined); }} aria-invalid={idError !== undefined} aria-describedby={idError === undefined ? undefined : "taxonomy-id-error"} disabled={busy} /></label>{idError !== undefined && <p id="taxonomy-id-error" role="alert">{idError}</p>}<label htmlFor="taxonomy-label">分類名稱<input id="taxonomy-label" required value={label} onChange={(event) => { setLabel(event.target.value); setLabelError(undefined); }} aria-invalid={labelError !== undefined} aria-describedby={labelError === undefined ? undefined : "taxonomy-label-error"} disabled={busy} /></label>{labelError !== undefined && <p id="taxonomy-label-error" role="alert">{labelError}</p>}{formError !== undefined && <p role="alert">{formError}</p>}<p role="status" aria-live="polite">{busy ? "正在建立分類…" : ""}</p><button type="submit" disabled={busy}>{busy ? "正在建立…" : "建立分類"}</button></form></Layout>;
+}
+
+function TaxonomyDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const { taxonomyId } = useParams();
+  const [snapshot, setSnapshot] = useState<TaxonomySnapshotDto>();
+  const [error, setError] = useState<string>();
+  const load = useCallback((): void => {
+    if (taxonomyId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) { setSnapshot(undefined); setError("找不到分類。"); return; }
+    setSnapshot(undefined); setError(undefined); void api.taxonomy(taxonomyId).then(setSnapshot).catch((reason: unknown) => setError(reason instanceof CmsApiError && reason.status === 404 ? "找不到分類。" : message(reason)));
+  }, [api, taxonomyId]);
+  useEffect(load, [load]);
+  if (snapshot === undefined) return <Layout><PageHeading>分類詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入分類。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  return <Layout><PageHeading>分類：{snapshot.taxonomy.label}</PageHeading><dl><dt>Taxonomy ID</dt><dd>{snapshot.taxonomy.taxonomyId}</dd></dl><section aria-labelledby="taxonomy-terms"><h2 id="taxonomy-terms">Terms</h2>{snapshot.terms.length === 0 ? <p>尚無 term。</p> : <table><caption>所有 terms</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">順序</th><th scope="col">狀態</th></tr></thead><tbody>{snapshot.terms.map((term) => <tr key={term.termId}><td>{term.label}</td><td>{term.slug}</td><td>{term.order}</td><td>{term.state === "live" ? "使用中" : "已停用"}</td></tr>)}</tbody></table>}</section></Layout>;
 }
 
 function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -564,7 +612,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
 }
 
 function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {
