@@ -134,3 +134,28 @@ Real entrypoints, not test hosts or hand-built artifacts, are required:
 | Public build | published-only input, prepare/validate once, prepared-token drift failure zero Delivery, SEO-only safe omission, generic owner hard failure |
 | Renderer/Delivery | head/escape/JSON-LD/XML/robots order, duplicate SEO conflict, immutable delivery idempotence and no diagnostic/omission leakage |
 | CLI/architecture | real package/migrate/activate/serve/open/build flow, deterministic rerun, `apps/cms/index.ts` sole browser entry, public-seam/type-only extension boundaries |
+
+## 8. #291 contract — Taxonomy
+
+### Approved boundary
+
+- Taxonomy is a flat catalog. Hierarchy, `parent`, ancestor／descendant traversal and subtree semantics are not supported contract.
+- A term's stable identity is exact `TaxonomyTermIdentity={taxonomyId,termId}`. `taxonomyId` and `termId` are immutable; a term cannot change taxonomy and its ID is never reused. `termId` is opaque, so callers must neither parse it nor derive replacement identity from label, slug or order.
+- Every Revision taxonomy reference is an immutable `RevisionTaxonomyTermBinding={taxonomyId,termId,evidence,evidenceDigest}`. `evidence` is the creation-time exact `{taxonomyId,termId,label,slug,order}` snapshot and `evidenceDigest=SHA-256(JCS(evidence))`. A binding's IDs, evidence and digest are validated together and never rewritten or supplemented from the current catalog.
+- A term has one zh-TW `label`, an ASCII `slug`, and an integer `order`. `label` is the only field changed by `rename`; `slug` is fixed at creation. Live terms in one taxonomy have unique slugs and `order` is unique within its taxonomy. Catalog display and every projection of term collections sort by numeric `order`, then code-unit `termId`, never locale collation. Any taxonomy selection/provenance digest binds that ordered sequence and its evidence digests.
+
+### Lifecycle, impact and migration
+
+- `rename` changes only the live catalog `label`; it must not change `termId`, `slug`, `order`, any immutable binding, or any historical Revision evidence/digest.
+- `retire` removes a term from live selection only. It must not rewrite a historical Revision, binding, evidence or digest. A term is deletable only when no Revision of any state references its `TaxonomyTermIdentity`.
+- Every lifecycle command returns complete, separately ordered current and published usage impact from the same atomic snapshot as its mutation. Retire and delete fail closed with zero mutation when either impact has active usage. Migration is the only approved active-usage resolution and fails closed with zero mutation if any affected source binding does not have exactly one live, valid replacement mapping, or if a source/replacement binding is missing, stale, ambiguous or otherwise unresolvable.
+- Migration accepts only explicit exact source-binding → replacement-binding mappings. It must not infer a mapping from label, slug, order or current catalog lookup. It appends replacement Revisions carrying fresh immutable replacement evidence/digest and atomically moves only affected current/published pointers; it never overwrites existing Revision bytes, bindings or evidence. A source term remains non-deletable while any original Revision still references it.
+
+### Published projection
+
+- Published Projection resolves every taxonomy reference only from the published Revision's immutable binding and verifies its identity, evidence, digest and ordered-collection invariants. Missing, malformed, mismatched, duplicate/colliding or otherwise unresolvable immutable binding is a hard projection failure before Renderer/Delivery, with no omitted, substituted, partial or new artifact.
+- Projection must not fall back to the current taxonomy catalog for a Revision binding, including after a term rename, retirement, deletion or migration. Current/draft taxonomy state must not repair, replace or enter published taxonomy evidence.
+
+### Required future proof
+
+- The runtime delivery that implements this contract must prove flat-boundary rejection; immutable historical bindings across rename/retire; unique live slug/order and deterministic `order`／`termId` output; atomic zero-write lifecycle failure for active usage or unresolved mapping; explicit-mapping append-only migration; and projection failure without current-catalog fallback, omission or partial artifact.
