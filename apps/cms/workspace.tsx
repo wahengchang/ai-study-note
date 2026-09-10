@@ -1,6 +1,6 @@
 import { createRoot } from "react-dom/client";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { BrowserRouter, Link, NavLink, Route, Routes, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { z, type ZodType } from "zod";
 
 import "./tokens.css";
@@ -151,8 +151,15 @@ function entryStatusText(status: EntryCatalogDto["items"][number]["status"]): st
   return status === "draft" ? "草稿" : status === "published" ? "已發布" : "已發布，有未發布變更";
 }
 
+function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
+  const heading = useRef<HTMLHeadingElement>(null);
+  const { pathname } = useLocation();
+  useEffect(() => { heading.current?.focus(); }, [pathname]);
+  return <h1 ref={heading} id="page-title" tabIndex={-1}>{children}</h1>;
+}
+
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <><a className="skip" href="#workspace">跳到內容</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" tabIndex={-1}>{children}</main></>;
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -163,8 +170,8 @@ function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element 
     void api.listEntries().then((value) => setEntries(value.items)).catch((reason: unknown) => setError(message(reason)));
   }, [api]);
   useEffect(load, [load]);
-  if (entries === undefined) return <Layout><h1>文章全覽</h1>{error === undefined ? <p aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  return <Layout><h1>文章全覽</h1>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><caption>所有文章</caption><thead><tr><th scope="col">標題</th><th scope="col">狀態</th><th scope="col">網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entryStatusText(entry.status)}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
+  if (entries === undefined) return <Layout><PageHeading>文章全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  return <Layout><PageHeading>文章全覽</PageHeading>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><caption>所有文章</caption><thead><tr><th scope="col">標題</th><th scope="col">狀態</th><th scope="col">網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entryStatusText(entry.status)}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
 }
 
 function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -175,7 +182,8 @@ function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
     void api.listEntries().then((value) => setEntries(value.items)).catch((reason: unknown) => setError(message(reason)));
   }, [api]);
   useEffect(load, [load]);
-  return <Layout><h1>CMS 文章工作台</h1><p>建立、編輯並發布文章；發布只會更新已發布版本。</p><p><Link className="action-link" to="/cms/entries/new">建立文章</Link> <Link to="/cms/entries">查看所有文章</Link></p><section aria-labelledby="workspace-entries"><h2 id="workspace-entries">文章概覽</h2>{entries === undefined ? error === undefined ? <p aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></> : entries.length === 0 ? <p>尚無文章。建立第一篇文章後會顯示於文章列表。</p> : <ul>{entries.slice(0, 5).map((entry) => <li key={entry.entryId}><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link>（{entryStatusText(entry.status)}）</li>)}</ul>}</section></Layout>;
+  const actionableEntries = entries === undefined ? [] : entries.filter((entry) => entry.status !== "published").slice(0, 5);
+  return <Layout><PageHeading>CMS 文章工作台</PageHeading><p>建立、編輯並發布文章；發布只會更新已發布版本。</p><p><Link className="action-link" to="/cms/entries/new">建立文章</Link> <Link to="/cms/entries">查看所有文章</Link></p><section aria-labelledby="actionable-entries"><h2 id="actionable-entries">待處理文章</h2>{entries === undefined ? error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></> : actionableEntries.length === 0 ? <p>目前沒有待處理文章。<Link to="/cms/entries">查看所有文章</Link></p> : <ul>{actionableEntries.map((entry) => <li key={entry.entryId}><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link>（{entryStatusText(entry.status)}）</li>)}</ul>}</section></Layout>;
 }
 
 function Plugins({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -201,9 +209,9 @@ function Plugins({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
   }, [api]);
   useEffect(load, [load]);
   useEffect(() => { if (conflict !== undefined) reload.current?.focus(); }, [conflict]);
-  if (snapshot === undefined) return <Layout><h1>外掛</h1>{error === undefined ? <p aria-busy="true">正在載入外掛。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  if (snapshot === undefined) return <Layout><PageHeading>外掛</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入外掛。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
   const plugin = snapshot.plugins.find((item) => item.identity.id === "seo-basics");
-  if (plugin === undefined) return <Layout><h1>外掛</h1><p role="alert">找不到 seo-basics 外掛。</p><button onClick={load}>重新載入外掛狀態</button></Layout>;
+  if (plugin === undefined) return <Layout><PageHeading>外掛</PageHeading><p role="alert">找不到 seo-basics 外掛。</p><button onClick={load}>重新載入外掛狀態</button></Layout>;
   const formDirty = saved === undefined || saved.url !== url || saved.indexing !== indexing;
   const validUrl = (() => { try { return url !== "" && new URL(url).protocol === "https:"; } catch { return false; } })();
   const mutationsLocked = busy !== undefined || conflict !== undefined;
@@ -232,13 +240,13 @@ function Plugins({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
       else setError(message(reason));
     } finally { setBusy(undefined); }
   };
-  return <Layout><h1>外掛</h1>{error !== undefined && <p role="alert">{error}</p>}{conflict !== undefined && <p role="alert">{conflict === "settings" ? "外掛設定已由另一個頁面更新。請重新載入。" : "外掛啟用狀態已由另一個頁面更新。請重新載入。"}</p>}<p aria-live="polite">{busy === "settings" ? "正在儲存…" : busy === "activation" ? "正在啟用…" : notice}</p><section aria-labelledby="seo-basics-heading"><h2 id="seo-basics-heading">seo-basics</h2><form onSubmit={(event) => void saveSettings(event)}><label>公開網站 URL<input type="url" required value={url} onChange={(event) => setUrl(event.target.value)} disabled={mutationsLocked} aria-invalid={url !== "" && !validUrl} /></label><fieldset disabled={mutationsLocked}><legend>索引設定</legend><label><input type="radio" name="indexing" checked={indexing === "allow"} onChange={() => setIndexing("allow")} />允許搜尋引擎索引</label><label><input type="radio" name="indexing" checked={indexing === "disallow"} onChange={() => setIndexing("disallow")} />禁止搜尋引擎索引</label></fieldset>{settings === undefined && <p>請先儲存設定，才能啟用。</p>}<button type="submit" disabled={!validUrl || mutationsLocked}>{busy === "settings" ? "正在儲存…" : "儲存 SEO 設定"}</button></form><button onClick={() => void activate()} disabled={!canActivate}>{plugin.status === "active" ? "SEO Plugin 已啟用" : busy === "activation" ? "正在啟用…" : "啟用 SEO Plugin"}</button><button ref={reload} onClick={load} disabled={busy !== undefined}>重新載入外掛狀態</button></section></Layout>;
+  return <Layout><PageHeading>外掛</PageHeading>{error !== undefined && <p role="alert">{error}</p>}{conflict !== undefined && <p role="alert">{conflict === "settings" ? "外掛設定已由另一個頁面更新。請重新載入。" : "外掛啟用狀態已由另一個頁面更新。請重新載入。"}</p>}<p role="status" aria-live="polite">{busy === "settings" ? "正在儲存…" : busy === "activation" ? "正在啟用…" : notice}</p><section aria-labelledby="seo-basics-heading"><h2 id="seo-basics-heading">seo-basics</h2><form onSubmit={(event) => void saveSettings(event)}><label>公開網站 URL<input type="url" required value={url} onChange={(event) => setUrl(event.target.value)} disabled={mutationsLocked} aria-invalid={url !== "" && !validUrl} /></label><fieldset disabled={mutationsLocked}><legend>索引設定</legend><label><input type="radio" name="indexing" checked={indexing === "allow"} onChange={() => setIndexing("allow")} />允許搜尋引擎索引</label><label><input type="radio" name="indexing" checked={indexing === "disallow"} onChange={() => setIndexing("disallow")} />禁止搜尋引擎索引</label></fieldset><button type="submit" disabled={!validUrl || !formDirty || mutationsLocked}>儲存 SEO 設定</button></form><p>狀態：{plugin.status}</p><button ref={reload} type="button" onClick={load}>重新載入外掛狀態</button><button type="button" onClick={() => void activate()} disabled={!canActivate}>{plugin.status === "active" ? "SEO Plugin 已啟用" : "啟用 SEO Plugin"}</button></section></Layout>;
 }
 
 function SeoPreview({ analysis, busy, invalid, failure }: Readonly<{ analysis: CmsSeoAnalysisResponseDto | undefined; busy: boolean; invalid: boolean; failure: string | undefined }>): React.JSX.Element {
   const suggestions = analysis?.suggestions ?? [];
   const status = invalid ? "填寫標題、網址代稱與本文後即可查看 SEO 預覽。" : busy || analysis === undefined ? "內容已變更，正在更新 SEO 預覽…" : failure !== undefined ? failure : analysis.status === "unavailable" ? "SEO 預覽目前無法使用；不影響儲存或發布。SEO 建議目前無法取得。請檢查外掛設定後再試。" : suggestions.length === 0 ? "目前沒有 SEO 建議。" : suggestions.map((suggestion) => suggestion.code === "SEO_TITLE_MISSING" ? "建議填寫 SEO 標題；目前預覽使用文章標題。" : suggestion.code === "SEO_DESCRIPTION_MISSING" ? "建議填寫 Meta description。" : suggestion.code).join(" ");
-  return <aside><section aria-label="SEO 預覽" aria-busy={busy}><h2>SEO 預覽</h2><p aria-live="polite" aria-atomic="true">{status}</p>{!invalid && !busy && failure === undefined && analysis?.status === "available" && <>{analysis.preview?.title !== undefined && <h3>{analysis.preview.title}</h3>}{analysis.preview?.description !== undefined && <p>{analysis.preview.description}</p>}{analysis.preview?.canonicalUrl !== undefined && <p className="breakable">{analysis.preview.canonicalUrl}</p>}<ul>{suggestions.map((suggestion) => <li key={suggestion.code}>{suggestion.code}</li>)}</ul></>}</section></aside>;
+  return <aside aria-labelledby="seo-preview-heading"><section aria-busy={busy}><h2 id="seo-preview-heading">SEO 預覽</h2><p role="status" aria-live="polite" aria-atomic="true">{status}</p>{!invalid && !busy && failure === undefined && analysis?.status === "available" && <>{analysis.preview?.title !== undefined && <h3>{analysis.preview.title}</h3>}{analysis.preview?.description !== undefined && <p>{analysis.preview.description}</p>}{analysis.preview?.canonicalUrl !== undefined && <p className="breakable">{analysis.preview.canonicalUrl}</p>}<ul>{suggestions.map((suggestion) => <li key={suggestion.code}>{suggestion.code}</li>)}</ul></>}</section></aside>;
 }
 
 /**
@@ -292,6 +300,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
   const [notice, setNotice] = useState("");
+  const [publishError, setPublishError] = useState<string>();
   const [conflict, setConflict] = useState(false);
   const [entryBusy, setEntryBusy] = useState(false);
   const [analysisBusy, setAnalysisBusy] = useState(false);
@@ -316,7 +325,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const previewKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
     if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "Home" || event.key === "End") {
       event.preventDefault();
-      selectPreview(event.key === "ArrowLeft" || event.key === "Home" ? "current" : "published", true);
+      selectPreview(event.key === "Home" ? "current" : event.key === "End" ? "published" : event.key === "ArrowLeft" ? previewSelection === "current" ? "published" : "current" : previewSelection === "published" ? "current" : "published", true);
     }
   };
   const adopt = (entry: AuthoringEntryDto): boolean => {
@@ -419,10 +428,10 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
       else setError(message(reason));
     } finally { setEntryBusy(false); }
   };
-  const openPublish = (): void => { dialog.current?.showModal(); cancelPublish.current?.focus(); };
+  const openPublish = (): void => { setPublishError(undefined); dialog.current?.showModal(); cancelPublish.current?.focus(); };
   const publish = async (): Promise<void> => {
     if (baseline === null || dirty || entryBusy || conflict) return;
-    setEntryBusy(true); setError(undefined); setNotice("");
+    setEntryBusy(true); setPublishError(undefined); setNotice("");
     try {
       await api.publish(entryId, baseline);
       const refreshed = await api.current(entryId);
@@ -432,32 +441,35 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
       dialog.current?.close();
     } catch (reason) {
       if (reason instanceof CmsApiError && reason.status === 409) focusConflict();
-      else setError(message(reason));
+      else setPublishError(message(reason));
     } finally { setEntryBusy(false); }
   };
-  if (loading) return <Layout><h1>編輯文章</h1><p aria-busy="true">正在載入文章。</p></Layout>;
-  if (notFound) return <Layout><h1>編輯文章</h1><p role="alert">找不到這篇文章。</p><button onClick={load}>重試</button></Layout>;
+  if (loading) return <Layout><PageHeading>編輯文章</PageHeading><p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p></Layout>;
+  if (notFound) return <Layout><PageHeading>編輯文章</PageHeading><p role="alert">找不到這篇文章。</p><button onClick={load}>重試</button></Layout>;
   const mutationLocked = entryBusy || conflict;
   const resolutionsByBlockIndex = new Map(editorBlockResolutions?.items.map((item) => [item.blockIndex, item]));
+  const currentRevisionText = baseline === null ? "尚未儲存" : baseline;
+  const operationStatus = entryBusy ? baseline === null ? "正在儲存新文章…" : "正在處理文章變更…" : notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。");
   return <Layout>
-    <h1>{isNew ? "新增文章" : "編輯文章"}</h1>
+    <PageHeading>{isNew ? "新增文章" : "編輯文章"}</PageHeading>
     {error !== undefined && <p role="alert">{error}</p>}
     {conflict && <><p role="alert">內容已由另一個頁面更新。</p><button ref={reload} onClick={load}>重新載入文章</button></>}
     {editorBlockFailure !== undefined && <p role="alert">{editorBlockFailure}</p>}
-    <p ref={status} role="status" tabIndex={-1} aria-live="polite" aria-atomic="true">{notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。")}</p>
     <section className="editor">
-      <form onSubmit={(event) => void save(event)}>
+      <form id="entry-editor" aria-label="文章內容" onSubmit={(event) => void save(event)}>
         <label>標題<input required aria-invalid={!valid && title.trim() === ""} value={title} onChange={(event) => { setTitle(event.target.value); if (route === "") setRoute(slugify(event.target.value)); }} disabled={mutationLocked} /></label>
         <label>網址代稱<input required value={route} onChange={(event) => setRoute(event.target.value)} disabled={mutationLocked} /></label>
         <label>本文<textarea required value={text} onChange={(event) => setText(event.target.value)} disabled={mutationLocked} /></label>
         {normalized.content.blocks.map((block, blockIndex) => block.kind === "interactive-demo" && <EditorPluginBlock key={`${block.identity.id}\0${blockIndex}`} block={block} blockIndex={blockIndex} resolution={resolutionsByBlockIndex.get(blockIndex)} failure={editorBlockFailure} />)}
         <fieldset><legend>SEO</legend><p>留白時使用文章標題</p><label>SEO 標題<input value={seo.title ?? ""} onChange={(event) => setSeo((current) => ({ ...current, title: event.target.value }))} disabled={mutationLocked} /></label><p>留白時會顯示 SEO 建議</p><label>Meta description<textarea value={seo.description ?? ""} onChange={(event) => setSeo((current) => ({ ...current, description: event.target.value }))} disabled={mutationLocked} /></label><p>留白時使用文章網址；站內路徑須以 / 開頭</p><label>Canonical path<input value={seo.canonicalPath ?? ""} onChange={(event) => setSeo((current) => ({ ...current, canonicalPath: event.target.value }))} disabled={mutationLocked} /></label></fieldset>
-        <button type="submit" disabled={!valid || !dirty || mutationLocked}>{entryBusy ? "正在儲存…" : "儲存"}</button>
-        <button ref={publishTrigger} type="button" onClick={openPublish} disabled={baseline === null || dirty || mutationLocked}>發布</button>
       </form>
-      <div className="preview-column"><SeoPreview analysis={analysis} busy={analysisBusy} invalid={!valid} failure={analysisFailure} /><aside><h2>頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}<div role="tablist" aria-label="頁面預覽版本"><button ref={currentPreviewTab} id="current-preview-tab" type="button" role="tab" tabIndex={previewSelection === "current" ? 0 : -1} aria-selected={previewSelection === "current"} aria-controls="current-preview-panel" onClick={() => selectPreview("current")} onKeyDown={previewKeyDown}>目前版本</button><button ref={publishedPreviewTab} id="published-preview-tab" type="button" role="tab" tabIndex={previewSelection === "published" ? 0 : -1} aria-selected={previewSelection === "published"} aria-controls="published-preview-panel" onClick={() => selectPreview("published")} onKeyDown={previewKeyDown}>已發布版本</button></div>{previewSelection === "current" ? <section id="current-preview-panel" role="tabpanel" aria-labelledby="current-preview-tab">{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前版本頁面預覽" sandbox="" srcDoc={currentPreview} />}</section> : <section id="published-preview-panel" role="tabpanel" aria-labelledby="published-preview-tab">{publishedPreview === null || publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布版本頁面預覽" sandbox="" srcDoc={publishedPreview} />}</section>}</aside></div>
+      <div className="preview-column">
+        <aside aria-labelledby="entry-actions-heading"><h2 id="entry-actions-heading">文章動作</h2><p>目前 revision：<span className="breakable">{currentRevisionText}</span></p><p ref={status} role="status" tabIndex={-1} aria-live="polite" aria-atomic="true">{operationStatus}</p><button form="entry-editor" type="submit" disabled={!valid || !dirty || mutationLocked}>{entryBusy ? "正在儲存…" : "儲存"}</button><button ref={publishTrigger} type="button" onClick={openPublish} disabled={baseline === null || dirty || mutationLocked}>發布</button></aside>
+        <SeoPreview analysis={analysis} busy={analysisBusy} invalid={!valid} failure={analysisFailure} />
+        <aside aria-labelledby="page-preview-heading"><h2 id="page-preview-heading">頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}<div role="tablist" aria-label="頁面預覽版本"><button ref={currentPreviewTab} id="current-preview-tab" type="button" role="tab" tabIndex={previewSelection === "current" ? 0 : -1} aria-selected={previewSelection === "current"} aria-controls="current-preview-panel" onClick={() => selectPreview("current")} onKeyDown={previewKeyDown}>目前版本</button><button ref={publishedPreviewTab} id="published-preview-tab" type="button" role="tab" tabIndex={previewSelection === "published" ? 0 : -1} aria-selected={previewSelection === "published"} aria-controls="published-preview-panel" onClick={() => selectPreview("published")} onKeyDown={previewKeyDown}>已發布版本</button></div>{previewSelection === "current" ? <section id="current-preview-panel" role="tabpanel" aria-labelledby="current-preview-tab">{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前版本頁面預覽" sandbox="" srcDoc={currentPreview} />}</section> : <section id="published-preview-panel" role="tabpanel" aria-labelledby="published-preview-tab">{publishedPreview === null || publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布版本頁面預覽" sandbox="" srcDoc={publishedPreview} />}</section>}</aside>
+      </div>
     </section>
-    <dialog ref={dialog} aria-labelledby="publish-dialog-title"><h2 id="publish-dialog-title">發布文章</h2><p>發布只會更新已發布版本。</p><button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
+    <dialog ref={dialog} aria-labelledby="publish-dialog-title" aria-describedby="publish-dialog-description"><h2 id="publish-dialog-title">發布文章</h2><p id="publish-dialog-description">將發布目前 revision：<span className="breakable">{currentRevisionText}</span>。發布只會更新已發布版本。</p>{publishError !== undefined && <p role="alert">{publishError}</p>}<button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
   </Layout>;
 }
 

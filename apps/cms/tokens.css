@@ -1,4 +1,4 @@
-:root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #f7f5ef; color: #1d2b24; --surface: #fffdf6; --border: #c8cec3; --accent: #175c42; --error: #9d1c1c; }
+:root { color-scheme: light; font-family: ui-sans-serif, system-ui, sans-serif; background: #f7f5ef; color: #1d2b24; --surface: #fffdf6; --border: #617166; --accent: #175c42; --error: #9d1c1c; }
 * { box-sizing: border-box; }
 body { min-width: 20rem; margin: 0; }
 header { display: flex; flex-wrap: wrap; gap: 1rem; align-items: center; padding: 1rem 1.5rem; border-bottom: 1px solid var(--border); background: var(--surface); }
@@ -24,6 +24,7 @@ aside { min-width: 0; padding: 1rem; border: 1px solid var(--border); background
 iframe { width: 100%; min-height: 16rem; border: 1px solid var(--border); background: white; }
 .breakable { overflow-wrap: anywhere; }
 [role="tablist"] { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
+[role="tab"][aria-selected="true"] { border-width: 3px; font-weight: 700; }
 p, li, td { overflow-wrap: anywhere; }
 dialog { max-width: min(36rem, calc(100vw - 2rem)); border: 1px solid var(--border); border-radius: .5rem; color: inherit; background: var(--surface); box-shadow: 0 1rem 3rem rgb(0 0 0 / .25); }
 dialog::backdrop { background: rgb(0 0 0 / .4); }
