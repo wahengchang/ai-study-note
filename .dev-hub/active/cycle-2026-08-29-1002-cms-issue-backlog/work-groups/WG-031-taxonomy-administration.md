@@ -6,7 +6,7 @@ work_items: ["WI-043"]
 owner: Main
 branch: feature/taxonomy-administration
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/taxonomy-administration
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/348
 ---
 
 # Taxonomy administration
