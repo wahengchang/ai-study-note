@@ -22,6 +22,13 @@ globs:
 - 只有上述定義的「大型工作」必須在執行前閱讀並遵循 `docs/dev-hub-workflow.md`；純問答、小型修正與唯讀查詢不建立 Cycle。該檔是 `.dev-hub/` 狀態流程的唯一操作入口。
 - `.dev-hub/active/` 只保存進行中的 Cycle 協作狀態。Cycle 完成時整包刪除，永久摘要改寫入上述 `logs/` 工作紀錄；因此查詢已完成工作一律看 `logs/`，不看 `.dev-hub/`。
 
+## Git 分支策略
+
+- `site-reset` 是儲存庫的預設主整合分支。
+- 不得將已合併 feature 或 integration branch 的提交 cherry-pick 至 `site-reset`；所有進入該分支的變更必須遵循核准的 PR／merge 流程。
+- 每次 housekeeping 清理已合併分支後，必須確認 `site-reset` worktree 乾淨，並以 `git pull --ff-only origin site-reset` 同步；dirty worktree 或 fast-forward 失敗會阻擋下一個工作。
+- 只有本機 `site-reset` 與 `origin/site-reset` 相同時，才能建立下一個 branch 或 worktree。
+
 ## 專案文件
 
 修改程式碼前：
@@ -49,4 +56,4 @@ globs:
 - 當平台 delegation policy 允許且確有必要委派時，依工作類型選擇最精確的 agent：唯讀研究使用 `scout` 或 `librarian`、UI/UX 使用 `designer`、程式碼審查使用 `reviewer`、安全審查使用 `security-reviewer`、機械性工作使用 `sonic`、實作使用 `task`。
 - 專案本地模型路由定義於 `.omp/config.yml`；當已設定的 role 適合工作時，不得臨時覆寫 agent 的模型。
 - 主 session 不會依任務語意自行切換模型；工作需要不同模型能力時，使用綁定 role 的 subagent。
-- 涉及核心組件（core module）的工作，必須在實作前的計畫階段安排至少兩個不同角色的 agent 交叉審查，以取得第二意見；可多輪交換意見至達成共識，並將結論納入實作計畫。
+一般程式碼審查使用原生 `reviewer`；跨模型第二意見額外使用 `reviewer-deepseek`，不得取代原生 reviewer。涉及 core module 時，實作前固定依 `.rulesync/subagents/` 的責任邊界，由兩個職責不同且均非 owner 的專案子代理交叉審查並將結論納入實作計畫；`.codex/agents/` 僅為 generated view，platform reviewer 或 `/ai-x` 的跨模型第二意見不得替代此要求。安全邊界再加 `security-reviewer`。
