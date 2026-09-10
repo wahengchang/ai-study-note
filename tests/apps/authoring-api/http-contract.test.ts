@@ -170,6 +170,21 @@ test("actual listener proves current credential and saves a revision", async () 
   });
 });
 
+test("actual listener imports and lists a strictly redacted media asset", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const imported = await post("/v1/media/import", headers, JSON.stringify({ contract: "media-import-request/v1", importId: "import-media-1", assetId: "asset-1", assetVersionId: "version-1", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: { mime: "text/plain", secret: "must-not-return" } }));
+    assert.equal(imported.status, 200, imported.body);
+    assert.equal(imported.body.includes("must-not-return"), false);
+    const listed = await send("GET", "/v1/media", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(listed.status, 200, listed.body);
+    const catalog = JSON.parse(listed.body) as { contract: string; items: readonly { contract: string; assetId: string; versions: readonly { contract: string; identity: { assetId: string; assetVersionId: string }; evidence: { byteLength: number }; availability: string }[] }[] };
+    assert.equal(catalog.contract, "media-catalog/v1");
+    assert.deepEqual(catalog.items.map((asset) => ({ contract: asset.contract, assetId: asset.assetId, versions: asset.versions.map((version) => ({ contract: version.contract, assetId: version.identity.assetId, assetVersionId: version.identity.assetVersionId, byteLength: version.evidence.byteLength, availability: version.availability })) })), [{ contract: "media-asset/v1", assetId: "asset-1", versions: [{ contract: "media-asset-version/v1", assetId: "asset-1", assetVersionId: "version-1", byteLength: 11, availability: "ready" }] }]);
+    assert.equal(listed.body.includes("must-not-return"), false);
+  });
+});
+
 test("actual listener resolves missing current editor Plugin block as a source-preserving Host diagnostic", async () => {
   await withAuthoringApi(async ({ apiKey, persistence }) => {
     const content = { contract: "site-content/v1", title: "plugin entry", blocks: [{ kind: "article", text: "文章內容" }, { kind: "interactive-demo", identity: { id: "missing-demo", version: "1.0.0" }, hook: "cms/editor-block/resolve", manifestHash: `sha256:${"d".repeat(64)}`, source: { html: "<button>run</button>", css: "button{}", javascript: "void 0" }, staticFallback: "替代內容" }], seo: {} };
