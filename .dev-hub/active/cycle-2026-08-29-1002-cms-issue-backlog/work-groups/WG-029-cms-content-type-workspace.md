@@ -6,7 +6,7 @@ work_items: ["WI-055"]
 owner: Main
 branch: feature/cms-content-type-workspace
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/cms-content-type-workspace
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/345
 ---
 
 # CMS Content Type administration workspace

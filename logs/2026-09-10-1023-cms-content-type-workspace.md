@@ -26,4 +26,4 @@
 ## 相關 Branch／PR
 
 - Branch：`feature/cms-content-type-workspace`
-- PR：尚未建立（將由 WG-029 追蹤收尾 commit 寫入）。
+- PR：https://github.com/wahengchang/ai-study-note/pull/345
