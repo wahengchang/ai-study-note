@@ -46,14 +46,19 @@ test("empty database migrates once and rerun preserves current storage", () => {
           "0008-add-schema-migration-lineage",
           "0009-add-theme-activation-state",
           "0010-add-plugin-settings-state",
+          "0011-add-taxonomy-storage",
         ],
-        currentMigrationId: "0010-add-plugin-settings-state",
+        currentMigrationId: "0011-add-taxonomy-storage",
       },
     });
     const database = openSqliteAdapter(fixture.databasePath);
     assert.equal(database.get("PRAGMA application_id")?.application_id, 1095324500);
-    assert.equal(database.get("PRAGMA user_version")?.user_version, 10);
-    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 10);
+    assert.equal(database.get("PRAGMA user_version")?.user_version, 11);
+    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 11);
+    assert.equal(database.get("SELECT count(*) AS count FROM taxonomies")?.count, 0);
+    assert.equal(database.get("SELECT count(*) AS count FROM taxonomy_term_identities")?.count, 0);
+    assert.equal(database.get("SELECT count(*) AS count FROM taxonomy_terms")?.count, 0);
+    assert.equal(database.get("SELECT count(*) AS count FROM revision_taxonomy_bindings")?.count, 0);
     assert.deepEqual({ ...database.get("SELECT state_bytes AS bytes, state_digest AS digest FROM theme_activation_state WHERE singleton = 1") }, {
       bytes: new TextEncoder().encode('{"contract":"theme-activation-state/v1"}'),
       digest: "sha256:2d3bd9fd385ef0f4dad9d7026da41a3a39fa04850e0e05ea98322cf5d0230430",
@@ -71,7 +76,7 @@ test("empty database migrates once and rerun preserves current storage", () => {
     const before = digestFile(fixture.databasePath);
     assert.deepEqual(migrateDatabaseWithSchemaEvidence({ databasePath: fixture.databasePath }, siteContent), {
       ok: true,
-      value: { appliedMigrationIds: [], currentMigrationId: "0010-add-plugin-settings-state" },
+      value: { appliedMigrationIds: [], currentMigrationId: "0011-add-taxonomy-storage" },
     });
     assert.equal(digestFile(fixture.databasePath), before);
   } finally {

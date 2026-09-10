@@ -1,4 +1,4 @@
-import type { AuthoringReadFailureCode, ContentTypeAdministrationFailureCode, DomainApplicationFailureCode } from "../../core/application/index.js";
+import type { AuthoringReadFailureCode, ContentTypeAdministrationFailureCode, DomainApplicationFailureCode, TaxonomyFailureCode } from "../../core/application/index.js";
 import type { ContentReadFailureCode } from "../../core/content/index.js";
 import type { PluginHostFailureCode } from "../../core/plugin-host/index.js";
 import type { ProjectionFailureCode } from "../../core/projection/index.js";
@@ -9,6 +9,7 @@ import { API_KEY_PATTERN, BROWSER_TICKET_PATTERN, SECRET_TEXT_PATTERN } from "./
 
 const positiveInteger = z.number().int().safe().positive();
 const stringArray = z.array(z.string());
+const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const messageRemediationSchema = z.object({ kind: z.literal("message"), message: z.string() }).strict();
 /**
  * wire 上的 `content` 一定來自 `JSON.parse`，因此 `undefined` 不可能出現；但
@@ -78,6 +79,7 @@ export const saveRevisionRequestSchema = z.object({
   content: jsonContent,
   route: z.string(),
   assetVersions: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()),
+  taxonomyTerms: z.array(z.object({ taxonomyId: z.string(), termId: z.string() }).strict()),
 }).strict();
 
 export const saveRevisionSuccessSchema = z.object({
@@ -118,14 +120,30 @@ export const publishRevisionSuccessSchema = z.object({
   stateDigest: z.string(),
 }).strict();
 
-const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: digestSchema, capabilities: z.array(z.string()) }).strict();
 const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string().url(), indexing: z.enum(["allow", "disallow"]) }).strict();
 export const pluginActivationRequestSchema = z.object({ contract: z.literal("plugin-activation-request/v1"), identity: pluginIdentitySchema, expectedActivationStateDigest: digestSchema }).strict();
 export const pluginSettingsReplaceRequestSchema = z.object({ contract: z.literal("plugin-settings-replace-request/v1"), identity: pluginIdentitySchema, expectedSettingsStateDigest: digestSchema, settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema }).strict();
 export const cmsSeoAnalysisRequestSchema = z.object({ contract: z.literal("cms-seo-analysis-request/v1"), entryId: z.string(), expectedCurrentRevisionId: z.string().nullable(), schemaIdentity: schemaIdentitySchema, content: jsonContent, route: z.string(), documentDigest: digestSchema }).strict();
 export const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: digestSchema, settingsStateDigest: digestSchema, plugins: z.array(z.object({ identity: pluginIdentitySchema, status: z.enum(["inactive", "active", "reactivation-required"]), settings: z.object({ settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema, settingsDigest: digestSchema }).strict().optional() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
-export const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()) }).strict(), stateDigest: digestSchema }).strict();
+const taxonomyTermIdentitySchema = z.object({ taxonomyId: z.string(), termId: z.string() }).strict();
+const taxonomyTermEvidenceSchema = taxonomyTermIdentitySchema.extend({ label: z.string(), slug: z.string(), order: z.number().int().safe() }).strict();
+const taxonomyTermSchema = taxonomyTermEvidenceSchema.extend({ state: z.enum(["live", "retired"]) }).strict();
+const taxonomyBindingSchema = taxonomyTermIdentitySchema.extend({ evidence: taxonomyTermEvidenceSchema, evidenceDigest: digestSchema }).strict();
+const taxonomyRecordSchema = z.object({ taxonomyId: z.string(), label: z.string() }).strict();
+export const taxonomySnapshotSchema = z.object({ contract: z.literal("taxonomy/v1"), taxonomy: taxonomyRecordSchema, terms: z.array(taxonomyTermSchema), stateDigest: digestSchema }).strict();
+export const taxonomyCatalogSchema = z.object({ contract: z.literal("taxonomy-catalog/v1"), taxonomies: z.array(z.object({ taxonomy: taxonomyRecordSchema, stateDigest: digestSchema }).strict()) }).strict();
+export const createTaxonomyRequestSchema = z.object({ contract: z.literal("taxonomy-create-request/v1"), taxonomyId: z.string(), label: z.string() }).strict();
+const taxonomyCommandBaseSchema = z.object({ contract: z.literal("taxonomy-command/v1"), expectedStateDigest: digestSchema }).strict();
+export const taxonomyCommandSchema = z.discriminatedUnion("kind", [
+  taxonomyCommandBaseSchema.extend({ kind: z.literal("create-term"), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe() }).strict(),
+  taxonomyCommandBaseSchema.extend({ kind: z.literal("rename-term"), termId: z.string(), label: z.string() }).strict(),
+  taxonomyCommandBaseSchema.extend({ kind: z.literal("retire-term"), termId: z.string() }).strict(),
+  taxonomyCommandBaseSchema.extend({ kind: z.literal("delete-term"), termId: z.string() }).strict(),
+  taxonomyCommandBaseSchema.extend({ kind: z.literal("migrate-bindings"), operationId: z.string(), mappings: z.array(z.object({ source: taxonomyTermIdentitySchema, replacement: taxonomyTermIdentitySchema }).strict()), replacements: z.array(z.object({ entryId: z.string(), sourceRevisionId: z.string(), replacementRevisionId: z.string() }).strict()) }).strict(),
+]);
+export const taxonomyCommandResultSchema = z.object({ snapshot: taxonomySnapshotSchema, impact: z.object({ current: z.array(z.object({ entryId: z.string(), revisionId: z.string(), pointer: z.literal("current") }).strict()), published: z.array(z.object({ entryId: z.string(), revisionId: z.string(), pointer: z.literal("published") }).strict()) }).strict(), migration: z.object({ operationId: z.string(), replacements: z.array(z.object({ source: z.object({ entryId: z.string(), revisionId: z.string() }).strict(), replacement: z.object({ entryId: z.string(), revisionId: z.string() }).strict() }).strict()) }).strict().optional() }).strict();
+export const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()), taxonomyBindings: z.array(taxonomyBindingSchema) }).strict(), stateDigest: digestSchema }).strict();
 export const cmsSeoAnalysisResponseSchema = z.object({ contract: z.literal("cms-seo-analysis-response/v1"), documentDigest: digestSchema, status: z.enum(["available", "unavailable"]), preview: z.object({ title: z.string(), description: z.string().optional(), canonicalUrl: z.string().url().optional() }).strict().optional(), suggestions: z.array(z.object({ code: z.string() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
 
 const cmsEditorBlockIdentitySchema = z.object({ id: z.string(), version: z.string(), hook: z.literal("cms/editor-block/resolve"), manifestHash: digestSchema }).strict();
@@ -159,21 +177,23 @@ export type TransportCode =
   | "SERVER_PROOF_GENERATION_MISMATCH" | "BROWSER_BOOTSTRAP_INVALID" | "INVALID_REQUEST_BODY"
   | "REQUEST_BODY_TOO_LARGE" | "ROUTE_NOT_FOUND" | "METHOD_NOT_ALLOWED" | "UNSUPPORTED_MEDIA_TYPE"
   | "INTERNAL_SERVER_ERROR";
-type RemoteFailureCode = TransportCode | DomainApplicationFailureCode | ContentReadFailureCode | PluginHostFailureCode | AuthoringReadFailureCode | ContentTypeAdministrationFailureCode | ProjectionFailureCode | ThemeHostFailureCode;
+type RemoteFailureCode = TransportCode | DomainApplicationFailureCode | TaxonomyFailureCode | ContentReadFailureCode | PluginHostFailureCode | AuthoringReadFailureCode | ContentTypeAdministrationFailureCode | ProjectionFailureCode | ThemeHostFailureCode;
 const transportStatuses: Readonly<Record<TransportCode, readonly number[]>> = {
   INVALID_REQUEST_FRAMING: [400], MISDIRECTED_REQUEST: [421], ORIGIN_FORBIDDEN: [403],
   AUTHORIZATION_REQUIRED: [401], AUTHORIZATION_MALFORMED: [401], AUTHORIZATION_DUPLICATE: [401], AUTHORIZATION_ALTERNATE_TRANSPORT: [401], AUTHORIZATION_INVALID: [401], AUTHORIZATION_REVOKED: [401],
   SERVER_PROOF_GENERATION_MISMATCH: [401], BROWSER_BOOTSTRAP_INVALID: [401], INVALID_REQUEST_BODY: [400], REQUEST_BODY_TOO_LARGE: [400],
   ROUTE_NOT_FOUND: [404], METHOD_NOT_ALLOWED: [405], UNSUPPORTED_MEDIA_TYPE: [415], INTERNAL_SERVER_ERROR: [500, 503],
 };
-const conflictCodes = ["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "INVALID_PLUGIN_OPERATION_SNAPSHOT"] as const;
-const invalidCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED"] as const;
-const notFoundCodes = ["ENTRY_NOT_FOUND"] as const;
+const conflictCodes = ["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "TAXONOMY_CONFLICT", "TAXONOMY_STATE_CONFLICT"] as const;
+const invalidCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED", "INVALID_TAXONOMY_REQUEST", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE"] as const;
+const notFoundCodes = ["ENTRY_NOT_FOUND", "TAXONOMY_NOT_FOUND"] as const;
 const domainCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "CMS_SEO_ANALYSIS_FAILED", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED", "ENTRY_NOT_FOUND", "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED"] as const satisfies readonly DomainApplicationFailureCode[];
+const taxonomyCodes = ["INVALID_TAXONOMY_REQUEST", "TAXONOMY_NOT_FOUND", "TAXONOMY_CONFLICT", "TAXONOMY_STATE_CONFLICT", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE", "TAXONOMY_FAILED"] as const satisfies readonly TaxonomyFailureCode[];
 const pluginCodes = ["INVALID_PLUGIN_HOST_INPUT", "INVALID_TRUSTED_ROOT", "PLUGIN_DISCOVERY_FAILED", "PLUGIN_NOT_FOUND", "INVALID_PLUGIN_MANIFEST", "UNSUPPORTED_HOOK_CONTRACT", "UNSUPPORTED_CAPABILITY", "PLUGIN_EVIDENCE_MISMATCH", "PLUGIN_IDENTITY_CONFLICT", "PLUGIN_MODULE_INVALID", "PLUGIN_NOT_ACTIVE", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "ACTIVATION_STATE_CONFLICT", "ACTIVATION_STATE_FAILURE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID", "PLUGIN_CALLBACK_FAILED", "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "PLUGIN_VALIDATION_SERVICE_FAILED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED"] as const satisfies readonly PluginHostFailureCode[];
 const contentCodes = ["INVALID_CONTENT_MODEL_INPUT", "CONTENT_DIGEST_MISMATCH", "NON_CANONICAL_CONTENT_BYTES", "UNSUPPORTED_CONTENT_CONTRACT", "INVALID_STRUCTURED_CONTENT", "RAW_FULL_PAGE_NOT_APPROVED"] as const satisfies readonly ContentReadFailureCode[];
 const themeCodes = ["INVALID_THEME_HOST_INPUT", "INVALID_TRUSTED_ROOT", "THEME_DISCOVERY_FAILED", "THEME_NOT_FOUND", "INVALID_THEME_MANIFEST", "THEME_EVIDENCE_MISMATCH", "THEME_IDENTITY_CONFLICT", "THEME_RUNTIME_INVALID", "THEME_FILE_NOT_DECLARED"] as const satisfies readonly ThemeHostFailureCode[];
 const domainStatuses: Readonly<Record<DomainApplicationFailureCode, readonly number[]>> = Object.fromEntries(domainCodes.map((code) => [code, notFoundCodes.includes(code as never) ? [404] : conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<DomainApplicationFailureCode, readonly number[]>>;
+const taxonomyStatuses: Readonly<Record<TaxonomyFailureCode, readonly number[]>> = Object.fromEntries(taxonomyCodes.map((code) => [code, notFoundCodes.includes(code as never) ? [404] : conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<TaxonomyFailureCode, readonly number[]>>;
 const pluginStatuses: Readonly<Record<PluginHostFailureCode, readonly number[]>> = Object.fromEntries(pluginCodes.map((code) => [code, conflictCodes.includes(code as never) ? [409] : invalidCodes.includes(code as never) ? [422] : [500]])) as unknown as Readonly<Record<PluginHostFailureCode, readonly number[]>>;
 const contentStatuses: Readonly<Record<ContentReadFailureCode, readonly number[]>> = Object.fromEntries(contentCodes.map((code) => [code, code === "INVALID_CONTENT_MODEL_INPUT" || code === "UNSUPPORTED_CONTENT_CONTRACT" || code === "INVALID_STRUCTURED_CONTENT" || code === "RAW_FULL_PAGE_NOT_APPROVED" ? [422] : [500]])) as unknown as Readonly<Record<ContentReadFailureCode, readonly number[]>>;
 const themeStatuses: Readonly<Record<ThemeHostFailureCode, readonly number[]>> = Object.fromEntries(themeCodes.map((code) => [code, code === "THEME_NOT_FOUND" ? [404] : code === "THEME_IDENTITY_CONFLICT" ? [409] : code === "INVALID_THEME_HOST_INPUT" ? [422] : [500]])) as unknown as Readonly<Record<ThemeHostFailureCode, readonly number[]>>;
@@ -187,7 +207,7 @@ const projectionStatuses: Readonly<Record<ProjectionFailureCode, readonly number
   PROJECTION_STATE_CHANGED: [409], PROJECTION_PAYLOAD_TOO_LARGE: [422],
   PROJECTION_ENCODING_FAILED: [500], INVALID_RENDERER_INPUT: [422], INVALID_PREVIEW_INPUT: [422],
 };
-const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...domainStatuses, ...contentStatuses, ...pluginStatuses, ...readStatuses, ...contentTypeAdministrationStatuses, ...projectionStatuses, ...themeStatuses };
+const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...domainStatuses, ...taxonomyStatuses, ...contentStatuses, ...pluginStatuses, ...readStatuses, ...contentTypeAdministrationStatuses, ...projectionStatuses, ...themeStatuses };
 export type AuthoringRemoteErrorCode = keyof typeof statusByCode;
 export function authoringErrorStatuses(code: string): readonly number[] | undefined {
   return Object.prototype.hasOwnProperty.call(statusByCode, code) ? statusByCode[code as AuthoringRemoteErrorCode] : undefined;
@@ -220,3 +240,8 @@ export type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManageme
 export type AuthoringEntryDto = Readonly<z.infer<typeof authoringEntrySchema>>;
 export type CmsSeoAnalysisResponseDto = Readonly<z.infer<typeof cmsSeoAnalysisResponseSchema>>;
 export type CmsEditorBlockResolutionsDto = Readonly<z.infer<typeof cmsEditorBlockResolutionsSchema>>;
+export type TaxonomyCatalogDto = Readonly<z.infer<typeof taxonomyCatalogSchema>>;
+export type TaxonomySnapshotDto = Readonly<z.infer<typeof taxonomySnapshotSchema>>;
+export type CreateTaxonomyRequestDto = Readonly<z.infer<typeof createTaxonomyRequestSchema>>;
+export type TaxonomyCommandDto = Readonly<z.infer<typeof taxonomyCommandSchema>>;
+export type TaxonomyCommandResultDto = Readonly<z.infer<typeof taxonomyCommandResultSchema>>;

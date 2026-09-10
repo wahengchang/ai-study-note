@@ -9,6 +9,7 @@ import { openPersistence, type PersistenceStore } from "../../core/persistence/i
 import { createPluginHost } from "../../core/plugin-host/index.js";
 import { createProjectionPreview } from "../../core/projection/index.js";
 import { createSiteDefinition } from "../../core/site-definition/index.js";
+import { createTaxonomy } from "../../core/taxonomy/index.js";
 import { createThemeHost, type ThemeActivationStatePort } from "../../core/theme-host/index.js";
 
 import { loadCmsAssets } from "./cms-assets.js";
@@ -95,7 +96,8 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const contentReadModel = createPublishedContentReadModel({ approvedRawFullPageSchemas: [] });
     if (!contentReadModel.ok) return failure("CMS_PROJECTION_UNAVAILABLE");
     const schemaValidator = createAjvSchemaValidator();
-    const domainApplication = createDomainApplication({ persistence, siteDefinition, dataMedia: dataMedia.value, schemaValidator, pluginHost: pluginHost.value });
+    const taxonomy = createTaxonomy({ persistence });
+    const domainApplication = createDomainApplication({ persistence, siteDefinition, dataMedia: dataMedia.value, schemaValidator, pluginHost: pluginHost.value, taxonomy });
     const authoringReadFacade = createAuthoringReadFacade({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value });
     const contentTypeAdministration = createContentTypeAdministration({ persistence, validator: schemaValidator });
     const themeHost = await createThemeHost({

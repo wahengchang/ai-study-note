@@ -7,6 +7,7 @@ import type { DataMedia } from "../../../core/media/index.js";
 import type { PersistenceStore } from "../../../core/persistence/index.js";
 import type { CmsSeoAnalysisInputV1, PluginHost } from "../../../core/plugin-host/index.js";
 import type { SiteDefinition } from "../../../core/site-definition/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
 const schemaIdentity = Object.freeze({ schemaId: "site-content", version: 1 });
 const content = Object.freeze({ contract: "site-content/v1", title: "SEO article", blocks: Object.freeze([]), seo: Object.freeze({}) }) as JsonValue;
@@ -70,7 +71,7 @@ function application(input: Readonly<{ currentRevisionId?: string; currentRoute?
       return { ok: true as const, value: { status: "available" as const, preview: { title: "SEO title", canonicalPath: "/guide" }, suggestions: [], diagnostics: [] } };
     },
   } as unknown as PluginHost;
-  return { application: createDomainApplication({ persistence, siteDefinition, dataMedia: {} as DataMedia, schemaValidator: { validate: () => ({ ok: input.schemaValid ?? true }) }, pluginHost }), calls };
+  return { application: createDomainApplication({ persistence, siteDefinition, dataMedia: {} as DataMedia, schemaValidator: { validate: () => ({ ok: input.schemaValid ?? true }) }, pluginHost, taxonomy: createTaxonomy({ persistence }) }), calls };
 }
 
 test("CMS SEO analysis 在 callback 前驗證 entry、current revision、route 與 schema content", async () => {

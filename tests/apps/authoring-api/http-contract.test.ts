@@ -18,7 +18,8 @@ import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
-import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi } from "../../../apps/authoring-api/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
+import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -56,12 +57,21 @@ function send(method: string, pathname: string, headers: Headers, body?: string)
 }
 function post(pathname: string, headers: Headers, body: string): Promise<RawResponse> { return send("POST", pathname, headers, body); }
 function saveBody(revisionId: string, route: string, expectedCurrentRevisionId: string | null = null): string {
-  return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [] });
+  return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [], taxonomyTerms: [] });
 }
 function publishBody(expectedCurrentRevisionId: string, operationId = `publish-${expectedCurrentRevisionId}`): string {
   return JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId, operationId });
 }
-function failureCode(response: RawResponse): string { return (JSON.parse(response.body) as { code: string }).code; }
+function failureCode(response: RawResponse): string {
+  const value: unknown = JSON.parse(response.body);
+  if (value === null || typeof value !== "object" || !("code" in value) || typeof value.code !== "string") throw new Error("authoring failure response lacks a code");
+  return value.code;
+}
+function failureOwner(response: RawResponse): string {
+  const value: unknown = JSON.parse(response.body);
+  if (value === null || typeof value !== "object" || !("owner" in value) || typeof value.owner !== "string") throw new Error("authoring failure response lacks an owner");
+  return value.owner;
+}
 /** contract §7：每個 response 都必須帶四個固定 security header，且不得回任何 CORS header。 */
 function assertResponseHeaders(response: RawResponse, label: string): void {
   assert.equal(response.headers["cache-control"], "no-store, no-cache", `${label} cache-control`);
@@ -102,7 +112,7 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     assert.equal((await credentials.transition("provision")).ok, true);
     const apiKey = JSON.parse(readFileSync(path.join(directory, "config", "ai-study-note", "local-authoring-v1.json"), "utf8")).apiKey as string;
     const siteDefinition = createSiteDefinition({ persistence: persistence.value });
-    const application = createDomainApplication({ persistence: persistence.value, siteDefinition, dataMedia: media.value, schemaValidator: createAjvSchemaValidator(), pluginHost: pluginHost.value });
+    const application = createDomainApplication({ persistence: persistence.value, siteDefinition, dataMedia: media.value, schemaValidator: createAjvSchemaValidator(), pluginHost: pluginHost.value, taxonomy: createTaxonomy({ persistence: persistence.value }) });
     let published = 0;
     const instrumentedApplication = { ...application, publishRevision: async (...args: Parameters<typeof application.publishRevision>) => {
       published += 1;
@@ -586,6 +596,47 @@ test("the client rejects an in-process request whose serialized body the listene
     assert.deepEqual(result, { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } }, "JSON.stringify 會丟掉 undefined content，必須在送出前擋下");
     assert.deepEqual(await createLocalAuthoringClient(credentialLocation(directory)).saveRevision({ entryId: "a/b", request: JSON.parse(saveBody("r", "/a")) }), { ok: false, error: { code: "INVALID_CLIENT_REQUEST" } });
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("actual listener admits only flat taxonomy routes and maps stale or duplicate commands to 409", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const created = await post("/v1/taxonomies", headers, JSON.stringify({ contract: "taxonomy-create-request/v1", taxonomyId: "topics", label: "Topics" }));
+    assert.equal(created.status, 201);
+    assertResponseHeaders(created, "taxonomy create");
+    const createdBody = taxonomySnapshotSchema.parse(JSON.parse(created.body));
+    assert.deepEqual(createdBody.taxonomy, { taxonomyId: "topics", label: "Topics" }, "taxonomy identity is flat and has no parent binding");
+
+    const parentRejected = await post("/v1/taxonomies", headers, JSON.stringify({ contract: "taxonomy-create-request/v1", taxonomyId: "nested", label: "Nested", parentTermId: "topics" }));
+    assert.equal(parentRejected.status, 400);
+    assert.equal(failureCode(parentRejected), "INVALID_REQUEST_BODY");
+    assertResponseHeaders(parentRejected, "taxonomy parent rejection");
+
+    const createdTerm = await post("/v1/taxonomies/topics/commands", headers, JSON.stringify({ contract: "taxonomy-command/v1", kind: "create-term", termId: "alpha", label: "Alpha", slug: "alpha", order: 10, expectedStateDigest: createdBody.stateDigest }));
+    assert.equal(createdTerm.status, 200);
+    assertResponseHeaders(createdTerm, "taxonomy term create");
+    const commandBody = taxonomyCommandResultSchema.parse(JSON.parse(createdTerm.body));
+    assert.deepEqual(commandBody.snapshot.terms, [{ taxonomyId: "topics", termId: "alpha", label: "Alpha", slug: "alpha", order: 10, state: "live" }]);
+
+    const stale = await post("/v1/taxonomies/topics/commands", headers, JSON.stringify({ contract: "taxonomy-command/v1", kind: "create-term", termId: "beta", label: "Beta", slug: "beta", order: 20, expectedStateDigest: createdBody.stateDigest }));
+    assert.equal(stale.status, 409);
+    assert.equal(failureCode(stale), "TAXONOMY_STATE_CONFLICT");
+    assert.equal(failureOwner(stale), "Taxonomy");
+    assertResponseHeaders(stale, "taxonomy stale command");
+
+    const duplicate = await post("/v1/taxonomies/topics/commands", headers, JSON.stringify({ contract: "taxonomy-command/v1", kind: "create-term", termId: "alpha", label: "Alpha again", slug: "alpha-again", order: 20, expectedStateDigest: commandBody.snapshot.stateDigest }));
+    assert.equal(duplicate.status, 409);
+    assert.equal(failureCode(duplicate), "TAXONOMY_CONFLICT");
+    assert.equal(failureOwner(duplicate), "Taxonomy");
+    assertResponseHeaders(duplicate, "taxonomy duplicate command");
+
+    const wrongMethod = await send("GET", "/v1/taxonomies/topics/commands", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(wrongMethod.status, 405);
+    assertResponseHeaders(wrongMethod, "taxonomy command wrong method");
+    const malformedRoute = await post("/v1/taxonomies/topics/commands/extra", headers, JSON.stringify({}));
+    assert.equal(malformedRoute.status, 404);
+    assertResponseHeaders(malformedRoute, "taxonomy malformed route");
+  });
 });
 
 test("CMS SEO domain failure code 具有契約化 HTTP status", () => {

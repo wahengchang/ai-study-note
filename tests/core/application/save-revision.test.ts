@@ -10,6 +10,7 @@ import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
 test("SaveRevision atomically creates current revision, pointer, and claim", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "save-revision-"));
@@ -24,8 +25,8 @@ test("SaveRevision atomically creates current revision, pointer, and claim", asy
     const objects = createLocalMediaObjectStore({ objectsRoot: path.join(directory, "objects") }); assert.equal(objects.ok, true); if (!objects.ok) return;
     const started = startDataMedia({ persistence: opened.value, objectStore: objects.value }); assert.equal(started.ok, true); if (!started.ok) return;
     const media = started.value;
-    const app = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: pluginHost.value });
-    const saved = await app.saveRevision({ entryId: "entry", revisionId: "draft-1", operationId: "save-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "draft" }, route: "/Learn//Guide/", assetVersions: [] });
+    const app = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: pluginHost.value, taxonomy: createTaxonomy({ persistence: opened.value }) });
+    const saved = await app.saveRevision({ entryId: "entry", revisionId: "draft-1", operationId: "save-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "draft" }, route: "/Learn//Guide/", assetVersions: [], taxonomyTerms: [] });
     assert.equal(saved.ok, true, saved.ok ? "" : saved.error.code); if (!saved.ok) return;
     assert.equal(saved.value.currentPointer.currentRevisionId, "draft-1"); assert.equal(saved.value.currentClaim.normalizedRoute, "/learn/guide"); opened.value.close();
   } finally { rmSync(directory, { recursive: true, force: true }); }

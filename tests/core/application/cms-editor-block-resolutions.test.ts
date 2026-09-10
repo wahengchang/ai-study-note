@@ -7,6 +7,7 @@ import type { PersistenceStore } from "../../../core/persistence/index.js";
 import type { CmsEditorBlockResolution, CmsEditorBlockSource, PluginHost } from "../../../core/plugin-host/index.js";
 import type { SiteDefinition } from "../../../core/site-definition/index.js";
 import { canonicalJsonBytes, sha256Digest, type Digest, type JsonValue } from "../../../core/foundation/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
 const digest = (value: string): Digest => sha256Digest(new TextEncoder().encode(value));
 
@@ -48,7 +49,7 @@ function application(status: CmsEditorBlockResolution["status"], calls: CmsEdito
     getRevision: () => ({ ok: true, value: { identity: { entryId: "entry-a", revisionId: "revision-a" }, schemaIdentity: { schemaId: "site-content", version: 1 }, contentBytes: encoded, contentDigest: sha256Digest(encoded) } }),
     canonicalState: () => ({ ok: true, value: { digest: digest("state") } }),
   } as unknown as PersistenceStore;
-  return createDomainApplication({ persistence, siteDefinition: {} as SiteDefinition, dataMedia: {} as DataMedia, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host(status, calls) });
+  return createDomainApplication({ persistence, siteDefinition: {} as SiteDefinition, dataMedia: {} as DataMedia, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host(status, calls), taxonomy: createTaxonomy({ persistence }) });
 }
 
 test("CMS editor block resolution 從 current canonical source 建立 minimal identity binding 並回傳 Host output", async () => {

@@ -22,7 +22,7 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 function authoringEntry(entryId: string, revision: Revision) {
-  return { contract: "authoring-entry/v1", entryId, current: { revisionId: revision.revisionId, schemaIdentity: { schemaId: "site-content", version: 1 }, content: revision.content, contentDigest: digest, route: revision.route, assets: [] }, stateDigest: digest };
+  return { contract: "authoring-entry/v1", entryId, current: { revisionId: revision.revisionId, schemaIdentity: { schemaId: "site-content", version: 1 }, content: revision.content, contentDigest: digest, route: revision.route, assets: [], taxonomyBindings: [] }, stateDigest: digest };
 }
 
 function failure(code: string, message: string) {

@@ -9,7 +9,17 @@ export type RevisionRecord = Readonly<{ identity: RevisionIdentity; schemaIdenti
 export type CreateRevisionInput = Readonly<{ identity: RevisionIdentity; schemaIdentity: SchemaVersionIdentity; contentBytes: Uint8Array; contentDigest: Digest; restoredFromRevisionId?: string; lineage: RevisionLineage }>;
 export type AssetVersionIdentity = Readonly<{ assetId: string; assetVersionId: string }>;
 export type RevisionReferenceRecord = Readonly<{ revision: RevisionIdentity; assetVersion: AssetVersionIdentity }>;
-export type CreateRevisionWithReferencesInput = Readonly<{ revision: CreateRevisionInput; assetVersions: readonly AssetVersionIdentity[] }>;
+export type TaxonomyTermIdentity = Readonly<{ taxonomyId: string; termId: string }>;
+export type TaxonomyTermEvidence = Readonly<TaxonomyTermIdentity & { label: string; slug: string; order: number }>;
+export type RevisionTaxonomyTermBinding = Readonly<TaxonomyTermIdentity & { evidence: TaxonomyTermEvidence; evidenceDigest: Digest }>;
+export type TaxonomyRecord = Readonly<{ taxonomyId: string; label: string }>;
+export type TaxonomyTermState = "live" | "retired";
+export type TaxonomyTermRecord = Readonly<TaxonomyTermEvidence & { state: TaxonomyTermState }>;
+export type CreateTaxonomyInput = TaxonomyRecord;
+export type CreateTaxonomyTermInput = Readonly<TaxonomyTermEvidence>;
+export type UpdateTaxonomyTermInput = Readonly<TaxonomyTermIdentity & { label?: string; state?: TaxonomyTermState }>;
+export type RevisionTaxonomyBindingUsage = Readonly<{ entryId: string; revisionId: string; pointer: "current" | "published" }>;
+export type CreateRevisionWithReferencesInput = Readonly<{ revision: CreateRevisionInput; assetVersions: readonly AssetVersionIdentity[]; taxonomyTerms?: readonly TaxonomyTermIdentity[] }>;
 
 export type OperationLineageIdentity = Readonly<{ entryId: string; revisionId: string; operationId: string }>;
 export type OperationLineageRecord = Readonly<OperationLineageIdentity & { operationKind: string; createsRevision: boolean }>;
@@ -35,7 +45,7 @@ export type PersistenceCanonicalState = Readonly<{
   contract: "persistence-canonical-state/v2";
   bytes: Uint8Array;
   digest: Digest;
-  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
+  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; taxonomies: number; taxonomyTermIdentities: number; taxonomyTerms: number; revisionTaxonomyBindings: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
 }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
@@ -166,6 +176,7 @@ export interface PersistenceReadSnapshot {
   readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
   readThemeActivationState(): PersistenceResult<ThemeActivationStateRecord>;
   readPluginSettingsState(): PersistenceResult<PluginSettingsStateRecord>;
+  getRevisionTaxonomyBindings(revision: RevisionIdentity): PersistenceResult<readonly RevisionTaxonomyTermBinding[]>;
 }
 
 export interface PersistenceTransaction extends PersistenceReadSnapshot {
@@ -190,7 +201,18 @@ export interface PersistenceTransaction extends PersistenceReadSnapshot {
   setAssetVersionAvailability(identity: AssetVersionIdentity, availability: AssetVersionAvailability): PersistenceResult<AssetVersionRecord>;
   listPublishedAssetReferences(identity: AssetVersionIdentity): PersistenceResult<readonly PublishedAssetReference[]>;
   createRevisionReferences(revision: RevisionIdentity, assetVersions: readonly AssetVersionIdentity[]): PersistenceResult<readonly RevisionReferenceRecord[]>;
-  createRevisionWithReferences(input: CreateRevisionWithReferencesInput): PersistenceResult<Readonly<{ revision: RevisionRecord; references: readonly RevisionReferenceRecord[] }>>;
+  createRevisionWithReferences(input: CreateRevisionWithReferencesInput): PersistenceResult<Readonly<{ revision: RevisionRecord; references: readonly RevisionReferenceRecord[]; taxonomyBindings: readonly RevisionTaxonomyTermBinding[] }>>;
+  createTaxonomy(input: CreateTaxonomyInput): PersistenceResult<TaxonomyRecord>;
+  getTaxonomy(taxonomyId: string): PersistenceResult<TaxonomyRecord>;
+  listTaxonomies(): PersistenceResult<readonly TaxonomyRecord[]>;
+  createTaxonomyTerm(input: CreateTaxonomyTermInput): PersistenceResult<TaxonomyTermRecord>;
+  getTaxonomyTerm(identity: TaxonomyTermIdentity): PersistenceResult<TaxonomyTermRecord>;
+  listTaxonomyTerms(taxonomyId: string): PersistenceResult<readonly TaxonomyTermRecord[]>;
+  updateTaxonomyTerm(input: UpdateTaxonomyTermInput): PersistenceResult<TaxonomyTermRecord>;
+  deleteTaxonomyTerm(identity: TaxonomyTermIdentity): PersistenceResult<void>;
+  createRevisionTaxonomyBindings(revision: RevisionIdentity, terms: readonly TaxonomyTermIdentity[]): PersistenceResult<readonly RevisionTaxonomyTermBinding[]>;
+  getRevisionTaxonomyBindings(revision: RevisionIdentity): PersistenceResult<readonly RevisionTaxonomyTermBinding[]>;
+  listTaxonomyTermUsages(identity: TaxonomyTermIdentity): PersistenceResult<readonly RevisionTaxonomyBindingUsage[]>;
   canonicalState(): PersistenceResult<PersistenceCanonicalState>;
 }
 

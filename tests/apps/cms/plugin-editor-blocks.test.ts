@@ -25,7 +25,7 @@ async function body(request: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 function entry(saved: boolean) {
-  return { contract: "authoring-entry/v1", entryId: "entry-plugin", current: { revisionId: saved ? "revision-b" : "revision-a", schemaIdentity: { schemaId: "site-content", version: 1 }, content: { contract: "site-content/v1", title: "外掛文章", blocks: [{ kind: "article", text: saved ? "已修改本文" : "原始本文" }, pluginBlock], seo: {} }, contentDigest: digest, route: "/plugin-entry", assets: [] }, stateDigest: digest };
+  return { contract: "authoring-entry/v1", entryId: "entry-plugin", current: { revisionId: saved ? "revision-b" : "revision-a", schemaIdentity: { schemaId: "site-content", version: 1 }, content: { contract: "site-content/v1", title: "外掛文章", blocks: [{ kind: "article", text: saved ? "已修改本文" : "原始本文" }, pluginBlock], seo: {} }, contentDigest: digest, route: "/plugin-entry", assets: [], taxonomyBindings: [] }, stateDigest: digest };
 }
 
 function resolutions(status: Status, saved: boolean) {
@@ -103,7 +103,7 @@ const otherDigest = `sha256:${"e".repeat(64)}`;
 const secondBlock = { ...pluginBlock, identity: { id: "demo", version: "1.0.0" } };
 
 function driftEntry() {
-  return { contract: "authoring-entry/v1", entryId: "entry-plugin", current: { revisionId: "revision-a", schemaIdentity: { schemaId: "site-content", version: 1 }, content: { contract: "site-content/v1", title: "外掛文章", blocks: [{ kind: "article", text: "原始本文" }, pluginBlock, secondBlock], seo: {} }, contentDigest: digest, route: "/plugin-entry", assets: [] }, stateDigest: digest };
+  return { contract: "authoring-entry/v1", entryId: "entry-plugin", current: { revisionId: "revision-a", schemaIdentity: { schemaId: "site-content", version: 1 }, content: { contract: "site-content/v1", title: "外掛文章", blocks: [{ kind: "article", text: "原始本文" }, pluginBlock, secondBlock], seo: {} }, contentDigest: digest, route: "/plugin-entry", assets: [], taxonomyBindings: [] }, stateDigest: digest };
 }
 
 function activeItem(blockIndex: number, activeStateDigest: string) {

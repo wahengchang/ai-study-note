@@ -39,7 +39,8 @@ test("accepts a contract-conforming tree", async () => {
       "core/foundation/index.ts": "export const version = 1;\n",
       "core/foundation/canonical-json.ts": "export const jcs = 1;\n",
       "core/content/index.ts": "import { version } from '../foundation/index.js';\nexport const content = version;\n",
-      "core/application/index.ts": "import { content } from '../content/index.js';\nexport const app = content;\n",
+      "core/taxonomy/index.ts": "export const taxonomy = 1;\n",
+      "core/application/index.ts": "import { content } from '../content/index.js';\nimport { taxonomy } from '../taxonomy/index.js';\nexport const app = content + taxonomy;\n",
       "core/renderer/index.ts": "export const renderer = 1;\n",
       "core/projection/index.ts": "export const projection = 1;\n",
       "core/delivery/index.ts":

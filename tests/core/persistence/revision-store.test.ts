@@ -112,3 +112,50 @@ test("schema history and revision constraints are append-only", () => {
     rmSync(fixture.directory, { recursive: true, force: true });
   }
 });
+
+test("taxonomy bindings preserve captured evidence and unresolved terms roll back the revision append", () => {
+  const fixture = databasePath();
+  try {
+    assert.equal(migrateDatabase({ databasePath: fixture.value }).ok, true);
+    const bytes = fixtureBytes();
+    const opened = openPersistence({ databasePath: fixture.value });
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const store = opened.value;
+    assert.equal(store.registerSchemaVersion({ identity: { schemaId: "article", version: 1 }, schemaBytes: bytes.schemaBytes, schemaDigest: sha256Digest(bytes.schemaBytes) }).ok, true);
+    assert.equal(store.createTaxonomy({ taxonomyId: "topics", label: "Topics" }).ok, true);
+    assert.equal(store.createTaxonomyTerm({ taxonomyId: "topics", termId: "alpha", label: "Alpha", slug: "alpha", order: 10 }).ok, true);
+    const evidence = { taxonomyId: "topics", termId: "alpha", label: "Alpha", slug: "alpha", order: 10 };
+    const evidenceBytes = canonicalJsonBytes(evidence);
+    assert.equal(evidenceBytes.ok, true);
+    if (!evidenceBytes.ok) return;
+    const revision = {
+      schemaIdentity: { schemaId: "article", version: 1 }, contentBytes: bytes.contentBytes, contentDigest: sha256Digest(bytes.contentBytes),
+      lineage: { operationId: "save-taxonomy", operationKind: "SaveRevision" },
+    };
+    const captured = store.createRevisionWithReferences({ revision: { ...revision, identity: { entryId: "entry", revisionId: "captured" } }, assetVersions: [], taxonomyTerms: [{ taxonomyId: "topics", termId: "alpha" }] });
+    assert.equal(captured.ok, true);
+    if (!captured.ok) return;
+    assert.deepEqual(captured.value.taxonomyBindings, [{ taxonomyId: "topics", termId: "alpha", evidence, evidenceDigest: sha256Digest(evidenceBytes.value) }]);
+    assert.equal(store.updateTaxonomyTerm({ taxonomyId: "topics", termId: "alpha", label: "Renamed Alpha" }).ok, true);
+    const preserved = store.getRevisionTaxonomyBindings({ entryId: "entry", revisionId: "captured" });
+    assert.equal(preserved.ok, true);
+    if (!preserved.ok) return;
+    assert.deepEqual(preserved.value, captured.value.taxonomyBindings);
+
+    const before = store.canonicalState();
+    assert.equal(before.ok, true);
+    if (!before.ok) return;
+    const unresolved = store.createRevisionWithReferences({ revision: { ...revision, identity: { entryId: "entry", revisionId: "unresolved" }, lineage: { operationId: "save-unresolved", operationKind: "SaveRevision" } }, assetVersions: [], taxonomyTerms: [{ taxonomyId: "topics", termId: "missing" }] });
+    assert.equal(unresolved.ok, false);
+    if (!unresolved.ok) assert.equal(unresolved.error.code, "INVALID_PERSISTENCE_INPUT");
+    assert.equal(store.getRevision({ entryId: "entry", revisionId: "unresolved" }).ok, false);
+    const after = store.canonicalState();
+    assert.equal(after.ok, true);
+    if (!after.ok) return;
+    assert.equal(after.value.digest, before.value.digest);
+    store.close();
+  } finally {
+    rmSync(fixture.directory, { recursive: true, force: true });
+  }
+});

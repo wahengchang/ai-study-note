@@ -31,6 +31,14 @@ export type {
   SaveRevisionSuccess,
 } from "./contracts.js";
 export type {
+  CreateTaxonomyRequest,
+  TaxonomyCatalog,
+  TaxonomyCommand,
+  TaxonomyCommandResult,
+  TaxonomyFailureCode,
+  TaxonomySnapshot,
+} from "../taxonomy/index.js";
+export type {
   AuthoringReadFacade,
   AuthoringReadFailure,
   AuthoringReadFailureCode,
