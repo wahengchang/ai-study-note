@@ -285,6 +285,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   const reload = useRef<HTMLButtonElement>(null);
   const publishTrigger = useRef<HTMLButtonElement>(null);
   const cancelPublish = useRef<HTMLButtonElement>(null);
+  const confirmPublish = useRef<HTMLButtonElement>(null);
   const dialog = useRef<HTMLDialogElement>(null);
   const status = useRef<HTMLParagraphElement>(null);
   const currentPreviewTab = useRef<HTMLButtonElement>(null);
@@ -326,6 +327,16 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
     if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "Home" || event.key === "End") {
       event.preventDefault();
       selectPreview(event.key === "Home" ? "current" : event.key === "End" ? "published" : event.key === "ArrowLeft" ? previewSelection === "current" ? "published" : "current" : previewSelection === "published" ? "current" : "published", true);
+    }
+  };
+  const trapPublishFocus = (event: React.KeyboardEvent<HTMLDialogElement>): void => {
+    if (event.key !== "Tab") return;
+    if (event.shiftKey && document.activeElement === cancelPublish.current) {
+      event.preventDefault();
+      confirmPublish.current?.focus();
+    } else if (!event.shiftKey && document.activeElement === confirmPublish.current) {
+      event.preventDefault();
+      cancelPublish.current?.focus();
     }
   };
   const adopt = (entry: AuthoringEntryDto): boolean => {
@@ -469,7 +480,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
         <aside aria-labelledby="page-preview-heading"><h2 id="page-preview-heading">頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}<div role="tablist" aria-label="頁面預覽版本"><button ref={currentPreviewTab} id="current-preview-tab" type="button" role="tab" tabIndex={previewSelection === "current" ? 0 : -1} aria-selected={previewSelection === "current"} aria-controls="current-preview-panel" onClick={() => selectPreview("current")} onKeyDown={previewKeyDown}>目前版本</button><button ref={publishedPreviewTab} id="published-preview-tab" type="button" role="tab" tabIndex={previewSelection === "published" ? 0 : -1} aria-selected={previewSelection === "published"} aria-controls="published-preview-panel" onClick={() => selectPreview("published")} onKeyDown={previewKeyDown}>已發布版本</button></div>{previewSelection === "current" ? <section id="current-preview-panel" role="tabpanel" aria-labelledby="current-preview-tab">{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前版本頁面預覽" sandbox="" srcDoc={currentPreview} />}</section> : <section id="published-preview-panel" role="tabpanel" aria-labelledby="published-preview-tab">{publishedPreview === null || publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布版本頁面預覽" sandbox="" srcDoc={publishedPreview} />}</section>}</aside>
       </div>
     </section>
-    <dialog ref={dialog} aria-labelledby="publish-dialog-title" aria-describedby="publish-dialog-description"><h2 id="publish-dialog-title">發布文章</h2><p id="publish-dialog-description">將發布目前 revision：<span className="breakable">{currentRevisionText}</span>。發布只會更新已發布版本。</p>{publishError !== undefined && <p role="alert">{publishError}</p>}<button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
+    <dialog ref={dialog} aria-labelledby="publish-dialog-title" aria-describedby="publish-dialog-description" onKeyDown={trapPublishFocus}><h2 id="publish-dialog-title">發布文章</h2><p id="publish-dialog-description">將發布目前 revision：<span className="breakable">{currentRevisionText}</span>。發布只會更新已發布版本。</p>{publishError !== undefined && <p role="alert">{publishError}</p>}<button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button ref={confirmPublish} type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
   </Layout>;
 }
 

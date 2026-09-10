@@ -37,11 +37,12 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
   const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
   assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
   if (!runtime.ok) return;
-  const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
-  assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-  if (!minted.ok) { await runtime.value.close(); return; }
-  const browser = await chromium.launch();
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
+    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
+    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
+    if (!minted.ok) return;
+    browser = await chromium.launch();
     const context_ = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } });
     const page = await context_.newPage();
     await page.goto(`${runtime.value.origin}/cms#${minted.value.ticket}`, { waitUntil: "networkidle" });
@@ -86,15 +87,21 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     const dialog = page.getByRole("dialog", { name: "發布文章", exact: true });
     await dialog.waitFor();
     assert.match(await dialog.textContent() ?? "", /將發布目前 revision：/u);
+    const cancel = dialog.getByRole("button", { name: "取消", exact: true });
+    const confirm = dialog.getByRole("button", { name: "確認發布", exact: true });
+    await confirm.focus();
     await page.keyboard.press("Tab");
-    assert.equal(await page.evaluate(() => document.querySelector("dialog")?.contains(document.activeElement)), true);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "取消");
+    await cancel.focus();
     await page.keyboard.press("Shift+Tab");
-    assert.equal(await page.evaluate(() => document.querySelector("dialog")?.contains(document.activeElement)), true);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "確認發布");
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector("dialog")?.open);
     assert.equal(await page.evaluate(() => document.activeElement?.textContent), "發布");
+    await publishedTab.click();
+    await page.getByText("尚未發布", { exact: true }).waitFor();
     await publish.click();
-    await page.getByRole("button", { name: "確認發布", exact: true }).click();
+    await confirm.click();
     await page.getByText("已發布。", { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.activeElement?.textContent), "已發布。");
     await publishedTab.click();
@@ -121,7 +128,7 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     await page.getByRole("link", { name: "文章", exact: true }).click();
     await page.getByText("已發布，有未發布變更", { exact: true }).waitFor();
   } finally {
-    await browser.close();
+    await browser?.close();
     await runtime.value.close();
   }
 });
