@@ -6,7 +6,7 @@ work_items: ["WI-066"]
 owner: Main
 branch: fix/cms-taxonomy-binding-preservation
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/cms-taxonomy-binding-preservation
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/353
 ---
 
 # CMS taxonomy binding preservation

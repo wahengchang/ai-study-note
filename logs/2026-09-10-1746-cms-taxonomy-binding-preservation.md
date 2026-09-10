@@ -32,4 +32,4 @@
 ## 相關 Branch／PR
 
 - Branch：`fix/cms-taxonomy-binding-preservation`
-- PR：尚未建立
+- PR：https://github.com/wahengchang/ai-study-note/pull/353
