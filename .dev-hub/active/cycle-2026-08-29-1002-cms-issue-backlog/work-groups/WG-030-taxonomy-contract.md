@@ -6,7 +6,7 @@ work_items: ["WI-051"]
 owner: Main
 branch: feature/taxonomy-contract
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/taxonomy-contract
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/347
 ---
 
 # DEC-TAXONOMY-01 Taxonomy contract
