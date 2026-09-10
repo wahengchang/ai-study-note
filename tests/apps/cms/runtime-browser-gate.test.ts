@@ -140,6 +140,63 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
   }
 });
 
+test("真實 CMS runtime 完成 taxonomy list、create 與 detail browser/a11y journey", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-taxonomy-workspace-browser-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(runDbMigrate(["--database", databasePath], capture().io), 0);
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
+    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
+    if (!minted.ok) return;
+    browser = await chromium.launch();
+    const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
+    await page.goto(`${runtime.value.origin}/cms#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    const taxonomies = page.getByRole("link", { name: "分類", exact: true });
+    await taxonomies.focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("heading", { name: "分類全覽", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/taxonomies");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    await page.getByText("尚無分類。", { exact: false }).waitFor();
+    await page.getByRole("link", { name: "建立第一個分類", exact: true }).click();
+    await page.getByRole("heading", { name: "建立分類", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/taxonomies/new");
+    const taxonomyId = page.getByRole("textbox", { name: "Taxonomy ID", exact: true });
+    await taxonomyId.fill("topics");
+    await page.getByRole("textbox", { name: "分類名稱", exact: true }).fill("主題");
+    await page.getByRole("button", { name: "建立分類", exact: true }).click();
+    await page.getByRole("heading", { name: "分類：主題", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/taxonomies/topics");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    await page.getByText("Taxonomy ID", { exact: true }).waitFor();
+    await page.getByText("topics", { exact: true }).waitFor();
+    await page.getByRole("heading", { name: "Terms", exact: true }).waitFor();
+    await page.getByText("尚無 term。", { exact: true }).waitFor();
+    await page.setViewportSize({ width: 375, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  } finally {
+    await browser?.close();
+    await runtime.value.close();
+  }
+});
+
 test("真實 CMS runtime 在 CAS reload 後保留 taxonomy binding 並發布", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "cms-taxonomy-binding-browser-"));
   context.after(() => { rmSync(root, { recursive: true, force: true }); });
