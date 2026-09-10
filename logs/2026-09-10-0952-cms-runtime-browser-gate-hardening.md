@@ -27,4 +27,4 @@ status: completed
 ## 相關 Branch／PR
 
 - `feature/cms-runtime-browser-gate-hardening`
-- PR 尚未建立。
+- https://github.com/wahengchang/ai-study-note/pull/344
