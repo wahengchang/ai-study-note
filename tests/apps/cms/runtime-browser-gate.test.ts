@@ -9,6 +9,8 @@ import { chromium } from "playwright";
 import { createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, startCmsRuntime } from "../../../apps/authoring-api/index.js";
 import { runDbMigrate } from "../../../apps/cli/db-migrate.js";
 import { runPluginPackage, runThemePackage } from "../../../apps/cli/package.js";
+import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
+import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import { runThemeActivate } from "../../../apps/cli/theme-activate.js";
 
 function capture(): Readonly<{ output: string[]; io: Readonly<{ stdout(text: string): void; stderr(text: string): void }> }> {
@@ -50,6 +52,7 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     assert.equal(new URL(page.url()).pathname, "/cms");
     assert.equal(await page.getByText("Browser session 已建立。", { exact: true }).count(), 1);
     assert.equal(await page.getByRole("main").getAttribute("aria-labelledby"), "page-title");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
     await page.getByRole("link", { name: "跳到主標題", exact: true }).focus();
     await page.keyboard.press("Enter");
@@ -57,10 +60,12 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     await page.getByRole("link", { name: "文章", exact: true }).click();
     await page.getByRole("heading", { name: "文章全覽", exact: true }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/cms/entries");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
     await page.getByRole("link", { name: "建立第一篇文章", exact: true }).click();
     await page.getByRole("heading", { name: "新增文章", exact: true }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/cms/entries/new");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
     await page.getByRole("textbox", { name: "標題", exact: true }).fill("Runtime Article v1");
     await page.getByRole("textbox", { name: "網址代稱", exact: true }).fill("runtime-article");
@@ -68,6 +73,7 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     await page.getByRole("button", { name: "儲存", exact: true }).click();
     await page.getByRole("heading", { name: "編輯文章", exact: true }).waitFor();
     assert.match(new URL(page.url()).pathname, /^\/cms\/entries\/[^/]+$/u);
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
     const currentFrame = page.getByTitle("目前版本頁面預覽", { exact: true });
     await currentFrame.waitFor();
@@ -127,6 +133,148 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
     await page.getByRole("link", { name: "文章", exact: true }).click();
     await page.getByText("已發布，有未發布變更", { exact: true }).waitFor();
+  } finally {
+    await browser?.close();
+    await runtime.value.close();
+  }
+});
+
+test("真實 CMS runtime 完成 Content Type empty、create 與 detail/history browser/a11y journey", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-content-type-browser-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(migrateDatabase({ databasePath }).ok, true);
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
+    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
+    if (!minted.ok) return;
+    browser = await chromium.launch();
+    const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
+    await page.goto(`${runtime.value.origin}/cms#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    const contentTypes = page.getByRole("link", { name: "內容類型", exact: true });
+    await contentTypes.focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("heading", { name: "內容類型全覽", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/content-types");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByRole("link", { name: "跳到主標題", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByText("尚無內容類型。", { exact: false }).waitFor();
+    const first = page.getByRole("link", { name: "建立第一個內容類型", exact: true });
+    await first.focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("heading", { name: "建立內容類型", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/content-types/new");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByRole("textbox", { name: "Schema ID", exact: true }).fill("invalid/id");
+    await page.getByRole("button", { name: "建立內容類型", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.getByText("Schema ID 只能使用英數字、句點、底線、連字號或波浪號。", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("textbox", { name: "Schema ID", exact: true }).getAttribute("aria-describedby"), "content-type-schema-id-error");
+    assert.notEqual(await page.getByRole("textbox", { name: "JSON Schema", exact: true }).getAttribute("aria-invalid"), "true");
+    assert.equal(await page.getByRole("textbox", { name: "JSON Schema", exact: true }).getAttribute("aria-describedby"), null);
+    await page.getByRole("textbox", { name: "Schema ID", exact: true }).fill("study-note");
+    assert.notEqual(await page.getByRole("textbox", { name: "Schema ID", exact: true }).getAttribute("aria-invalid"), "true");
+    assert.equal(await page.getByRole("textbox", { name: "Schema ID", exact: true }).getAttribute("aria-describedby"), null);
+    await page.getByRole("textbox", { name: "JSON Schema", exact: true }).fill("{");
+    await page.getByRole("button", { name: "建立內容類型", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    const validationError = page.getByText("請輸入有效 JSON Schema。", { exact: true });
+    await validationError.waitFor();
+    assert.equal(await page.getByRole("textbox", { name: "JSON Schema", exact: true }).getAttribute("aria-describedby"), "content-type-schema-error");
+    assert.notEqual(await page.getByRole("textbox", { name: "Schema ID", exact: true }).getAttribute("aria-invalid"), "true");
+    assert.equal(await page.getByRole("textbox", { name: "Schema ID", exact: true }).getAttribute("aria-describedby"), null);
+    await page.getByRole("textbox", { name: "JSON Schema", exact: true }).fill("{\"type\":\"object\",\"additionalProperties\":false}");
+    assert.notEqual(await page.getByRole("textbox", { name: "JSON Schema", exact: true }).getAttribute("aria-invalid"), "true");
+    assert.equal(await page.getByRole("textbox", { name: "JSON Schema", exact: true }).getAttribute("aria-describedby"), null);
+    await page.getByRole("button", { name: "建立內容類型", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("heading", { name: "內容類型：study-note", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/content-types/study-note");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
+    await page.getByRole("heading", { name: "版本歷程", exact: true }).waitFor();
+    await page.getByText("版本 1（目前）", { exact: true }).waitFor();
+    await page.getByText("\"additionalProperties\": false", { exact: false }).waitFor();
+    await page.setViewportSize({ width: 375, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  } finally {
+    await browser?.close();
+    await runtime.value.close();
+  }
+});
+
+test("真實 CMS runtime 以單一 catalog snapshot 呈現 immutable Content Type history", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-content-type-history-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(migrateDatabase({ databasePath }).ok, true);
+  const version1Schema = canonicalJsonBytes({ type: "object", title: "版本一" });
+  const version2Schema = canonicalJsonBytes({ type: "object", title: "版本二", additionalProperties: false });
+  assert.equal(version1Schema.ok && version2Schema.ok, true);
+  if (!version1Schema.ok || !version2Schema.ok) return;
+  const persistence = openPersistence({ databasePath });
+  assert.equal(persistence.ok, true, persistence.ok ? "" : persistence.error.code);
+  if (!persistence.ok) return;
+  try {
+    assert.equal(persistence.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: version1Schema.value, schemaDigest: sha256Digest(version1Schema.value) }).ok, true);
+    assert.equal(persistence.value.registerSchemaVersion({ identity: { schemaId: "note", version: 2 }, schemaBytes: version2Schema.value, schemaDigest: sha256Digest(version2Schema.value) }).ok, true);
+  } finally {
+    persistence.value.close();
+  }
+  const version2Digest = sha256Digest(version2Schema.value);
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
+    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
+    if (!minted.ok) return;
+    browser = await chromium.launch();
+    const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
+    await page.goto(`${runtime.value.origin}/cms/content-types/note#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "內容類型：note", exact: true }).waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    const history = page.locator('section[aria-labelledby="content-type-history"] li');
+    await history.first().waitFor();
+    assert.deepEqual(await history.allTextContents(), ["版本 2（目前）", "版本 1"]);
+    assert.equal(await history.nth(0).getAttribute("aria-current"), "true");
+    assert.equal(await history.nth(1).getAttribute("aria-current"), null);
+    await page.getByText(version2Digest, { exact: true }).waitFor();
+    await page.getByText("\"title\": \"版本二\"", { exact: false }).waitFor();
+    assert.equal(await page.getByText("\"title\": \"版本一\"", { exact: false }).count(), 0);
   } finally {
     await browser?.close();
     await runtime.value.close();

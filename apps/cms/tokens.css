@@ -26,6 +26,7 @@ iframe { width: 100%; min-height: 16rem; border: 1px solid var(--border); backgr
 [role="tablist"] { display: flex; flex-wrap: wrap; gap: .5rem; margin: 1rem 0; }
 [role="tab"][aria-selected="true"] { border-width: 3px; font-weight: 700; }
 p, li, td { overflow-wrap: anywhere; }
+pre.schema { overflow-wrap: anywhere; white-space: pre-wrap; }
 dialog { max-width: min(36rem, calc(100vw - 2rem)); border: 1px solid var(--border); border-radius: .5rem; color: inherit; background: var(--surface); box-shadow: 0 1rem 3rem rgb(0 0 0 / .25); }
 dialog::backdrop { background: rgb(0 0 0 / .4); }
 :focus-visible { outline: 3px solid #0d7d5b; outline-offset: .2rem; }
