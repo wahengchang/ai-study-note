@@ -1,8 +1,8 @@
 ---
 id: WI-055
-status: pending
+status: done
 title: CMS Content Type administration workspace
-work_group: null
+work_group: WG-029
 depends_on: ["WI-040", "WI-035", "WI-041"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-041"]
 
 ## Notes
 
-GitHub #314；planned。
+GitHub #314；WG-029 於 2026-09-10 完成。production-composition Chromium gate 已覆蓋三條 canonical route、empty/create/detail-history、heading focus、skip link、鍵盤操作、label/error association 與窄螢幕。

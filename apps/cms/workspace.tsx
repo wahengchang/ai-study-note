@@ -12,6 +12,8 @@ const jsonContent = z.unknown().refine((value) => value !== undefined);
 const schemaIdentitySchema = z.object({ schemaId: z.string(), version: z.number().int().safe().positive() }).strict();
 const authoringErrorSchema = z.object({ contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string(), owner: z.string(), subjectIds: z.array(z.string()), remediation: z.object({ kind: z.literal("message"), message: z.string() }).strict() }).strict();
 const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: z.unknown(), stateDigest: digestSchema }).strict();
+const contentTypeSchema = z.object({ contract: z.literal("content-type/v1"), schemaIdentity: schemaIdentitySchema, schema: jsonContent, schemaDigest: digestSchema }).strict();
+const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSchema), stateDigest: digestSchema }).strict();
 const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()) }).strict(), stateDigest: digestSchema }).strict();
 const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string().url(), indexing: z.enum(["allow", "disallow"]) }).strict();
 const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: digestSchema, capabilities: z.array(z.string()) }).strict();
@@ -40,6 +42,8 @@ type AuthoringEntryDto = Readonly<z.infer<typeof authoringEntrySchema>>;
 type CmsEditorBlockResolutionsDto = Readonly<z.infer<typeof cmsEditorBlockResolutionsSchema>>;
 type CmsSeoAnalysisResponseDto = Readonly<z.infer<typeof cmsSeoAnalysisResponseSchema>>;
 type EntryCatalogDto = Readonly<z.infer<typeof entryCatalogSchema>>;
+type ContentTypeCatalogDto = Readonly<z.infer<typeof contentTypeCatalogSchema>>;
+type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
 type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManagementSnapshotSchema>>;
 type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
 type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
@@ -111,6 +115,8 @@ class CmsApiClient {
   constructor(private readonly session: AuthoringSession) {}
 
   listEntries(): Promise<EntryCatalogDto> { return this.json("/v1/entries", entryCatalogSchema); }
+  contentTypes(): Promise<ContentTypeCatalogDto> { return this.json("/v1/content-types", contentTypeCatalogSchema); }
+  createContentType(schemaId: string, schema: unknown): Promise<ContentTypeDto> { return this.json("/v1/content-types", contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "create-content-type-request/v1", schemaId: this.resourceId(schemaId), schema }) }); }
   current(entryId: string): Promise<AuthoringEntryDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current`, authoringEntrySchema); }
   editorBlocks(entryId: string): Promise<CmsEditorBlockResolutionsDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current/editor-blocks`, cmsEditorBlockResolutionsSchema); }
   plugins(): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins", pluginManagementSnapshotSchema); }
@@ -147,6 +153,15 @@ class CmsApiClient {
   }
 }
 
+function currentContentTypes(items: ContentTypeCatalogDto["items"]): readonly ContentTypeDto[] {
+  const current = new Map<string, ContentTypeDto>();
+  for (const item of items) {
+    const previous = current.get(item.schemaIdentity.schemaId);
+    if (previous === undefined || previous.schemaIdentity.version < item.schemaIdentity.version) current.set(item.schemaIdentity.schemaId, item);
+  }
+  return [...current.values()].toSorted((left, right) => left.schemaIdentity.schemaId < right.schemaIdentity.schemaId ? -1 : left.schemaIdentity.schemaId > right.schemaIdentity.schemaId ? 1 : 0);
+}
+
 function entryStatusText(status: EntryCatalogDto["items"][number]["status"]): string {
   return status === "draft" ? "草稿" : status === "published" ? "已發布" : "已發布，有未發布變更";
 }
@@ -159,7 +174,7 @@ function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): Rea
 }
 
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -172,6 +187,65 @@ function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element 
   useEffect(load, [load]);
   if (entries === undefined) return <Layout><PageHeading>文章全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
   return <Layout><PageHeading>文章全覽</PageHeading>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><caption>所有文章</caption><thead><tr><th scope="col">標題</th><th scope="col">狀態</th><th scope="col">網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entryStatusText(entry.status)}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
+}
+
+function ContentTypeList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const [items, setItems] = useState<ContentTypeCatalogDto["items"]>();
+  const [error, setError] = useState<string>();
+  const load = useCallback((): void => {
+    setItems(undefined); setError(undefined);
+    void api.contentTypes().then((catalog) => setItems(catalog.items)).catch((reason: unknown) => setError(message(reason)));
+  }, [api]);
+  useEffect(load, [load]);
+  if (items === undefined) return <Layout><PageHeading>內容類型全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  const current = currentContentTypes(items);
+  return <Layout><PageHeading>內容類型全覽</PageHeading><p><Link className="action-link" to="/cms/content-types/new">建立內容類型</Link></p>{current.length === 0 ? <p>尚無內容類型。<Link to="/cms/content-types/new">建立第一個內容類型</Link></p> : <table><caption>所有內容類型</caption><thead><tr><th scope="col">Schema ID</th><th scope="col">目前版本</th></tr></thead><tbody>{current.map((item) => <tr key={item.schemaIdentity.schemaId}><td><Link to={`/cms/content-types/${item.schemaIdentity.schemaId}`}>{item.schemaIdentity.schemaId}</Link></td><td>{item.schemaIdentity.version}</td></tr>)}</tbody></table>}</Layout>;
+}
+
+function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const navigate = useNavigate();
+  const [schemaId, setSchemaId] = useState("");
+  const [schemaText, setSchemaText] = useState("{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"type\": \"object\"\n}");
+  const [schemaIdError, setSchemaIdError] = useState<string>();
+  const [schemaError, setSchemaError] = useState<string>();
+  const [formError, setFormError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault(); setSchemaIdError(undefined); setSchemaError(undefined); setFormError(undefined);
+    if (!AUTHORING_RESOURCE_ID_PATTERN.test(schemaId)) { setSchemaIdError("Schema ID 只能使用英數字、句點、底線、連字號或波浪號。"); return; }
+    let schema: unknown;
+    try { schema = JSON.parse(schemaText); } catch { setSchemaError("請輸入有效 JSON Schema。"); return; }
+    setBusy(true);
+    try {
+      const created = await api.createContentType(schemaId, schema);
+      navigate(`/cms/content-types/${created.schemaIdentity.schemaId}`);
+    } catch (reason) {
+      setFormError(message(reason));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <Layout><PageHeading>建立內容類型</PageHeading><p>建立 immutable initial schema version；後續版本不會覆寫此定義。</p><form aria-label="Content Type 定義" onSubmit={(event) => void submit(event)}><label htmlFor="content-type-schema-id">Schema ID<input id="content-type-schema-id" required value={schemaId} onChange={(event) => { setSchemaId(event.target.value); setSchemaIdError(undefined); }} aria-invalid={schemaIdError !== undefined} aria-describedby={schemaIdError === undefined ? undefined : "content-type-schema-id-error"} disabled={busy} /></label>{schemaIdError !== undefined && <p id="content-type-schema-id-error" role="alert">{schemaIdError}</p>}<label htmlFor="content-type-schema">JSON Schema<textarea id="content-type-schema" required value={schemaText} onChange={(event) => { setSchemaText(event.target.value); setSchemaError(undefined); }} aria-invalid={schemaError !== undefined} aria-describedby={schemaError === undefined ? undefined : "content-type-schema-error"} disabled={busy} /></label>{schemaError !== undefined && <p id="content-type-schema-error" role="alert">{schemaError}</p>}{formError !== undefined && <p role="alert">{formError}</p>}<p role="status" aria-live="polite">{busy ? "正在建立內容類型。" : ""}</p><button type="submit" disabled={busy}>{busy ? "正在建立…" : "建立內容類型"}</button></form></Layout>;
+}
+
+function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const { schemaId } = useParams();
+  const [items, setItems] = useState<ContentTypeCatalogDto["items"]>();
+  const [error, setError] = useState<string>();
+  const load = useCallback((): void => {
+    if (schemaId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(schemaId)) { setItems([]); setError("找不到內容類型。"); return; }
+    setItems(undefined); setError(undefined);
+    void api.contentTypes().then((catalog) => {
+      const history = catalog.items.filter((item) => item.schemaIdentity.schemaId === schemaId).toSorted((left, right) => right.schemaIdentity.version - left.schemaIdentity.version);
+      setItems(history);
+      if (history.length === 0) setError("找不到內容類型。");
+    }).catch((reason: unknown) => setError(message(reason)));
+  }, [api, schemaId]);
+  useEffect(load, [load]);
+  if (items === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  const document = currentContentTypes(items)[0];
+  if (document === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading><p role="alert">{error ?? "找不到內容類型。"}</p><button onClick={load}>重試</button></Layout>;
+  return <Layout><PageHeading>內容類型：{document.schemaIdentity.schemaId}</PageHeading><p>目前版本：{document.schemaIdentity.version}</p><dl><dt>Schema digest</dt><dd className="breakable">{document.schemaDigest}</dd></dl><section aria-labelledby="content-type-history"><h2 id="content-type-history">版本歷程</h2><ol>{items.map((item) => <li key={item.schemaIdentity.version} aria-current={item.schemaIdentity.version === document.schemaIdentity.version ? "true" : undefined}>版本 {item.schemaIdentity.version}{item.schemaIdentity.version === document.schemaIdentity.version ? "（目前）" : ""}</li>)}</ol></section><section aria-labelledby="content-type-schema"><h2 id="content-type-schema">目前 JSON Schema</h2><pre className="schema"><code>{JSON.stringify(document.schema, null, 2)}</code></pre></section></Layout>;
 }
 
 function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -486,7 +560,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
 }
 
 function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {
