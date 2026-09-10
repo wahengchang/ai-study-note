@@ -48,15 +48,7 @@ type MigrationPlan = Readonly<{
 
 export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
   const persistence = input.persistence;
-  const fail = <T>(code: TaxonomyFailureCode, subjectIds: readonly string[] = []): TaxonomyResult<T> => ({
-    ok: false,
-    error: {
-      code,
-      owner: "Taxonomy",
-      subjectIds: [...subjectIds],
-      remediation: { kind: "message", message: messages[code] },
-    },
-  });
+  const fail = taxonomyFailure;
   const inTransaction = <T>(operation: (transaction: PersistenceTransaction) => TaxonomyResult<T>): TaxonomyResult<T> => {
     try {
       const result = persistence.runTransaction<T, TaxonomyFailure>((transaction) => operation(transaction));
@@ -66,56 +58,6 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
       return fail("TAXONOMY_FAILED");
     }
   };
-  const snapshot = (transaction: PersistenceTransaction, taxonomyId: string): TaxonomyResult<TaxonomySnapshot> => {
-    const taxonomy = transaction.getTaxonomy(taxonomyId);
-    if (!taxonomy.ok) return persistenceNotFound(taxonomy.error) ? fail("TAXONOMY_NOT_FOUND", [taxonomyId]) : fail("TAXONOMY_FAILED", [taxonomyId]);
-    const terms = transaction.listTaxonomyTerms(taxonomyId);
-    if (!terms.ok) return fail("TAXONOMY_FAILED", [taxonomyId]);
-    const orderedTerms = terms.value.map(copyTerm);
-    const bytes = canonicalJsonBytes({
-      contract: "taxonomy/v1",
-      taxonomy: copyTaxonomy(taxonomy.value),
-      terms: orderedTerms,
-    });
-    if (!bytes.ok) return fail("TAXONOMY_FAILED", [taxonomyId]);
-    return {
-      ok: true,
-      value: {
-        contract: "taxonomy/v1",
-        taxonomy: copyTaxonomy(taxonomy.value),
-        terms: orderedTerms,
-        stateDigest: sha256Digest(bytes.value),
-      },
-    };
-  };
-  const impact = (transaction: PersistenceTransaction, identities: readonly TaxonomyTermIdentity[]): TaxonomyResult<TaxonomyUsageImpact> => {
-    const seen = new Set<string>();
-    const usages: RevisionTaxonomyBindingUsage[] = [];
-    for (const identity of identities) {
-      const key = identityKey(identity);
-      if (seen.has(key)) continue;
-      seen.add(key);
-      const result = transaction.listTaxonomyTermUsages(identity);
-      if (!result.ok) return fail("TAXONOMY_FAILED", [identity.taxonomyId, identity.termId]);
-      usages.push(...result.value.map(copyUsage));
-    }
-    const ordered = uniqueUsages(usages);
-    return {
-      ok: true,
-      value: {
-        current: ordered.filter((usage) => usage.pointer === "current"),
-        published: ordered.filter((usage) => usage.pointer === "published"),
-      },
-    };
-  };
-  const term = (transaction: PersistenceTransaction, identity: TaxonomyTermIdentity): TaxonomyResult<TaxonomyTermRecord> => {
-    const result = transaction.getTaxonomyTerm(identity);
-    if (result.ok) return { ok: true, value: copyTerm(result.value) };
-    return persistenceNotFound(result.error)
-      ? fail("TERM_NOT_FOUND", [identity.taxonomyId, identity.termId])
-      : fail("TAXONOMY_FAILED", [identity.taxonomyId, identity.termId]);
-  };
-
   return {
     listTaxonomies() {
       return inTransaction((transaction) => {
@@ -123,7 +65,7 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
         if (!listed.ok) return fail("TAXONOMY_FAILED");
         const taxonomies: { taxonomy: Readonly<{ taxonomyId: string; label: string }>; stateDigest: TaxonomySnapshot["stateDigest"] }[] = [];
         for (const item of listed.value) {
-          const itemSnapshot = snapshot(transaction, item.taxonomyId);
+          const itemSnapshot = taxonomySnapshot(transaction, item.taxonomyId);
           if (!itemSnapshot.ok) return itemSnapshot;
           taxonomies.push({ taxonomy: copyTaxonomy(itemSnapshot.value.taxonomy), stateDigest: itemSnapshot.value.stateDigest });
         }
@@ -134,7 +76,7 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
 
     getTaxonomy(taxonomyId) {
       if (!validText(taxonomyId)) return fail("INVALID_TAXONOMY_REQUEST");
-      return inTransaction((transaction) => snapshot(transaction, taxonomyId));
+      return inTransaction((transaction) => taxonomySnapshot(transaction, taxonomyId));
     },
 
     createTaxonomy(request) {
@@ -142,14 +84,14 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
       return inTransaction((transaction) => {
         const created = transaction.createTaxonomy({ taxonomyId: request.taxonomyId, label: request.label });
         if (!created.ok) return fail("TAXONOMY_CONFLICT", [request.taxonomyId]);
-        return snapshot(transaction, request.taxonomyId);
+        return taxonomySnapshot(transaction, request.taxonomyId);
       });
     },
 
     executeCommand(taxonomyId, command) {
       if (!validText(taxonomyId) || !isCommand(command)) return fail("INVALID_TAXONOMY_REQUEST", validText(taxonomyId) ? [taxonomyId] : []);
       return inTransaction((transaction) => {
-        const before = snapshot(transaction, taxonomyId);
+        const before = taxonomySnapshot(transaction, taxonomyId);
         if (!before.ok) return before;
         if (command.expectedStateDigest !== before.value.stateDigest) return fail("TAXONOMY_STATE_CONFLICT", [taxonomyId]);
 
@@ -163,9 +105,9 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
           case "rename-term": {
             if (!validText(command.termId) || !validText(command.label)) return fail("INVALID_TAXONOMY_REQUEST", [taxonomyId]);
             const identity = { taxonomyId, termId: command.termId };
-            const existing = term(transaction, identity);
+            const existing = taxonomyTermRecord(transaction, identity);
             if (!existing.ok) return existing;
-            const beforeImpact = impact(transaction, [identity]);
+            const beforeImpact = collectImpact(transaction, [identity]);
             if (!beforeImpact.ok) return beforeImpact;
             const updated = transaction.updateTaxonomyTerm({ ...identity, label: command.label });
             if (!updated.ok) return fail("TAXONOMY_CONFLICT", [taxonomyId, command.termId]);
@@ -174,9 +116,9 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
           case "retire-term": {
             if (!validText(command.termId)) return fail("INVALID_TAXONOMY_REQUEST", [taxonomyId]);
             const identity = { taxonomyId, termId: command.termId };
-            const existing = term(transaction, identity);
+            const existing = taxonomyTermRecord(transaction, identity);
             if (!existing.ok) return existing;
-            const beforeImpact = impact(transaction, [identity]);
+            const beforeImpact = collectImpact(transaction, [identity]);
             if (!beforeImpact.ok) return beforeImpact;
             if (hasUsage(beforeImpact.value)) return fail("TERM_ACTIVE_USAGE", [taxonomyId, command.termId]);
             const updated = transaction.updateTaxonomyTerm({ ...identity, state: "retired" });
@@ -186,9 +128,9 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
           case "delete-term": {
             if (!validText(command.termId)) return fail("INVALID_TAXONOMY_REQUEST", [taxonomyId]);
             const identity = { taxonomyId, termId: command.termId };
-            const existing = term(transaction, identity);
+            const existing = taxonomyTermRecord(transaction, identity);
             if (!existing.ok) return existing;
-            const beforeImpact = impact(transaction, [identity]);
+            const beforeImpact = collectImpact(transaction, [identity]);
             if (!beforeImpact.ok) return beforeImpact;
             if (hasUsage(beforeImpact.value)) return fail("TERM_ACTIVE_USAGE", [taxonomyId, command.termId]);
             const deleted = transaction.deleteTaxonomyTerm(identity);
@@ -197,7 +139,7 @@ export function createTaxonomy(input: CreateTaxonomyInput): Taxonomy {
           }
           case "migrate-bindings": {
             if (!validMigrateCommand(command, taxonomyId)) return fail("INVALID_TAXONOMY_REQUEST", [taxonomyId]);
-            const planned = prepareMigration(transaction, taxonomyId, command, term, impact, fail);
+            const planned = prepareMigration(transaction, taxonomyId, command);
             if (!planned.ok) return planned;
             for (const plan of planned.value.plans) {
               const created = transaction.createRevisionWithReferences({
@@ -243,21 +185,18 @@ function prepareMigration(
   transaction: PersistenceTransaction,
   taxonomyId: string,
   command: MigrateBindingsCommand,
-  getTerm: (transaction: PersistenceTransaction, identity: TaxonomyTermIdentity) => TaxonomyResult<TaxonomyTermRecord>,
-  getImpact: (transaction: PersistenceTransaction, identities: readonly TaxonomyTermIdentity[]) => TaxonomyResult<TaxonomyUsageImpact>,
-  fail: <T>(code: TaxonomyFailureCode, subjectIds?: readonly string[]) => TaxonomyResult<T>,
 ): TaxonomyResult<Readonly<{ plans: readonly MigrationPlan[]; sourceTerms: readonly TaxonomyTermIdentity[]; impact: TaxonomyUsageImpact }>> {
   const mappings = new Map<string, TaxonomyTermIdentity>();
   for (const mapping of command.mappings) {
     const sourceKey = identityKey(mapping.source);
-    if (mappings.has(sourceKey) || mapping.source.taxonomyId !== taxonomyId || sourceKey === identityKey(mapping.replacement)) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [taxonomyId]);
-    const source = getTerm(transaction, mapping.source);
-    const replacement = getTerm(transaction, mapping.replacement);
-    if (!source.ok || !replacement.ok || replacement.value.state !== "live") return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [mapping.source.taxonomyId, mapping.source.termId]);
+    if (mappings.has(sourceKey) || mapping.source.taxonomyId !== taxonomyId || sourceKey === identityKey(mapping.replacement)) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [taxonomyId]);
+    const source = taxonomyTermRecord(transaction, mapping.source);
+    const replacement = taxonomyTermRecord(transaction, mapping.replacement);
+    if (!source.ok || !replacement.ok || replacement.value.state !== "live") return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [mapping.source.taxonomyId, mapping.source.termId]);
     mappings.set(sourceKey, { ...mapping.replacement });
   }
   const sourceTerms = command.mappings.map((mapping) => ({ ...mapping.source }));
-  const usage = getImpact(transaction, sourceTerms);
+  const usage = collectImpact(transaction, sourceTerms);
   if (!usage.ok) return usage;
   const expected = new Map<string, Readonly<{ source: RevisionIdentity; pointers: { current: boolean; published: boolean } }>>();
   for (const item of [...usage.value.current, ...usage.value.published]) {
@@ -272,11 +211,11 @@ function prepareMigration(
     const source: RevisionIdentity = { entryId: replacement.entryId, revisionId: replacement.sourceRevisionId };
     const key = revisionKey(source);
     const replacementKey = revisionKey({ entryId: replacement.entryId, revisionId: replacement.replacementRevisionId });
-    if (replacements.has(key) || replacementIdentities.has(replacementKey) || replacement.sourceRevisionId === replacement.replacementRevisionId) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [replacement.entryId, replacement.sourceRevisionId]);
+    if (replacements.has(key) || replacementIdentities.has(replacementKey) || replacement.sourceRevisionId === replacement.replacementRevisionId) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [replacement.entryId, replacement.sourceRevisionId]);
     replacements.set(key, replacement);
     replacementIdentities.add(replacementKey);
   }
-  if (replacements.size !== expected.size || [...expected.keys()].some((key) => !replacements.has(key))) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [taxonomyId]);
+  if (replacements.size !== expected.size || [...expected.keys()].some((key) => !replacements.has(key))) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [taxonomyId]);
 
   const plans: MigrationPlan[] = [];
   for (const [key, affected] of expected) {
@@ -285,26 +224,26 @@ function prepareMigration(
     const revision = transaction.getRevision(source);
     const references = transaction.getRevisionReferences(source);
     const bindings = transaction.getRevisionTaxonomyBindings(source);
-    if (!revision.ok || !references.ok || !bindings.ok || !validBindings(bindings.ok ? bindings.value : [])) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [source.entryId, source.revisionId]);
+    if (!revision.ok || !references.ok || !bindings.ok || !validBindings(bindings.ok ? bindings.value : [])) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [source.entryId, source.revisionId]);
     const taxonomyTerms = bindings.value.map((binding) => mappings.get(identityKey(binding)) ?? { taxonomyId: binding.taxonomyId, termId: binding.termId });
-    if (hasDuplicateIdentities(taxonomyTerms)) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [source.entryId, source.revisionId]);
+    if (hasDuplicateIdentities(taxonomyTerms)) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [source.entryId, source.revisionId]);
     for (const binding of bindings.value) {
       const sourceIdentity = { taxonomyId: binding.taxonomyId, termId: binding.termId };
-      const current = getTerm(transaction, sourceIdentity);
-      if (!current.ok) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [sourceIdentity.taxonomyId, sourceIdentity.termId]);
+      const current = taxonomyTermRecord(transaction, sourceIdentity);
+      if (!current.ok) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [sourceIdentity.taxonomyId, sourceIdentity.termId]);
       if (!mappings.has(identityKey(binding)) && (
         current.value.label !== binding.evidence.label
         || current.value.slug !== binding.evidence.slug
         || current.value.order !== binding.evidence.order
-      )) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [binding.taxonomyId, binding.termId]);
+      )) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [binding.taxonomyId, binding.termId]);
       const replacementIdentity = mappings.get(identityKey(binding));
       if (replacementIdentity !== undefined) {
-        const replacement = getTerm(transaction, replacementIdentity);
-        if (!replacement.ok || replacement.value.state !== "live") return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [replacementIdentity.taxonomyId, replacementIdentity.termId]);
+        const replacement = taxonomyTermRecord(transaction, replacementIdentity);
+        if (!replacement.ok || replacement.value.state !== "live") return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [replacementIdentity.taxonomyId, replacementIdentity.termId]);
       }
     }
     const mappedSource = bindings.value.some((binding) => mappings.has(identityKey(binding)));
-    if (!mappedSource) return fail("TAXONOMY_MAPPING_UNRESOLVABLE", [source.entryId, source.revisionId]);
+    if (!mappedSource) return taxonomyFailure("TAXONOMY_MAPPING_UNRESOLVABLE", [source.entryId, source.revisionId]);
     plans.push({
       source: { ...source },
       replacement: { entryId: descriptor.entryId, revisionId: descriptor.replacementRevisionId },
@@ -347,6 +286,22 @@ function commandResult(
   migration?: TaxonomyMigrationResult,
   usage?: TaxonomyUsageImpact,
 ): TaxonomyResult<TaxonomyCommandResult> {
+  const snapshot = taxonomySnapshot(transaction, taxonomyId);
+  if (!snapshot.ok) return snapshot;
+  const resolvedImpact: TaxonomyResult<TaxonomyUsageImpact> = usage === undefined ? collectImpact(transaction, identities) : { ok: true, value: usage };
+  if (!resolvedImpact.ok) return resolvedImpact;
+  return {
+    ok: true,
+    value: {
+      snapshot: snapshot.value,
+      impact: resolvedImpact.value,
+      ...(migration === undefined ? {} : { migration }),
+    },
+  };
+}
+
+/** Taxonomy record、ordered terms 與 state digest 的唯一 materialization；read 與 command result 共用同一份 bytes。 */
+function taxonomySnapshot(transaction: PersistenceTransaction, taxonomyId: string): TaxonomyResult<TaxonomySnapshot> {
   const taxonomy = transaction.getTaxonomy(taxonomyId);
   if (!taxonomy.ok) return persistenceNotFound(taxonomy.error) ? taxonomyFailure("TAXONOMY_NOT_FOUND", [taxonomyId]) : taxonomyFailure("TAXONOMY_FAILED", [taxonomyId]);
   const terms = transaction.listTaxonomyTerms(taxonomyId);
@@ -354,16 +309,15 @@ function commandResult(
   const orderedTerms = terms.value.map(copyTerm);
   const bytes = canonicalJsonBytes({ contract: "taxonomy/v1", taxonomy: copyTaxonomy(taxonomy.value), terms: orderedTerms });
   if (!bytes.ok) return taxonomyFailure("TAXONOMY_FAILED", [taxonomyId]);
-  const resolvedImpact: TaxonomyResult<TaxonomyUsageImpact> = usage === undefined ? collectImpact(transaction, identities) : { ok: true, value: usage };
-  if (!resolvedImpact.ok) return resolvedImpact;
-  return {
-    ok: true,
-    value: {
-      snapshot: { contract: "taxonomy/v1", taxonomy: copyTaxonomy(taxonomy.value), terms: orderedTerms, stateDigest: sha256Digest(bytes.value) },
-      impact: resolvedImpact.value,
-      ...(migration === undefined ? {} : { migration }),
-    },
-  };
+  return { ok: true, value: { contract: "taxonomy/v1", taxonomy: copyTaxonomy(taxonomy.value), terms: orderedTerms, stateDigest: sha256Digest(bytes.value) } };
+}
+
+function taxonomyTermRecord(transaction: PersistenceTransaction, identity: TaxonomyTermIdentity): TaxonomyResult<TaxonomyTermRecord> {
+  const result = transaction.getTaxonomyTerm(identity);
+  if (result.ok) return { ok: true, value: copyTerm(result.value) };
+  return persistenceNotFound(result.error)
+    ? taxonomyFailure("TERM_NOT_FOUND", [identity.taxonomyId, identity.termId])
+    : taxonomyFailure("TAXONOMY_FAILED", [identity.taxonomyId, identity.termId]);
 }
 
 function collectImpact(transaction: PersistenceTransaction, identities: readonly TaxonomyTermIdentity[]): TaxonomyResult<TaxonomyUsageImpact> {
