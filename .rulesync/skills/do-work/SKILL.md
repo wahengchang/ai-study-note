@@ -48,7 +48,13 @@ AI 指令與技能的 canonical source 是 `.rulesync/`：規則寫在 `.rulesyn
 
 PR title/body 使用繁體中文、以 outcome 為主；body 必須包含變更摘要、實際驗證命令與結果、剩餘風險，以及 Cycle／Work Item／Work Group 路徑。
 
-## 6. 整理與交接
+## 6. Review（`/ai-x`）
+準備好2部份資料：
+  1.相關 GitHub Issue／ticket （Cycle、Work Item、Work Group 文件）
+  2.對應 PR
+讓 reviewer 可以客觀的 review 相關工作。然後密切溝通，優化PR以達到共識。
+
+## 7. 整理與交接
 
 清理本輪 worktree、process 與 temporary artifacts；worktree 位於 `.dev-hub/worktrees/`，不納入版控。
 
