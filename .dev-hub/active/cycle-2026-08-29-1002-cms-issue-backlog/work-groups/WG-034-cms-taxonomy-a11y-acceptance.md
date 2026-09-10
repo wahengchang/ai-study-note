@@ -6,7 +6,7 @@ work_items: ["WI-067"]
 owner: Main
 branch: fix/cms-taxonomy-a11y
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/cms-taxonomy-a11y
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/357
 ---
 
 # CMS taxonomy a11y acceptance hardening

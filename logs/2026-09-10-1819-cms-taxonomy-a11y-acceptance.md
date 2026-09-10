@@ -28,4 +28,4 @@
 ## 相關 Branch／PR
 
 - Branch：`fix/cms-taxonomy-a11y`
-- PR：建立後由追蹤 closeout 補入。
+- PR：https://github.com/wahengchang/ai-study-note/pull/357
