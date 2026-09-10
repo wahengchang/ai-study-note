@@ -6,7 +6,7 @@ work_items: ["WI-057"]
 owner: Main
 branch: feature/cms-taxonomy-workspace
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/cms-taxonomy-workspace
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/354
 ---
 
 # CMS taxonomy administration workspace
