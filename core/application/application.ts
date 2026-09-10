@@ -151,7 +151,7 @@ function editorBlockSources(content: JsonValue, entryId: string, revisionId: str
   return Object.freeze(sources);
 }
 
-export function createDomainApplication({ persistence, siteDefinition, dataMedia, schemaValidator, pluginHost }: DomainApplicationDependencies): DomainApplication {
+export function createDomainApplication({ persistence, siteDefinition, dataMedia, schemaValidator, pluginHost, taxonomy }: DomainApplicationDependencies): DomainApplication {
   const mediaUnavailable = <T>(assetVersions: readonly AssetVersionIdentity[]): DomainApplicationResult<T> => {
     const unavailable = assetVersions.filter((assetVersion) => !dataMedia.getReadyAssetVersion(assetVersion).ok);
     return fail("MEDIA_UNAVAILABLE", "DataMedia", (unavailable.length > 0 ? unavailable : assetVersions).map((item) => item.assetId));
@@ -244,6 +244,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
           lineage: { operationId: request.operationId, operationKind: "SaveRevision" },
         },
         assetVersions: request.assetVersions,
+        taxonomyTerms: request.taxonomyTerms,
       });
       if (!created.ok) return fail("SAVE_REVISION_FAILED");
 
@@ -298,7 +299,8 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     const sourceContent = verifiedSourceContent(source.value.contentBytes, source.value.contentDigest);
     if (sourceContent === null) return fail("SAVE_REVISION_FAILED");
     const references = persistence.getRevisionReferences(source.value.identity);
-    if (!references.ok) return fail("SAVE_REVISION_FAILED");
+    const taxonomyBindings = persistence.getRevisionTaxonomyBindings(source.value.identity);
+    if (!references.ok || !taxonomyBindings.ok) return fail("SAVE_REVISION_FAILED");
 
     const target = identityKey(request.targetAssetVersion);
     const replacement = identityKey(request.replacementAssetVersion);
@@ -329,6 +331,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         content: sourceContent.value,
         route: selected.value.claim.normalizedRoute,
         assetVersions,
+        taxonomyTerms: taxonomyBindings.value.map(({ taxonomyId, termId }) => ({ taxonomyId, termId })),
       },
       request.expectedCurrentRevisionId,
     );
@@ -385,9 +388,26 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
 
       const route = routes.value.claims.find((claim) => claim.owner === entryId && claim.sourceRevisionId === revision.value.identity.revisionId);
       const references = persistence.getRevisionReferences(revision.value.identity);
-      if (content === null || route === undefined || !references.ok) return fail("SAVE_REVISION_FAILED", "Content", [entryId]);
-      return { ok: true, value: { contract: "authoring-entry/v1", entryId, current: { revisionId: revision.value.identity.revisionId, schemaIdentity: revision.value.schemaIdentity, content: content.value, contentDigest: revision.value.contentDigest, route: route.normalizedRoute, assets: references.value.map((reference) => reference.assetVersion).sort((left, right) => left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : left.assetVersionId < right.assetVersionId ? -1 : left.assetVersionId > right.assetVersionId ? 1 : 0) }, stateDigest: state.value.digest } };
+      const taxonomyBindings = persistence.getRevisionTaxonomyBindings(revision.value.identity);
+      if (content === null || route === undefined || !references.ok || !taxonomyBindings.ok) return fail("SAVE_REVISION_FAILED", "Content", [entryId]);
+      return { ok: true, value: { contract: "authoring-entry/v1", entryId, current: { revisionId: revision.value.identity.revisionId, schemaIdentity: revision.value.schemaIdentity, content: content.value, contentDigest: revision.value.contentDigest, route: route.normalizedRoute, assets: references.value.map((reference) => reference.assetVersion).sort((left, right) => left.assetId < right.assetId ? -1 : left.assetId > right.assetId ? 1 : left.assetVersionId < right.assetVersionId ? -1 : left.assetVersionId > right.assetVersionId ? 1 : 0), taxonomyBindings: taxonomyBindings.value }, stateDigest: state.value.digest } };
     },
+    async listTaxonomies() {
+      return taxonomy.listTaxonomies();
+    },
+
+    async getTaxonomy(taxonomyId) {
+      return taxonomy.getTaxonomy(taxonomyId);
+    },
+
+    async createTaxonomy(request) {
+      return taxonomy.createTaxonomy(request);
+    },
+
+    async executeTaxonomyCommand(taxonomyId, command) {
+      return taxonomy.executeCommand(taxonomyId, command);
+    },
+
     async resolveCurrentCmsEditorBlocks(request: CmsEditorBlockResolutionsRequest): Promise<DomainApplicationResult<CmsEditorBlockResolutions>> {
       if (request.contract !== "cms-editor-block-resolutions-request/v1" || !text(request.entryId)) return fail("INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST");
       const pointer = persistence.getEntryPointers(request.entryId);
@@ -529,7 +549,8 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         return fail("RESTORE_REVISION_FAILED");
       }
       const references = persistence.getRevisionReferences(sourceIdentity);
-      if (!references.ok) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
+      const taxonomyBindings = persistence.getRevisionTaxonomyBindings(sourceIdentity);
+      if (!references.ok || !taxonomyBindings.ok) return fail("RESTORE_REVISION_FAILED", "Content", [restored.entryId, restored.sourceRevisionId]);
       const assetVersions = references.value.map((reference) => reference.assetVersion);
       const availability = dataMedia.inspectRestoreAvailability(assetVersions);
       if (!availability.ok) return fail("RESTORE_REVISION_FAILED", "DataMedia", availability.error.subjectIds);
@@ -570,6 +591,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
             lineage: { operationId: restored.operationId, operationKind: "RestoreRevision" },
           },
           assetVersions,
+          taxonomyTerms: taxonomyBindings.value.map(({ taxonomyId, termId }) => ({ taxonomyId, termId })),
         });
         if (!created.ok) return fail("RESTORE_REVISION_FAILED");
         const updated = transaction.setEntryPointers({
@@ -736,13 +758,26 @@ function validSave(value: SaveRevisionRequest): boolean {
     && value.revisionId.length > 0
     && typeof value.operationId === "string"
     && value.operationId.length > 0
-    && Array.isArray(value.assetVersions);
+    && Array.isArray(value.assetVersions)
+    && Array.isArray(value.taxonomyTerms)
+    && value.taxonomyTerms.every((term) => typeof term === "object" && term !== null && Object.getPrototypeOf(term) === Object.prototype && Object.keys(term).length === 2 && text(term.taxonomyId) && text(term.termId))
+    && !duplicateTaxonomyTerms(value.taxonomyTerms);
 }
 
 function duplicate(values: readonly { assetId: string; assetVersionId: string }[]): boolean {
   const seen = new Set<string>();
   for (const value of values) {
     const key = identityKey(value);
+    if (seen.has(key)) return true;
+    seen.add(key);
+  }
+  return false;
+}
+
+function duplicateTaxonomyTerms(values: readonly Readonly<{ taxonomyId: string; termId: string }>[]): boolean {
+  const seen = new Set<string>();
+  for (const value of values) {
+    const key = `${value.taxonomyId}\0${value.termId}`;
     if (seen.has(key)) return true;
     seen.add(key);
   }

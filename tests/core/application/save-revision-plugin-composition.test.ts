@@ -15,6 +15,7 @@ import type { PluginActivationState, PluginActivationStatePort, PluginHost } fro
 import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
 import type { SiteDefinition } from "../../../core/site-definition/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
 type PluginMode = "accept" | "reject" | "throw" | "malformed";
 type SchemaMode = "accept" | "reject-replacement" | "throw-replacement";
@@ -50,6 +51,7 @@ function request(overrides: Partial<SaveRevisionRequest> = {}): SaveRevisionRequ
     content: { title: "draft" },
     route: "/guide",
     assetVersions: [],
+    taxonomyTerms: [],
     ...overrides,
   };
 }
@@ -149,7 +151,7 @@ async function fixture(mode: PluginMode, schemaMode: SchemaMode = "accept"): Pro
       return Object.freeze({ ok: !(validations > 1 && schemaMode === "reject-replacement") });
     },
   };
-  const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: media, schemaValidator, pluginHost });
+  const app = createDomainApplication({ persistence: store, siteDefinition: site, dataMedia: media, schemaValidator, pluginHost, taxonomy: createTaxonomy({ persistence: store }) });
   const baselineSave = await app.saveRevision(request({ revisionId: "draft-0", operationId: "save-0", expectedCurrentRevisionId: null, assetVersions: [{ assetId: "asset-a", assetVersionId: "version-a" }] }));
   assert.equal(baselineSave.ok, true);
   if (!baselineSave.ok) throw new Error("baseline SaveRevision failed");

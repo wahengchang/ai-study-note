@@ -17,5 +17,6 @@ export type {
   RendererInput,
   RendererInputArtifact,
   RendererPluginRenderer,
+  RendererTaxonomyBinding,
 } from "./contracts.js";
 export type { PreviewDocument } from "./preview-document.js";

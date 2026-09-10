@@ -59,7 +59,7 @@ test("executes one fresh approvable plan atomically and reconstructs durable lin
     ]);
     const canonical = store.canonicalState();
     assert.equal(canonical.ok, true);
-    if (canonical.ok) assert.deepEqual(canonical.value.counts, { schemaVersions: 2, revisions: 2, operationLineage: 3, entryPointers: 1, entryPointerLineage: 3, routeClaims: 0, mediaImportIntents: 0, mediaObjects: 0, mediaAssets: 0, assetVersions: 0, revisionReferences: 0, pluginActivationStates: 1, themeActivationStates: 1, pluginSettingsStates: 1, schemaMigrationExecutions: 1, schemaMigrationRevisionLineage: 1, schemaMigrationPointerLineage: 2 });
+    if (canonical.ok) assert.deepEqual(canonical.value.counts, { schemaVersions: 2, revisions: 2, operationLineage: 3, entryPointers: 1, entryPointerLineage: 3, routeClaims: 0, mediaImportIntents: 0, mediaObjects: 0, mediaAssets: 0, assetVersions: 0, revisionReferences: 0, taxonomies: 0, taxonomyTermIdentities: 0, taxonomyTerms: 0, revisionTaxonomyBindings: 0, pluginActivationStates: 1, themeActivationStates: 1, pluginSettingsStates: 1, schemaMigrationExecutions: 1, schemaMigrationRevisionLineage: 1, schemaMigrationPointerLineage: 2 });
     assert.deepEqual(store.getEntryPointers("entry"), { ok: true, value: { entryId: "entry", currentRevisionId: "r2", publishedRevisionId: "r1" } });
     const source = store.getRevision({ entryId: "entry", revisionId: "r1" });
     const replacement = store.getRevision({ entryId: "entry", revisionId: "r2" });

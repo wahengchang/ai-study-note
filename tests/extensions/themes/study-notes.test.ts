@@ -34,8 +34,8 @@ function artifact(blocks?: readonly unknown[]) {
   };
   const payload = {
     contract: "renderer-input/v1" as const,
-    selection: { publishedRevisionIds: [{ entryId: "guide", revisionId: "r1" }], routeGraphDigest: digest({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: [{ normalizedRoute: "/guide", owner: "guide", sourceRevisionId: "r1" }] }), mediaSelectionDigest: digest({ contract: "renderer-media-selection/v1", references: [], assets: [], objects: [] }) },
-    entries: [{ entryId: "guide", revisionId: "r1", schemaIdentity: { schemaId: "site-content", version: 1 }, content, contentDigest: sha256Digest(canonical(content)) }],
+    selection: { publishedRevisionIds: [{ entryId: "guide", revisionId: "r1" }], routeGraphDigest: digest({ contract: "route-graph-snapshot/v1", normalization: "route-normalization/v1", graph: "published", claims: [{ normalizedRoute: "/guide", owner: "guide", sourceRevisionId: "r1" }] }), mediaSelectionDigest: digest({ contract: "renderer-media-selection/v1", references: [], assets: [], objects: [] }), taxonomySelectionDigest: digest({ contract: "renderer-taxonomy-selection/v1", entries: [{ entryId: "guide", revisionId: "r1", taxonomyBindings: [] }] }) },
+    entries: [{ entryId: "guide", revisionId: "r1", schemaIdentity: { schemaId: "site-content", version: 1 }, content, contentDigest: sha256Digest(canonical(content)), taxonomyBindings: [] }],
     routes: { contract: "route-graph-snapshot/v1" as const, normalization: "route-normalization/v1" as const, graph: "published" as const, claims: [{ normalizedRoute: "/guide", owner: "guide", sourceRevisionId: "r1" }] },
     media,
     theme: {

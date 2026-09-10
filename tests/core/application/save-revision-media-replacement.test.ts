@@ -10,6 +10,7 @@ import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media
 import { migrateDatabase, openPersistence, type PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
 test("SaveRevision media replacement copies the complete set, moves only current, and preserves published history", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "replace-media-reference-"));
@@ -25,8 +26,8 @@ test("SaveRevision media replacement copies the complete set, moves only current
     const media = started.value;
     for (const [assetId, assetVersionId, importId] of [["asset-a", "v1", "import-a-v1"], ["asset-a", "v2", "import-a-v2"], ["asset-b", "v1", "import-b"], ["asset-c", "v1", "import-c"]] as const) assert.equal(media.importLocal({ assetId, assetVersionId, importId, bytes: new TextEncoder().encode(importId), metadata: { mime: "text/plain" } }).ok, true);
     const site = createSiteDefinition({ persistence: opened.value });
-    const app = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host.value });
-    const saved = await app.saveRevision({ entryId: "entry", revisionId: "draft-1", operationId: "save-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "original" }, route: "/guide", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }, { assetId: "asset-b", assetVersionId: "v1" }, { assetId: "asset-c", assetVersionId: "v1" }] });
+    const app = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host.value, taxonomy: createTaxonomy({ persistence: opened.value }) });
+    const saved = await app.saveRevision({ entryId: "entry", revisionId: "draft-1", operationId: "save-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "original" }, route: "/guide", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }, { assetId: "asset-b", assetVersionId: "v1" }, { assetId: "asset-c", assetVersionId: "v1" }], taxonomyTerms: [] });
     assert.equal(saved.ok, true, saved.ok ? "" : saved.error.code); if (!saved.ok) return;
     assert.equal((await app.publishRevision({ entryId: "entry", expectedCurrentRevisionId: "draft-1", operationId: "publish-1" })).ok, true);
     const oldReferences = opened.value.getRevisionReferences({ entryId: "entry", revisionId: "draft-1" }); assert.equal(oldReferences.ok, true); if (!oldReferences.ok) return;
@@ -81,9 +82,9 @@ async function replacementFixture() {
     assert.equal(media.importLocal({ assetId: "asset-a", assetVersionId, importId: `import-${assetVersionId}`, bytes: new TextEncoder().encode(assetVersionId), metadata: { mime: "text/plain" } }).ok, true);
   }
   const site = createSiteDefinition({ persistence: opened.value });
-  const dependencies: DomainApplicationDependencies = { persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host.value };
+  const dependencies: DomainApplicationDependencies = { persistence: opened.value, siteDefinition: site, dataMedia: media, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: host.value, taxonomy: createTaxonomy({ persistence: opened.value }) };
   const app = createDomainApplication(dependencies);
-  const source = await app.saveRevision({ entryId: "entry", revisionId: "source", operationId: "save-source", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "source" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }] });
+  const source = await app.saveRevision({ entryId: "entry", revisionId: "source", operationId: "save-source", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "source" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }], taxonomyTerms: [] });
   assert.equal(source.ok, true, source.ok ? "" : source.error.code);
   return { app, dependencies, directory, site, store: opened.value };
 }
@@ -140,7 +141,7 @@ test("SaveRevision media replacement rejects malformed, missing, unavailable, an
     if (!unavailable.ok) assert.equal(unavailable.error.code, "MEDIA_UNAVAILABLE");
     assert.equal(digest(value.store), before);
 
-    const actor = await value.app.saveRevision({ entryId: "entry", revisionId: "actor", operationId: "save-actor", expectedCurrentRevisionId: "source", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "actor" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }] });
+    const actor = await value.app.saveRevision({ entryId: "entry", revisionId: "actor", operationId: "save-actor", expectedCurrentRevisionId: "source", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "actor" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }], taxonomyTerms: [] });
     assert.equal(actor.ok, true, actor.ok ? "" : actor.error.code);
     const stale = await value.app.saveRevision(request);
     assert.equal(stale.ok, false);
@@ -154,7 +155,7 @@ test("SaveRevision media replacement rejects malformed, missing, unavailable, an
 test("SaveRevision media replacement rejects a replacement the current source already references", async () => {
   const value = await replacementFixture();
   try {
-    const both = await value.app.saveRevision({ entryId: "entry", revisionId: "both", operationId: "save-both", expectedCurrentRevisionId: "source", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "both" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }, { assetId: "asset-a", assetVersionId: "v2" }] });
+    const both = await value.app.saveRevision({ entryId: "entry", revisionId: "both", operationId: "save-both", expectedCurrentRevisionId: "source", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "both" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }, { assetId: "asset-a", assetVersionId: "v2" }], taxonomyTerms: [] });
     assert.equal(both.ok, true, both.ok ? "" : both.error.code);
     const before = digest(value.store);
     const conflict = await value.app.saveRevision({ kind: "media-reference-replacement", entryId: "entry", revisionId: "candidate", operationId: "replace", expectedCurrentRevisionId: "both", targetAssetVersion: { assetId: "asset-a", assetVersionId: "v1" }, replacementAssetVersion: { assetId: "asset-a", assetVersionId: "v2" } });
@@ -174,7 +175,7 @@ test("SaveRevision media replacement rejects a replacement the current source al
 test("SaveRevision media replacement reports a current pointer that moves before the route snapshot as a mismatch", async () => {
   const value = await replacementFixture();
   try {
-    const next = await value.app.saveRevision({ entryId: "entry", revisionId: "next", operationId: "save-next", expectedCurrentRevisionId: "source", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "next" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }] });
+    const next = await value.app.saveRevision({ entryId: "entry", revisionId: "next", operationId: "save-next", expectedCurrentRevisionId: "source", schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "next" }, route: "/source", assetVersions: [{ assetId: "asset-a", assetVersionId: "v1" }], taxonomyTerms: [] });
     assert.equal(next.ok, true, next.ok ? "" : next.error.code);
     assert.equal(value.store.setEntryPointers({ entryId: "entry", currentRevisionId: "source", lineage: { revisionId: "source", operationId: "rewind", operationKind: "SaveRevision" } }).ok, true);
     assert.equal(value.site.replaceRouteClaim({ graph: "current", owner: "entry", route: "/source", sourceRevisionId: "source" }).ok, true);

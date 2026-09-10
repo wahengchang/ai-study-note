@@ -3,8 +3,8 @@ import { parsePluginManifest, validatePluginActivationIdentity } from "../plugin
 import { normalizeRoute, routeSnapshotDigest } from "../site-definition/index.js";
 import { parseThemeManifest } from "../theme-host/index.js";
 
-import { equalBytes, exact, freeze, mediaSelectionDigest, routeSelectionDigest } from "./canonical.js";
-import type { ParsedPreviewInput, ParsedRendererInput, PreviewInput, ProjectionFailureCode, ProjectionResult, RendererInput, RendererMedia } from "./contracts.js";
+import { equalBytes, exact, freeze, mediaSelectionDigest, routeSelectionDigest, taxonomySelectionDigest } from "./canonical.js";
+import type { ParsedPreviewInput, ParsedRendererInput, PreviewInput, ProjectionFailureCode, ProjectionResult, RendererEntry, RendererInput, RendererMedia } from "./contracts.js";
 import { projectionFailure } from "./failures.js";
 
 const base64url = /^[A-Za-z0-9_-]*$/;
@@ -44,11 +44,31 @@ function structuredContent(value: unknown): boolean {
       && typeof block.staticFallback === "string" && block.staticFallback.length > 0;
   });
 }
+function taxonomyBinding(value: unknown): boolean {
+  return exact(value, ["taxonomyId", "termId", "evidence", "evidenceDigest"])
+    && text(value.taxonomyId) && text(value.termId) && digest(value.evidenceDigest)
+    && exact(value.evidence, ["taxonomyId", "termId", "label", "slug", "order"])
+    && value.evidence.taxonomyId === value.taxonomyId && value.evidence.termId === value.termId
+    && text(value.evidence.label) && typeof value.evidence.slug === "string" && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value.evidence.slug)
+    && Number.isSafeInteger(value.evidence.order) && canonicalDigest(value.evidence as JsonValue, value.evidenceDigest);
+}
+function taxonomyBindings(value: unknown): boolean {
+  if (!Array.isArray(value) || !value.every(taxonomyBinding)) return false;
+  return value.every((binding, index) => {
+    const previous = value[index - 1];
+    if (previous === undefined) return true;
+    const current = binding as Readonly<{ taxonomyId: string; termId: string; evidence: Readonly<{ order: number }> }>;
+    const prior = previous as Readonly<{ taxonomyId: string; termId: string; evidence: Readonly<{ order: number }> }>;
+    const order = prior.evidence.order - current.evidence.order || (prior.taxonomyId < current.taxonomyId ? -1 : prior.taxonomyId > current.taxonomyId ? 1 : 0) || (prior.termId < current.termId ? -1 : prior.termId > current.termId ? 1 : 0);
+    return order < 0 && !(prior.taxonomyId === current.taxonomyId && prior.evidence.order === current.evidence.order);
+  });
+}
 function rendererEntry(value: unknown): boolean {
-  return exact(value, ["entryId", "revisionId", "schemaIdentity", "content", "contentDigest"])
+  return exact(value, ["entryId", "revisionId", "schemaIdentity", "content", "contentDigest", "taxonomyBindings"])
     && text(value.entryId) && text(value.revisionId)
     && exact(value.schemaIdentity, ["schemaId", "version"]) && text(value.schemaIdentity.schemaId) && Number.isSafeInteger(value.schemaIdentity.version) && (value.schemaIdentity.version as number) > 0
-    && structuredContent(value.content) && canonicalDigest(value.content as JsonValue, value.contentDigest);
+    && structuredContent(value.content) && canonicalDigest(value.content as JsonValue, value.contentDigest)
+    && taxonomyBindings(value.taxonomyBindings);
 }
 function mediaReference(value: unknown): boolean {
   return exact(value, ["entryId", "revisionId", "assetVersion"]) && text(value.entryId) && text(value.revisionId)
@@ -158,14 +178,14 @@ function validRendererInput(value: Record<string, unknown>): boolean {
   const selection: unknown = value.selection;
   const routes: unknown = value.routes;
   const entries = value.entries as readonly Record<string, never>[];
-  if (!exact(selection, ["publishedRevisionIds", "routeGraphDigest", "mediaSelectionDigest"]) || !digest(selection.routeGraphDigest) || !Array.isArray(selection.publishedRevisionIds)) return false;
+  if (!exact(selection, ["publishedRevisionIds", "routeGraphDigest", "mediaSelectionDigest", "taxonomySelectionDigest"]) || !digest(selection.routeGraphDigest) || !digest(selection.taxonomySelectionDigest) || !Array.isArray(selection.publishedRevisionIds)) return false;
   if (!Array.isArray(entries) || !entries.every(rendererEntry) || !ascending(entries.map((entry) => `${entry.entryId}\u0000${entry.revisionId}`))) return false;
   if (!exact(routes, ["contract", "normalization", "graph", "claims"]) || routes.contract !== "route-graph-snapshot/v1" || routes.normalization !== "route-normalization/v1" || routes.graph !== "published") return false;
   const claims = routes.claims as readonly Record<string, never>[];
   if (!Array.isArray(claims) || !claims.every(claim) || routeSnapshotDigest("published", claims) !== selection.routeGraphDigest) return false;
   if (new Set(claims.map((item) => String(item.owner))).size !== claims.length || new Set(claims.map((item) => String(item.normalizedRoute))).size !== claims.length) return false;
   if (!media(value.media) || !theme(value.theme) || !plugins(value.plugins)) return false;
-  if (mediaSelectionDigest(value.media) !== selection.mediaSelectionDigest) return false;
+  if (mediaSelectionDigest(value.media) !== selection.mediaSelectionDigest || taxonomySelectionDigest(entries as readonly RendererEntry[]) !== selection.taxonomySelectionDigest) return false;
   const selected = selection.publishedRevisionIds as readonly Record<string, never>[];
   if (selected.length !== entries.length || !selected.every((item) => exact(item, ["entryId", "revisionId"]) && text(item.entryId) && text(item.revisionId))) return false;
   // renderer 固定 published-only：每個 selection 必須恰好對應一個 entry 與一個 route claim。
@@ -178,7 +198,7 @@ function validPreviewInput(value: Record<string, unknown>): boolean {
   const subject: unknown = value.subject;
   const selection: unknown = value.selection;
   if (!exact(subject, ["entryId"]) || !text(subject.entryId)) return false;
-  if (!exact(selection, ["mode", "selectedRevision", "routeSelectionDigest", "mediaSelectionDigest"]) || (selection.mode !== "current" && selection.mode !== "published")) return false;
+  if (!exact(selection, ["mode", "selectedRevision", "routeSelectionDigest", "mediaSelectionDigest", "taxonomySelectionDigest"]) || (selection.mode !== "current" && selection.mode !== "published") || !digest(selection.taxonomySelectionDigest)) return false;
   if (!exact(selection.selectedRevision, ["entryId", "revisionId"]) || !text(selection.selectedRevision.entryId) || !text(selection.selectedRevision.revisionId)) return false;
   if (!rendererEntry(value.entry) || !claim(value.route) || !media(value.media) || !theme(value.theme) || !plugins(value.plugins)) return false;
   const entry = value.entry as Readonly<{ entryId: string; revisionId: string }>;
@@ -186,7 +206,7 @@ function validPreviewInput(value: Record<string, unknown>): boolean {
   // Preview 只輸出單一 subject：entry、route 與 selection 必須全部指向同一組 entryId／revisionId。
   if (entry.entryId !== subject.entryId || route.owner !== subject.entryId) return false;
   if (selection.selectedRevision.entryId !== subject.entryId || selection.selectedRevision.revisionId !== entry.revisionId || route.sourceRevisionId !== entry.revisionId) return false;
-  return mediaSelectionDigest(value.media) === selection.mediaSelectionDigest && routeSelectionDigest(selection.mode, route) === selection.routeSelectionDigest;
+  return mediaSelectionDigest(value.media) === selection.mediaSelectionDigest && taxonomySelectionDigest([value.entry as RendererEntry]) === selection.taxonomySelectionDigest && routeSelectionDigest(selection.mode, route) === selection.routeSelectionDigest;
 }
 
 function parse(bytes: Uint8Array, contract: "renderer-input/v1" | "preview-input/v1", digestKey: "inputDigest" | "previewDigest", failure: ProjectionFailureCode): ProjectionResult<Record<string, unknown>> {

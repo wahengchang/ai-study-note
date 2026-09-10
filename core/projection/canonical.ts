@@ -1,6 +1,6 @@
 import { canonicalJsonBytes, sha256Digest, type Digest } from "../foundation/index.js";
 
-import type { RendererMedia } from "./contracts.js";
+import type { RendererEntry, RendererMedia } from "./contracts.js";
 
 export function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
   return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
@@ -30,6 +30,21 @@ export function mediaSelectionDigest(media: RendererMedia): Digest | null {
     references: media.references,
     assets: media.assets.map((asset) => ({ identity: asset.identity, objectDigest: asset.objectDigest, byteLength: asset.byteLength, metadata: asset.metadata, metadataDigest: asset.metadataDigest })),
     objects: media.objects.map((object) => ({ objectDigest: object.objectDigest, byteLength: object.byteLength })),
+  });
+  return bytes.ok ? sha256Digest(bytes.value) : null;
+}
+
+// Taxonomy evidence is revision-owned immutable state.  The digest covers the selected
+// revision identity as well as every complete binding, so an empty selection remains
+// an explicit, canonical part of the artifact rather than an omitted compatibility path.
+export function taxonomySelectionDigest(entries: readonly RendererEntry[]): Digest | null {
+  const bytes = canonicalJsonBytes({
+    contract: "renderer-taxonomy-selection/v1",
+    entries: entries.map((entry) => ({
+      entryId: entry.entryId,
+      revisionId: entry.revisionId,
+      taxonomyBindings: entry.taxonomyBindings,
+    })),
   });
   return bytes.ok ? sha256Digest(bytes.value) : null;
 }

@@ -52,8 +52,10 @@ async function harness(withMedia: boolean): Promise<Harness> {
     assetVersions.push({ assetId: "asset", assetVersionId: "v1" } as const);
   }
   const content = canonical({ contract: "site-content/v1", title: "published", blocks: [{ kind: "article", text: "published" }], seo: { title: "搜尋標題", canonicalPath: "/published" } });
+  assert.equal(store.createTaxonomy({ taxonomyId: "topics", label: "Topics" }).ok, true);
+  assert.equal(store.createTaxonomyTerm({ taxonomyId: "topics", termId: "alpha", label: "Alpha", slug: "alpha", order: 10 }).ok, true);
   const revision = { identity: { entryId: "entry-a", revisionId: "r1" }, schemaIdentity: { schemaId: "site-content", version: 1 }, contentBytes: content, contentDigest: sha256Digest(content), lineage: { operationId: "save-r1", operationKind: "SaveRevision" } };
-  assert.equal(store.createRevisionWithReferences({ revision, assetVersions }).ok, true);
+  assert.equal(store.createRevisionWithReferences({ revision, assetVersions, taxonomyTerms: [{ taxonomyId: "topics", termId: "alpha" }] }).ok, true);
   assert.equal(store.setEntryPointers({ entryId: "entry-a", currentRevisionId: "r1", publishedRevisionId: "r1", lineage: { revisionId: "r1", operationId: "publish-r1", operationKind: "PublishRevision" } }).ok, true);
   // entryId 的 prefix 關係會讓「以空白分隔 tuple」與 producer 的排序不同，用來釘住分隔字元約定。
   const sibling = canonical({ contract: "site-content/v1", title: "sibling", blocks: [{ kind: "article", text: "sibling" }], seo: {} });
@@ -185,7 +187,8 @@ test("strict parsers reject every resealed payload whose evidence no longer matc
       ["entry content 的未知 SEO 即使重簽 content digest 仍被拒絕", (document) => { const entry = (document.entries as Record<string, unknown>[])[0]!; const content = entry.content as Record<string, unknown>; content.seo = { unknown: "x" }; entry.contentDigest = sha256Digest(canonical(content)); }],
       ["media object bytes 與 objectDigest 不符", (document) => { ((document.media as Record<string, unknown>).objects as Record<string, unknown>[])[0]!.bytesBase64url = "AQIDAQ"; }],
       ["theme runtime bytes 與 manifest digest 不符", (document) => { ((document.theme as Record<string, unknown>).files as Record<string, unknown>[])[0]!.bytesBase64url = "AA"; }],
-      ["media selection digest 與內容不符", (document) => { ((document.media as Record<string, unknown>).references as unknown[]).length = 0; }],
+      ["missing taxonomy bindings omit required revision evidence", (document) => { delete (document.entries as Record<string, unknown>[])[0]!.taxonomyBindings; }],
+      ["taxonomy binding identity 與 captured evidence 不符", (document) => { const binding = (((document.entries as Record<string, unknown>[])[0]!.taxonomyBindings as Record<string, unknown>[])[0]!); binding.termId = "missing"; }],
       ["route 未經 route-normalization/v1 正規化", (document) => { ((document.routes as Record<string, unknown>).claims as Record<string, unknown>[])[0]!.normalizedRoute = "/Published"; }],
       ["route graph digest 與 claims 不符", (document) => { ((document.routes as Record<string, unknown>).claims as Record<string, unknown>[])[0]!.normalizedRoute = "/other"; }],
       ["selection 與 entries 不再一一對應", (document) => { (document.selection as Record<string, unknown>).publishedRevisionIds = [{ entryId: "entry-a", revisionId: "r2" }]; }],
@@ -193,18 +196,22 @@ test("strict parsers reject every resealed payload whose evidence no longer matc
     for (const [reason, mutate] of tampered) {
       const document = decode(rendered.value.artifact.bytes);
       mutate(document);
-      assert.equal(parseRendererInput(reseal(document, "inputDigest")).ok, false, reason);
+      const parsed = parseRendererInput(reseal(document, "inputDigest"));
+      assert.equal(parsed.ok, false, reason);
+      assert.equal(Object.hasOwn(parsed, "value"), false, `${reason} must not yield an artifact`);
     }
 
     // Preview 只輸出單一 subject：任何讓 subject／entry／route 不一致的改寫都必須被拒絕。
     for (const [reason, mutate] of [
       ["route owner 指向別的 subject", (document: Record<string, unknown>) => { (document.route as Record<string, unknown>).owner = "entry-b"; }],
       ["selectedRevision 與 entry 不符", (document: Record<string, unknown>) => { ((document.selection as Record<string, unknown>).selectedRevision as Record<string, unknown>).revisionId = "r9"; }],
-      ["mode 與 routeSelectionDigest 不符", (document: Record<string, unknown>) => { (document.selection as Record<string, unknown>).mode = "current"; }],
+      ["taxonomy binding evidence identity 不符", (document: Record<string, unknown>) => { (((document.entry as Record<string, unknown>).taxonomyBindings as Record<string, unknown>[])[0]!.evidence as Record<string, unknown>).termId = "missing"; }],
     ] as const) {
       const document = decode(preview.value.bytes);
       mutate(document);
-      assert.equal(parsePreviewInput(reseal(document, "previewDigest")).ok, false, reason);
+      const parsed = parsePreviewInput(reseal(document, "previewDigest"));
+      assert.equal(parsed.ok, false, reason);
+      assert.equal(Object.hasOwn(parsed, "value"), false, `${reason} must not yield an artifact`);
     }
 
     // 非 canonical 的 base64url（補上 padding）不得通過。

@@ -29,6 +29,7 @@ export type ArchitectureOwner =
   | "core/foundation"
   | "core/content"
   | "core/persistence"
+  | "core/taxonomy"
   | "core/application"
   | "core/site-definition"
   | "core/media"
@@ -100,6 +101,7 @@ const coreOwners = new Set<ArchitectureOwner>([
   "core/content",
   "core/persistence",
   "core/application",
+  "core/taxonomy",
   "core/site-definition",
   "core/media",
   "core/plugin-host",
@@ -114,6 +116,7 @@ const ownerDependencies: Readonly<Record<string, readonly ArchitectureOwner[]>> 
   "core/foundation": [],
   "core/content": [],
   "core/persistence": [],
+  "core/taxonomy": ["core/persistence"],
   "core/site-definition": [],
   "core/media": [],
   "core/plugin-host": [],
@@ -125,6 +128,7 @@ const ownerDependencies: Readonly<Record<string, readonly ArchitectureOwner[]>> 
     "core/media",
     "core/plugin-host",
     "core/theme-host",
+    "core/taxonomy",
   ],
   "core/projection": [
     "core/content",
@@ -133,6 +137,7 @@ const ownerDependencies: Readonly<Record<string, readonly ArchitectureOwner[]>> 
     "core/media",
     "core/plugin-host",
     "core/theme-host",
+    "core/taxonomy",
   ],
   "core/renderer": ["core/projection"],
   "core/delivery": ["core/projection", "core/renderer"],

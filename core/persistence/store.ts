@@ -27,6 +27,13 @@ import type {
   SchemaVersionIdentity,
   SchemaVersionRecord,
   SetEntryPointersInput,
+  TaxonomyRecord,
+  TaxonomyTermIdentity,
+  TaxonomyTermRecord,
+  TaxonomyTermEvidence,
+  TaxonomyTermState,
+  RevisionTaxonomyTermBinding,
+  RevisionTaxonomyBindingUsage,
   TransactionDecision,
 } from "./contracts.js";
 import { validateCanonicalBytes } from "./canonical-bytes.js";
@@ -60,6 +67,7 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     const snapshot: PersistenceReadSnapshot = Object.freeze({
       getEntryPointers(entryId: string) { return record(() => transaction.getEntryPointers(entryId)); },
       listPublishedRevisionSelections() { return record(() => transaction.listPublishedRevisionSelections()); },
+      getRevisionTaxonomyBindings(identity: RevisionIdentity) { return record(() => transaction.getRevisionTaxonomyBindings(identity)); },
       getRevision(identity: RevisionIdentity) { return record(() => transaction.getRevision(identity)); },
       getRevisionReferences(identity: RevisionIdentity) { return record(() => transaction.getRevisionReferences(identity)); },
       getReadyAssetVersion(identity: AssetVersionIdentity) { return record(() => transaction.getReadyAssetVersion(identity)); },
@@ -123,9 +131,15 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     replaceRouteClaim(input) { return atomic((transaction) => transaction.replaceRouteClaim(input)); },
     createMediaImportIntent(input) { return atomic((transaction) => transaction.createMediaImportIntent(input)); },
     commitReadyAssetVersion(input) { return atomic((transaction) => transaction.commitReadyAssetVersion(input)); },
+    setAssetVersionAvailability(identity, availability) { return atomic((transaction) => transaction.setAssetVersionAvailability(identity, availability)); },
     deleteMediaImportIntentExact(input) { return atomic((transaction) => transaction.deleteMediaImportIntentExact(input)); },
     createRevisionReferences(revision, assetVersions) { return atomic((transaction) => transaction.createRevisionReferences(revision, assetVersions)); },
     createRevisionWithReferences(input) { return atomic((transaction) => transaction.createRevisionWithReferences(input)); },
+    createTaxonomy(input) { return atomic((transaction) => transaction.createTaxonomy(input)); },
+    createTaxonomyTerm(input) { return atomic((transaction) => transaction.createTaxonomyTerm(input)); },
+    updateTaxonomyTerm(input) { return atomic((transaction) => transaction.updateTaxonomyTerm(input)); },
+    deleteTaxonomyTerm(identity) { return atomic((transaction) => transaction.deleteTaxonomyTerm(identity)); },
+    createRevisionTaxonomyBindings(identity, terms) { return atomic((transaction) => transaction.createRevisionTaxonomyBindings(identity, terms)); },
     readPluginActivationState() { return readOpaqueState(database, "plugin_activation_state"); },
     compareAndReplacePluginActivationState(input) { return compareAndReplaceOpaqueState(database, "plugin_activation_state", input); },
     readThemeActivationState() { return readOpaqueState(database, "theme_activation_state"); },
@@ -339,15 +353,41 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       return{ok:true,value:readyFromIntent(normalized.value)};
     }); },
     getAssetVersion(identity) { return reading(() => { if(!validAssetIdentity(identity))return refused("INVALID_PERSISTENCE_INPUT"); return assetVersionRow(database.get(ASSET_VERSION_SQL,identity.assetId,identity.assetVersionId),identity,refused); }); },
+    setAssetVersionAvailability(identity, availability) { return guarded(() => {
+      if (!validAssetIdentity(identity) || !validAssetVersionAvailability(availability)) return failed("INVALID_PERSISTENCE_INPUT");
+      const existing = assetVersionRow(database.get(ASSET_VERSION_SQL, identity.assetId, identity.assetVersionId), identity, failed);
+      if (!existing.ok) return existing;
+      database.run("UPDATE asset_version_availability SET availability=? WHERE asset_id=? AND asset_version_id=?", availability, identity.assetId, identity.assetVersionId);
+      return { ok: true, value: { ...existing.value, availability } };
+    }); },
     getReadyAssetVersion(identity) { return reading(() => { if(!validAssetIdentity(identity))return refused("INVALID_PERSISTENCE_INPUT"); const value=assetVersionRow(database.get(ASSET_VERSION_SQL,identity.assetId,identity.assetVersionId),identity,refused); if(!value.ok)return value; return value.value.availability==="ready"?{ok:true,value:{...value.value,availability:"ready"}}:refused("ASSET_VERSION_NOT_FOUND"); }); },
-    setAssetVersionAvailability(identity, availability) { return guarded(() => { if(!validAssetIdentity(identity))return failed("INVALID_PERSISTENCE_INPUT"); if (!validAssetVersionAvailability(availability)) return failed("INVALID_PERSISTENCE_INPUT"); const record = assetVersionRow(database.get(ASSET_VERSION_SQL, identity.assetId, identity.assetVersionId), identity, failed); if (!record.ok) return record; database.run("UPDATE asset_version_availability SET availability=? WHERE asset_id=? AND asset_version_id=?", availability, identity.assetId, identity.assetVersionId); return { ok: true, value: { ...record.value, availability } }; }); },
+    getRevisionTaxonomyBindings(identity) { return reading(() => revisionTaxonomyBindings(database, identity, refused)); },
+    createRevisionWithReferences(input) { return guarded(() => {
+      if (input === null || typeof input !== "object" || (input.taxonomyTerms !== undefined && (!Array.isArray(input.taxonomyTerms) || !input.taxonomyTerms.every(validTaxonomyIdentity)))) return failed("INVALID_PERSISTENCE_INPUT");
+      const created = revision(input.revision);
+      if (!created.ok) return created;
+      const createdReferences = references(input.revision.identity, input.assetVersions);
+      if (!createdReferences.ok) return createdReferences;
+      const bindings = createRevisionTaxonomyBindings(database, input.revision.identity, input.taxonomyTerms ?? [], failed);
+      if (!bindings.ok) return bindings;
+      return { ok: true, value: { revision: created.value, references: createdReferences.value, taxonomyBindings: bindings.value } };
+    }); },
+    createTaxonomy(input) { return guarded(() => createTaxonomy(database,input,failed), "CONSTRAINT_VIOLATION"); },
+    getTaxonomy(taxonomyId) { return reading(() => taxonomy(database,taxonomyId,refused)); },
+    listTaxonomies() { return reading(() => taxonomies(database,refused)); },
+    createTaxonomyTerm(input) { return guarded(() => createTaxonomyTerm(database,input,failed), "CONSTRAINT_VIOLATION"); },
+    getTaxonomyTerm(identity) { return reading(() => taxonomyTerm(database,identity,refused)); },
+    listTaxonomyTerms(taxonomyId) { return reading(() => taxonomyTerms(database,taxonomyId,refused)); },
+    updateTaxonomyTerm(input) { return guarded(() => updateTaxonomyTerm(database,input,failed)); },
+    deleteTaxonomyTerm(identity) { return guarded(() => deleteTaxonomyTerm(database,identity,failed)); },
+    createRevisionTaxonomyBindings(identity, terms) { return guarded(() => createRevisionTaxonomyBindings(database,identity,terms,failed)); },
+    listTaxonomyTermUsages(identity) { return reading(() => taxonomyTermUsages(database,identity,refused)); },
     listPublishedAssetReferences(identity) { return reading(() => { if (!validAssetIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const values: PublishedAssetReference[] = []; for (const row of database.all("SELECT p.entry_id,p.published_revision_id FROM entry_pointers p JOIN revision_refs r ON r.entry_id=p.entry_id AND r.revision_id=p.published_revision_id WHERE p.published_revision_id IS NOT NULL AND r.asset_id=? AND r.asset_version_id=?", identity.assetId, identity.assetVersionId)) { const entryId = text(row, "entry_id"), revisionId = text(row, "published_revision_id"); if (entryId === null || revisionId === null) return refused("STORAGE_FAILURE"); values.push({ entryId, revisionId, assetVersion: { ...identity } }); } return { ok: true, value: values.sort((a, b) => compareCodeUnits(a.entryId, b.entryId) || compareCodeUnits(a.revisionId, b.revisionId)) }; }); },
     createRevisionReferences(identity, assetVersions) { return references(identity,assetVersions); },
     getRevisionReferences(identity) { return reading(() => { if(!validRevisionIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT"); const items: RevisionReferenceRecord[]=[]; for(const row of database.all("SELECT asset_id,asset_version_id FROM revision_refs WHERE entry_id=? AND revision_id=?",identity.entryId,identity.revisionId)){const assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id");if(assetId===null||assetVersionId===null)return refused("STORAGE_FAILURE");items.push({revision:{...identity},assetVersion:{assetId,assetVersionId}});} return {ok:true,value:items.sort((a,b)=>compareAssetVersions(a.assetVersion,b.assetVersion))}; }); },
     readPluginActivationState() { return reading(() => readOpaqueState(database, "plugin_activation_state")); },
     readThemeActivationState() { return reading(() => readOpaqueState(database, "theme_activation_state")); },
     readPluginSettingsState() { return reading(() => readOpaqueState(database, "plugin_settings_state")); },
-    createRevisionWithReferences(input) { return guarded(() => { const created=revision(input.revision); if(!created.ok)return created; const createdReferences=references(input.revision.identity,input.assetVersions); if(!createdReferences.ok)return createdReferences; return {ok:true,value:{revision:created.value,references:createdReferences.value}}; }); },
     canonicalState() { return reading(() => canonicalState(database, refused)); },
   };
 }
@@ -398,6 +438,144 @@ function compareAndReplaceOpaqueState(
   }
 }
 
+function validTaxonomyIdentity(value: TaxonomyTermIdentity): boolean { return value !== null && typeof value === "object" && validText(value.taxonomyId) && validText(value.termId); }
+function validTaxonomyEvidence(value: TaxonomyTermEvidence): boolean { return validTaxonomyIdentity(value) && validText(value.label) && /^[a-z0-9]+(?:-[a-z0-9]+)*$/u.test(value.slug) && Number.isSafeInteger(value.order); }
+function taxonomy(database: SqliteAdapter, taxonomyId: string, failed: Fail): PersistenceResult<TaxonomyRecord> {
+  if (!validText(taxonomyId)) return failed("INVALID_PERSISTENCE_INPUT");
+  const row = database.get("SELECT taxonomy_id,label FROM taxonomies WHERE taxonomy_id=?", taxonomyId);
+  const label = row === undefined ? null : text(row, "label");
+  return label === null ? failed("REVISION_NOT_FOUND") : { ok: true, value: Object.freeze({ taxonomyId, label }) };
+}
+function taxonomies(database: SqliteAdapter, failed: Fail): PersistenceResult<readonly TaxonomyRecord[]> {
+  const values: TaxonomyRecord[] = [];
+  for (const row of database.all("SELECT taxonomy_id,label FROM taxonomies")) {
+    const taxonomyId = text(row, "taxonomy_id"), label = text(row, "label");
+    if (taxonomyId === null || label === null) return failed("STORAGE_FAILURE");
+    values.push(Object.freeze({ taxonomyId, label }));
+  }
+  values.sort((left, right) => compareCodeUnits(left.taxonomyId, right.taxonomyId));
+  return { ok: true, value: Object.freeze(values) };
+}
+function createTaxonomy(database: SqliteAdapter, input: TaxonomyRecord, failed: Fail): PersistenceResult<TaxonomyRecord> {
+  if (input === null || typeof input !== "object" || !validText(input.taxonomyId) || !validText(input.label)) return failed("INVALID_PERSISTENCE_INPUT");
+  if (database.get("SELECT 1 FROM taxonomies WHERE taxonomy_id=?", input.taxonomyId) !== undefined) return failed("CONSTRAINT_VIOLATION");
+  database.run("INSERT INTO taxonomies (taxonomy_id,label) VALUES (?,?)", input.taxonomyId, input.label);
+  return { ok: true, value: Object.freeze({ taxonomyId: input.taxonomyId, label: input.label }) };
+}
+function taxonomyTerm(database: SqliteAdapter, identity: TaxonomyTermIdentity, failed: Fail): PersistenceResult<TaxonomyTermRecord> {
+  if (!validTaxonomyIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT");
+  const row = database.get("SELECT label,slug,term_order,state FROM taxonomy_terms WHERE taxonomy_id=? AND term_id=?", identity.taxonomyId, identity.termId);
+  const label = row === undefined ? null : text(row, "label"), slug = row === undefined ? null : text(row, "slug"), order = row === undefined || typeof row.term_order !== "number" ? null : row.term_order, state = row?.state;
+  return label === null || slug === null || order === null || !Number.isSafeInteger(order) || (state !== "live" && state !== "retired")
+    ? failed(row === undefined ? "REVISION_NOT_FOUND" : "STORAGE_FAILURE")
+    : { ok: true, value: Object.freeze({ taxonomyId: identity.taxonomyId, termId: identity.termId, label, slug, order, state }) };
+}
+function taxonomyTerms(database: SqliteAdapter, taxonomyId: string, failed: Fail): PersistenceResult<readonly TaxonomyTermRecord[]> {
+  if (!validText(taxonomyId)) return failed("INVALID_PERSISTENCE_INPUT");
+  const values: TaxonomyTermRecord[] = [];
+  for (const row of database.all("SELECT term_id,label,slug,term_order,state FROM taxonomy_terms WHERE taxonomy_id=?", taxonomyId)) {
+    const termId = text(row, "term_id"), label = text(row, "label"), slug = text(row, "slug"), order = row.term_order, state = row.state;
+    if (termId === null || label === null || slug === null || typeof order !== "number" || !Number.isSafeInteger(order) || (state !== "live" && state !== "retired")) return failed("STORAGE_FAILURE");
+    values.push(Object.freeze({ taxonomyId, termId, label, slug, order, state }));
+  }
+  values.sort((left, right) => left.order - right.order || compareCodeUnits(left.termId, right.termId));
+  return { ok: true, value: Object.freeze(values) };
+}
+function createTaxonomyTerm(database: SqliteAdapter, input: TaxonomyTermEvidence, failed: Fail): PersistenceResult<TaxonomyTermRecord> {
+  if (input === null || typeof input !== "object" || !validTaxonomyEvidence(input)) return failed("INVALID_PERSISTENCE_INPUT");
+  if (database.get("SELECT 1 FROM taxonomies WHERE taxonomy_id=?", input.taxonomyId) === undefined) return failed("INVALID_PERSISTENCE_INPUT");
+  if (database.get("SELECT 1 FROM taxonomy_term_identities WHERE taxonomy_id=? AND term_id=?", input.taxonomyId, input.termId) !== undefined) return failed("CONSTRAINT_VIOLATION");
+  database.run("INSERT INTO taxonomy_term_identities (taxonomy_id,term_id) VALUES (?,?)", input.taxonomyId, input.termId);
+  database.run("INSERT INTO taxonomy_terms (taxonomy_id,term_id,label,slug,term_order,state) VALUES (?,?,?,?,?,'live')", input.taxonomyId, input.termId, input.label, input.slug, input.order);
+  return { ok: true, value: Object.freeze({ ...input, state: "live" }) };
+}
+function updateTaxonomyTerm(database: SqliteAdapter, input: Readonly<TaxonomyTermIdentity & { label?: string; state?: TaxonomyTermState }>, failed: Fail): PersistenceResult<TaxonomyTermRecord> {
+  if (input === null || typeof input !== "object" || !validTaxonomyIdentity(input) || (input.label === undefined && input.state === undefined) || (input.label !== undefined && !validText(input.label)) || (input.state !== undefined && input.state !== "retired")) return failed("INVALID_PERSISTENCE_INPUT");
+  const current = taxonomyTerm(database, input, failed);
+  if (!current.ok) return current;
+  if (current.value.state !== "live") return failed("CONSTRAINT_VIOLATION");
+  database.run("UPDATE taxonomy_terms SET label=?,state=? WHERE taxonomy_id=? AND term_id=?", input.label ?? current.value.label, input.state ?? current.value.state, input.taxonomyId, input.termId);
+  return taxonomyTerm(database, input, failed);
+}
+function deleteTaxonomyTerm(database: SqliteAdapter, identity: TaxonomyTermIdentity, failed: Fail): PersistenceResult<void> {
+  if (!validTaxonomyIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT");
+  if (database.get("SELECT 1 FROM revision_taxonomy_bindings WHERE taxonomy_id=? AND term_id=? LIMIT 1", identity.taxonomyId, identity.termId) !== undefined) return failed("CONSTRAINT_VIOLATION");
+  if (database.get("SELECT 1 FROM taxonomy_terms WHERE taxonomy_id=? AND term_id=? LIMIT 1", identity.taxonomyId, identity.termId) === undefined) return failed("REVISION_NOT_FOUND");
+  database.run("DELETE FROM taxonomy_terms WHERE taxonomy_id=? AND term_id=?", identity.taxonomyId, identity.termId);
+  return { ok: true, value: undefined };
+}
+function createRevisionTaxonomyBindings(database: SqliteAdapter, revision: RevisionIdentity, terms: readonly TaxonomyTermIdentity[], failed: Fail): PersistenceResult<readonly RevisionTaxonomyTermBinding[]> {
+  if (!validRevisionIdentity(revision) || !Array.isArray(terms) || !terms.every(validTaxonomyIdentity)) return failed("INVALID_PERSISTENCE_INPUT");
+  const ordered = [...terms].sort((left, right) => compareCodeUnits(left.taxonomyId, right.taxonomyId) || compareCodeUnits(left.termId, right.termId));
+  if (ordered.some((value, index) => index > 0 && value.taxonomyId === ordered[index - 1]?.taxonomyId && value.termId === ordered[index - 1]?.termId)) return failed("INVALID_PERSISTENCE_INPUT");
+  const bindings: RevisionTaxonomyTermBinding[] = [];
+  for (const identity of ordered) {
+    const term = taxonomyTerm(database, identity, failed);
+    if (!term.ok || term.value.state !== "live") return failed("INVALID_PERSISTENCE_INPUT");
+    const evidence: TaxonomyTermEvidence = {
+      taxonomyId: term.value.taxonomyId,
+      termId: term.value.termId,
+      label: term.value.label,
+      slug: term.value.slug,
+      order: term.value.order,
+    };
+    const bytes = canonicalJsonBytes(evidence);
+    if (!bytes.ok) return failed("STORAGE_FAILURE");
+    const evidenceDigest = sha256Digest(bytes.value);
+    database.run("INSERT INTO revision_taxonomy_bindings (entry_id,revision_id,taxonomy_id,term_id,evidence_bytes,evidence_digest) VALUES (?,?,?,?,?,?)", revision.entryId, revision.revisionId, evidence.taxonomyId, evidence.termId, copyBytes(bytes.value), evidenceDigest);
+    bindings.push(Object.freeze({
+      taxonomyId: evidence.taxonomyId,
+      termId: evidence.termId,
+      evidence: Object.freeze({ ...evidence }),
+      evidenceDigest,
+    }));
+  }
+  bindings.sort(compareTaxonomyBindings);
+  return { ok: true, value: Object.freeze(bindings) };
+}
+function revisionTaxonomyBindings(database: SqliteAdapter, revision: RevisionIdentity, failed: Fail): PersistenceResult<readonly RevisionTaxonomyTermBinding[]> {
+  if (!validRevisionIdentity(revision)) return failed("INVALID_PERSISTENCE_INPUT");
+  const bindings: RevisionTaxonomyTermBinding[] = [];
+  for (const row of database.all("SELECT taxonomy_id,term_id,evidence_bytes,evidence_digest FROM revision_taxonomy_bindings WHERE entry_id=? AND revision_id=?", revision.entryId, revision.revisionId)) {
+    const taxonomyId = text(row, "taxonomy_id");
+    const termId = text(row, "term_id");
+    const bytes = byte(row, "evidence_bytes");
+    const evidenceDigest = digestField(row, "evidence_digest");
+    if (taxonomyId === null || termId === null || bytes === null || evidenceDigest === null || sha256Digest(bytes) !== evidenceDigest) return failed("STORAGE_FAILURE");
+    try {
+      const evidence = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes)) as TaxonomyTermEvidence;
+      const canonical = canonicalJsonBytes(evidence);
+      if (!canonical.ok || !sameBytes(canonical.value, bytes) || !validTaxonomyEvidence(evidence) || evidence.taxonomyId !== taxonomyId || evidence.termId !== termId) return failed("STORAGE_FAILURE");
+      bindings.push(Object.freeze({
+        taxonomyId,
+        termId,
+        evidence: Object.freeze({ ...evidence }),
+        evidenceDigest,
+      }));
+    } catch {
+      return failed("STORAGE_FAILURE");
+    }
+  }
+  bindings.sort(compareTaxonomyBindings);
+  if (bindings.some((binding, index) => {
+    const previous = bindings[index - 1];
+    return previous !== undefined
+      && (previous.taxonomyId === binding.taxonomyId && previous.termId === binding.termId
+        || previous.taxonomyId === binding.taxonomyId && previous.evidence.order === binding.evidence.order);
+  })) return failed("STORAGE_FAILURE");
+  return { ok: true, value: Object.freeze(bindings) };
+}
+function taxonomyTermUsages(database: SqliteAdapter, identity: TaxonomyTermIdentity, failed: Fail): PersistenceResult<readonly RevisionTaxonomyBindingUsage[]> {
+  if (!validTaxonomyIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT");
+  const values: RevisionTaxonomyBindingUsage[] = [];
+  for (const row of database.all("SELECT p.entry_id AS entry_id,p.current_revision_id AS revision_id,'current' AS pointer FROM entry_pointers p JOIN revision_taxonomy_bindings b ON b.entry_id=p.entry_id AND b.revision_id=p.current_revision_id WHERE b.taxonomy_id=? AND b.term_id=? UNION ALL SELECT p.entry_id AS entry_id,p.published_revision_id AS revision_id,'published' AS pointer FROM entry_pointers p JOIN revision_taxonomy_bindings b ON b.entry_id=p.entry_id AND b.revision_id=p.published_revision_id WHERE p.published_revision_id IS NOT NULL AND b.taxonomy_id=? AND b.term_id=?", identity.taxonomyId, identity.termId, identity.taxonomyId, identity.termId)) {
+    const entryId = text(row, "entry_id"), revisionId = text(row, "revision_id"), pointer = row.pointer;
+    if (entryId === null || revisionId === null || (pointer !== "current" && pointer !== "published")) return failed("STORAGE_FAILURE");
+    values.push(Object.freeze({ entryId, revisionId, pointer }));
+  }
+  values.sort((left, right) => compareCodeUnits(left.entryId, right.entryId) || compareCodeUnits(left.revisionId, right.revisionId) || compareCodeUnits(left.pointer, right.pointer));
+  return { ok: true, value: Object.freeze(values) };
+}
 function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResult<PersistenceCanonicalState> {
   const collect = (sql: string, keys: readonly string[]) => database.all(sql)
     .map((row) => Object.fromEntries(keys.map((key) => [key, row[key]])))
@@ -414,16 +592,20 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     const mediaAssets = collect("SELECT asset_id AS assetId FROM media_assets", ["assetId"]);
     const assetVersions = collect("SELECT v.asset_id AS assetId,v.asset_version_id AS assetVersionId,v.object_digest AS objectDigest,v.metadata_digest AS metadataDigest,a.availability FROM asset_versions v JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id", ["assetId", "assetVersionId", "objectDigest", "metadataDigest", "availability"]);
     const revisionReferences = collect("SELECT entry_id AS entryId,revision_id AS revisionId,asset_id AS assetId,asset_version_id AS assetVersionId FROM revision_refs", ["entryId", "revisionId", "assetId", "assetVersionId"]);
+    const taxonomyCatalog = collect("SELECT taxonomy_id AS taxonomyId,label FROM taxonomies", ["taxonomyId", "label"]);
+    const taxonomyTermIdentities = collect("SELECT taxonomy_id AS taxonomyId,term_id AS termId FROM taxonomy_term_identities", ["taxonomyId", "termId"]);
+    const taxonomyTerms = collect("SELECT taxonomy_id AS taxonomyId,term_id AS termId,label,slug,term_order AS termOrder,state FROM taxonomy_terms", ["taxonomyId", "termId", "label", "slug", "termOrder", "state"]);
+    const revisionTaxonomyBindings = collect("SELECT entry_id AS entryId,revision_id AS revisionId,taxonomy_id AS taxonomyId,term_id AS termId,evidence_digest AS evidenceDigest FROM revision_taxonomy_bindings", ["entryId", "revisionId", "taxonomyId", "termId", "evidenceDigest"]);
     const pluginActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_activation_state", ["singleton", "stateDigest"]);
     const themeActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM theme_activation_state", ["singleton", "stateDigest"]);
     const pluginSettingsStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_settings_state", ["singleton", "stateDigest"]);
     const schemaMigrationExecutions = collect("SELECT operation_id AS operationId,source_schema_id AS sourceSchemaId,source_schema_version AS sourceSchemaVersion,target_schema_id AS targetSchemaId,target_schema_version AS targetSchemaVersion,mapping_identity AS mappingIdentity FROM schema_migration_executions", ["operationId", "sourceSchemaId", "sourceSchemaVersion", "targetSchemaId", "targetSchemaVersion", "mappingIdentity"]);
     const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);
     const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
-    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
     const bytes = canonicalJsonBytes(payload);
     if (!bytes.ok) return failed("STORAGE_FAILURE");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
   } catch {
     return failed("STORAGE_FAILURE");
   }
@@ -478,4 +660,9 @@ function normalizedIntent(input:MediaImportIntent,failed:Fail):PersistenceResult
 function validRevisionInput(input:CreateRevisionInput):boolean{return validRevisionIdentity(input.identity)&&validSchemaIdentity(input.schemaIdentity)&&input.contentBytes instanceof Uint8Array&&isDigest(input.contentDigest)&&validText(input.lineage.operationId)&&validText(input.lineage.operationKind)&&(input.restoredFromRevisionId===undefined||validText(input.restoredFromRevisionId));} function validSchemaIdentity(value:SchemaVersionIdentity):boolean{return validText(value.schemaId)&&Number.isSafeInteger(value.version)&&value.version>0;} function validRevisionIdentity(value:RevisionIdentity):boolean{return validText(value.entryId)&&validText(value.revisionId);} function validAssetIdentity(value:AssetVersionIdentity):boolean{return validText(value.assetId)&&validText(value.assetVersionId);} function validAssetVersions(values:readonly AssetVersionIdentity[]):boolean{return Array.isArray(values)&&values.every(validAssetIdentity);} function validLineageIdentity(value:OperationLineageIdentity):boolean{return validRevisionIdentity(value)&&validText(value.operationId);} function validPointers(value:SetEntryPointersInput):boolean{return validText(value.entryId)&&validText(value.currentRevisionId)&&validText(value.lineage.revisionId)&&validText(value.lineage.operationId)&&validText(value.lineage.operationKind)&&(value.publishedRevisionId===undefined||validText(value.publishedRevisionId));} function validIntent(value:MediaImportIntent):boolean{return validText(value.importId)&&validAssetIdentity(value.identity)&&isDigest(value.objectDigest)&&nonnegative(value.byteLength)&&value.metadataBytes instanceof Uint8Array&&isDigest(value.metadataDigest);} function validText(value:unknown):value is string{return typeof value==="string"&&value.length>0;}
 // canonical state bytes、digest 與所有 record 排序必須與 host locale／ICU 版本無關，因此一律使用 code-unit 順序而非 `localeCompare`。
 function compareCodeUnits(left:string,right:string){return left<right?-1:left>right?1:0;}
+function compareTaxonomyBindings(left: RevisionTaxonomyTermBinding, right: RevisionTaxonomyTermBinding): number {
+  return left.evidence.order - right.evidence.order
+    || compareCodeUnits(left.taxonomyId, right.taxonomyId)
+    || compareCodeUnits(left.termId, right.termId);
+}
 function text(row:SqliteRow,key:string):string|null{const value=row[key];return typeof value==="string"?value:null;} function nullableText(row:SqliteRow,key:string):string|null|undefined{const value=row[key];return value===null||typeof value==="string"?value:undefined;} function byte(row:SqliteRow,key:string):Uint8Array|null{const value=row[key];return value instanceof Uint8Array?copyBytes(value):null;} function digestField(row:SqliteRow,key:string):Digest|null{const value=text(row,key);return value!==null&&isDigest(value)?value:null;} function positive(value:unknown):number|null{return typeof value==="number"&&Number.isSafeInteger(value)&&value>0?value:null;} function nonnegative(value:unknown):value is number{return typeof value==="number"&&Number.isSafeInteger(value)&&value>=0;} function compareAssetVersions(a:AssetVersionIdentity,b:AssetVersionIdentity){return compareCodeUnits(a.assetId,b.assetId)||compareCodeUnits(a.assetVersionId,b.assetVersionId);} function compareClaims(a:RouteClaimRecord,b:RouteClaimRecord){return compareCodeUnits(a.normalizedRoute,b.normalizedRoute)||compareCodeUnits(a.owner,b.owner);} function sameBytes(a:Uint8Array,b:Uint8Array){if(a.byteLength!==b.byteLength)return false;for(let i=0;i<a.byteLength;i+=1)if(a[i]!==b[i])return false;return true;}

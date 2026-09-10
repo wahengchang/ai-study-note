@@ -16,6 +16,7 @@ import type { PluginHost } from "../../../core/plugin-host/index.js";
 import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
 import type { SiteDefinition } from "../../../core/site-definition/index.js";
+import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
 type Harness = Readonly<{
   databasePath: string;
@@ -48,12 +49,12 @@ async function harness(directory: string): Promise<Harness> {
   if (!schema.ok) throw new Error("canonicalJsonBytes");
   assert.equal(opened.value.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes: schema.value, schemaDigest: sha256Digest(schema.value) }).ok, true);
   const site = createSiteDefinition({ persistence: opened.value });
-  const application = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: started.value, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: plugins.value });
+  const application = createDomainApplication({ persistence: opened.value, siteDefinition: site, dataMedia: started.value, schemaValidator: { validate: () => ({ ok: true }) }, pluginHost: plugins.value, taxonomy: createTaxonomy({ persistence: opened.value }) });
   return { databasePath, store: opened.value, site, application, media: started.value, plugins: plugins.value };
 }
 
 async function save(application: DomainApplication, entryId: string, revisionId: string, route: string, expectedCurrentRevisionId: string | null = null, operationId = `save-${entryId}-${revisionId}`): Promise<void> {
-  const result = await application.saveRevision({ entryId, revisionId, operationId, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { entryId, revisionId }, route, assetVersions: [] });
+  const result = await application.saveRevision({ entryId, revisionId, operationId, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { entryId, revisionId }, route, assetVersions: [], taxonomyTerms: [] });
   assert.equal(result.ok, true, result.ok ? "" : result.error.code);
 }
 
@@ -88,6 +89,7 @@ function changeOnlyApplication(value: Harness): DomainApplication {
     dataMedia: unavailable,
     schemaValidator: { validate() { throw new Error("ChangeRoute must not validate schema"); } },
     pluginHost: plugins,
+    taxonomy: createTaxonomy({ persistence: value.store }),
   });
 }
 
