@@ -276,26 +276,52 @@ function TaxonomyNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Elemen
   const [formError, setFormError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault(); setIdError(undefined); setLabelError(undefined); setFormError(undefined);
-    if (!AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) { setIdError("Taxonomy ID 只能使用英數字、句點、底線、連字號或波浪號。"); return; }
-    if (label.trim() === "") { setLabelError("請輸入分類名稱。"); return; }
+    event.preventDefault();
+    setIdError(undefined);
+    setLabelError(undefined);
+    setFormError(undefined);
+    if (!AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) {
+      setIdError("Taxonomy ID 只能使用英數字、句點、底線、連字號或波浪號。");
+      return;
+    }
+    if (label.trim() === "") {
+      setLabelError("請輸入分類名稱。");
+      return;
+    }
     setBusy(true);
-    try { const created = await api.createTaxonomy(taxonomyId, label.trim()); navigate(`/cms/taxonomies/${created.taxonomy.taxonomyId}`); } catch (reason) { setFormError(message(reason)); } finally { setBusy(false); }
+    try {
+      const created = await api.createTaxonomy(taxonomyId, label.trim());
+      navigate(`/cms/taxonomies/${created.taxonomy.taxonomyId}`, { state: { createdTaxonomyId: created.taxonomy.taxonomyId } });
+    } catch (reason) {
+      const error = message(reason);
+      if (reason instanceof CmsApiError && reason.code === "TAXONOMY_CONFLICT") setIdError(error);
+      else setFormError(error);
+    } finally {
+      setBusy(false);
+    }
   };
-  return <Layout><PageHeading>建立分類</PageHeading><form aria-label="分類定義" onSubmit={(event) => void submit(event)}><label htmlFor="taxonomy-id">Taxonomy ID<input id="taxonomy-id" required value={taxonomyId} onChange={(event) => { setTaxonomyId(event.target.value); setIdError(undefined); }} aria-invalid={idError !== undefined} aria-describedby={idError === undefined ? undefined : "taxonomy-id-error"} disabled={busy} /></label>{idError !== undefined && <p id="taxonomy-id-error" role="alert">{idError}</p>}<label htmlFor="taxonomy-label">分類名稱<input id="taxonomy-label" required value={label} onChange={(event) => { setLabel(event.target.value); setLabelError(undefined); }} aria-invalid={labelError !== undefined} aria-describedby={labelError === undefined ? undefined : "taxonomy-label-error"} disabled={busy} /></label>{labelError !== undefined && <p id="taxonomy-label-error" role="alert">{labelError}</p>}{formError !== undefined && <p role="alert">{formError}</p>}<p role="status" aria-live="polite">{busy ? "正在建立分類…" : ""}</p><button type="submit" disabled={busy}>{busy ? "正在建立…" : "建立分類"}</button></form></Layout>;
+  return <Layout><PageHeading>建立分類</PageHeading><form aria-label="分類定義" aria-busy={busy} onSubmit={(event) => void submit(event)}><label htmlFor="taxonomy-id">Taxonomy ID<input id="taxonomy-id" required value={taxonomyId} onChange={(event) => { setTaxonomyId(event.target.value); setIdError(undefined); }} aria-invalid={idError !== undefined} aria-describedby={idError === undefined ? undefined : "taxonomy-id-error"} disabled={busy} /></label>{idError !== undefined && <p id="taxonomy-id-error" role="alert">{idError}</p>}<label htmlFor="taxonomy-label">分類名稱<input id="taxonomy-label" required value={label} onChange={(event) => { setLabel(event.target.value); setLabelError(undefined); }} aria-invalid={labelError !== undefined} aria-describedby={labelError === undefined ? undefined : "taxonomy-label-error"} disabled={busy} /></label>{labelError !== undefined && <p id="taxonomy-label-error" role="alert">{labelError}</p>}{formError !== undefined && <p role="alert">{formError}</p>}<p role="status" aria-live="polite" aria-atomic="true">{busy ? "正在建立分類。" : ""}</p><button type="submit" disabled={busy}>{busy ? "正在建立…" : "建立分類"}</button></form></Layout>;
 }
 
 function TaxonomyDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
   const { taxonomyId } = useParams();
+  const { state } = useLocation();
   const [snapshot, setSnapshot] = useState<TaxonomySnapshotDto>();
   const [error, setError] = useState<string>();
   const load = useCallback((): void => {
-    if (taxonomyId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) { setSnapshot(undefined); setError("找不到分類。"); return; }
-    setSnapshot(undefined); setError(undefined); void api.taxonomy(taxonomyId).then(setSnapshot).catch((reason: unknown) => setError(reason instanceof CmsApiError && reason.status === 404 ? "找不到分類。" : message(reason)));
+    if (taxonomyId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) {
+      setSnapshot(undefined);
+      setError("找不到分類。");
+      return;
+    }
+    setSnapshot(undefined);
+    setError(undefined);
+    void api.taxonomy(taxonomyId).then(setSnapshot).catch((reason: unknown) => setError(reason instanceof CmsApiError && reason.status === 404 ? "找不到分類。" : message(reason)));
   }, [api, taxonomyId]);
   useEffect(load, [load]);
   if (snapshot === undefined) return <Layout><PageHeading>分類詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入分類。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  return <Layout><PageHeading>分類：{snapshot.taxonomy.label}</PageHeading><dl><dt>Taxonomy ID</dt><dd>{snapshot.taxonomy.taxonomyId}</dd></dl><section aria-labelledby="taxonomy-terms"><h2 id="taxonomy-terms">Terms</h2>{snapshot.terms.length === 0 ? <p>尚無 term。</p> : <table><caption>所有 terms</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">順序</th><th scope="col">狀態</th></tr></thead><tbody>{snapshot.terms.map((term) => <tr key={term.termId}><td>{term.label}</td><td>{term.slug}</td><td>{term.order}</td><td>{term.state === "live" ? "使用中" : "已停用"}</td></tr>)}</tbody></table>}</section></Layout>;
+  const createdTaxonomyId = typeof state === "object" && state !== null && "createdTaxonomyId" in state && typeof state.createdTaxonomyId === "string" ? state.createdTaxonomyId : undefined;
+  return <Layout><PageHeading>分類：{snapshot.taxonomy.label}</PageHeading>{createdTaxonomyId === snapshot.taxonomy.taxonomyId && <p role="status" aria-live="polite" aria-atomic="true">已建立分類。</p>}<dl><dt>Taxonomy ID</dt><dd>{snapshot.taxonomy.taxonomyId}</dd></dl><section aria-labelledby="taxonomy-terms"><h2 id="taxonomy-terms">Terms</h2>{snapshot.terms.length === 0 ? <p>尚無 term。</p> : <table><caption>所有 terms</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">順序</th><th scope="col">狀態</th></tr></thead><tbody>{snapshot.terms.map((term) => <tr key={term.termId}><td>{term.label}</td><td>{term.slug}</td><td>{term.order}</td><td>{term.state === "live" ? "使用中" : "已停用"}</td></tr>)}</tbody></table>}</section></Layout>;
 }
 
 function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
