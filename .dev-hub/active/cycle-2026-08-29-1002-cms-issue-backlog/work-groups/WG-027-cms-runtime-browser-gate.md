@@ -6,7 +6,7 @@ work_items: ["WI-064"]
 owner: Main
 branch: feature/cms-runtime-browser-gate
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/cms-runtime-browser-gate
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/343
 ---
 
 # CMS authenticated runtime browser gate
