@@ -197,6 +197,78 @@ test("真實 CMS runtime 完成 taxonomy list、create 與 detail browser/a11y j
   }
 });
 
+test("真實 CMS runtime 以既有 taxonomy 呈現 catalog 與 term 表格", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-taxonomy-tables-browser-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(runDbMigrate(["--database", databasePath], capture().io), 0);
+  const opened = openPersistence({ databasePath });
+  assert.equal(opened.ok, true, opened.ok ? "" : opened.error.code);
+  if (!opened.ok) return;
+  try {
+    const taxonomy = createTaxonomy({ persistence: opened.value });
+    // catalog 依 taxonomyId code unit 排序，因此先建立排序在後的 topics 才能證明順序來自 Taxonomy 而非建立順序。
+    const topics = taxonomy.createTaxonomy({ contract: "taxonomy-create-request/v1", taxonomyId: "topics", label: "主題" });
+    assert.equal(topics.ok, true, topics.ok ? "" : topics.error.code);
+    if (!topics.ok) return;
+    const authors = taxonomy.createTaxonomy({ contract: "taxonomy-create-request/v1", taxonomyId: "authors", label: "作者" });
+    assert.equal(authors.ok, true, authors.ok ? "" : authors.error.code);
+    if (!authors.ok) return;
+    // term 依 order 排序；先建立 order 較大的 beta，再建立 alpha。
+    const beta = taxonomy.executeCommand("topics", { contract: "taxonomy-command/v1", kind: "create-term", expectedStateDigest: topics.value.stateDigest, termId: "beta", label: "Beta", slug: "beta", order: 20 });
+    assert.equal(beta.ok, true, beta.ok ? "" : beta.error.code);
+    if (!beta.ok) return;
+    const alpha = taxonomy.executeCommand("topics", { contract: "taxonomy-command/v1", kind: "create-term", expectedStateDigest: beta.value.snapshot.stateDigest, termId: "alpha", label: "Alpha", slug: "alpha", order: 10 });
+    assert.equal(alpha.ok, true, alpha.ok ? "" : alpha.error.code);
+    if (!alpha.ok) return;
+    const retired = taxonomy.executeCommand("topics", { contract: "taxonomy-command/v1", kind: "retire-term", expectedStateDigest: alpha.value.snapshot.stateDigest, termId: "beta" });
+    assert.equal(retired.ok, true, retired.ok ? "" : retired.error.code);
+    if (!retired.ok) return;
+  } finally {
+    opened.value.close();
+  }
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
+  try {
+    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
+    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
+    if (!minted.ok) return;
+    browser = await chromium.launch();
+    const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
+    await page.goto(`${runtime.value.origin}/cms/taxonomies#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "分類全覽", exact: true }).waitFor();
+    const catalog = page.getByRole("table", { name: "所有分類", exact: true });
+    await catalog.waitFor();
+    assert.deepEqual(await catalog.getByRole("row").allInnerTexts(), ["名稱\tTaxonomy ID", "作者\tauthors", "主題\ttopics"]);
+    await page.getByRole("link", { name: "主題", exact: true }).click();
+    await page.getByRole("heading", { name: "分類：主題", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/taxonomies/topics");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    const terms = page.getByRole("table", { name: "所有 terms", exact: true });
+    await terms.waitFor();
+    assert.deepEqual(await terms.getByRole("row").allInnerTexts(), ["名稱\tSlug\t順序\t狀態", "Alpha\talpha\t10\t使用中", "Beta\tbeta\t20\t已停用"]);
+    await page.setViewportSize({ width: 375, height: 844 });
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  } finally {
+    await browser?.close();
+    await runtime.value.close();
+  }
+});
+
 test("真實 CMS runtime 在 CAS reload 後保留 taxonomy binding 並發布", async (context) => {
   const root = mkdtempSync(path.join(tmpdir(), "cms-taxonomy-binding-browser-"));
   context.after(() => { rmSync(root, { recursive: true, force: true }); });
