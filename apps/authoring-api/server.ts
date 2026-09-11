@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, DomainApplication, DomainApplicationFailure, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, RestoreRevisionSuccess, SaveRevisionSuccess, TaxonomyCommand } from "../../core/application/index.js";
+import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, DomainApplication, DomainApplicationFailure, ImportMediaRequest, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, RestoreRevisionSuccess, SaveRevisionSuccess, TaxonomyCommand } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import { parsePreviewInput, renderPreviewDocument, type ProjectionPreview } from "../../core/projection/index.js";
 import type { Context } from "hono";
@@ -11,8 +11,8 @@ import type { AuthoringCredentialAuthority } from "./credential-store.js";
 import { createBrowserBootstrapState } from "./browser-bootstrap.js";
 import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
-import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
-import type { BrowserSessionDto, BrowserTicketDto, PublishRevisionSuccessDto, RestoreRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
+import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, mediaArchiveRequestSchema, mediaAssetDetailSchema, mediaCatalogSchema, mediaImportRequestSchema, mediaRestoreRequestSchema, mediaVersionReplacementReceiptSchema, mediaVersionRequestSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
+import type { BrowserSessionDto, BrowserTicketDto, MediaArchiveBlockedErrorDto, MediaRestoreRequiredErrorDto, PublishRevisionSuccessDto, RestoreRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
 const SECURITY_HEADERS = {
@@ -51,18 +51,23 @@ const PROOF_BODY_LIMIT = 4_096;
 const SAVE_BODY_LIMIT_REMEDIATION = "SaveRevision request 不得超過 4 MiB。";
 const PUBLISH_BODY_LIMIT_REMEDIATION = "PublishRevision request 不得超過 4 KiB。";
 const PROOF_BODY_LIMIT_REMEDIATION = "server-proof challenge 不得超過 4 KiB。";
+/** Media contract 的三個 bytes-carrying route 共用同一組 encoded/envelope 上限，避免 route 之間漂移。 */
+const MEDIA_BYTES_BODY_LIMIT = 4_194_304;
+const MEDIA_ENCODED_BYTES_LIMIT = 4_128_768;
+const MEDIA_ENVELOPE_LIMIT = 65_536;
+const MEDIA_ENVELOPE_REMEDIATION = "Media request 的非 bytes envelope 不得超過 64 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/versions" | "/v1/media/:assetId/archive" | "/v1/media/:assetId/restore" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
 export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; projectionPreview: ProjectionPreview }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "restore" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
-const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions", "taxonomies", "taxonomy"]);
+type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "media" | "media-import" | "media-version" | "media-detail" | "media-archive" | "media-restore" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "restore" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
+const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "media", "media-detail", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions", "taxonomies", "taxonomy"]);
 const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "entry-revisions", "taxonomies"]);
-const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "restore", "taxonomies", "taxonomy", "taxonomy-commands", "preview"]);
+const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "media", "media-import", "media-version", "media-detail", "media-archive", "media-restore", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "restore", "taxonomies", "taxonomy", "taxonomy-commands", "preview"]);
 
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
@@ -78,7 +83,7 @@ function values(headers: HeaderMap, name: string): readonly string[] { return he
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
 /** dynamic ID 與 asset path 都不接受 percent encoding，防止 URL 與 canonical identity 脫節。 */
 function routeFor(pathname: string): RouteClass {
-  if (pathname === "/cms" || pathname === "/cms/plugins" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:entries|content-types|taxonomies)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
+  if (pathname === "/cms" || pathname === "/cms/plugins" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/media" || pathname === "/cms/media/import" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:entries|content-types|taxonomies|media)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
   if (/^\/cms\/assets\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(pathname)) return "cms-asset";
   if (pathname === "/_local/server-proof") return "proof";
   if (pathname === "/_local/browser-tickets") return "browser-ticket";
@@ -86,6 +91,12 @@ function routeFor(pathname: string): RouteClass {
   if (pathname === "/v1/plugins") return "plugins";
   if (pathname === "/v1/plugins/activate") return "plugin-activate";
   if (pathname === "/v1/plugins/settings") return "plugin-settings";
+  if (pathname === "/v1/media") return "media";
+  if (pathname === "/v1/media/import") return "media-import";
+  if (/^\/v1\/media\/[^/%?#/]+\/versions$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length, -"/versions".length))) return "media-version";
+  if (/^\/v1\/media\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length))) return "media-detail";
+  if (/^\/v1\/media\/[^/%?#/]+\/archive$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length, -"/archive".length))) return "media-archive";
+  if (/^\/v1\/media\/[^/%?#/]+\/restore$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length, -"/restore".length))) return "media-restore";
   if (/^\/v1\/entries\/[^/%?#/]+\/current$/u.test(pathname)) return "entry-current";
   if (/^\/v1\/entries\/[^/%?#/]+\/current\/editor-blocks$/u.test(pathname)) return "editor-blocks";
   if (/^\/v1\/entries\/[^/%?#/]+\/seo-analysis$/u.test(pathname)) return "seo-analysis";
@@ -102,11 +113,17 @@ function routeFor(pathname: string): RouteClass {
   return /^\/v1\/entries\/[^/%?#/]+\/publish$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length, -"/publish".length)) ? "publish" : "unknown";
 }
 function templateFor(route: RouteClass, pathname: string): RouteTemplate {
-  if (route === "cms-document") return pathname === "/cms" ? "/cms" : pathname === "/cms/plugins" ? "/cms/plugins" : pathname === "/cms/entries" ? "/cms/entries" : pathname === "/cms/entries/new" ? "/cms/entries/new" : pathname === "/cms/content-types" ? "/cms/content-types" : pathname === "/cms/content-types/new" ? "/cms/content-types/new" : pathname === "/cms/taxonomies" ? "/cms/taxonomies" : pathname === "/cms/taxonomies/new" ? "/cms/taxonomies/new" : pathname.startsWith("/cms/content-types/") ? "/cms/content-types/:schemaId" : pathname.startsWith("/cms/taxonomies/") ? "/cms/taxonomies/:taxonomyId" : "/cms/entries/:entryId";
+  if (route === "cms-document") return pathname === "/cms" ? "/cms" : pathname === "/cms/plugins" ? "/cms/plugins" : pathname === "/cms/entries" ? "/cms/entries" : pathname === "/cms/entries/new" ? "/cms/entries/new" : pathname === "/cms/media" ? "/cms/media" : pathname === "/cms/media/import" ? "/cms/media/import" : pathname === "/cms/content-types" ? "/cms/content-types" : pathname === "/cms/content-types/new" ? "/cms/content-types/new" : pathname === "/cms/taxonomies" ? "/cms/taxonomies" : pathname === "/cms/taxonomies/new" ? "/cms/taxonomies/new" : pathname.startsWith("/cms/content-types/") ? "/cms/content-types/:schemaId" : pathname.startsWith("/cms/taxonomies/") ? "/cms/taxonomies/:taxonomyId" : pathname.startsWith("/cms/media/") ? "/cms/media/:assetId" : "/cms/entries/:entryId";
   if (route === "cms-asset") return "/cms/assets/:asset";
   if (route === "plugins") return "/v1/plugins";
   if (route === "plugin-activate") return "/v1/plugins/activate";
   if (route === "plugin-settings") return "/v1/plugins/settings";
+  if (route === "media") return "/v1/media";
+  if (route === "media-import") return "/v1/media/import";
+  if (route === "media-version") return "/v1/media/:assetId/versions";
+  if (route === "media-detail") return "/v1/media/:assetId";
+  if (route === "media-archive") return "/v1/media/:assetId/archive";
+  if (route === "media-restore") return "/v1/media/:assetId/restore";
   if (route === "entry-current") return "/v1/entries/:entryId/current";
   if (route === "editor-blocks") return "/v1/entries/:entryId/current/editor-blocks";
   if (route === "seo-analysis") return "/v1/entries/:entryId/seo-analysis";
@@ -172,6 +189,17 @@ async function boundedJson(request: Request, limit: number): Promise<Readonly<{ 
   let text: string; try { text = new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { return { ok: false, code: "INVALID_REQUEST_BODY" }; }
   try { return { ok: true, value: JSON.parse(text) }; } catch { return { ok: false, code: "INVALID_REQUEST_BODY" }; }
 }
+function mediaBytesTooLarge(encoded: string): boolean { return encoded.length > MEDIA_ENCODED_BYTES_LIMIT; }
+function mediaEnvelopeTooLarge(envelope: unknown): boolean { return new TextEncoder().encode(JSON.stringify(envelope)).byteLength > MEDIA_ENVELOPE_LIMIT; }
+function decodeCanonicalBase64url(value: string): Uint8Array | undefined {
+  if (value.length > 4_128_768 || value.length % 4 === 1 || !/^[A-Za-z0-9_-]*$/u.test(value)) return undefined;
+  try {
+    const bytes = new Uint8Array(Buffer.from(value, "base64url"));
+    return bytes.byteLength <= 3_096_576 && Buffer.from(bytes).toString("base64url") === value ? bytes : undefined;
+  } catch {
+    return undefined;
+  }
+}
 function authorization(headers: HeaderMap): Readonly<{ ok: true; candidate: string }> | Readonly<{ ok: false; code: TransportCode }> {
   const all = values(headers, "authorization"); if (all.length === 0) return { ok: false, code: "AUTHORIZATION_REQUIRED" }; if (all.length !== 1) return { ok: false, code: "AUTHORIZATION_DUPLICATE" };
   const header = all[0] ?? ""; const candidate = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";
@@ -187,8 +215,30 @@ function domainError(requestId: string, error: DomainApplicationFailure): Respon
   const rem = Object.getOwnPropertyDescriptors(remediation); if (rem.kind?.value !== "message" || typeof rem.message?.value !== "string") return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   const status = authoringErrorStatuses(code)?.[0];
   if (status === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const body = { contract: "authoring-error/v1" as const, requestId, code, owner, subjectIds, remediation: { kind: "message" as const, message: rem.message.value }, ...(restoreCommands === undefined ? {} : { restoreCommands }) };
+  const safe = { requestId, code, owner, subjectIds, remediation: { kind: "message" as const, message: rem.message.value } };
+  const specialized = mediaError(safe, descriptor);
+  if (specialized !== undefined) return response(specialized, status);
+  const body = { contract: "authoring-error/v1" as const, ...safe, ...(restoreCommands === undefined ? {} : { restoreCommands }) };
   return authoringErrorSchema.safeParse(body).success ? response(body, status) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+}
+
+/**
+ * 兩個 Media failure 必須投影它們的 remediation evidence；evidence 缺失或不符 strict schema 時
+ * 退回 redacted `authoring-error/v1`（同一 status），不得以 generic 500 抹掉安全的 Media error。
+ */
+function mediaError(
+  safe: Readonly<{ requestId: string; code: string; owner: string; subjectIds: readonly string[]; remediation: MessageRemediation }>,
+  descriptor: Readonly<Record<string, PropertyDescriptor>>,
+): MediaArchiveBlockedErrorDto | MediaRestoreRequiredErrorDto | undefined {
+  if (safe.code === "MEDIA_ARCHIVE_BLOCKED_PUBLISHED") {
+    const parsed = mediaArchiveBlockedErrorSchema.safeParse({ contract: "media-archive-blocked/v1", ...safe, archiveImpact: descriptor.archiveImpact?.value });
+    return parsed.success ? parsed.data : undefined;
+  }
+  if (safe.code === "MEDIA_RESTORE_REQUIRED") {
+    const parsed = mediaRestoreRequiredErrorSchema.safeParse({ contract: "media-restore-required/v1", ...safe, restoreCommands: descriptor.restoreCommands?.value });
+    return parsed.success ? parsed.data : undefined;
+  }
+  return undefined;
 }
 function saveSuccess(value: SaveRevisionSuccess): SaveRevisionSuccessDto { return {
   contract: "save-revision-success/v1", entryId: value.revision.identity.entryId,
@@ -324,6 +374,50 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
       return bootstrapSecretResponse(dto, 200);
     } finally { admission.value.dispose(); }
   });
+  app.get("/v1/media", async (context) => authenticatedRead(context, input, async (requestId) => {
+    const result = await input.domainApplication.listMedia();
+    return result.ok && mediaCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/media/import", async (context) => authenticatedJson(context, input, MEDIA_BYTES_BODY_LIMIT, "Media import request 不得超過 4 MiB。", async (requestId, _entryId, body) => {
+    const parsed = mediaImportRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    if (mediaBytesTooLarge(parsed.data.bytesBase64url) || mediaEnvelopeTooLarge({ ...parsed.data, bytesBase64url: undefined })) return errorResponse(requestId, "REQUEST_BODY_TOO_LARGE", 400, "AuthoringApi", MEDIA_ENVELOPE_REMEDIATION);
+    const bytes = decodeCanonicalBase64url(parsed.data.bytesBase64url);
+    if (bytes === undefined) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.importMedia({ importId: parsed.data.importId, assetId: parsed.data.assetId, assetVersionId: parsed.data.assetVersionId, bytes, metadata: parsed.data.metadata as JsonValue } satisfies ImportMediaRequest);
+    return result.ok && mediaAssetDetailSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/media/:assetId/versions", async (context) => authenticatedJson(context, input, MEDIA_BYTES_BODY_LIMIT, "Media version request 不得超過 4 MiB。", async (requestId, _entryId, body) => {
+    const parsed = mediaVersionRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    if (mediaBytesTooLarge(parsed.data.import.bytesBase64url) || mediaEnvelopeTooLarge({ ...parsed.data, import: { ...parsed.data.import, bytesBase64url: undefined } })) return errorResponse(requestId, "REQUEST_BODY_TOO_LARGE", 400, "AuthoringApi", MEDIA_ENVELOPE_REMEDIATION);
+    if (parsed.data.replacement.targetAssetVersion.assetId !== (context.req.param("assetId") ?? "") || parsed.data.import.assetVersionId === parsed.data.replacement.targetAssetVersion.assetVersionId) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const bytes = decodeCanonicalBase64url(parsed.data.import.bytesBase64url);
+    if (bytes === undefined) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.createMediaVersion({ importId: parsed.data.import.importId, assetId: context.req.param("assetId") ?? "", assetVersionId: parsed.data.import.assetVersionId, bytes, metadata: parsed.data.import.metadata as JsonValue, replacement: { ...parsed.data.replacement, targetAssetVersionId: parsed.data.replacement.targetAssetVersion.assetVersionId } });
+    if (!result.ok) return domainError(requestId, result.error);
+    const receipt = { contract: "media-version-replacement-receipt/v1" as const, version: result.value.version, save: saveSuccess(result.value.save), asset: result.value.asset };
+    return mediaVersionReplacementReceiptSchema.safeParse(receipt).success ? response(receipt, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+  }));
+  app.get("/v1/media/:assetId", async (context) => authenticatedRead(context, input, async (requestId) => {
+    const result = await input.domainApplication.getMedia({ assetId: context.req.param("assetId") ?? "" });
+    return result.ok && mediaAssetDetailSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/media/:assetId/archive", async (context) => authenticatedJson(context, input, 4_096, "Media archive request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
+    const parsed = mediaArchiveRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.archiveMediaVersion({ assetId: context.req.param("assetId") ?? "", assetVersionId: parsed.data.assetVersionId });
+    return result.ok && mediaAssetDetailSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/media/:assetId/restore", async (context) => authenticatedJson(context, input, MEDIA_BYTES_BODY_LIMIT, "Media restore request 不得超過 4 MiB。", async (requestId, _entryId, body) => {
+    const parsed = mediaRestoreRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    if (mediaBytesTooLarge(parsed.data.recovery?.bytesBase64url ?? "") || mediaEnvelopeTooLarge({ ...parsed.data, recovery: parsed.data.recovery === undefined ? undefined : { ...parsed.data.recovery, bytesBase64url: undefined } })) return errorResponse(requestId, "REQUEST_BODY_TOO_LARGE", 400, "AuthoringApi", MEDIA_ENVELOPE_REMEDIATION);
+    const bytes = parsed.data.recovery === undefined ? undefined : decodeCanonicalBase64url(parsed.data.recovery.bytesBase64url);
+    if (parsed.data.recovery !== undefined && bytes === undefined) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.restoreMediaVersion({ assetId: context.req.param("assetId") ?? "", assetVersionId: parsed.data.assetVersionId, ...(parsed.data.recovery === undefined ? {} : { recovery: { bytes: bytes as Uint8Array, metadata: parsed.data.recovery.metadata as JsonValue } }) });
+    return result.ok && mediaAssetDetailSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
   app.get("/v1/plugins", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.domainApplication.listPlugins();
     return result.ok && pluginManagementSnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);

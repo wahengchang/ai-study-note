@@ -1,9 +1,9 @@
 ---
 id: WI-046
-status: pending
+status: done
 title: Media library/import
-work_group: null
-depends_on: []
+work_group: WG-036
+depends_on: ["WI-067"]
 ---
 
 # Media library/import
@@ -15,4 +15,4 @@ depends_on: []
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #286；由 #241 planning parent 建立，status：planned。
+GitHub #286；由 #241 planning parent 建立。依 Cycle 的 Media continuous-delivery exception，以 PR #359 的 `feature/media-transport-contract` 作 stacked base；本 Work Group 完成/開啟 PR 後，WI-047 可依同一例外續行。

@@ -10,7 +10,12 @@ const AUTHORING_RESOURCE_ID_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9._~-]+$/u;
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const jsonContent = z.unknown().refine((value) => value !== undefined);
 const schemaIdentitySchema = z.object({ schemaId: z.string(), version: z.number().int().safe().positive() }).strict();
-const authoringErrorSchema = z.object({ contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string(), owner: z.string(), subjectIds: z.array(z.string()), remediation: z.object({ kind: z.literal("message"), message: z.string() }).strict() }).strict();
+const remediationSchema = z.object({ kind: z.literal("message"), message: z.string() }).strict();
+const authoringErrorSchema = z.object({ contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string(), owner: z.string(), subjectIds: z.array(z.string()), remediation: remediationSchema }).strict();
+const mediaReferenceSchema = z.object({ entryId: z.string(), revisionId: z.string(), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict();
+const restoreAssetCommandSchema = z.object({ contract: z.literal("restore-asset-command/v1"), command: z.literal("RestoreAsset"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), recovery: z.enum(["none", "local-bytes-and-metadata"]) }).strict();
+const mediaArchiveBlockedErrorSchema = z.object({ contract: z.literal("media-archive-blocked/v1"), requestId: z.string(), code: z.literal("MEDIA_ARCHIVE_BLOCKED_PUBLISHED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, archiveImpact: z.object({ contract: z.literal("archive-asset-impact/v1"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), publishedReferences: z.array(mediaReferenceSchema) }).strict() }).strict();
+const mediaRestoreRequiredErrorSchema = z.object({ contract: z.literal("media-restore-required/v1"), requestId: z.string(), code: z.literal("MEDIA_RESTORE_REQUIRED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, restoreCommands: z.array(restoreAssetCommandSchema) }).strict();
 const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: z.unknown(), stateDigest: digestSchema }).strict();
 const contentTypeSchema = z.object({ contract: z.literal("content-type/v1"), schemaIdentity: schemaIdentitySchema, schema: jsonContent, schemaDigest: digestSchema }).strict();
 const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSchema), stateDigest: digestSchema }).strict();
@@ -22,6 +27,11 @@ const taxonomyCatalogSchema = z.object({ contract: z.literal("taxonomy-catalog/v
 const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string().url(), indexing: z.enum(["allow", "disallow"]) }).strict();
 const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: digestSchema, capabilities: z.array(z.string()) }).strict();
 const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: digestSchema, settingsStateDigest: digestSchema, plugins: z.array(z.object({ identity: pluginIdentitySchema, status: z.enum(["inactive", "active", "reactivation-required"]), settings: z.object({ settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema, settingsDigest: digestSchema }).strict().optional() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
+const mediaAssetVersionSchema = z.object({ contract: z.literal("media-asset-version/v1"), identity: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), evidence: z.object({ objectDigest: digestSchema, byteLength: z.number().int().nonnegative(), metadataDigest: digestSchema }).strict(), availability: z.enum(["ready", "archived", "missing"]), restoreCommand: z.object({ contract: z.literal("restore-asset-command/v1"), command: z.literal("RestoreAsset"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), recovery: z.enum(["none", "local-bytes-and-metadata"]) }).strict().optional() }).strict();
+const mediaAssetSchema = z.object({ contract: z.literal("media-asset/v1"), assetId: z.string(), versions: z.array(mediaAssetVersionSchema) }).strict();
+const mediaCatalogSchema = z.object({ contract: z.literal("media-catalog/v1"), items: z.array(mediaAssetSchema), stateDigest: digestSchema }).strict();
+const mediaAssetDetailSchema = z.object({ contract: z.literal("media-asset-detail/v1"), asset: mediaAssetSchema, references: z.object({ current: z.array(z.object({ entryId: z.string(), revisionId: z.string(), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict()), published: z.array(z.object({ entryId: z.string(), revisionId: z.string(), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict()) }).strict(), stateDigest: digestSchema }).strict();
+const mediaVersionReplacementReceiptSchema = z.object({ contract: z.literal("media-version-replacement-receipt/v1"), version: mediaAssetVersionSchema, save: z.object({ contract: z.literal("save-revision-success/v1"), entryId: z.string(), pointer: z.object({ currentRevisionId: z.string(), publishedRevisionId: z.string().optional() }).strict() }).passthrough(), asset: mediaAssetDetailSchema }).strict();
 const cmsSeoAnalysisResponseSchema = z.object({ contract: z.literal("cms-seo-analysis-response/v1"), documentDigest: digestSchema, status: z.enum(["available", "unavailable"]), preview: z.object({ title: z.string(), description: z.string().optional(), canonicalUrl: z.string().url().optional() }).strict().optional(), suggestions: z.array(z.object({ code: z.string() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
 const previewDocumentSchema = z.object({ contract: z.literal("preview-document/v1"), selection: z.enum(["current", "published"]), subject: z.object({ entryId: z.string() }).strict(), revisionId: z.string(), contentDigest: digestSchema, document: z.string() }).strict();
 const interactiveDemoBlockSchema = z.object({
@@ -53,6 +63,9 @@ type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
 type TaxonomySnapshotDto = Readonly<z.infer<typeof taxonomySnapshotSchema>>;
 type TaxonomyCatalogDto = Readonly<z.infer<typeof taxonomyCatalogSchema>>;
 type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
+type MediaCatalogDto = Readonly<z.infer<typeof mediaCatalogSchema>>;
+type MediaVersionReplacementReceiptDto = Readonly<z.infer<typeof mediaVersionReplacementReceiptSchema>>;
+type MediaAssetDetailDto = Readonly<z.infer<typeof mediaAssetDetailSchema>>;
 type StructuredBlock = StructuredContent["blocks"][number];
 type InteractiveDemoBlock = Extract<StructuredBlock, Readonly<{ kind: "interactive-demo" }>>;
 
@@ -113,6 +126,12 @@ function isValidDocument(document: NormalizedDocument): boolean {
   return article !== undefined && document.content.title.trim() !== "" && document.route !== "/" && document.route.startsWith("/") && article.text.trim() !== "";
 }
 
+function base64url(bytes: Uint8Array): string {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+}
+
 function slugify(title: string): string {
   return title.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/gu, "");
 }
@@ -122,8 +141,23 @@ class CmsApiClient {
   constructor(private readonly session: AuthoringSession) {}
 
   listEntries(): Promise<EntryCatalogDto> { return this.json("/v1/entries", entryCatalogSchema); }
+  media(): Promise<MediaCatalogDto> { return this.json("/v1/media", mediaCatalogSchema); }
+  mediaDetail(assetId: string): Promise<MediaAssetDetailDto> { return this.json(`/v1/media/${this.resourceId(assetId)}`, mediaAssetDetailSchema); }
+  async importMedia(assetId: string, assetVersionId: string, file: File, metadata: unknown): Promise<MediaAssetDetailDto> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return this.json("/v1/media/import", mediaAssetDetailSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-import-request/v1", importId: crypto.randomUUID(), assetId: this.resourceId(assetId), assetVersionId: this.resourceId(assetVersionId), bytesBase64url: base64url(bytes), metadata }) });
+  }
+  async replaceMedia(assetId: string, targetAssetVersionId: string, reference: Readonly<{ entryId: string; revisionId: string }>, file: File, metadata: unknown): Promise<MediaVersionReplacementReceiptDto> {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    return this.json(`/v1/media/${this.resourceId(assetId)}/versions`, mediaVersionReplacementReceiptSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: crypto.randomUUID(), assetVersionId: crypto.randomUUID(), bytesBase64url: base64url(bytes), metadata }, replacement: { entryId: this.resourceId(reference.entryId), revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: this.resourceId(reference.revisionId), targetAssetVersion: { assetId: this.resourceId(assetId), assetVersionId: this.resourceId(targetAssetVersionId) } } }) });
+  }
   contentTypes(): Promise<ContentTypeCatalogDto> { return this.json("/v1/content-types", contentTypeCatalogSchema); }
   createContentType(schemaId: string, schema: unknown): Promise<ContentTypeDto> { return this.json("/v1/content-types", contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "create-content-type-request/v1", schemaId: this.resourceId(schemaId), schema }) }); }
+  archiveMedia(assetId: string, assetVersionId: string): Promise<MediaAssetDetailDto> { return this.json(`/v1/media/${this.resourceId(assetId)}/archive`, mediaAssetDetailSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: this.resourceId(assetVersionId) }) }); }
+  async restoreMedia(assetId: string, assetVersionId: string, recovery?: Readonly<{ file: File; metadata: unknown }>): Promise<MediaAssetDetailDto> {
+    const bytes = recovery === undefined ? undefined : new Uint8Array(await recovery.file.arrayBuffer());
+    return this.json(`/v1/media/${this.resourceId(assetId)}/restore`, mediaAssetDetailSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: this.resourceId(assetVersionId), ...(recovery === undefined ? {} : { recovery: { bytesBase64url: base64url(bytes as Uint8Array), metadata: recovery.metadata } }) }) });
+  }
   taxonomies(): Promise<TaxonomyCatalogDto> { return this.json("/v1/taxonomies", taxonomyCatalogSchema); }
   createTaxonomy(taxonomyId: string, label: string): Promise<TaxonomySnapshotDto> { return this.json("/v1/taxonomies", taxonomySnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "taxonomy-create-request/v1", taxonomyId: this.resourceId(taxonomyId), label }) }); }
   taxonomy(taxonomyId: string): Promise<TaxonomySnapshotDto> { return this.json(`/v1/taxonomies/${this.resourceId(taxonomyId)}`, taxonomySnapshotSchema); }
@@ -134,7 +168,7 @@ class CmsApiClient {
   activate(body: Record<string, unknown>): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins/activate", pluginManagementSnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   analyze(entryId: string, body: Record<string, unknown>): Promise<CmsSeoAnalysisResponseDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/seo-analysis`, cmsSeoAnalysisResponseSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   save(entryId: string, baseline: string | null, document: NormalizedDocument, taxonomyTerms: readonly TaxonomyTermIdentity[]): Promise<unknown> {
-    return this.json(`/v1/entries/${this.resourceId(entryId)}/revisions`, saveRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "save-revision-request/v1", revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: baseline, schemaIdentity: { schemaId: "site-content", version: 1 }, content: document.content, route: document.route, assetVersions: [], taxonomyTerms: taxonomyTerms.map(({ taxonomyId, termId }) => ({ taxonomyId, termId })) }) });
+    return this.json(`/v1/entries/${this.resourceId(entryId)}/revisions`, saveRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "save-revision-request/v1", revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: baseline, schemaIdentity: { schemaId: "site-content", version: 1 }, content: document.content, route: document.route, assetVersions: [], taxonomyTerms }) });
   }
   publish(entryId: string, baseline: string): Promise<unknown> {
     return this.json(`/v1/entries/${this.resourceId(entryId)}/publish`, publishRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: baseline, operationId: crypto.randomUUID() }) });
@@ -154,6 +188,10 @@ class CmsApiClient {
     if (!response.ok) {
       const error = authoringErrorSchema.safeParse(value);
       if (error.success) throw new CmsApiError(error.data.code, response.status, error.data.remediation.message);
+      const blocked = mediaArchiveBlockedErrorSchema.safeParse(value);
+      if (blocked.success) throw new CmsApiError(blocked.data.code, response.status, `${blocked.data.remediation.message}目前引用：${blocked.data.archiveImpact.publishedReferences.map((reference) => `${reference.entryId} / ${reference.revisionId}`).join("、")}`);
+      const required = mediaRestoreRequiredErrorSchema.safeParse(value);
+      if (required.success) throw new CmsApiError(required.data.code, response.status, required.data.restoreCommands.some((command) => command.recovery === "local-bytes-and-metadata") ? `${required.data.remediation.message}請使用下方的「以本機 bytes 復原」表單。` : required.data.remediation.message);
       throw new CmsApiError("CMS_RESPONSE_INVALID", response.status, "CMS response 無法驗證。");
     }
     if (schema === undefined) return value as T;
@@ -184,7 +222,7 @@ function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): Rea
 }
 
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -322,6 +360,91 @@ function TaxonomyDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
   if (snapshot === undefined) return <Layout><PageHeading>分類詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入分類。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
   const createdTaxonomyId = typeof state === "object" && state !== null && "createdTaxonomyId" in state && typeof state.createdTaxonomyId === "string" ? state.createdTaxonomyId : undefined;
   return <Layout><PageHeading>分類：{snapshot.taxonomy.label}</PageHeading>{createdTaxonomyId === snapshot.taxonomy.taxonomyId && <p role="status" aria-live="polite" aria-atomic="true">已建立分類。</p>}<dl><dt>Taxonomy ID</dt><dd>{snapshot.taxonomy.taxonomyId}</dd></dl><section aria-labelledby="taxonomy-terms"><h2 id="taxonomy-terms">Terms</h2>{snapshot.terms.length === 0 ? <p>尚無 term。</p> : <table><caption>所有 terms</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">順序</th><th scope="col">狀態</th></tr></thead><tbody>{snapshot.terms.map((term) => <tr key={term.termId}><td>{term.label}</td><td>{term.slug}</td><td>{term.order}</td><td>{term.state === "live" ? "使用中" : "已停用"}</td></tr>)}</tbody></table>}</section></Layout>;
+}
+
+function MediaList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const [catalog, setCatalog] = useState<MediaCatalogDto>();
+  const [error, setError] = useState<string>();
+  const load = useCallback(() => { setCatalog(undefined); setError(undefined); void api.media().then(setCatalog).catch((reason: unknown) => setError(message(reason))); }, [api]);
+  useEffect(load, [load]);
+  if (catalog === undefined) return <Layout><PageHeading>媒體庫</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入媒體庫。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  return <Layout><PageHeading>媒體庫</PageHeading><p><Link className="action-link" to="/cms/media/import">匯入媒體</Link></p>{catalog.items.length === 0 ? <p>尚無媒體。<Link to="/cms/media/import">匯入第一個媒體檔案</Link></p> : <table><caption>所有媒體 asset</caption><thead><tr><th scope="col">Asset ID</th><th scope="col">版本</th><th scope="col">可用性</th></tr></thead><tbody>{catalog.items.map((asset) => <tr key={asset.assetId}><td><Link to={`/cms/media/${asset.assetId}`}>{asset.assetId}</Link></td><td>{asset.versions.length}</td><td>{asset.versions.map((version) => version.availability).join("、")}</td></tr>)}</tbody></table>}</Layout>;
+}
+
+function MediaImport({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const navigate = useNavigate();
+  const [assetId, setAssetId] = useState("");
+  const [assetVersionId, setAssetVersionId] = useState("");
+  const [metadata, setMetadata] = useState("{\n  \"mime\": \"application/octet-stream\"\n}");
+  const [file, setFile] = useState<File>();
+  const [error, setError] = useState<string>();
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<"assetId" | "assetVersionId" | "file" | "metadata", string | undefined>>>({ assetId: undefined, assetVersionId: undefined, file: undefined, metadata: undefined });
+  const [busy, setBusy] = useState(false);
+  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault(); setError(undefined);
+    const next: Record<"assetId" | "assetVersionId" | "file" | "metadata", string | undefined> = { assetId: undefined, assetVersionId: undefined, file: undefined, metadata: undefined };
+    if (!AUTHORING_RESOURCE_ID_PATTERN.test(assetId)) next.assetId = "Asset ID 只能使用英數字、句點、底線、連字號或波浪號。";
+    if (!AUTHORING_RESOURCE_ID_PATTERN.test(assetVersionId)) next.assetVersionId = "Version ID 只能使用英數字、句點、底線、連字號或波浪號。";
+    if (file === undefined) next.file = "請選擇媒體檔案。";
+    let parsedMetadata: unknown = undefined;
+    try { parsedMetadata = JSON.parse(metadata); } catch { next.metadata = "請輸入有效 JSON metadata。"; }
+    setFieldErrors(next);
+    if (Object.values(next).some((value) => value !== undefined) || file === undefined) return;
+    setBusy(true);
+    try { const detail = await api.importMedia(assetId, assetVersionId, file, parsedMetadata); navigate(`/cms/media/${detail.asset.assetId}`, { state: { imported: assetVersionId } }); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+  };
+  return <Layout><PageHeading>匯入媒體</PageHeading><form noValidate aria-label="媒體匯入" aria-busy={busy} onSubmit={(event) => void submit(event)}><label htmlFor="media-asset-id">Asset ID<input id="media-asset-id" required aria-invalid={fieldErrors.assetId !== undefined} aria-describedby={fieldErrors.assetId === undefined ? undefined : "media-asset-id-error"} value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={busy} /></label>{fieldErrors.assetId !== undefined && <p id="media-asset-id-error" role="alert">{fieldErrors.assetId}</p>}<label htmlFor="media-version-id">Version ID<input id="media-version-id" required aria-invalid={fieldErrors.assetVersionId !== undefined} aria-describedby={fieldErrors.assetVersionId === undefined ? undefined : "media-version-id-error"} value={assetVersionId} onChange={(event) => setAssetVersionId(event.target.value)} disabled={busy} /></label>{fieldErrors.assetVersionId !== undefined && <p id="media-version-id-error" role="alert">{fieldErrors.assetVersionId}</p>}<label htmlFor="media-file">媒體檔案<input id="media-file" type="file" required aria-invalid={fieldErrors.file !== undefined} aria-describedby={fieldErrors.file === undefined ? undefined : "media-file-error"} onChange={(event) => setFile(event.currentTarget.files?.[0])} disabled={busy} /></label>{fieldErrors.file !== undefined && <p id="media-file-error" role="alert">{fieldErrors.file}</p>}<label htmlFor="media-metadata">Metadata JSON<textarea id="media-metadata" required aria-invalid={fieldErrors.metadata !== undefined} aria-describedby={fieldErrors.metadata === undefined ? undefined : "media-metadata-error"} value={metadata} onChange={(event) => setMetadata(event.target.value)} disabled={busy} /></label>{fieldErrors.metadata !== undefined && <p id="media-metadata-error" role="alert">{fieldErrors.metadata}</p>}<p role="status" aria-live="polite" aria-atomic="true">{busy ? "正在匯入。" : ""}</p>{error !== undefined && <p role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? "正在匯入…" : "匯入媒體"}</button></form></Layout>;
+}
+function MediaReplacement({ api, assetId, detail, onResult }: Readonly<{ api: CmsApiClient; assetId: string; detail: MediaAssetDetailDto; onResult: (detail: MediaAssetDetailDto) => void }>): React.JSX.Element | null {
+  const candidates = detail.references.current.filter((reference) => reference.assetVersion.assetId === assetId);
+  const [target, setTarget] = useState(candidates[0]?.assetVersion.assetVersionId ?? "");
+  const [file, setFile] = useState<File>();
+  const [metadata, setMetadata] = useState("{\"mime\":\"application/octet-stream\"}");
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  if (candidates.length === 0) return null;
+  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault(); setError(undefined);
+    if (file === undefined || !window.confirm("這會建立新的 current revision；已發布 revision 不會變更。是否繼續？")) return;
+    let parsed: unknown; try { parsed = JSON.parse(metadata); } catch { setError("請輸入有效 JSON metadata。"); return; }
+    const reference = candidates.find((item) => item.assetVersion.assetVersionId === target);
+    if (reference === undefined) { setError("找不到 current media reference。"); return; }
+    setBusy(true);
+    try { onResult((await api.replaceMedia(assetId, target, { entryId: reference.entryId, revisionId: reference.revisionId }, file, parsed)).asset); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+  };
+  return <section aria-labelledby="media-replacement-heading"><h2 id="media-replacement-heading">替換目前引用</h2><p>此操作會建立新 current revision；published revision 保持不變。</p><form aria-label="媒體版本替換" onSubmit={(event) => void submit(event)}><label htmlFor="media-replacement-target">目標版本<select id="media-replacement-target" value={target} onChange={(event) => setTarget(event.target.value)} disabled={busy}>{candidates.map((reference) => <option key={`${reference.entryId}:${reference.revisionId}:${reference.assetVersion.assetVersionId}`} value={reference.assetVersion.assetVersionId}>{reference.entryId} / {reference.assetVersion.assetVersionId}</option>)}</select></label><label htmlFor="media-replacement-file">替換檔案<input id="media-replacement-file" type="file" required onChange={(event) => setFile(event.currentTarget.files?.[0])} disabled={busy} /></label><label htmlFor="media-replacement-metadata">替換 metadata JSON<textarea id="media-replacement-metadata" value={metadata} onChange={(event) => setMetadata(event.target.value)} disabled={busy} /></label>{error !== undefined && <p role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? "正在替換…" : "建立 replacement version"}</button></form></section>;
+}
+
+function MediaRecovery({ api, assetId, detail, onResult }: Readonly<{ api: CmsApiClient; assetId: string; detail: MediaAssetDetailDto; onResult: (detail: MediaAssetDetailDto) => void }>): React.JSX.Element | null {
+  const candidates = detail.asset.versions.filter((version) => version.restoreCommand?.recovery === "local-bytes-and-metadata");
+  const [versionId, setVersionId] = useState(candidates[0]?.identity.assetVersionId ?? "");
+  const [file, setFile] = useState<File>();
+  const [metadata, setMetadata] = useState("{\"mime\":\"application/octet-stream\"}");
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  if (candidates.length === 0) return null;
+  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault(); setError(undefined);
+    if (file === undefined) { setError("請選擇原始媒體 bytes。"); return; }
+    let parsed: unknown; try { parsed = JSON.parse(metadata); } catch { setError("請輸入有效 JSON metadata。"); return; }
+    setBusy(true);
+    try { onResult(await api.restoreMedia(assetId, versionId, { file, metadata: parsed })); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+  };
+  return <section aria-labelledby="media-recovery-heading"><h2 id="media-recovery-heading">以本機 bytes 復原</h2><form aria-label="媒體復原 bytes" onSubmit={(event) => void submit(event)}><label htmlFor="media-recovery-target">封存版本<select id="media-recovery-target" value={versionId} onChange={(event) => setVersionId(event.target.value)} disabled={busy}>{candidates.map((version) => <option key={version.identity.assetVersionId} value={version.identity.assetVersionId}>{version.identity.assetVersionId}</option>)}</select></label><label htmlFor="media-recovery-file">復原檔案<input id="media-recovery-file" type="file" required onChange={(event) => setFile(event.currentTarget.files?.[0])} disabled={busy} /></label><label htmlFor="media-recovery-metadata">復原 metadata JSON<textarea id="media-recovery-metadata" value={metadata} onChange={(event) => setMetadata(event.target.value)} disabled={busy} /></label>{error !== undefined && <p role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? "正在復原…" : "使用本機 bytes 復原"}</button></form></section>;
+}
+
+function MediaDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const { assetId } = useParams();
+  const { state } = useLocation();
+  const [detail, setDetail] = useState<MediaAssetDetailDto>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState<string>();
+  const load = useCallback(() => { if (assetId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(assetId)) { setError("找不到媒體 asset。"); return; } setDetail(undefined); setError(undefined); void api.mediaDetail(assetId).then(setDetail).catch((reason: unknown) => setError(reason instanceof CmsApiError && reason.status === 404 ? "找不到媒體 asset。" : message(reason))); }, [api, assetId]);
+  useEffect(load, [load]);
+  const command = async (versionId: string, kind: "archive" | "restore"): Promise<void> => { if (assetId === undefined) return; if (!window.confirm(kind === "archive" ? "封存後可能需要 recovery bytes 才能復原。是否繼續？" : "是否復原此媒體版本？")) return; setBusy(`${kind}:${versionId}`); setError(undefined); try { setDetail(kind === "archive" ? await api.archiveMedia(assetId, versionId) : await api.restoreMedia(assetId, versionId)); } catch (reason) { setError(message(reason)); } finally { setBusy(undefined); } };
+  if (detail === undefined) return <Layout><PageHeading>媒體詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入媒體。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  const imported = typeof state === "object" && state !== null && "imported" in state && typeof state.imported === "string" ? state.imported : undefined;
+  return <Layout><PageHeading>媒體：{detail.asset.assetId}</PageHeading>{imported !== undefined && <p role="status" aria-live="polite">已匯入 version：{imported}</p>}{error !== undefined && <p role="alert">{error}</p>}<table><caption>Asset versions</caption><thead><tr><th scope="col">Version</th><th scope="col">可用性</th><th scope="col">大小</th><th scope="col">動作</th></tr></thead><tbody>{detail.asset.versions.map((version) => <tr key={version.identity.assetVersionId}><td>{version.identity.assetVersionId}</td><td>{version.availability}</td><td>{version.evidence.byteLength}</td><td>{version.availability === "ready" ? <button type="button" disabled={busy !== undefined} onClick={() => void command(version.identity.assetVersionId, "archive")}>封存</button> : version.restoreCommand?.recovery === "none" ? <button type="button" disabled={busy !== undefined} onClick={() => void command(version.identity.assetVersionId, "restore")}>復原</button> : <span>需要本機 recovery bytes。</span>}</td></tr>)}</tbody></table><MediaReplacement api={api} assetId={detail.asset.assetId} detail={detail} onResult={setDetail} /><MediaRecovery api={api} assetId={detail.asset.assetId} detail={detail} onResult={setDetail} /><h2>引用狀態</h2><p>Current：{detail.references.current.length}；Published：{detail.references.published.length}</p><p><Link to="/cms/media">返回媒體庫</Link></p></Layout>;
 }
 
 function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -638,7 +761,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
 }
 
 function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {

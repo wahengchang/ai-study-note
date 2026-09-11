@@ -10,8 +10,12 @@ import type {
   DataMediaResult,
   ImportLocalMediaInput,
   MediaEvidence,
+  MediaAssetDetailView,
+  MediaAssetView,
+  MediaAssetVersionView,
   MediaFinalCandidate,
   MediaFinalToken,
+  RevisionMediaReferenceView,
   MediaImportIntent,
   MediaObjectStore,
   MediaStageCandidate,
@@ -32,8 +36,11 @@ const messages: Readonly<Record<DataMediaFailureCode, string>> = {
   MEDIA_FINAL_VERIFICATION_FAILURE: "Host 最終 media object 驗證失敗。",
   MEDIA_READY_COMMIT_FAILURE: "Media asset version 尚未提交為 ready。",
   MEDIA_VERSION_UNAVAILABLE: "指定的 media asset version 尚不可用。",
+  MEDIA_ASSET_NOT_FOUND: "找不到指定的 media asset。",
   MEDIA_ARCHIVE_BLOCKED_PUBLISHED: "仍被已發布內容引用，無法封存此媒體版本。",
   MEDIA_ARCHIVE_FAILURE: "Media asset version 尚未完成封存。",
+  MEDIA_READ_STATE_STALE: "Media 讀取期間狀態已變更，請重試。",
+  MEDIA_READ_FAILED: "Media 讀取無法驗證，請修復儲存狀態後重試。",
   MEDIA_RESTORE_REQUIRED: "請提供符合既有 evidence 的本機 recovery bytes 與 metadata。",
   MEDIA_RESTORE_MISMATCH: "Recovery bytes 或 metadata 與既有 asset version 不一致。",
   MEDIA_RESTORE_FAILURE: "Media asset version 尚未完成復原。",
@@ -46,7 +53,7 @@ export function startDataMedia({ persistence, objectStore }: Readonly<{ persiste
   const first = persistence.readMediaStartupSnapshot(); if (!first.ok) return reconciliationFailure(["media-startup-snapshot"]);
   const storage = objectStore.readStartupSnapshot(); if (!storage.ok) return reconciliationFailure(["media-storage-snapshot"]);
   const failures = new Set<string>();
-  const subject = (intent: MediaImportIntent): void => { failures.add(intent.importId); addSubjects(failures, intent.identity); };
+  const subject = (intent: MediaImportIntent): void => { addSubjects(failures, intent.identity); };
   const finals = new Map<string, MediaFinalCandidate>(); for (const final of storage.value.finals) finals.set(final.key, final);
   const stages = new Map<string, MediaStageCandidate>(); for (const stage of storage.value.stages) stages.set(stage.key, stage);
   const demoted = new Set<string>();
@@ -85,7 +92,7 @@ export function startDataMedia({ persistence, objectStore }: Readonly<{ persiste
   if (failures.size > 0) return reconciliationFailure([...failures]);
   const fresh = persistence.readMediaStartupSnapshot(); if (!fresh.ok) return reconciliationFailure(["media-startup-snapshot"]);
   const freshStorage = objectStore.readStartupSnapshot(); if (!freshStorage.ok) return reconciliationFailure(["media-storage-snapshot"]);
-  if (fresh.value.pendingIntents.length !== 0) return reconciliationFailure(fresh.value.pendingIntents.map((intent) => intent.importId));
+  if (fresh.value.pendingIntents.length !== 0) return reconciliationFailure(fresh.value.pendingIntents.flatMap((intent) => identitySubjects(intent.identity)));
   const unhealthy = unhealthyVersions(fresh.value.assetVersions, freshStorage.value.finals, objectStore);
   if (unhealthy.length > 0) return reconciliationFailure(unhealthy);
   const protectedFinals = new Set(fresh.value.assetVersions.map((version) => version.objectDigest));
@@ -93,13 +100,13 @@ export function startDataMedia({ persistence, objectStore }: Readonly<{ persiste
     ...freshStorage.value.stages.filter((candidate) => candidate.hardlinkPair === undefined),
     ...freshStorage.value.finals.filter((candidate) => candidate.hardlinkPair === undefined && !protectedFinals.has(candidate.key)),
   ].sort((left, right) => compareCodeUnits(left.key, right.key));
-  for (const candidate of orphans) if (!objectStore.removeOrphan(candidate.token).ok) return reconciliationFailure([candidate.key]);
+  for (const candidate of orphans) if (!objectStore.removeOrphan(candidate.token).ok) return reconciliationFailure(["media-storage"]);
   // 收斂後只確認結構性後置條件：bytes 已於上一輪驗證，且 removeOrphan 只刪除未被引用且自身重新驗證過的檔案，
   // 無須再對整個媒體庫重跑一次 digest 驗證。
   const completedStorage = objectStore.readStartupSnapshot(); if (!completedStorage.ok) return reconciliationFailure(["media-storage-snapshot"]);
-  if (completedStorage.value.stages.length !== 0) return reconciliationFailure(completedStorage.value.stages.map((candidate) => candidate.key));
+  if (completedStorage.value.stages.length !== 0) return reconciliationFailure(["media-storage"]);
   const unbacked = completedStorage.value.finals.filter((candidate) => !protectedFinals.has(candidate.key)).map((candidate) => candidate.key);
-  if (unbacked.length > 0) return reconciliationFailure(unbacked);
+  if (unbacked.length > 0) return reconciliationFailure(["media-storage"]);
   return { ok: true, value: createDataMedia({ persistence, objectStore }) };
 }
 
@@ -193,8 +200,65 @@ function createDataMedia({ persistence, objectStore }: Readonly<{ persistence: D
     }
     return commands.length === 0 ? { ok: true, value: { contract: "restore-availability/v1", status: "ready", assets } } : { ok: true, value: { contract: "restore-availability/v1", status: "blocked", commands } };
   };
+  const listAssets = (): DataMediaResult<readonly MediaAssetView[]> => {
+    const beforeState = persistence.canonicalState(), beforeStorage = objectStore.readStartupSnapshot();
+    const snapshot = persistence.runReadSnapshot<readonly AssetVersionRecord[], "MEDIA_READ_FAILED">((read) => {
+      const records = read.listAssetVersions();
+      return records.ok ? { ok: true, value: records.value } : { ok: false, error: "MEDIA_READ_FAILED" };
+    });
+    if (!beforeState.ok || !beforeStorage.ok || !snapshot.ok) return fail("MEDIA_READ_FAILED");
+    const records = { ok: true as const, value: snapshot.value };
+    const grouped = new Map<string, MediaAssetVersionView[]>();
+    for (const record of records.value) {
+      if (!validMetadata(record)) return fail("MEDIA_READ_FAILED", identitySubjects(record.identity));
+      const final = objectStore.inspectFinal({ objectDigest: record.objectDigest, byteLength: record.byteLength });
+      if (!final.ok || final.value === "unhealthy") return fail("MEDIA_READ_FAILED", identitySubjects(record.identity));
+      const availability = final.value === "absent" ? "missing" : record.availability;
+      const version: MediaAssetVersionView = { contract: "media-asset-version/v1", identity: { ...record.identity }, evidence: { objectDigest: record.objectDigest, byteLength: record.byteLength, metadataDigest: record.metadataDigest }, availability, ...(availability === "ready" ? {} : { restoreCommand: command(record.identity, final.value === "absent" ? "local-bytes-and-metadata" : "none") }) };
+      const versions = grouped.get(record.identity.assetId); if (versions === undefined) grouped.set(record.identity.assetId, [version]); else versions.push(version);
+    }
+    const afterState = persistence.canonicalState(), afterStorage = objectStore.readStartupSnapshot();
+    if (!afterState.ok || !afterStorage.ok) return fail("MEDIA_READ_FAILED");
+    if (beforeState.value.digest !== afterState.value.digest || beforeStorage.value.digest !== afterStorage.value.digest) return fail("MEDIA_READ_STATE_STALE");
+    return { ok: true, value: [...grouped].sort(([left], [right]) => compareCodeUnits(left, right)).map(([assetId, versions]) => ({ contract: "media-asset/v1", assetId, versions: versions.sort((left, right) => compareCodeUnits(left.identity.assetVersionId, right.identity.assetVersionId)) })) };
+  };
+  const assetDetail = (assetId: string): DataMediaResult<MediaAssetDetailView> => {
+    if (!validText(assetId)) return fail("INVALID_MEDIA_INPUT");
+    const beforeState = persistence.canonicalState(), beforeStorage = objectStore.readStartupSnapshot();
+    if (!beforeState.ok || !beforeStorage.ok) return fail("MEDIA_READ_FAILED");
+    const snapshot = persistence.runReadSnapshot<Readonly<{ records: readonly AssetVersionRecord[]; current: readonly RevisionMediaReferenceView[]; published: readonly RevisionMediaReferenceView[] }>, "MEDIA_READ_FAILED">((read) => {
+      const listed = read.listAssetVersions();
+      if (!listed.ok) return { ok: false, error: "MEDIA_READ_FAILED" };
+      const records = listed.value.filter((record) => record.identity.assetId === assetId);
+      const current: RevisionMediaReferenceView[] = [], published: RevisionMediaReferenceView[] = [];
+      for (const record of records) {
+        const references = read.listAssetVersionReferences(record.identity);
+        if (!references.ok) return { ok: false, error: "MEDIA_READ_FAILED" };
+        current.push(...references.value.current); published.push(...references.value.published);
+      }
+      return { ok: true, value: { records, current, published } };
+    });
+    if (!snapshot.ok) return fail("MEDIA_READ_FAILED", [assetId]);
+    if (snapshot.value.records.length === 0) return fail("MEDIA_ASSET_NOT_FOUND", [assetId]);
+    const versions: MediaAssetVersionView[] = [];
+    for (const record of snapshot.value.records) {
+      if (!validMetadata(record)) return fail("MEDIA_READ_FAILED", identitySubjects(record.identity));
+      const final = objectStore.inspectFinal({ objectDigest: record.objectDigest, byteLength: record.byteLength });
+      if (!final.ok || final.value === "unhealthy") return fail("MEDIA_READ_FAILED", identitySubjects(record.identity));
+      const availability = final.value === "absent" ? "missing" : record.availability;
+      versions.push({ contract: "media-asset-version/v1", identity: { ...record.identity }, evidence: { objectDigest: record.objectDigest, byteLength: record.byteLength, metadataDigest: record.metadataDigest }, availability, ...(availability === "ready" ? {} : { restoreCommand: command(record.identity, final.value === "absent" ? "local-bytes-and-metadata" : "none") }) });
+    }
+    const asset: MediaAssetView = { contract: "media-asset/v1", assetId, versions: versions.sort((left, right) => compareCodeUnits(left.identity.assetVersionId, right.identity.assetVersionId)) };
+    const sortReferences = (left: RevisionMediaReferenceView, right: RevisionMediaReferenceView): number => compareCodeUnits(left.entryId, right.entryId) || compareCodeUnits(left.revisionId, right.revisionId) || compareIdentity(left.assetVersion, right.assetVersion);
+    const afterState = persistence.canonicalState(), afterStorage = objectStore.readStartupSnapshot();
+    if (!afterState.ok || !afterStorage.ok) return fail("MEDIA_READ_FAILED");
+    if (beforeState.value.digest !== afterState.value.digest || beforeStorage.value.digest !== afterStorage.value.digest) return fail("MEDIA_READ_STATE_STALE");
+    return { ok: true, value: { asset, references: { current: [...snapshot.value.current].sort(sortReferences), published: [...snapshot.value.published].sort(sortReferences) } } };
+  };
 
   return {
+    listAssets,
+    getAssetDetail: assetDetail,
     importLocal(input) {
       if (!validImport(input)) return fail("INVALID_MEDIA_INPUT");
       const metadata = canonicalJsonBytes(input.metadata);
@@ -207,12 +271,21 @@ function createDataMedia({ persistence, objectStore }: Readonly<{ persistence: D
         metadataBytes: copyBytes(metadata.value),
         metadataDigest: sha256Digest(metadata.value),
       };
+      const pending = persistence.hasPendingMediaImport(input.importId);
+      if (!pending.ok) return fail("MEDIA_PENDING_COMMIT_FAILURE");
+      if (pending.value) return fail("MEDIA_IMPORT_CONFLICT", identitySubjects(intent.identity));
       // 同一 asset version 的重送：既有 ready 紀錄與 bytes 都相符時直接回傳，避免重寫整份 staging bytes，
       // 也避免衝突的 import 在 commit 階段才失敗而留下無法收斂的 pending intent。
       const current = persistence.getAssetVersion(intent.identity);
       if (current.ok) return current.value.availability === "ready" && sameIntentEvidence(current.value, intent) && objectStore.verifyEvidence(evidence).ok ? { ok: true, value: cloneAsset(current.value) as ReadyAssetVersion } : fail("MEDIA_IMPORT_CONFLICT", identitySubjects(intent.identity));
       const staged = objectStore.stage({ importId: input.importId, bytes: copyBytes(input.bytes), evidence });
-      if (!staged.ok) return fail("MEDIA_STAGING_FAILURE");
+      if (!staged.ok) {
+        const collision = persistence.hasPendingMediaImport(input.importId);
+        const storage = objectStore.readStartupSnapshot();
+        return collision.ok && collision.value || storage.ok && storage.value.stages.some((stage) => stage.key === stageKey(input.importId))
+          ? fail("MEDIA_IMPORT_CONFLICT", identitySubjects(intent.identity))
+          : fail("MEDIA_STAGING_FAILURE");
+      }
       if (!persistence.createMediaImportIntent(intent).ok) return fail("MEDIA_PENDING_COMMIT_FAILURE");
       const final = objectStore.promote(staged.value, evidence);
       if (!final.ok) return fail("MEDIA_PROMOTION_FAILURE");
@@ -277,7 +350,7 @@ function createDataMedia({ persistence, objectStore }: Readonly<{ persistence: D
       // recovery bytes 一律以既有 immutable evidence 檢查，重送同一份 recovery 的重試不得因 object 已健康而被判為 mismatch。
       if (input.recovery !== undefined && !matchesEvidence(input.recovery, record.value, evidence)) return fail("MEDIA_RESTORE_MISMATCH", identitySubjects(identity));
       if (final.value === "healthy") return commitReady(identity, record.value);
-      if (input.recovery === undefined) return fail("MEDIA_RESTORE_REQUIRED", identitySubjects(identity));
+      if (input.recovery === undefined) return fail("MEDIA_RESTORE_REQUIRED", identitySubjects(identity), { restoreCommands: [command(identity, "local-bytes-and-metadata")] });
       const staged = objectStore.stage({ importId: `restore:${identityKey(identity)}`, bytes: copyBytes(input.recovery.bytes), evidence });
       if (!staged.ok) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
       const promoted = objectStore.promote(staged.value, evidence);

@@ -17,6 +17,8 @@ import { createTaxonomy } from "../../../core/taxonomy/index.js";
 const acceptEverySchema = { validate: () => ({ ok: true }) as const };
 const noMedia: DataMedia = {
   importLocal: () => ({ ok: false, error: mediaFailure() }),
+  listAssets: () => ({ ok: false, error: mediaFailure() }),
+  getAssetDetail: () => ({ ok: false, error: mediaFailure() }),
   getReadyAssetVersion: () => ({ ok: false, error: mediaFailure() }),
   readReadyObject: () => ({ ok: false, error: mediaFailure() }),
   requireReadyAssetVersions: () => ({ ok: true, value: [] }),

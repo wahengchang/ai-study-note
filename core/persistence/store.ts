@@ -2,6 +2,7 @@ import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } fr
 
 import type {
   AssetVersionAvailability,
+  AssetVersionReferenceGroups,
   AssetVersionIdentity,
   AssetVersionRecord,
   CreateRevisionInput,
@@ -71,6 +72,8 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
       getRevision(identity: RevisionIdentity) { return record(() => transaction.getRevision(identity)); },
       getRevisionReferences(identity: RevisionIdentity) { return record(() => transaction.getRevisionReferences(identity)); },
       getReadyAssetVersion(identity: AssetVersionIdentity) { return record(() => transaction.getReadyAssetVersion(identity)); },
+      listAssetVersions() { return record(() => transaction.listAssetVersions()); },
+      listAssetVersionReferences(identity: AssetVersionIdentity) { return record(() => transaction.listAssetVersionReferences(identity)); },
       listRouteClaims(graph: "current" | "published") { return record(() => transaction.listRouteClaims(graph)); },
       readPluginActivationState() { return record(() => transaction.readPluginActivationState()); },
       readThemeActivationState() { return record(() => transaction.readThemeActivationState()); },
@@ -339,6 +342,7 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       if(prior.error.code!=="MEDIA_IMPORT_CONFLICT")return prior;
       database.run("INSERT INTO media_import_intents (import_id,asset_id,asset_version_id,object_digest,byte_length,metadata_bytes,metadata_digest) VALUES (?,?,?,?,?,?,?)",normalized.value.importId,normalized.value.identity.assetId,normalized.value.identity.assetVersionId,normalized.value.objectDigest,normalized.value.byteLength,copyBytes(normalized.value.metadataBytes),normalized.value.metadataDigest); return {ok:true,value:copyIntent(normalized.value)};
     }); },
+    hasPendingMediaImport(importId) { return reading(() => { if (!validText(importId)) return refused("INVALID_PERSISTENCE_INPUT"); return { ok: true, value: database.get("SELECT import_id FROM media_import_intents WHERE import_id=?", importId) !== undefined }; }); },
     getMediaImportIntent(importId) { return reading(() => intentRow(database.get("SELECT * FROM media_import_intents WHERE import_id=?",importId), refused)); },
     deleteMediaImportIntentExact(input) { return guarded(() => {
       const normalized=normalizedIntent(input,failed); if(!normalized.ok)return normalized; const stored=intentRow(database.get("SELECT * FROM media_import_intents WHERE import_id=?",normalized.value.importId),failed); if(!stored.ok)return stored; if(!sameIntent(stored.value,normalized.value))return failed("MEDIA_IMPORT_CONFLICT");
@@ -352,6 +356,8 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       database.run("INSERT INTO media_assets (asset_id) VALUES (?) ON CONFLICT(asset_id) DO NOTHING",normalized.value.identity.assetId); database.run("INSERT INTO asset_versions (asset_id,asset_version_id,object_digest,metadata_bytes,metadata_digest) VALUES (?,?,?,?,?)",normalized.value.identity.assetId,normalized.value.identity.assetVersionId,normalized.value.objectDigest,copyBytes(normalized.value.metadataBytes),normalized.value.metadataDigest); database.run("INSERT INTO asset_version_availability (asset_id,asset_version_id,availability) VALUES (?,?,'ready')",normalized.value.identity.assetId,normalized.value.identity.assetVersionId); database.run("DELETE FROM media_import_intents WHERE import_id=?",normalized.value.importId);
       return{ok:true,value:readyFromIntent(normalized.value)};
     }); },
+    listAssetVersions() { return reading(() => assetVersions(database, refused)); },
+    listAssetVersionReferences(identity) { return reading(() => assetVersionReferences(database, identity, refused)); },
     getAssetVersion(identity) { return reading(() => { if(!validAssetIdentity(identity))return refused("INVALID_PERSISTENCE_INPUT"); return assetVersionRow(database.get(ASSET_VERSION_SQL,identity.assetId,identity.assetVersionId),identity,refused); }); },
     setAssetVersionAvailability(identity, availability) { return guarded(() => {
       if (!validAssetIdentity(identity) || !validAssetVersionAvailability(availability)) return failed("INVALID_PERSISTENCE_INPUT");
@@ -650,6 +656,40 @@ function readMediaStartupSnapshot(database: SqliteAdapter): PersistenceResult<Me
       return { ok: true, value: { pendingIntents, assetVersions } };
     });
   } catch { return persistenceResultFailure("STORAGE_FAILURE"); }
+}
+function assetVersions(database: SqliteAdapter, failed: Fail): PersistenceResult<readonly AssetVersionRecord[]> {
+  try {
+    const versions: AssetVersionRecord[] = [];
+    for (const row of database.all("SELECT v.asset_id,v.asset_version_id,v.object_digest,o.byte_length,v.metadata_bytes,v.metadata_digest,a.availability FROM asset_versions v JOIN media_objects o ON o.object_digest=v.object_digest JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id")) {
+      const assetId = text(row, "asset_id"), assetVersionId = text(row, "asset_version_id");
+      const version = assetVersionRow(row, assetId === null || assetVersionId === null ? { assetId: "", assetVersionId: "" } : { assetId, assetVersionId }, failed);
+      if (!version.ok) return version;
+      versions.push(version.value);
+    }
+    return { ok: true, value: versions.sort((left, right) => compareAssetVersions(left.identity, right.identity)) };
+  } catch {
+    return failed("STORAGE_FAILURE");
+  }
+}
+function assetVersionReferences(database: SqliteAdapter, identity: AssetVersionIdentity, failed: Fail): PersistenceResult<AssetVersionReferenceGroups> {
+  if (!validAssetIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT");
+  const collect = (pointer: "current" | "published"): PersistenceResult<readonly PublishedAssetReference[]> => {
+    const revisionColumn = pointer === "current" ? "current_revision_id" : "published_revision_id";
+    try {
+      const references: PublishedAssetReference[] = [];
+      for (const row of database.all(`SELECT p.entry_id,p.${revisionColumn} AS revision_id FROM entry_pointers p JOIN revision_refs r ON r.entry_id=p.entry_id AND r.revision_id=p.${revisionColumn} WHERE p.${revisionColumn} IS NOT NULL AND r.asset_id=? AND r.asset_version_id=?`, identity.assetId, identity.assetVersionId)) {
+        const entryId = text(row, "entry_id"), revisionId = text(row, "revision_id");
+        if (entryId === null || revisionId === null) return failed("STORAGE_FAILURE");
+        references.push({ entryId, revisionId, assetVersion: { ...identity } });
+      }
+      return { ok: true, value: references.sort((left, right) => compareCodeUnits(left.entryId, right.entryId) || compareCodeUnits(left.revisionId, right.revisionId)) };
+    } catch {
+      return failed("STORAGE_FAILURE");
+    }
+  };
+  const current = collect("current"); if (!current.ok) return current;
+  const published = collect("published"); if (!published.ok) return published;
+  return { ok: true, value: { current: current.value, published: published.value } };
 }
 function intentRow(row:SqliteRow|undefined,failed:Fail):PersistenceResult<MediaImportIntent>{if(row===undefined)return failed("MEDIA_IMPORT_CONFLICT");const importId=text(row,"import_id"),assetId=text(row,"asset_id"),assetVersionId=text(row,"asset_version_id"),objectDigest=digestField(row,"object_digest"),byteLength=row.byte_length,metadataBytes=byte(row,"metadata_bytes"),metadataDigest=digestField(row,"metadata_digest");if(importId===null||assetId===null||assetVersionId===null||objectDigest===null||!nonnegative(byteLength)||metadataBytes===null||metadataDigest===null)return failed("STORAGE_FAILURE");const canonical=validateCanonicalBytes(metadataBytes,metadataDigest);if(!canonical.ok)return failed(canonical.code);return{ok:true,value:{importId,identity:{assetId,assetVersionId},objectDigest,byteLength,metadataBytes:copyBytes(canonical.bytes),metadataDigest:canonical.digest}};}
 function assetVersionRow(row:SqliteRow|undefined,identity:AssetVersionIdentity,failed:Fail):PersistenceResult<AssetVersionRecord>{if(row===undefined)return failed("ASSET_VERSION_NOT_FOUND");const objectDigest=digestField(row,"object_digest"),byteLength=row.byte_length,metadataBytes=byte(row,"metadata_bytes"),metadataDigest=digestField(row,"metadata_digest"),availability=row.availability;if(!validAssetIdentity(identity)||objectDigest===null||!nonnegative(byteLength)||metadataBytes===null||metadataDigest===null||!validAssetVersionAvailability(availability))return failed("STORAGE_FAILURE");const canonical=validateCanonicalBytes(metadataBytes,metadataDigest);if(!canonical.ok)return failed(canonical.code);return{ok:true,value:{identity:{...identity},objectDigest,byteLength,metadataBytes:copyBytes(canonical.bytes),metadataDigest:canonical.digest,availability}};}

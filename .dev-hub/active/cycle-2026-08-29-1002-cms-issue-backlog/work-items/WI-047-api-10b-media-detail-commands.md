@@ -1,9 +1,9 @@
 ---
 id: WI-047
-status: pending
+status: done
 title: Media detail 與 commands
-work_group: null
-depends_on: ["WI-019","WI-020","WI-021"]
+work_group: WG-037
+depends_on: ["WI-019","WI-020","WI-021","WI-046"]
 ---
 
 # Media detail 與 commands
@@ -15,4 +15,4 @@ depends_on: ["WI-019","WI-020","WI-021"]
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #287；由 #241 planning parent 建立，status：planned。
+GitHub #287；由 #241 planning parent 建立。依 Cycle 的 Media continuous-delivery exception，以 PR #360 的 `feature/media-library-import` 作 stacked base；PR #362 已開啟並完成。WI-058 可依同一例外續行。

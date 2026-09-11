@@ -16,6 +16,10 @@ export type AssetVersion = Readonly<{
 export type AssetVersionRecord = AssetVersion;
 export type ReadyAssetVersion = Readonly<AssetVersion & { availability: "ready" }>;
 export type PublishedMediaSelection = Readonly<{ entryId: string; revisionId: string; assets: readonly ReadyAssetVersion[] }>;
+export type MediaAssetVersionView = Readonly<{ contract: "media-asset-version/v1"; identity: AssetVersionIdentity; evidence: Readonly<{ objectDigest: Digest; byteLength: number; metadataDigest: Digest }>; availability: AssetVersionAvailability; restoreCommand?: RestoreAssetCommandDescriptor }>;
+export type MediaAssetView = Readonly<{ contract: "media-asset/v1"; assetId: string; versions: readonly MediaAssetVersionView[] }>;
+export type RevisionMediaReferenceView = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
+export type MediaAssetDetailView = Readonly<{ asset: MediaAssetView; references: Readonly<{ current: readonly RevisionMediaReferenceView[]; published: readonly RevisionMediaReferenceView[] }> }>;
 export type MediaEvidence = Readonly<{ objectDigest: Digest; byteLength: number }>;
 export type VerifiedReadyMediaObject = Readonly<{ asset: ReadyAssetVersion; bytes: Uint8Array }>;
 
@@ -70,12 +74,21 @@ export interface DataMediaTransaction {
   listPublishedAssetReferences(identity: AssetVersionIdentity): DataMediaPortResult<readonly PublishedAssetReference[]>;
   getReadyAssetVersion(identity: AssetVersionIdentity): DataMediaPortResult<ReadyAssetVersion>;
 }
+export interface DataMediaReadSnapshot {
+  listAssetVersions(): DataMediaPortResult<readonly AssetVersionRecord[]>;
+  listAssetVersionReferences(identity: AssetVersionIdentity): DataMediaPortResult<Readonly<{ current: readonly RevisionMediaReferenceView[]; published: readonly RevisionMediaReferenceView[] }>>;
+}
 export interface DataMediaPersistence extends DataMediaTransaction {
   createMediaImportIntent(input: MediaImportIntent): DataMediaPortResult<MediaImportIntent>;
   deleteMediaImportIntentExact(input: MediaImportIntent): DataMediaPortResult<void>;
+  hasPendingMediaImport(importId: string): DataMediaPortResult<boolean>;
+  listAssetVersions(): DataMediaPortResult<readonly AssetVersionRecord[]>;
+  listAssetVersionReferences(identity: AssetVersionIdentity): DataMediaPortResult<Readonly<{ current: readonly RevisionMediaReferenceView[]; published: readonly RevisionMediaReferenceView[] }>>;
+  canonicalState(): DataMediaPortResult<Readonly<{ contract: "persistence-canonical-state/v2"; digest: Digest }>>;
   commitReadyAssetVersion(input: MediaImportIntent): DataMediaPortResult<ReadyAssetVersion>;
   readMediaStartupSnapshot(): DataMediaPortResult<MediaStartupSnapshot>;
   getEntryPointers(entryId: string): DataMediaPortResult<Readonly<{ entryId: string; currentRevisionId: string; publishedRevisionId?: string }>>;
+  runReadSnapshot<T, E>(operation: (snapshot: DataMediaReadSnapshot) => TransactionDecision<T, E>): TransactionDecision<T, E | unknown>;
   runTransaction<T, E>(operation: (transaction: DataMediaTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | unknown>;
   getRevisionReferences(revision: Readonly<{ entryId: string; revisionId: string }>): DataMediaPortResult<readonly Readonly<{ assetVersion: AssetVersionIdentity }>[]>;
 }
@@ -90,11 +103,14 @@ export type DataMediaFailureCode =
   | "MEDIA_FINAL_VERIFICATION_FAILURE"
   | "MEDIA_READY_COMMIT_FAILURE"
   | "MEDIA_VERSION_UNAVAILABLE"
+  | "MEDIA_ASSET_NOT_FOUND"
   | "MEDIA_ARCHIVE_BLOCKED_PUBLISHED"
   | "MEDIA_ARCHIVE_FAILURE"
   | "MEDIA_RESTORE_REQUIRED"
   | "MEDIA_RESTORE_MISMATCH"
   | "MEDIA_RESTORE_FAILURE"
+  | "MEDIA_READ_STATE_STALE"
+  | "MEDIA_READ_FAILED"
   | "MEDIA_RECONCILIATION_FAILURE";
 export type DataMediaFailure = Readonly<{
   code: DataMediaFailureCode;
@@ -107,6 +123,8 @@ export type DataMediaFailure = Readonly<{
 export type DataMediaResult<T> = CoreResult<T> | Readonly<{ ok: false; error: DataMediaFailure }>;
 export interface DataMedia {
   importLocal(input: ImportLocalMediaInput): DataMediaResult<ReadyAssetVersion>;
+  listAssets(): DataMediaResult<readonly MediaAssetView[]>;
+  getAssetDetail(assetId: string): DataMediaResult<MediaAssetDetailView>;
   getReadyAssetVersion(identity: AssetVersionIdentity): DataMediaResult<ReadyAssetVersion>;
   readReadyObject(identity: AssetVersionIdentity): DataMediaResult<VerifiedReadyMediaObject>;
   requireReadyAssetVersions(identities: readonly AssetVersionIdentity[]): DataMediaResult<readonly ReadyAssetVersion[]>;
