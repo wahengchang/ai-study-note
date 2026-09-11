@@ -15,4 +15,4 @@ depends_on: ["WI-022"]
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #285；WG-039 已完成，exact Authoring API transport、typed local caller、strict receipt 與 rejection proof 均已交付。
+GitHub #285；WG-039 已完成，exact Authoring API transport、typed local caller、strict receipt 與 rejection proof 均已交付。PR #365 已開啟。

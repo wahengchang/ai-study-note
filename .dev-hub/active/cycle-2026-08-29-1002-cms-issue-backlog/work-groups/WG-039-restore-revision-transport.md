@@ -6,7 +6,7 @@ work_items: ["WI-045"]
 owner: Main
 branch: feature/restore-revision-transport
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/restore-revision-transport
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/365
 ---
 
 # RestoreRevision transport
