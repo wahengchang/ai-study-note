@@ -3,7 +3,7 @@ id: WI-047
 status: pending
 title: Media detail 與 commands
 work_group: null
-depends_on: ["WI-019","WI-020","WI-021"]
+depends_on: ["WI-019","WI-020","WI-021","WI-046"]
 ---
 
 # Media detail 與 commands

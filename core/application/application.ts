@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
-import type { AssetVersionIdentity, RestoreAssetCommandDescriptor } from "../media/index.js";
+import type { AssetVersionIdentity, MediaAssetDetailView, MediaAssetView, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { CmsEditorBlockSource, PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
 import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal } from "../site-definition/index.js";
 
@@ -20,6 +20,10 @@ import type {
   DomainApplicationFailure,
   DomainApplicationFailureCode,
   DomainApplicationResult,
+  ImportMediaRequest,
+  MediaAssetDetailV1,
+  MediaAssetV1,
+  MediaCatalogV1,
   PluginActivationRequest,
   PluginManagementSnapshotV1,
   PluginSettingsReplaceRequest,
@@ -48,6 +52,10 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
   MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
+  MEDIA_IMPORT_CONFLICT: "Media import identity 與既有紀錄衝突。",
+  MEDIA_IMPORT_FAILED: "Media import 尚未完成。",
+  MEDIA_READ_STATE_STALE: "Media 讀取期間狀態已變更，請重試。",
+  MEDIA_READ_FAILED: "Media 讀取無法驗證。",
   SCHEMA_INVALID: "草稿不符合選定的 schema version。",
   MEDIA_UNAVAILABLE: "請先完成所有引用媒體的匯入或復原。",
   BLOCKED_ARCHIVED_MEDIA_RESTORE: "請先復原所有不可用的 media asset version。",
@@ -336,9 +344,48 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       request.expectedCurrentRevisionId,
     );
   };
+  const mediaFailure = <T>(error: Readonly<{ code: string; subjectIds: readonly string[] }>): DomainApplicationResult<T> => {
+    const code = error.code === "MEDIA_IMPORT_CONFLICT" ? "MEDIA_IMPORT_CONFLICT" : error.code === "MEDIA_READ_STATE_STALE" ? "MEDIA_READ_STATE_STALE" : error.code === "MEDIA_READ_FAILED" ? "MEDIA_READ_FAILED" : "MEDIA_IMPORT_FAILED";
+    return fail(code, "DataMedia", error.subjectIds);
+  };
+  const mediaAsset = (asset: MediaAssetView): MediaAssetV1 => ({
+    contract: "media-asset/v1",
+    assetId: asset.assetId,
+    versions: asset.versions.map((version) => ({
+      ...version,
+      identity: { ...version.identity },
+      evidence: { ...version.evidence },
+      ...(version.restoreCommand === undefined ? {} : { restoreCommand: { ...version.restoreCommand, assetVersion: { ...version.restoreCommand.assetVersion } } }),
+    })),
+  });
+  const mediaCatalog = (assets: readonly MediaAssetView[]): MediaCatalogV1 | undefined => {
+    const items = assets.map(mediaAsset);
+    const bytes = canonicalJsonBytes({ contract: "media-catalog/v1", items });
+    return bytes.ok ? { contract: "media-catalog/v1", items, stateDigest: sha256Digest(bytes.value) } : undefined;
+  };
+  const mediaDetail = (detail: MediaAssetDetailView): MediaAssetDetailV1 | undefined => {
+    const asset = mediaAsset(detail.asset);
+    const references = { current: detail.references.current.map((reference) => ({ entryId: reference.entryId, revisionId: reference.revisionId, assetVersion: { ...reference.assetVersion } })), published: detail.references.published.map((reference) => ({ entryId: reference.entryId, revisionId: reference.revisionId, assetVersion: { ...reference.assetVersion } })) };
+    const bytes = canonicalJsonBytes({ contract: "media-asset-detail/v1", asset, references });
+    return bytes.ok ? { contract: "media-asset-detail/v1", asset, references, stateDigest: sha256Digest(bytes.value) } : undefined;
+  };
 
 
   return {
+    async listMedia(): Promise<DomainApplicationResult<MediaCatalogV1>> {
+      const assets = dataMedia.listAssets();
+      if (!assets.ok) return mediaFailure(assets.error);
+      const catalog = mediaCatalog(assets.value);
+      return catalog === undefined ? fail("MEDIA_READ_FAILED", "DataMedia") : { ok: true, value: catalog };
+    },
+    async importMedia(request: ImportMediaRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
+      const imported = dataMedia.importLocal(request);
+      if (!imported.ok) return mediaFailure(imported.error);
+      const detail = dataMedia.getAssetDetail(request.assetId);
+      if (!detail.ok) return mediaFailure(detail.error);
+      const projected = mediaDetail(detail.value);
+      return projected === undefined ? fail("MEDIA_READ_FAILED", "DataMedia", [request.assetId]) : { ok: true, value: projected };
+    },
     async listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>> {
       const [discovery, activation, settings] = await Promise.all([pluginHost.discover(), pluginHost.getActivationSnapshot(), pluginHost.getSettingsSnapshot()]);
       if (!discovery.ok) return plugin<PluginManagementSnapshotV1>(discovery.error);

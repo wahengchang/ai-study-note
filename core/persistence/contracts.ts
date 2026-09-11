@@ -33,6 +33,7 @@ export type AssetVersionRecord = Readonly<{ identity: AssetVersionIdentity; obje
 export type ReadyAssetVersionRecord = Readonly<AssetVersionRecord & { availability: "ready" }>;
 export type PublishedAssetReference = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
 export type MediaStartupSnapshot = Readonly<{ pendingIntents: readonly MediaImportIntent[]; assetVersions: readonly AssetVersionRecord[] }>;
+export type AssetVersionReferenceGroups = Readonly<{ current: readonly PublishedAssetReference[]; published: readonly PublishedAssetReference[] }>;
 export type PluginActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
 export type CompareAndReplacePluginActivationStateInput = Readonly<{ expectedDigest: Digest; next: PluginActivationStateRecord }>;
 export type ThemeActivationStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
@@ -171,6 +172,8 @@ export interface PersistenceReadSnapshot {
   getEntryPointers(entryId: string): PersistenceResult<EntryPointerRecord>;
   listPublishedRevisionSelections(): PersistenceResult<readonly RevisionIdentity[]>;
   listRouteClaims(graph: "current" | "published"): PersistenceResult<readonly RouteClaimRecord[]>;
+  listAssetVersions(): PersistenceResult<readonly AssetVersionRecord[]>;
+  listAssetVersionReferences(identity: AssetVersionIdentity): PersistenceResult<AssetVersionReferenceGroups>;
   getReadyAssetVersion(identity: AssetVersionIdentity): PersistenceResult<ReadyAssetVersionRecord>;
   getRevisionReferences(revision: RevisionIdentity): PersistenceResult<readonly RevisionReferenceRecord[]>;
   readPluginActivationState(): PersistenceResult<PluginActivationStateRecord>;
@@ -194,6 +197,7 @@ export interface PersistenceTransaction extends PersistenceReadSnapshot {
   getEntryPointerLineage(identity: OperationLineageIdentity): PersistenceResult<EntryPointerLineageRecord>;
   replaceRouteClaim(input: RouteClaimRecord): PersistenceResult<RouteClaimRecord>;
   createMediaImportIntent(input: MediaImportIntent): PersistenceResult<MediaImportIntent>;
+  hasPendingMediaImport(importId: string): PersistenceResult<boolean>;
   getMediaImportIntent(importId: string): PersistenceResult<MediaImportIntent>;
   deleteMediaImportIntentExact(input: MediaImportIntent): PersistenceResult<void>;
   commitReadyAssetVersion(input: MediaImportIntent): PersistenceResult<ReadyAssetVersionRecord>;

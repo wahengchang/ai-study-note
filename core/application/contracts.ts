@@ -22,7 +22,13 @@ export type RestoreRevisionSuccess = Readonly<{
   stateDigest: Digest;
 }>;
 export type ChangeRouteSuccess = Readonly<RouteClaimReplacementResult & { entryPointer: EntryPointerRecord; lineageIdentity: OperationLineageIdentity; stateDigest: Digest }>;
-export type DomainApplicationFailureCode = "INVALID_SAVE_REVISION_REQUEST" | "INVALID_PUBLISH_REVISION_REQUEST" | "INVALID_RESTORE_REVISION_REQUEST" | "INVALID_CHANGE_ROUTE_REQUEST" | "INVALID_PLUGIN_ACTIVATION_REQUEST" | "INVALID_PLUGIN_SETTINGS_REQUEST" | "INVALID_SEO_ANALYSIS_REQUEST" | "CMS_SEO_ANALYSIS_FAILED" | "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST" | "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED" | "ENTRY_NOT_FOUND" | "CURRENT_REVISION_MISMATCH" | "MEDIA_REFERENCE_NOT_FOUND" | "MEDIA_REFERENCE_CONFLICT" | "SCHEMA_INVALID" | "MEDIA_UNAVAILABLE" | "BLOCKED_ARCHIVED_MEDIA_RESTORE" | "ROUTE_CONFLICT" | "ROUTE_CHANGE_REQUIRED" | "STALE_ROUTE_PROPOSAL" | "SAVE_REVISION_FAILED" | "PUBLISH_REVISION_FAILED" | "RESTORE_REVISION_FAILED" | "CHANGE_ROUTE_FAILED";
+export type MediaAssetVersionV1 = Readonly<{ contract: "media-asset-version/v1"; identity: AssetVersionIdentity; evidence: Readonly<{ objectDigest: Digest; byteLength: number; metadataDigest: Digest }>; availability: "ready" | "archived" | "missing"; restoreCommand?: RestoreAssetCommandDescriptor }>;
+export type MediaAssetV1 = Readonly<{ contract: "media-asset/v1"; assetId: string; versions: readonly MediaAssetVersionV1[] }>;
+export type RevisionMediaReferenceV1 = Readonly<{ entryId: string; revisionId: string; assetVersion: AssetVersionIdentity }>;
+export type MediaCatalogV1 = Readonly<{ contract: "media-catalog/v1"; items: readonly MediaAssetV1[]; stateDigest: Digest }>;
+export type MediaAssetDetailV1 = Readonly<{ contract: "media-asset-detail/v1"; asset: MediaAssetV1; references: Readonly<{ current: readonly RevisionMediaReferenceV1[]; published: readonly RevisionMediaReferenceV1[] }>; stateDigest: Digest }>;
+export type ImportMediaRequest = Readonly<{ importId: string; assetId: string; assetVersionId: string; bytes: Uint8Array; metadata: JsonValue }>;
+export type DomainApplicationFailureCode = "INVALID_SAVE_REVISION_REQUEST" | "INVALID_PUBLISH_REVISION_REQUEST" | "INVALID_RESTORE_REVISION_REQUEST" | "INVALID_CHANGE_ROUTE_REQUEST" | "INVALID_PLUGIN_ACTIVATION_REQUEST" | "INVALID_PLUGIN_SETTINGS_REQUEST" | "INVALID_SEO_ANALYSIS_REQUEST" | "CMS_SEO_ANALYSIS_FAILED" | "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST" | "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED" | "ENTRY_NOT_FOUND" | "CURRENT_REVISION_MISMATCH" | "MEDIA_REFERENCE_NOT_FOUND" | "MEDIA_REFERENCE_CONFLICT" | "MEDIA_IMPORT_CONFLICT" | "MEDIA_IMPORT_FAILED" | "MEDIA_READ_STATE_STALE" | "MEDIA_READ_FAILED" | "SCHEMA_INVALID" | "MEDIA_UNAVAILABLE" | "BLOCKED_ARCHIVED_MEDIA_RESTORE" | "ROUTE_CONFLICT" | "ROUTE_CHANGE_REQUIRED" | "STALE_ROUTE_PROPOSAL" | "SAVE_REVISION_FAILED" | "PUBLISH_REVISION_FAILED" | "RESTORE_REVISION_FAILED" | "CHANGE_ROUTE_FAILED";
 export type DomainApplicationCommandFailure = Readonly<{ code: DomainApplicationFailureCode; owner: "DomainApplication" | "Content" | "DataMedia" | "SiteDefinition"; subjectIds: readonly string[]; remediation: MessageRemediation; restoreCommands?: readonly RestoreAssetCommandDescriptor[] }>;
 export type DomainApplicationFailure = DomainApplicationCommandFailure | PluginHostFailure | TaxonomyFailure;
 export type DomainApplicationResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: DomainApplicationFailure }>;
@@ -44,6 +50,23 @@ export type CmsEditorBlockResolutionItem = Readonly<{
 )>;
 export type CmsEditorBlockResolutions = Readonly<{ contract: "cms-editor-block-resolutions/v1"; entryId: string; revisionId: string; contentDigest: Digest; stateDigest: Digest; items: readonly CmsEditorBlockResolutionItem[] }>;
 export type AuthoringEntryV1 = Readonly<{ contract: "authoring-entry/v1"; entryId: string; current: Readonly<{ revisionId: string; schemaIdentity: SchemaVersionIdentity; content: JsonValue; contentDigest: Digest; route: string; assets: readonly AssetVersionIdentity[]; taxonomyBindings: readonly RevisionTaxonomyTermBinding[] }>; stateDigest: Digest }>;
-export interface DomainApplication { saveRevision(request: SaveRevisionCommandRequest): Promise<DomainApplicationResult<SaveRevisionSuccess>>; publishRevision(request: PublishRevisionRequest): Promise<DomainApplicationResult<PublishRevisionSuccess>>; restoreRevision(request: RestoreRevisionRequest): Promise<DomainApplicationResult<RestoreRevisionSuccess>>; changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>>; listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; activatePlugin(request: PluginActivationRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; replacePluginSettings(request: PluginSettingsReplaceRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>; analyzeCmsSeo(request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisResponse>>; readCurrentEntry(entryId: string): Promise<DomainApplicationResult<AuthoringEntryV1>>; resolveCurrentCmsEditorBlocks(request: CmsEditorBlockResolutionsRequest): Promise<DomainApplicationResult<CmsEditorBlockResolutions>>; listTaxonomies(): Promise<DomainApplicationResult<TaxonomyCatalog>>; getTaxonomy(taxonomyId: string): Promise<DomainApplicationResult<TaxonomySnapshot>>; createTaxonomy(request: CreateTaxonomyRequest): Promise<DomainApplicationResult<TaxonomySnapshot>>; executeTaxonomyCommand(taxonomyId: string, command: TaxonomyCommand): Promise<DomainApplicationResult<TaxonomyCommandResult>>; }
+export interface DomainApplication {
+  saveRevision(request: SaveRevisionCommandRequest): Promise<DomainApplicationResult<SaveRevisionSuccess>>;
+  publishRevision(request: PublishRevisionRequest): Promise<DomainApplicationResult<PublishRevisionSuccess>>;
+  restoreRevision(request: RestoreRevisionRequest): Promise<DomainApplicationResult<RestoreRevisionSuccess>>;
+  changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>>;
+  listMedia(): Promise<DomainApplicationResult<MediaCatalogV1>>;
+  importMedia(request: ImportMediaRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>>;
+  listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>;
+  activatePlugin(request: PluginActivationRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>;
+  replacePluginSettings(request: PluginSettingsReplaceRequest): Promise<DomainApplicationResult<PluginManagementSnapshotV1>>;
+  analyzeCmsSeo(request: CmsSeoAnalysisRequest): Promise<DomainApplicationResult<CmsSeoAnalysisResponse>>;
+  readCurrentEntry(entryId: string): Promise<DomainApplicationResult<AuthoringEntryV1>>;
+  resolveCurrentCmsEditorBlocks(request: CmsEditorBlockResolutionsRequest): Promise<DomainApplicationResult<CmsEditorBlockResolutions>>;
+  listTaxonomies(): Promise<DomainApplicationResult<TaxonomyCatalog>>;
+  getTaxonomy(taxonomyId: string): Promise<DomainApplicationResult<TaxonomySnapshot>>;
+  createTaxonomy(request: CreateTaxonomyRequest): Promise<DomainApplicationResult<TaxonomySnapshot>>;
+  executeTaxonomyCommand(taxonomyId: string, command: TaxonomyCommand): Promise<DomainApplicationResult<TaxonomyCommandResult>>;
+}
 export type PublishRevisionSuccess = Readonly<{ revision: RevisionRecord; publishedPointer: EntryPointerRecord; publishedClaim: RouteClaim; lineageIdentity: OperationLineageIdentity; stateDigest: Digest }>;
 export type DomainApplicationDependencies = Readonly<{ persistence: PersistenceStore; siteDefinition: SiteDefinition; dataMedia: DataMedia; schemaValidator: RevisionSchemaValidator; pluginHost: PluginHost; taxonomy: Taxonomy }>;
