@@ -179,7 +179,7 @@ function authorization(headers: HeaderMap): Readonly<{ ok: true; candidate: stri
 }
 function credentialError(requestId: string, admission: Awaited<ReturnType<AuthoringCredentialAuthority["openAdmission"]>>): Response {
   if (!admission.ok && admission.error.code === "CREDENTIAL_REVOKED") return errorResponse(requestId, "AUTHORIZATION_REVOKED", 401, "AuthoringCredential");
-  return errorResponse(requestId, "AUTHORIZATION_INVALID", 401, "AuthoringCredential");
+  return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 503, "AuthoringCredential", "請修復本機 Authoring API credential store 後重試。");
 }
 function domainError(requestId: string, error: DomainApplicationFailure): Response {
   const descriptor = Object.getOwnPropertyDescriptors(error); const code = descriptor.code?.value; const owner = descriptor.owner?.value; const subjectIds = descriptor.subjectIds?.value; const remediation = descriptor.remediation?.value; const restoreCommands = descriptor.restoreCommands?.value;

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHmac } from "node:crypto";
 import { createServer } from "node:http";
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { request as nodeRequest } from "node:http";
 import { tmpdir } from "node:os";
 import path from "node:path";
@@ -480,6 +480,29 @@ test("shipped cms:save-revision command saves through the actual listener", asyn
     assert.equal(command.code, 0); assert.equal(command.stdout, "AUTHORING_SAVE_REVISION_OK\n"); assert.equal(command.stderr, "");
     const pointer = persistence.getEntryPointers("entry");
     assert.deepEqual(pointer, { ok: true, value: { entryId: "entry", currentRevisionId: "command-revision" } });
+  });
+});
+
+test("an unsafe credential store answers 503 without disclosing the key or running a command", async () => {
+  await withAuthoringApi(async ({ apiKey, directory, digest, log }) => {
+    const before = digest();
+    chmodSync(path.join(directory, "config", "ai-study-note", "local-authoring-v1.json"), 0o644);
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+    const attempts: readonly Readonly<{ method: "GET" | "POST"; path: string; body?: string }>[] = [
+      { method: "GET", path: "/v1/entries" },
+      { method: "POST", path: "/v1/entries/entry/revisions", body: saveBody("revision-1", "/saved") },
+      { method: "POST", path: "/v1/entries/entry/restore", body: restoreBody("revision-1", "restored") },
+    ];
+    for (const attempt of attempts) {
+      const response = await send(attempt.method, attempt.path, headers, attempt.body);
+      assert.equal(response.status, 503, `${attempt.path} credential store status`);
+      assert.equal(failureCode(response), "INTERNAL_SERVER_ERROR", `${attempt.path} credential store code`);
+      assert.equal(response.body.includes(apiKey), false, `${attempt.path} must not disclose the key`);
+      assert.equal(response.body.includes("asn_"), false, `${attempt.path} must redact credential-shaped output`);
+      assertResponseHeaders(response, `${attempt.path} credential store rejection`);
+      assert.equal(log.at(-1)?.status, 503);
+    }
+    assert.equal(digest(), before, "an unsafe credential store runs no command and mutates nothing");
   });
 });
 
