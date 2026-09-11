@@ -36,6 +36,7 @@ const messages: Readonly<Record<DataMediaFailureCode, string>> = {
   MEDIA_FINAL_VERIFICATION_FAILURE: "Host 最終 media object 驗證失敗。",
   MEDIA_READY_COMMIT_FAILURE: "Media asset version 尚未提交為 ready。",
   MEDIA_VERSION_UNAVAILABLE: "指定的 media asset version 尚不可用。",
+  MEDIA_ASSET_NOT_FOUND: "找不到指定的 media asset。",
   MEDIA_ARCHIVE_BLOCKED_PUBLISHED: "仍被已發布內容引用，無法封存此媒體版本。",
   MEDIA_ARCHIVE_FAILURE: "Media asset version 尚未完成封存。",
   MEDIA_READ_STATE_STALE: "Media 讀取期間狀態已變更，請重試。",
@@ -237,7 +238,8 @@ function createDataMedia({ persistence, objectStore }: Readonly<{ persistence: D
       }
       return { ok: true, value: { records, current, published } };
     });
-    if (!snapshot.ok || snapshot.value.records.length === 0) return fail("MEDIA_READ_FAILED", [assetId]);
+    if (!snapshot.ok) return fail("MEDIA_READ_FAILED", [assetId]);
+    if (snapshot.value.records.length === 0) return fail("MEDIA_ASSET_NOT_FOUND", [assetId]);
     const versions: MediaAssetVersionView[] = [];
     for (const record of snapshot.value.records) {
       if (!validMetadata(record)) return fail("MEDIA_READ_FAILED", identitySubjects(record.identity));
@@ -348,7 +350,7 @@ function createDataMedia({ persistence, objectStore }: Readonly<{ persistence: D
       // recovery bytes 一律以既有 immutable evidence 檢查，重送同一份 recovery 的重試不得因 object 已健康而被判為 mismatch。
       if (input.recovery !== undefined && !matchesEvidence(input.recovery, record.value, evidence)) return fail("MEDIA_RESTORE_MISMATCH", identitySubjects(identity));
       if (final.value === "healthy") return commitReady(identity, record.value);
-      if (input.recovery === undefined) return fail("MEDIA_RESTORE_REQUIRED", identitySubjects(identity));
+      if (input.recovery === undefined) return fail("MEDIA_RESTORE_REQUIRED", identitySubjects(identity), { restoreCommands: [command(identity, "local-bytes-and-metadata")] });
       const staged = objectStore.stage({ importId: `restore:${identityKey(identity)}`, bytes: copyBytes(input.recovery.bytes), evidence });
       if (!staged.ok) return fail("MEDIA_RESTORE_FAILURE", identitySubjects(identity));
       const promoted = objectStore.promote(staged.value, evidence);

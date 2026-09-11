@@ -46,6 +46,9 @@ const mediaReferenceSchema = z.object({ entryId: z.string(), revisionId: z.strin
 export const mediaCatalogSchema = z.object({ contract: z.literal("media-catalog/v1"), items: z.array(mediaAssetSchema), stateDigest: digestSchema }).strict();
 export const mediaAssetDetailSchema = z.object({ contract: z.literal("media-asset-detail/v1"), asset: mediaAssetSchema, references: z.object({ current: z.array(mediaReferenceSchema), published: z.array(mediaReferenceSchema) }).strict(), stateDigest: digestSchema }).strict();
 export const mediaImportRequestSchema = z.object({ contract: z.literal("media-import-request/v1"), importId: z.string(), assetId: z.string(), assetVersionId: z.string(), bytesBase64url: z.string(), metadata: jsonContent }).strict();
+export const mediaVersionRequestSchema = z.object({ contract: z.literal("media-version-replacement-request/v1"), import: z.object({ importId: z.string(), assetVersionId: z.string(), bytesBase64url: z.string(), metadata: jsonContent }).strict(), replacement: z.object({ entryId: z.string(), revisionId: z.string(), operationId: z.string(), expectedCurrentRevisionId: z.string(), targetAssetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict() }).strict();
+export const mediaArchiveRequestSchema = z.object({ contract: z.literal("media-archive-request/v1"), assetVersionId: z.string() }).strict();
+export const mediaRestoreRequestSchema = z.object({ contract: z.literal("media-restore-request/v1"), assetVersionId: z.string(), recovery: z.object({ bytesBase64url: z.string(), metadata: jsonContent }).strict().optional() }).strict();
 
 export const serverProofChallengeSchema = z.object({
   contract: z.literal("authoring-server-proof-challenge/v1"),
@@ -112,6 +115,7 @@ export const saveRevisionSuccessSchema = z.object({
   stateDigest: z.string(),
   activePluginStateDigest: z.string(),
 }).strict();
+export const mediaVersionReplacementReceiptSchema = z.object({ contract: z.literal("media-version-replacement-receipt/v1"), version: mediaAssetVersionSchema, save: saveRevisionSuccessSchema, asset: mediaAssetDetailSchema }).strict();
 
 export const publishRevisionRequestSchema = z.object({
   contract: z.literal("publish-revision-request/v1"),
@@ -198,10 +202,10 @@ const transportStatuses: Readonly<Record<TransportCode, readonly number[]>> = {
   SERVER_PROOF_GENERATION_MISMATCH: [401], BROWSER_BOOTSTRAP_INVALID: [401], INVALID_REQUEST_BODY: [400], REQUEST_BODY_TOO_LARGE: [400],
   ROUTE_NOT_FOUND: [404], METHOD_NOT_ALLOWED: [405], UNSUPPORTED_MEDIA_TYPE: [415], INTERNAL_SERVER_ERROR: [500, 503],
 };
-const conflictCodes = ["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "MEDIA_IMPORT_CONFLICT", "MEDIA_READ_STATE_STALE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "TAXONOMY_CONFLICT", "TAXONOMY_STATE_CONFLICT"] as const;
-const invalidCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED", "INVALID_TAXONOMY_REQUEST", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE"] as const;
-const notFoundCodes = ["ENTRY_NOT_FOUND", "TAXONOMY_NOT_FOUND"] as const;
-const domainCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "CMS_SEO_ANALYSIS_FAILED", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED", "ENTRY_NOT_FOUND", "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "MEDIA_IMPORT_CONFLICT", "MEDIA_IMPORT_FAILED", "MEDIA_READ_STATE_STALE", "MEDIA_READ_FAILED", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED"] as const satisfies readonly DomainApplicationFailureCode[];
+const conflictCodes = ["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "MEDIA_IMPORT_CONFLICT", "MEDIA_ARCHIVE_BLOCKED_PUBLISHED", "MEDIA_READ_STATE_STALE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "TAXONOMY_CONFLICT", "TAXONOMY_STATE_CONFLICT"] as const;
+const invalidCodes = ["MEDIA_RESTORE_REQUIRED", "MEDIA_RESTORE_MISMATCH", "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED", "INVALID_TAXONOMY_REQUEST", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE"] as const;
+const notFoundCodes = ["ENTRY_NOT_FOUND", "TAXONOMY_NOT_FOUND", "MEDIA_ASSET_NOT_FOUND"] as const;
+const domainCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "CMS_SEO_ANALYSIS_FAILED", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED", "ENTRY_NOT_FOUND", "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "MEDIA_IMPORT_CONFLICT", "MEDIA_IMPORT_FAILED", "MEDIA_ASSET_NOT_FOUND", "MEDIA_VERSION_CREATED_REPLACEMENT_FAILED", "MEDIA_ARCHIVE_BLOCKED_PUBLISHED", "MEDIA_ARCHIVE_FAILED", "MEDIA_RESTORE_REQUIRED", "MEDIA_RESTORE_MISMATCH", "MEDIA_RESTORE_FAILED", "MEDIA_READ_STATE_STALE", "MEDIA_READ_FAILED", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED"] as const satisfies readonly DomainApplicationFailureCode[];
 const taxonomyCodes = ["INVALID_TAXONOMY_REQUEST", "TAXONOMY_NOT_FOUND", "TAXONOMY_CONFLICT", "TAXONOMY_STATE_CONFLICT", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE", "TAXONOMY_FAILED"] as const satisfies readonly TaxonomyFailureCode[];
 const pluginCodes = ["INVALID_PLUGIN_HOST_INPUT", "INVALID_TRUSTED_ROOT", "PLUGIN_DISCOVERY_FAILED", "PLUGIN_NOT_FOUND", "INVALID_PLUGIN_MANIFEST", "UNSUPPORTED_HOOK_CONTRACT", "UNSUPPORTED_CAPABILITY", "PLUGIN_EVIDENCE_MISMATCH", "PLUGIN_IDENTITY_CONFLICT", "PLUGIN_MODULE_INVALID", "PLUGIN_NOT_ACTIVE", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "ACTIVATION_STATE_CONFLICT", "ACTIVATION_STATE_FAILURE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID", "PLUGIN_CALLBACK_FAILED", "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "PLUGIN_VALIDATION_SERVICE_FAILED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED"] as const satisfies readonly PluginHostFailureCode[];
 const contentCodes = ["INVALID_CONTENT_MODEL_INPUT", "CONTENT_DIGEST_MISMATCH", "NON_CANONICAL_CONTENT_BYTES", "UNSUPPORTED_CONTENT_CONTRACT", "INVALID_STRUCTURED_CONTENT", "RAW_FULL_PAGE_NOT_APPROVED"] as const satisfies readonly ContentReadFailureCode[];
@@ -226,6 +230,26 @@ export type AuthoringRemoteErrorCode = keyof typeof statusByCode;
 export function authoringErrorStatuses(code: string): readonly number[] | undefined {
   return Object.prototype.hasOwnProperty.call(statusByCode, code) ? statusByCode[code as AuthoringRemoteErrorCode] : undefined;
 }
+export type MediaArchiveRequestDto = Readonly<z.infer<typeof mediaArchiveRequestSchema>>;
+export type MediaRestoreRequestDto = Readonly<z.infer<typeof mediaRestoreRequestSchema>>;
+export type MediaVersionRequestDto = Readonly<z.infer<typeof mediaVersionRequestSchema>>;
+/**
+ * Media transport contract 要求兩個 specialized error DTO：封存被 published 引用時必須帶完整
+ * `archive-asset-impact/v1`，缺 bytes 的復原必須帶可呼叫的 `restore-asset-command/v1`。generic
+ * `authoring-error/v1` 無法承載這些 remediation evidence，因此以 exact contract 各自投影。
+ */
+export const mediaArchiveBlockedErrorSchema = z.object({
+  contract: z.literal("media-archive-blocked/v1"), requestId: z.string(), code: z.literal("MEDIA_ARCHIVE_BLOCKED_PUBLISHED"), owner: z.literal("DataMedia"),
+  subjectIds: stringArray, remediation: messageRemediationSchema,
+  archiveImpact: z.object({ contract: z.literal("archive-asset-impact/v1"), assetVersion: mediaIdentitySchema, publishedReferences: z.array(mediaReferenceSchema) }).strict(),
+}).strict();
+export const mediaRestoreRequiredErrorSchema = z.object({
+  contract: z.literal("media-restore-required/v1"), requestId: z.string(), code: z.literal("MEDIA_RESTORE_REQUIRED"), owner: z.literal("DataMedia"),
+  subjectIds: stringArray, remediation: messageRemediationSchema,
+  restoreCommands: z.array(restoreCommandSchema).nonempty(),
+}).strict();
+export type MediaArchiveBlockedErrorDto = Readonly<z.infer<typeof mediaArchiveBlockedErrorSchema>>;
+export type MediaRestoreRequiredErrorDto = Readonly<z.infer<typeof mediaRestoreRequiredErrorSchema>>;
 export const authoringErrorSchema = z.object({
   contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string().refine((code) => authoringErrorStatuses(code) !== undefined),
   owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection"]),

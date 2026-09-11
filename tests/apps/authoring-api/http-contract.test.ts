@@ -19,7 +19,7 @@ import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
-import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
+import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -182,6 +182,153 @@ test("actual listener imports and lists a strictly redacted media asset", async 
     assert.equal(catalog.contract, "media-catalog/v1");
     assert.deepEqual(catalog.items.map((asset) => ({ contract: asset.contract, assetId: asset.assetId, versions: asset.versions.map((version) => ({ contract: version.contract, assetId: version.identity.assetId, assetVersionId: version.identity.assetVersionId, byteLength: version.evidence.byteLength, availability: version.availability })) })), [{ contract: "media-asset/v1", assetId: "asset-1", versions: [{ contract: "media-asset-version/v1", assetId: "asset-1", assetVersionId: "version-1", byteLength: 11, availability: "ready" }] }]);
     assert.equal(listed.body.includes("must-not-return"), false);
+    const saved = await post("/v1/entries/media-entry/revisions", headers, JSON.stringify({ contract: "save-revision-request/v1", revisionId: "media-draft-1", operationId: "save-media-draft-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "media" }, route: "/media", assetVersions: [{ assetId: "asset-1", assetVersionId: "version-1" }], taxonomyTerms: [] }));
+    assert.equal(saved.status, 200, saved.body);
+    const published = await post("/v1/entries/media-entry/publish", headers, publishBody("media-draft-1", "publish-media-draft-1"));
+    assert.equal(published.status, 200, published.body);
+    const versioned = await post("/v1/media/asset-1/versions", headers, JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: "import-media-2", assetVersionId: "version-2", bytesBase64url: "bmV3IG1lZGlh", metadata: { mime: "text/plain", secret: "must-not-return" } }, replacement: { entryId: "media-entry", revisionId: "media-draft-2", operationId: "replace-media-draft-1", expectedCurrentRevisionId: "media-draft-1", targetAssetVersion: { assetId: "asset-1", assetVersionId: "version-1" } } }));
+    assert.equal(versioned.status, 200, versioned.body);
+    assert.equal(versioned.body.includes("must-not-return"), false);
+    assert.equal(JSON.parse(versioned.body).save.pointer.currentRevisionId, "media-draft-2");
+    const detail = await send("GET", "/v1/media/asset-1", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(detail.status, 200, detail.body);
+    assert.equal(detail.body.includes("must-not-return"), false);
+    const missing = await send("GET", "/v1/media/absent-asset", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(missing.status, 404, missing.body);
+    assert.equal(failureCode(missing), "MEDIA_ASSET_NOT_FOUND");
+    const blocked = await post("/v1/media/asset-1/archive", headers, JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: "version-1" }));
+    assert.equal(blocked.status, 409, blocked.body);
+    assert.equal(failureCode(blocked), "MEDIA_ARCHIVE_BLOCKED_PUBLISHED");
+    const blockedError = mediaArchiveBlockedErrorSchema.safeParse(JSON.parse(blocked.body));
+    assert.equal(blockedError.success, true, blocked.body);
+    if (blockedError.success) {
+      assert.deepEqual(blockedError.data.archiveImpact.assetVersion, { assetId: "asset-1", assetVersionId: "version-1" });
+      assert.deepEqual(blockedError.data.archiveImpact.publishedReferences, [{ entryId: "media-entry", revisionId: "media-draft-1", assetVersion: { assetId: "asset-1", assetVersionId: "version-1" } }]);
+    }
+    const archived = await post("/v1/media/asset-1/archive", headers, JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: "version-2" }));
+    assert.equal(archived.status, 200, archived.body);
+    assert.equal(JSON.parse(archived.body).asset.versions[1].availability, "archived");
+    const restored = await post("/v1/media/asset-1/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-2" }));
+    assert.equal(restored.status, 200, restored.body);
+    assert.equal(JSON.parse(restored.body).asset.versions[1].availability, "ready");
+  });
+});
+
+test("lost media bytes project as missing and only a matching recovery restores them", async () => {
+  await withAuthoringApi(async ({ apiKey, directory }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+    const read = { Authorization: `Bearer ${apiKey}`, Host: authority } as const;
+    const bytes = "bWVkaWEgYnl0ZXM";
+    assert.equal((await post("/v1/media/import", headers, JSON.stringify({ contract: "media-import-request/v1", importId: "import-lost-1", assetId: "asset-lost", assetVersionId: "version-1", bytesBase64url: bytes, metadata: { mime: "text/plain" } }))).status, 200);
+    rmSync(path.join(directory, "objects", "objects"), { recursive: true, force: true });
+    mkdirSync(path.join(directory, "objects", "objects"), { recursive: true, mode: 0o700 });
+
+    const detail = await send("GET", "/v1/media/asset-lost", read);
+    assert.equal(detail.status, 200, detail.body);
+    const projected = JSON.parse(detail.body) as { asset: { versions: readonly Readonly<{ availability: string; restoreCommand?: Readonly<{ recovery: string }> }>[] } };
+    assert.equal(projected.asset.versions[0]?.availability, "missing");
+    assert.equal(projected.asset.versions[0]?.restoreCommand?.recovery, "local-bytes-and-metadata");
+
+    const required = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1" }));
+    assert.equal(required.status, 422, required.body);
+    const requiredError = mediaRestoreRequiredErrorSchema.safeParse(JSON.parse(required.body));
+    assert.equal(requiredError.success, true, required.body);
+    if (requiredError.success) assert.deepEqual(requiredError.data.restoreCommands, [{ contract: "restore-asset-command/v1", command: "RestoreAsset", assetVersion: { assetId: "asset-lost", assetVersionId: "version-1" }, recovery: "local-bytes-and-metadata" }]);
+
+    const mismatched = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: "b3RoZXIgYnl0ZXM", metadata: { mime: "text/plain" } } }));
+    assert.equal(mismatched.status, 422, mismatched.body);
+    assert.equal(failureCode(mismatched), "MEDIA_RESTORE_MISMATCH");
+
+    const restored = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: bytes, metadata: { mime: "text/plain" } } }));
+    assert.equal(restored.status, 200, restored.body);
+    assert.equal(JSON.parse(restored.body).asset.versions[0].availability, "ready");
+  });
+});
+
+test("Media bytes routes reject an oversized non-bytes envelope before any command", async () => {
+  await withAuthoringApi(async ({ apiKey, digest }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+    const before = digest();
+    const oversizedMetadata = { mime: "text/plain", note: "n".repeat(70_000) };
+    const envelopes: readonly Readonly<{ path: string; body: string }>[] = [
+      { path: "/v1/media/import", body: JSON.stringify({ contract: "media-import-request/v1", importId: "import-envelope", assetId: "asset-1", assetVersionId: "version-1", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata }) },
+      { path: "/v1/media/asset-1/versions", body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: "import-envelope", assetVersionId: "version-2", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata }, replacement: { entryId: "entry", revisionId: "revision-2", operationId: "op-2", expectedCurrentRevisionId: "revision-1", targetAssetVersion: { assetId: "asset-1", assetVersionId: "version-1" } } }) },
+      { path: "/v1/media/asset-1/restore", body: JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata } }) },
+    ];
+    for (const item of envelopes) {
+      const response = await post(item.path, headers, item.body);
+      assert.equal(response.status, 400, `${item.path} envelope bound`);
+      assert.equal(failureCode(response), "REQUEST_BODY_TOO_LARGE", `${item.path} envelope bound code`);
+      assertResponseHeaders(response, `${item.path} envelope rejection`);
+    }
+    assert.equal(digest(), before, "envelope rejection performs zero canonical mutation");
+  });
+});
+
+test("every Media route rejects hostile transport before Media or canonical mutation", async () => {
+  await withAuthoringApi(async ({ apiKey, credentials, digest, log }) => {
+    const json = { "Content-Type": "application/json" } as const;
+    const bearer = { ...json, Authorization: `Bearer ${apiKey}`, Host: authority } as const;
+    const routes: readonly Readonly<{ method: "GET" | "POST"; path: string; body?: string }>[] = [
+      { method: "GET", path: "/v1/media" },
+      { method: "POST", path: "/v1/media/import", body: "{}" },
+      { method: "GET", path: "/v1/media/asset-1" },
+      { method: "POST", path: "/v1/media/asset-1/versions", body: "{}" },
+      { method: "POST", path: "/v1/media/asset-1/archive", body: "{}" },
+      { method: "POST", path: "/v1/media/asset-1/restore", body: "{}" },
+    ];
+    const before = digest();
+    for (const route of routes) {
+      const hostile: readonly Readonly<{ headers: Headers; path?: string; method?: string; status: number; code: string }>[] = [
+        { headers: json, status: 401, code: "AUTHORIZATION_REQUIRED" },
+        { headers: { ...json, Authorization: "Basic abc" }, status: 401, code: "AUTHORIZATION_MALFORMED" },
+        { headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, status: 401, code: "AUTHORIZATION_DUPLICATE" },
+        { headers: { ...json, Authorization: `Bearer asn_v1_${"C".repeat(43)}` }, status: 401, code: "AUTHORIZATION_INVALID" },
+        { headers: { ...bearer, Cookie: "session=1" }, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+        { headers: { ...bearer, Host: "localhost:43127" }, status: 421, code: "MISDIRECTED_REQUEST" },
+        { headers: { ...bearer, Origin: "https://evil.test", "Sec-Fetch-Site": "cross-site" }, status: 403, code: "ORIGIN_FORBIDDEN" },
+        { headers: bearer, path: `${route.path}?key=1`, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+        { headers: bearer, method: route.method === "GET" ? "POST" : "GET", status: 405, code: "METHOD_NOT_ALLOWED" },
+      ];
+      for (const attempt of hostile) {
+        const method = attempt.method ?? route.method;
+        const response = await send(method, attempt.path ?? route.path, attempt.headers, method === "POST" ? route.body : undefined);
+        assert.equal(response.status, attempt.status, `${route.path} hostile status`);
+        assert.equal(failureCode(response), attempt.code, `${route.path} hostile code`);
+        assert.equal(response.body.includes("asn_"), false, `${route.path} must redact credential-shaped input`);
+        assertResponseHeaders(response, `${route.path} hostile response`);
+      }
+    }
+    for (const route of routes.filter((route) => route.path.includes("asset-1"))) {
+      const encoded = await send(route.method, route.path.replace("asset-1", "asset%2D1"), bearer, route.body);
+      assert.equal(encoded.status, 404, `${route.path} encoded identity`);
+      assert.equal(failureCode(encoded), "ROUTE_NOT_FOUND");
+    }
+    const mediaOversized: readonly Readonly<{ path: string; body: string }>[] = [
+      { path: "/v1/media/import", body: JSON.stringify({ contract: "media-import-request/v1", bytesBase64url: "A".repeat(4_194_304) }) },
+      { path: "/v1/media/asset-1/versions", body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { bytesBase64url: "A".repeat(4_194_304) } }) },
+      { path: "/v1/media/asset-1/restore", body: JSON.stringify({ contract: "media-restore-request/v1", recovery: { bytesBase64url: "A".repeat(4_194_304) } }) },
+      { path: "/v1/media/asset-1/archive", body: "x".repeat(4_097) },
+    ];
+    for (const item of mediaOversized) {
+      const response = await post(item.path, bearer, item.body);
+      assert.equal(response.status, 400, `${item.path} body bound`);
+      assert.equal(failureCode(response), "REQUEST_BODY_TOO_LARGE", `${item.path} body bound code`);
+    }
+    assert.deepEqual(await credentials.transition("rotate"), { ok: true, value: { generation: 2, status: "active" } });
+    for (const route of routes) {
+      const response = await send(route.method, route.path, bearer, route.body);
+      assert.equal(response.status, 401, `${route.path} old credential`);
+      assert.equal(failureCode(response), "AUTHORIZATION_INVALID");
+    }
+    assert.equal((await credentials.transition("revoke")).ok, true);
+    for (const route of routes) {
+      const response = await send(route.method, route.path, bearer, route.body);
+      assert.equal(response.status, 401, `${route.path} revoked credential`);
+      assert.equal(failureCode(response), "AUTHORIZATION_REVOKED");
+    }
+    assert.equal(digest(), before, "all rejected Media transport requests leave canonical state unchanged");
+    assert.equal(JSON.stringify(log).includes("asn_"), false, "Media route logs must not contain credential-shaped input");
   });
 });
 
