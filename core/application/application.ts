@@ -20,9 +20,13 @@ import type {
   DomainApplicationFailure,
   DomainApplicationFailureCode,
   DomainApplicationResult,
+  ArchiveMediaVersionRequest,
+  GetMediaRequest,
+  CreateMediaVersionRequest,
   ImportMediaRequest,
   MediaAssetDetailV1,
   MediaAssetV1,
+  MediaVersionReplacementReceiptV1,
   MediaCatalogV1,
   PluginActivationRequest,
   PluginManagementSnapshotV1,
@@ -30,6 +34,7 @@ import type {
   PublishRevisionRequest,
   PublishRevisionSuccess,
   RestoreRevisionRequest,
+  RestoreMediaVersionRequest,
   RestoreRevisionSuccess,
   SaveRevisionCommandRequest,
   SaveRevisionMediaReferenceReplacementRequest,
@@ -52,8 +57,14 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
   MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
   MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
+  MEDIA_VERSION_CREATED_REPLACEMENT_FAILED: "Replacement media version 已建立；請以同一 replacement identity 重新執行 revision replacement。",
   MEDIA_IMPORT_CONFLICT: "Media import identity 與既有紀錄衝突。",
   MEDIA_IMPORT_FAILED: "Media import 尚未完成。",
+  MEDIA_ARCHIVE_BLOCKED_PUBLISHED: "仍被已發布內容引用，無法封存此媒體版本。",
+  MEDIA_ARCHIVE_FAILED: "Media asset version 尚未完成封存。",
+  MEDIA_RESTORE_REQUIRED: "請提供符合既有 evidence 的 recovery bytes 與 metadata。",
+  MEDIA_RESTORE_MISMATCH: "Recovery bytes 或 metadata 與既有 asset version 不一致。",
+  MEDIA_RESTORE_FAILED: "Media asset version 尚未完成復原。",
   MEDIA_READ_STATE_STALE: "Media 讀取期間狀態已變更，請重試。",
   MEDIA_READ_FAILED: "Media 讀取無法驗證。",
   SCHEMA_INVALID: "草稿不符合選定的 schema version。",
@@ -345,7 +356,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
     );
   };
   const mediaFailure = <T>(error: Readonly<{ code: string; subjectIds: readonly string[] }>): DomainApplicationResult<T> => {
-    const code = error.code === "MEDIA_IMPORT_CONFLICT" ? "MEDIA_IMPORT_CONFLICT" : error.code === "MEDIA_READ_STATE_STALE" ? "MEDIA_READ_STATE_STALE" : error.code === "MEDIA_READ_FAILED" ? "MEDIA_READ_FAILED" : "MEDIA_IMPORT_FAILED";
+    const code = error.code === "MEDIA_IMPORT_CONFLICT" ? "MEDIA_IMPORT_CONFLICT" : error.code === "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" ? "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" : error.code === "MEDIA_ARCHIVE_FAILURE" ? "MEDIA_ARCHIVE_FAILED" : error.code === "MEDIA_RESTORE_REQUIRED" ? "MEDIA_RESTORE_REQUIRED" : error.code === "MEDIA_RESTORE_MISMATCH" ? "MEDIA_RESTORE_MISMATCH" : error.code === "MEDIA_RESTORE_FAILURE" ? "MEDIA_RESTORE_FAILED" : error.code === "MEDIA_READ_STATE_STALE" ? "MEDIA_READ_STATE_STALE" : error.code === "MEDIA_READ_FAILED" ? "MEDIA_READ_FAILED" : "MEDIA_IMPORT_FAILED";
     return fail(code, "DataMedia", error.subjectIds);
   };
   const mediaAsset = (asset: MediaAssetView): MediaAssetV1 => ({
@@ -385,6 +396,41 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       if (!detail.ok) return mediaFailure(detail.error);
       const projected = mediaDetail(detail.value);
       return projected === undefined ? fail("MEDIA_READ_FAILED", "DataMedia", [request.assetId]) : { ok: true, value: projected };
+    },
+    async getMedia(request: GetMediaRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
+      const detail = dataMedia.getAssetDetail(request.assetId);
+      if (!detail.ok) return mediaFailure(detail.error);
+      const projected = mediaDetail(detail.value);
+      return projected === undefined ? fail("MEDIA_READ_FAILED", "DataMedia", [request.assetId]) : { ok: true, value: projected };
+    },
+    async archiveMediaVersion(request: ArchiveMediaVersionRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
+      const archived = dataMedia.archiveAsset(request);
+      if (!archived.ok) return mediaFailure(archived.error);
+      return this.getMedia({ assetId: request.assetId });
+    },
+    async createMediaVersion(request: CreateMediaVersionRequest): Promise<DomainApplicationResult<MediaVersionReplacementReceiptV1>> {
+      const { replacement } = request;
+      if (request.assetVersionId === replacement.targetAssetVersionId) return fail("MEDIA_REFERENCE_CONFLICT", "DataMedia", [request.assetId, request.assetVersionId]);
+      const pointers = persistence.getEntryPointers(replacement.entryId);
+      if (!pointers.ok || pointers.value.currentRevisionId !== replacement.expectedCurrentRevisionId) return fail("CURRENT_REVISION_MISMATCH", "Content", [replacement.entryId]);
+      const references = persistence.getRevisionReferences({ entryId: replacement.entryId, revisionId: replacement.expectedCurrentRevisionId });
+      if (!references.ok) return fail("SAVE_REVISION_FAILED");
+      if (!references.value.some((reference) => reference.assetVersion.assetId === request.assetId && reference.assetVersion.assetVersionId === replacement.targetAssetVersionId)) return fail("MEDIA_REFERENCE_NOT_FOUND", "DataMedia", [request.assetId, replacement.targetAssetVersionId]);
+      if (references.value.some((reference) => reference.assetVersion.assetId === request.assetId && reference.assetVersion.assetVersionId === request.assetVersionId)) return fail("MEDIA_REFERENCE_CONFLICT", "DataMedia", [request.assetId, request.assetVersionId]);
+      const imported = dataMedia.importLocal({ importId: request.importId, assetId: request.assetId, assetVersionId: request.assetVersionId, bytes: request.bytes, metadata: request.metadata });
+      if (!imported.ok) return mediaFailure(imported.error);
+      const saved = await this.saveRevision({ kind: "media-reference-replacement", entryId: replacement.entryId, revisionId: replacement.revisionId, operationId: replacement.operationId, expectedCurrentRevisionId: replacement.expectedCurrentRevisionId, targetAssetVersion: { assetId: request.assetId, assetVersionId: replacement.targetAssetVersionId }, replacementAssetVersion: { assetId: request.assetId, assetVersionId: request.assetVersionId } });
+      if (!saved.ok) return fail("MEDIA_VERSION_CREATED_REPLACEMENT_FAILED", "DomainApplication", [request.assetId, request.assetVersionId, replacement.entryId, replacement.revisionId]);
+      const detail = dataMedia.getAssetDetail(request.assetId);
+      if (!detail.ok) return mediaFailure(detail.error);
+      const asset = mediaDetail(detail.value);
+      const version = asset?.asset.versions.find((item) => item.identity.assetVersionId === request.assetVersionId);
+      return asset === undefined || version === undefined ? fail("MEDIA_READ_FAILED", "DataMedia", [request.assetId, request.assetVersionId]) : { ok: true, value: { contract: "media-version-replacement-receipt/v1", version, save: saved.value, asset } };
+    },
+    async restoreMediaVersion(request: RestoreMediaVersionRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
+      const restored = dataMedia.restoreAsset(request);
+      if (!restored.ok) return mediaFailure(restored.error);
+      return this.getMedia({ assetId: request.assetId });
     },
     async listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>> {
       const [discovery, activation, settings] = await Promise.all([pluginHost.discover(), pluginHost.getActivationSnapshot(), pluginHost.getSettingsSnapshot()]);

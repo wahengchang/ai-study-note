@@ -208,3 +208,26 @@ test("SaveRevision media replacement reports a current pointer that moves before
     rmSync(value.directory, { recursive: true, force: true });
   }
 });
+test("CreateMediaVersion retains verified replacement evidence when the second durable phase fails", async () => {
+  const value = await replacementFixture();
+  try {
+    const beforePointers = value.store.getEntryPointers("entry");
+    const beforeReferences = value.store.getRevisionReferences({ entryId: "entry", revisionId: "source" });
+    assert.equal(beforePointers.ok && beforeReferences.ok, true);
+    const result = await value.app.createMediaVersion({ importId: "import-v3", assetId: "asset-a", assetVersionId: "v3", bytes: new TextEncoder().encode("v3"), metadata: { mime: "text/plain" }, replacement: { entryId: "entry", revisionId: "source", operationId: "replace-v3", expectedCurrentRevisionId: "source", targetAssetVersionId: "v1" } });
+    assert.equal(result.ok, false);
+    if (!result.ok) {
+      assert.equal(result.error.code, "MEDIA_VERSION_CREATED_REPLACEMENT_FAILED");
+      assert.equal(result.error.owner, "DomainApplication");
+      assert.deepEqual(result.error.subjectIds, ["asset-a", "v3", "entry", "source"]);
+    }
+    const detail = value.dependencies.dataMedia.getAssetDetail("asset-a");
+    assert.equal(detail.ok, true);
+    if (detail.ok) assert.equal(detail.value.asset.versions.find((version) => version.identity.assetVersionId === "v3")?.availability, "ready");
+    assert.deepEqual(value.store.getEntryPointers("entry"), beforePointers);
+    assert.deepEqual(value.store.getRevisionReferences({ entryId: "entry", revisionId: "source" }), beforeReferences);
+  } finally {
+    value.store.close();
+    rmSync(value.directory, { recursive: true, force: true });
+  }
+});
