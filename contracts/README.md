@@ -77,7 +77,7 @@
 
 `apps/authoring-api` is the sole localhost transport composition root. It binds only `127.0.0.1:43127` / `http://127.0.0.1:43127`; rejects alternate Host/origin/forwarding/CORS/redirects. Credential rotation, server proof, one-time browser ticket, memory-only session bootstrap, authenticated content read/mutation and Preview transport are implemented. Every response is no-store/no-cache/nosniff/no-referrer; logs use only `{requestId,stableEventCode,method,routeTemplate,status}` and diagnostics redact `asn_v1_` / `asn_bt_v1_`.
 
-Before secret/auth/body parsing, every `/_local` and `/v1` route rejects Cookie and query. The middleware order is Host/forwarded → Origin/Fetch Metadata → Bearer → media/body/schema → Application; admission failure runs no command or canonical mutation. Browser `POST` requires exact Origin, exactly one `Sec-Fetch-Site:same-origin`, and Bearer. API `GET` requires exact Host/Bearer/exactly one same-origin Fetch Site, with absent Origin or one exact Origin. CLI keeps its existing absent-Origin/no-Fetch-Metadata Bearer profile.
+Before secret/auth/body parsing, every `/_local` and `/v1` route rejects Cookie and query. The middleware order is Host/forwarded → Origin/Fetch Metadata → Bearer → media/body/schema → Application; admission failure runs no command or canonical mutation. Browser session bootstrap `POST` requires exact Origin and no Bearer; absent `Sec-Fetch-Site` is accepted for default browsers that omit Fetch Metadata, while any supplied value must be exactly one `same-origin`. Browser authenticated `POST` requires exact Origin, exactly one `Sec-Fetch-Site:same-origin`, and Bearer. API `GET` requires exact Host/Bearer/exactly one same-origin Fetch Site, with absent Origin or one exact Origin. CLI keeps its existing absent-Origin/no-Fetch-Metadata Bearer profile.
 
 ### #308 contract — Application façade and finite routes
 - `Application` is the only authoring façade for existing type/catalog/history/Save/Publish/current/published Preview plus `readCurrentEntry`, `resolveCurrentCmsEditorBlocks`, `listPlugins`, `activatePlugin`, `replacePluginSettings`, `analyzeCmsSeo`, `listTaxonomies`, `getTaxonomy`, `createTaxonomy`, `executeTaxonomyCommand`. Authoring API/browser code must not call Projection, ThemeHost, PluginHost, Taxonomy or Persistence directly.
@@ -91,7 +91,7 @@ Before secret/auth/body parsing, every `/_local` and `/v1` route rejects Cookie 
 
 CMS document routing is a finite exact allowlist: `GET /cms`, `GET /cms/`, `GET /cms/entries`, `GET /cms/entries/new`, `GET /cms/entries/:entryId`, `GET /cms/content-types`, `GET /cms/content-types/new`, `GET /cms/content-types/:schemaId`, `GET /cms/taxonomies`, `GET /cms/taxonomies/new`, `GET /cms/taxonomies/:taxonomyId`, and `GET /cms/plugins`. Built assets are admitted only from the built manifest allowlist. Every named CMS document route must be in both the CMS-document allowlist and the central logger's document route-template union; no `/cms/*`, prefix, history, SPA or wildcard fallback is permitted.
 
-Every CMS document route, including `/cms/plugins`, requires exact Host; document/navigation request semantics; exactly one `Sec-Fetch-Site` of `none` or `same-origin`; and absent Origin, Bearer, Cookie and query. Unknown, encoded, nested or trailing-slash variants fail closed. This profile is distinct from authenticated API admission.
+Every CMS document route, including `/cms/plugins`, requires exact Host, no Bearer/Cookie/query, and either absent or exact local Origin. Fetch Metadata is optional for default browsers; when supplied, document navigation must be one `Sec-Fetch-Site` of `none` or `same-origin`, `navigate` mode and `document` destination, while assets require exactly `same-origin` and their manifest destination. Unknown, encoded, nested or trailing-slash variants fail closed. This profile is distinct from authenticated API admission.
 
 ## 6. Published snapshot, Renderer and Delivery
 
@@ -120,8 +120,10 @@ Real entrypoints, not test hosts or hand-built artifacts, are required:
 | `db:migrate --database <path>` | applies migrations and reconciles Content evidence only |
 | `theme:activate --database <path> --installed-themes-root <path> --id study-notes` | discovers one candidate and durable-CAS activates it |
 | `cms:build` | emits content-hashed assets plus manifest |
+| `cms:init` | builds CMS assets, then initializes an idempotent repository-external local demo runtime under `HOME/.local/share/ai-study-note-reset/cms` |
+| `cms:start` | starts that initialized local demo runtime without path arguments |
 | `cms:serve --database <path> --media-root <path> --installed-plugins-root <path> --installed-themes-root <path> --cms-assets-root <path>` | composes Application-only authoring transport |
-| `cms:open --plugins\|--entry-id <id>` | accepts exactly one selector and opens the exact CMS route |
+| `cms:open --plugins\|--entry-id <id>` | mints one browser ticket and opens the exact CMS route in the macOS default browser; the ticket is carried in the URL fragment |
 | `site:build --database <path> --media-root <path> --installed-plugins-root <path> --installed-themes-root <path> --artifacts-root <path>` | composes published Projection → Renderer → Delivery; only successful Delivery prints artifact digest/directory and sanitized sorted sidecar |
 
 | Area | Required observable proof |

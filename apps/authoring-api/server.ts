@@ -146,12 +146,12 @@ function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
 function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
 function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAsset["destination"] | undefined, method: string): boolean {
   const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site");
-  if (route === "cms-document") return origin.length === 0 && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && (fetchSite[0] === "none" || fetchSite[0] === "same-origin") && one(headers, "sec-fetch-mode") === "navigate" && one(headers, "sec-fetch-dest") === "document";
-  // module script fetch 會帶 exact same-origin `Origin`；其餘 asset destination 則省略，兩者都必須是 same-origin。
-  if (route === "cms-asset") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && fetchSite[0] === "same-origin" && assetDestination !== undefined && one(headers, "sec-fetch-dest") === assetDestination;
+  if (route === "cms-document") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && (fetchSite.length === 0 || (fetchSite.length === 1 && (fetchSite[0] === "none" || fetchSite[0] === "same-origin"))) && (one(headers, "sec-fetch-mode") === undefined || one(headers, "sec-fetch-mode") === "navigate") && (one(headers, "sec-fetch-dest") === undefined || one(headers, "sec-fetch-dest") === "document");
+  // module script fetch 會帶 exact same-origin `Origin`；支援未送 Fetch Metadata 的預設瀏覽器。
+  if (route === "cms-asset") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && (fetchSite.length === 0 || (fetchSite.length === 1 && fetchSite[0] === "same-origin")) && assetDestination !== undefined && (one(headers, "sec-fetch-dest") === undefined || one(headers, "sec-fetch-dest") === assetDestination);
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
   if (route === "browser-ticket") return origin.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
-  if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin" && values(headers, "authorization").length === 0;
+  if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && (fetchSite.length === 0 || (fetchSite.length === 1 && fetchSite[0] === "same-origin")) && values(headers, "authorization").length === 0;
   if (!AUTHENTICATED_ROUTES.has(route)) return true;
   // Fetch 只在 non-GET/HEAD 或 CORS-tainted request 附加 `Origin`，故 same-origin `GET` 合法省略；
   // state-changing method 必定帶 `Origin`，因此省略在此一律拒絕，不讓它成為同源證明的繞道。

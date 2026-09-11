@@ -246,9 +246,13 @@ test("CMS documents and manifest assets apply their independent Fetch Metadata g
     const history = await send("GET", "/cms/entries", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
     assert.equal(history.status, 200);
     assert.equal(document.headers["content-security-policy"] !== undefined, true);
+    const defaultBrowserDocument = await send("GET", "/cms/plugins", { Host: authority, Origin: origin });
+    assert.equal(defaultBrowserDocument.status, 200);
     const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
     assert.equal(asset.status, 200);
     assert.equal(asset.body, "export {};");
+    const defaultBrowserAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: origin });
+    assert.equal(defaultBrowserAsset.status, 200);
     // module script fetch 實際會帶 exact same-origin Origin；只有 exact 值可通過。
     const moduleAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: origin, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
     assert.equal(moduleAsset.status, 200);
@@ -290,7 +294,7 @@ test("authenticated /v1 routes admit originless same-origin GET but never an ori
   });
 });
 
-test("typed client mints one browser ticket and browser exchange receives the sole session secret response", async () => {
+test("typed client mints one browser ticket and browser exchange supports default browsers without Fetch Metadata", async () => {
   await withAuthoringApi(async ({ directory, apiKey }) => {
     const client = createLocalAuthoringClient({ homeDirectory: directory, xdgConfigHome: path.join(directory, "config") });
     const minted = await client.mintBrowserTicket();
@@ -300,7 +304,7 @@ test("typed client mints one browser ticket and browser exchange receives the so
     assert.equal(minted.value.ticket.includes(apiKey), false);
     const exchange = await fetch(`${origin}/_local/browser-session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin" },
+      headers: { "Content-Type": "application/json", Origin: origin },
       body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: minted.value.ticket }),
     });
     assert.equal(exchange.status, 200);
@@ -308,11 +312,22 @@ test("typed client mints one browser ticket and browser exchange receives the so
     assert.deepEqual(session, { contract: "browser-session/v1", generation: 1, apiKey });
     const replay = await fetch(`${origin}/_local/browser-session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin" },
+      headers: { "Content-Type": "application/json", Origin: origin },
       body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: minted.value.ticket }),
     });
     assert.equal(replay.status, 401);
     assert.equal((await replay.text()).includes(minted.value.ticket), false);
+
+    const crossSite = await client.mintBrowserTicket();
+    assert.equal(crossSite.ok, true);
+    if (!crossSite.ok) return;
+    const rejected = await fetch(`${origin}/_local/browser-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "cross-site" },
+      body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: crossSite.value.ticket }),
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal((await rejected.json() as { code: string }).code, "ORIGIN_FORBIDDEN");
   });
 });
 

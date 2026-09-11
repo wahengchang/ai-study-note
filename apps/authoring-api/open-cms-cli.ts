@@ -1,5 +1,4 @@
-import { chromium } from "playwright";
-import type { Browser } from "playwright";
+import { spawn } from "node:child_process";
 import { pathToFileURL } from "node:url";
 
 import { createLocalAuthoringClient } from "./authoring-client.js";
@@ -8,7 +7,7 @@ import { AUTHORING_ORIGIN, AUTHORING_RESOURCE_ID_PATTERN } from "./origin.js";
 export type OpenCmsCliIo = Readonly<{ stdout(text: string): void; stderr(text: string): void }>;
 export type OpenCmsCliEnvironment = Readonly<{ homeDirectory: string; xdgConfigHome?: string }>;
 
-/** 僅以 Playwright private pipe/context 啟動，不傳 profile、debug port 或 ticket-bearing argv。 */
+/** 以作業系統預設瀏覽器開啟 CMS；一次性 ticket 位於 URL fragment。 */
 export async function runOpenCmsCli(argv: readonly string[], io: OpenCmsCliIo, environment: OpenCmsCliEnvironment): Promise<number> {
   const route = argv.length === 1 && argv[0] === "--plugins"
     ? "/cms/plugins"
@@ -16,32 +15,24 @@ export async function runOpenCmsCli(argv: readonly string[], io: OpenCmsCliIo, e
       ? `/cms/entries/${argv[1]}`
       : undefined;
   if (route === undefined) { io.stderr("CMS_OPEN_FAILED code=INVALID_ARGUMENTS\n"); return 2; }
-  let browser: Browser | undefined;
-  try {
-    browser = await chromium.launch();
-    const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
-    const page = await context.newPage();
-    const minted = await createLocalAuthoringClient(environment).mintBrowserTicket();
-    if (!minted.ok) {
-      await browser.close();
-      io.stderr(`CMS_OPEN_FAILED code=${minted.error.code}\n`);
-      return 1;
-    }
-    try {
-      await page.goto(`${AUTHORING_ORIGIN}${route}#${minted.value.ticket}`, { waitUntil: "domcontentloaded" });
-    } catch {
-      await browser.close();
-      io.stderr("CMS_OPEN_FAILED code=CMS_BROWSER_NAVIGATION_FAILED\n");
-      return 1;
-    }
-    const watched = browser;
-    await new Promise<void>((resolve) => watched.once("disconnected", () => resolve()));
-    return 0;
-  } catch {
-    if (browser !== undefined && browser.isConnected()) await browser.close();
-    io.stderr("CMS_OPEN_FAILED code=CMS_BROWSER_LAUNCH_FAILED\n");
+  const minted = await createLocalAuthoringClient(environment).mintBrowserTicket();
+  if (!minted.ok) {
+    io.stderr(`CMS_OPEN_FAILED code=${minted.error.code}\n`);
     return 1;
   }
+  const opened = await new Promise<boolean>((resolve) => {
+    const browser = spawn("open", [`${AUTHORING_ORIGIN}${route}#${minted.value.ticket}`], { detached: true, stdio: "ignore" });
+    browser.once("error", () => resolve(false));
+    browser.once("spawn", () => {
+      browser.unref();
+      resolve(true);
+    });
+  });
+  if (!opened) {
+    io.stderr("CMS_OPEN_FAILED code=CMS_DEFAULT_BROWSER_LAUNCH_FAILED\n");
+    return 1;
+  }
+  return 0;
 }
 
 export async function openCmsMain(): Promise<void> {

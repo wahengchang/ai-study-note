@@ -21,6 +21,8 @@ export { openCmsMain, runOpenCmsCli } from "./open-cms-cli.js";
 export type { OpenCmsCliEnvironment, OpenCmsCliIo } from "./open-cms-cli.js";
 export { cmsServeMain, runCmsServe } from "./cms-serve-cli.js";
 export type { CmsServeCliIo } from "./cms-serve-cli.js";
+export { runCmsLocalCli } from "./cms-local-cli.js";
+export type { CmsLocalCliEnvironment, CmsLocalCliIo } from "./cms-local-cli.js";
 export {
   API_KEY_PATTERN,
   AUTHORING_AUTHORITY,
