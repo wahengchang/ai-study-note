@@ -247,13 +247,20 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
       assert.notEqual(currentReferences.value[0]?.assetVersion.assetVersionId, "v1");
       assert.deepEqual(publishedReferences.value.map((item) => item.assetVersion), [{ assetId: "runtime-media", assetVersionId: "v1" }]);
     } finally { replacedStore.value.close(); }
+    // 封存仍被 published pointer 引用的版本必須被拒絕，且 CMS 要顯示契約要求的完整 published 引用。
+    const publishedRow = page.locator("tbody tr").filter({ has: page.locator("td", { hasText: /^v1$/u }) });
+    page.once("dialog", (dialog) => dialog.accept());
+    await publishedRow.getByRole("button", { name: "封存", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.getByRole("alert").getByText(`仍被已發布內容引用，無法封存此媒體版本。目前引用：${entryId} / ${publishedRevisionId}`, { exact: true }).waitFor();
+    await publishedRow.getByText("ready", { exact: true }).waitFor();
     const missingTicket = await client.mintBrowserTicket();
     assert.equal(missingTicket.ok, true, missingTicket.ok ? "" : missingTicket.error.code);
     if (!missingTicket.ok) return;
     const missingPage = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false })).newPage();
     await missingPage.goto(`${runtime.value.origin}/cms/media/missing-media#${missingTicket.value.ticket}`, { waitUntil: "networkidle" });
     await missingPage.getByRole("heading", { name: "媒體詳情", exact: true }).waitFor();
-    await missingPage.getByText("Media 讀取無法驗證。", { exact: true }).waitFor();
+    await missingPage.getByText("找不到媒體 asset。", { exact: true }).waitFor();
     await missingPage.waitForFunction(() => document.activeElement?.id === "page-title");
   } finally {
     await browser?.close();

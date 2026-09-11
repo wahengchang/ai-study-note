@@ -10,7 +10,12 @@ const AUTHORING_RESOURCE_ID_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9._~-]+$/u;
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const jsonContent = z.unknown().refine((value) => value !== undefined);
 const schemaIdentitySchema = z.object({ schemaId: z.string(), version: z.number().int().safe().positive() }).strict();
-const authoringErrorSchema = z.object({ contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string(), owner: z.string(), subjectIds: z.array(z.string()), remediation: z.object({ kind: z.literal("message"), message: z.string() }).strict() }).strict();
+const remediationSchema = z.object({ kind: z.literal("message"), message: z.string() }).strict();
+const authoringErrorSchema = z.object({ contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string(), owner: z.string(), subjectIds: z.array(z.string()), remediation: remediationSchema }).strict();
+const mediaReferenceSchema = z.object({ entryId: z.string(), revisionId: z.string(), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict();
+const restoreAssetCommandSchema = z.object({ contract: z.literal("restore-asset-command/v1"), command: z.literal("RestoreAsset"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), recovery: z.enum(["none", "local-bytes-and-metadata"]) }).strict();
+const mediaArchiveBlockedErrorSchema = z.object({ contract: z.literal("media-archive-blocked/v1"), requestId: z.string(), code: z.literal("MEDIA_ARCHIVE_BLOCKED_PUBLISHED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, archiveImpact: z.object({ contract: z.literal("archive-asset-impact/v1"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), publishedReferences: z.array(mediaReferenceSchema) }).strict() }).strict();
+const mediaRestoreRequiredErrorSchema = z.object({ contract: z.literal("media-restore-required/v1"), requestId: z.string(), code: z.literal("MEDIA_RESTORE_REQUIRED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, restoreCommands: z.array(restoreAssetCommandSchema) }).strict();
 const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: z.unknown(), stateDigest: digestSchema }).strict();
 const contentTypeSchema = z.object({ contract: z.literal("content-type/v1"), schemaIdentity: schemaIdentitySchema, schema: jsonContent, schemaDigest: digestSchema }).strict();
 const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSchema), stateDigest: digestSchema }).strict();
@@ -183,6 +188,10 @@ class CmsApiClient {
     if (!response.ok) {
       const error = authoringErrorSchema.safeParse(value);
       if (error.success) throw new CmsApiError(error.data.code, response.status, error.data.remediation.message);
+      const blocked = mediaArchiveBlockedErrorSchema.safeParse(value);
+      if (blocked.success) throw new CmsApiError(blocked.data.code, response.status, `${blocked.data.remediation.message}目前引用：${blocked.data.archiveImpact.publishedReferences.map((reference) => `${reference.entryId} / ${reference.revisionId}`).join("、")}`);
+      const required = mediaRestoreRequiredErrorSchema.safeParse(value);
+      if (required.success) throw new CmsApiError(required.data.code, response.status, required.data.restoreCommands.some((command) => command.recovery === "local-bytes-and-metadata") ? `${required.data.remediation.message}請使用下方的「以本機 bytes 復原」表單。` : required.data.remediation.message);
       throw new CmsApiError("CMS_RESPONSE_INVALID", response.status, "CMS response 無法驗證。");
     }
     if (schema === undefined) return value as T;
@@ -664,6 +673,7 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   useEffect(() => {
     const generation = ++analysisGeneration.current;
     if (timer.current !== undefined) clearTimeout(timer.current);
+    if (!valid || conflict) { setAnalysisBusy(false); return; }
     setAnalysisBusy(true); setAnalysisFailure(undefined);
     timer.current = window.setTimeout(() => {
       void (async () => {

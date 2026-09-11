@@ -18,6 +18,25 @@
 
 - `npm run check`（267 passed）
 
+## 審查後修正（2026-09-11）
+
+- entry editor 的 SEO analysis effect 誤刪了 `if (!valid || conflict) { setAnalysisBusy(false); return; }`
+  守門，使無效草稿與 conflict lock 狀態下仍每 400ms 送出 analysis request（並可在 409 時反覆搶走
+  reload 按鈕焦點）。已復原；此守門屬 #308 editor 契約的 conflict lock 行為，與 Media workspace 無關。
+- CMS 只解析 `authoring-error/v1`，因此契約要求的 `media-archive-blocked/v1` 與
+  `media-restore-required/v1` 會退化成無法行動的 `CMS_RESPONSE_INVALID`。現在兩者都被解析：
+  封存被阻擋時顯示完整 published 引用，缺 bytes 的復原時引導使用者到本機 recovery 表單。
+- browser gate 原本斷言未知 asset 顯示 `Media 讀取無法驗證。`（503）；契約規定 unknown asset 是 404，
+  對應 UI 既有的「找不到媒體 asset。」分支。已改為斷言該 404 文案，並新增封存被 published 引用阻擋時
+  顯示完整引用的 keyboard journey 斷言。
+
+### 追加驗證
+
+- `npm run typecheck`、`npm run check:architecture`、`npm run cms:build`
+- `node --import tsx --test tests/apps/cms/runtime-browser-gate.test.ts`（6 passed）
+- `node --import tsx --test tests/apps/cms/seo-workspace.test.ts tests/apps/cms/article-workspace.test.ts tests/apps/cms/session-client.test.ts`（3 passed）
+
 ## 已知限制
 
-- 無。
+- `tests/apps/cms/plugin-editor-blocks.test.ts` 的兩個 case 在本次審查環境無法通過；同樣的失敗在
+  `site-reset` 基線重現，與本 PR 無關（審查環境替換了 pinned Chromium build）。
