@@ -1,8 +1,8 @@
 ---
 id: WI-058
-status: pending
+status: done
 title: CMS media library workspace
-work_group: null
+work_group: WG-038
 depends_on: ["WI-040", "WI-035", "WI-046", "WI-047"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-046", "WI-047"]
 
 ## Notes
 
-GitHub #317；planned。
+GitHub #317；依 Media continuous-delivery exception，以 PR #362 的 `feature/media-lifecycle-commands` 作 stacked base。PR #363 已開啟並完成。
