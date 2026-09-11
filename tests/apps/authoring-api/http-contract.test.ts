@@ -19,7 +19,7 @@ import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
-import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
+import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -193,15 +193,75 @@ test("actual listener imports and lists a strictly redacted media asset", async 
     const detail = await send("GET", "/v1/media/asset-1", { Authorization: `Bearer ${apiKey}`, Host: authority });
     assert.equal(detail.status, 200, detail.body);
     assert.equal(detail.body.includes("must-not-return"), false);
+    const missing = await send("GET", "/v1/media/absent-asset", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(missing.status, 404, missing.body);
+    assert.equal(failureCode(missing), "MEDIA_ASSET_NOT_FOUND");
     const blocked = await post("/v1/media/asset-1/archive", headers, JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: "version-1" }));
     assert.equal(blocked.status, 409, blocked.body);
     assert.equal(failureCode(blocked), "MEDIA_ARCHIVE_BLOCKED_PUBLISHED");
+    const blockedError = mediaArchiveBlockedErrorSchema.safeParse(JSON.parse(blocked.body));
+    assert.equal(blockedError.success, true, blocked.body);
+    if (blockedError.success) {
+      assert.deepEqual(blockedError.data.archiveImpact.assetVersion, { assetId: "asset-1", assetVersionId: "version-1" });
+      assert.deepEqual(blockedError.data.archiveImpact.publishedReferences, [{ entryId: "media-entry", revisionId: "media-draft-1", assetVersion: { assetId: "asset-1", assetVersionId: "version-1" } }]);
+    }
     const archived = await post("/v1/media/asset-1/archive", headers, JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: "version-2" }));
     assert.equal(archived.status, 200, archived.body);
     assert.equal(JSON.parse(archived.body).asset.versions[1].availability, "archived");
     const restored = await post("/v1/media/asset-1/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-2" }));
     assert.equal(restored.status, 200, restored.body);
     assert.equal(JSON.parse(restored.body).asset.versions[1].availability, "ready");
+  });
+});
+
+test("lost media bytes project as missing and only a matching recovery restores them", async () => {
+  await withAuthoringApi(async ({ apiKey, directory }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+    const read = { Authorization: `Bearer ${apiKey}`, Host: authority } as const;
+    const bytes = "bWVkaWEgYnl0ZXM";
+    assert.equal((await post("/v1/media/import", headers, JSON.stringify({ contract: "media-import-request/v1", importId: "import-lost-1", assetId: "asset-lost", assetVersionId: "version-1", bytesBase64url: bytes, metadata: { mime: "text/plain" } }))).status, 200);
+    rmSync(path.join(directory, "objects", "objects"), { recursive: true, force: true });
+    mkdirSync(path.join(directory, "objects", "objects"), { recursive: true, mode: 0o700 });
+
+    const detail = await send("GET", "/v1/media/asset-lost", read);
+    assert.equal(detail.status, 200, detail.body);
+    const projected = JSON.parse(detail.body) as { asset: { versions: readonly Readonly<{ availability: string; restoreCommand?: Readonly<{ recovery: string }> }>[] } };
+    assert.equal(projected.asset.versions[0]?.availability, "missing");
+    assert.equal(projected.asset.versions[0]?.restoreCommand?.recovery, "local-bytes-and-metadata");
+
+    const required = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1" }));
+    assert.equal(required.status, 422, required.body);
+    const requiredError = mediaRestoreRequiredErrorSchema.safeParse(JSON.parse(required.body));
+    assert.equal(requiredError.success, true, required.body);
+    if (requiredError.success) assert.deepEqual(requiredError.data.restoreCommands, [{ contract: "restore-asset-command/v1", command: "RestoreAsset", assetVersion: { assetId: "asset-lost", assetVersionId: "version-1" }, recovery: "local-bytes-and-metadata" }]);
+
+    const mismatched = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: "b3RoZXIgYnl0ZXM", metadata: { mime: "text/plain" } } }));
+    assert.equal(mismatched.status, 422, mismatched.body);
+    assert.equal(failureCode(mismatched), "MEDIA_RESTORE_MISMATCH");
+
+    const restored = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: bytes, metadata: { mime: "text/plain" } } }));
+    assert.equal(restored.status, 200, restored.body);
+    assert.equal(JSON.parse(restored.body).asset.versions[0].availability, "ready");
+  });
+});
+
+test("Media bytes routes reject an oversized non-bytes envelope before any command", async () => {
+  await withAuthoringApi(async ({ apiKey, digest }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+    const before = digest();
+    const oversizedMetadata = { mime: "text/plain", note: "n".repeat(70_000) };
+    const envelopes: readonly Readonly<{ path: string; body: string }>[] = [
+      { path: "/v1/media/import", body: JSON.stringify({ contract: "media-import-request/v1", importId: "import-envelope", assetId: "asset-1", assetVersionId: "version-1", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata }) },
+      { path: "/v1/media/asset-1/versions", body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: "import-envelope", assetVersionId: "version-2", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata }, replacement: { entryId: "entry", revisionId: "revision-2", operationId: "op-2", expectedCurrentRevisionId: "revision-1", targetAssetVersion: { assetId: "asset-1", assetVersionId: "version-1" } } }) },
+      { path: "/v1/media/asset-1/restore", body: JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata } }) },
+    ];
+    for (const item of envelopes) {
+      const response = await post(item.path, headers, item.body);
+      assert.equal(response.status, 400, `${item.path} envelope bound`);
+      assert.equal(failureCode(response), "REQUEST_BODY_TOO_LARGE", `${item.path} envelope bound code`);
+      assertResponseHeaders(response, `${item.path} envelope rejection`);
+    }
+    assert.equal(digest(), before, "envelope rejection performs zero canonical mutation");
   });
 });
 

@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
-import type { AssetVersionIdentity, MediaAssetDetailView, MediaAssetView, RestoreAssetCommandDescriptor } from "../media/index.js";
+import type { ArchiveAssetImpact, AssetVersionIdentity, MediaAssetDetailView, MediaAssetView, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { CmsEditorBlockSource, PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
 import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal } from "../site-definition/index.js";
 
@@ -60,6 +60,7 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   MEDIA_VERSION_CREATED_REPLACEMENT_FAILED: "Replacement media version 已建立；請以同一 replacement identity 重新執行 revision replacement。",
   MEDIA_IMPORT_CONFLICT: "Media import identity 與既有紀錄衝突。",
   MEDIA_IMPORT_FAILED: "Media import 尚未完成。",
+  MEDIA_ASSET_NOT_FOUND: "找不到指定的 media asset。",
   MEDIA_ARCHIVE_BLOCKED_PUBLISHED: "仍被已發布內容引用，無法封存此媒體版本。",
   MEDIA_ARCHIVE_FAILED: "Media asset version 尚未完成封存。",
   MEDIA_RESTORE_REQUIRED: "請提供符合既有 evidence 的 recovery bytes 與 metadata。",
@@ -96,8 +97,9 @@ function fail<T>(
   owner: DomainApplicationCommandFailure["owner"] = "DomainApplication",
   subjectIds: readonly string[] = [],
   restoreCommands?: readonly RestoreAssetCommandDescriptor[],
+  archiveImpact?: ArchiveAssetImpact,
 ): DomainApplicationResult<T> {
-  return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] }, ...(restoreCommands === undefined ? {} : { restoreCommands }) } };
+  return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] }, ...(restoreCommands === undefined ? {} : { restoreCommands }), ...(archiveImpact === undefined ? {} : { archiveImpact }) } };
 }
 
 function plugin<T>(error: PluginHostFailure | CoreFailure): DomainApplicationResult<T> {
@@ -355,9 +357,11 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       request.expectedCurrentRevisionId,
     );
   };
-  const mediaFailure = <T>(error: Readonly<{ code: string; subjectIds: readonly string[] }>): DomainApplicationResult<T> => {
-    const code = error.code === "MEDIA_IMPORT_CONFLICT" ? "MEDIA_IMPORT_CONFLICT" : error.code === "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" ? "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" : error.code === "MEDIA_ARCHIVE_FAILURE" ? "MEDIA_ARCHIVE_FAILED" : error.code === "MEDIA_RESTORE_REQUIRED" ? "MEDIA_RESTORE_REQUIRED" : error.code === "MEDIA_RESTORE_MISMATCH" ? "MEDIA_RESTORE_MISMATCH" : error.code === "MEDIA_RESTORE_FAILURE" ? "MEDIA_RESTORE_FAILED" : error.code === "MEDIA_READ_STATE_STALE" ? "MEDIA_READ_STATE_STALE" : error.code === "MEDIA_READ_FAILED" ? "MEDIA_READ_FAILED" : "MEDIA_IMPORT_FAILED";
-    return fail(code, "DataMedia", error.subjectIds);
+  // Media failure 的 archive impact 與 RestoreAsset descriptor 是 transport 必須投影的安全 remediation evidence，
+  // 不得在 Application 邊界被丟棄；否則 CMS 只會看到一句無法行動的訊息。
+  const mediaFailure = <T>(error: Readonly<{ code: string; subjectIds: readonly string[]; restoreCommands?: readonly RestoreAssetCommandDescriptor[]; archiveImpact?: ArchiveAssetImpact }>): DomainApplicationResult<T> => {
+    const code = error.code === "MEDIA_IMPORT_CONFLICT" ? "MEDIA_IMPORT_CONFLICT" : error.code === "MEDIA_ASSET_NOT_FOUND" ? "MEDIA_ASSET_NOT_FOUND" : error.code === "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" ? "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" : error.code === "MEDIA_ARCHIVE_FAILURE" ? "MEDIA_ARCHIVE_FAILED" : error.code === "MEDIA_RESTORE_REQUIRED" ? "MEDIA_RESTORE_REQUIRED" : error.code === "MEDIA_RESTORE_MISMATCH" ? "MEDIA_RESTORE_MISMATCH" : error.code === "MEDIA_RESTORE_FAILURE" ? "MEDIA_RESTORE_FAILED" : error.code === "MEDIA_READ_STATE_STALE" ? "MEDIA_READ_STATE_STALE" : error.code === "MEDIA_READ_FAILED" ? "MEDIA_READ_FAILED" : "MEDIA_IMPORT_FAILED";
+    return fail(code, "DataMedia", error.subjectIds, error.restoreCommands, error.archiveImpact);
   };
   const mediaAsset = (asset: MediaAssetView): MediaAssetV1 => ({
     contract: "media-asset/v1",
