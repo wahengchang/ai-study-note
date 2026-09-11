@@ -75,9 +75,9 @@
 
 ### Implemented baseline
 
-`apps/authoring-api` is the sole localhost transport composition root. It binds only `127.0.0.1:43127` / `http://127.0.0.1:43127`; rejects alternate Host/origin/forwarding/CORS/redirects. Credential rotation, server proof, one-time browser ticket, memory-only session bootstrap, authenticated content read/mutation and Preview transport are implemented. Every response is no-store/no-cache/nosniff/no-referrer; logs use only `{requestId,stableEventCode,method,routeTemplate,status}` and diagnostics redact `asn_v1_` / `asn_bt_v1_`.
+`apps/authoring-api` is the sole localhost transport composition root. It binds only `127.0.0.1:43127` / `http://127.0.0.1:43127`; rejects alternate Host/origin/forwarding/CORS/redirects. CMS is a local single-user web app: any same-origin browser can directly load `/cms` and call its finite `/v1` routes without ticket, session or browser-held credential. Every response is no-store/no-cache/nosniff/no-referrer; logs use only `{requestId,stableEventCode,method,routeTemplate,status}` and diagnostics redact `asn_v1_` / `asn_bt_v1_`.
 
-Before secret/auth/body parsing, every `/_local` and `/v1` route rejects Cookie and query. The middleware order is Host/forwarded → Origin/Fetch Metadata → Bearer → media/body/schema → Application; admission failure runs no command or canonical mutation. Browser session bootstrap `POST` requires exact Origin and no Bearer; absent `Sec-Fetch-Site` is accepted for default browsers that omit Fetch Metadata, while any supplied value must be exactly one `same-origin`. Browser authenticated `POST` requires exact Origin, exactly one `Sec-Fetch-Site:same-origin`, and Bearer. API `GET` requires exact Host/Bearer/exactly one same-origin Fetch Site, with absent Origin or one exact Origin. CLI keeps its existing absent-Origin/no-Fetch-Metadata Bearer profile.
+Before body parsing, every `/v1` route rejects Cookie and query. Browser requests require exact local Origin for mutations and absent or exact local Origin for reads; Fetch Metadata is optional, but any supplied value must be one `same-origin`. Local CLI requests retain their existing absent-Origin/no-Fetch-Metadata profile. This local-only mode deliberately grants any process on the same machine access to the CMS; the listener must never bind beyond loopback.
 
 ### #308 contract — Application façade and finite routes
 - `Application` is the only authoring façade for existing type/catalog/history/Save/Publish/current/published Preview plus `readCurrentEntry`, `resolveCurrentCmsEditorBlocks`, `listPlugins`, `activatePlugin`, `replacePluginSettings`, `analyzeCmsSeo`, `listTaxonomies`, `getTaxonomy`, `createTaxonomy`, `executeTaxonomyCommand`. Authoring API/browser code must not call Projection, ThemeHost, PluginHost, Taxonomy or Persistence directly.
@@ -121,9 +121,8 @@ Real entrypoints, not test hosts or hand-built artifacts, are required:
 | `theme:activate --database <path> --installed-themes-root <path> --id study-notes` | discovers one candidate and durable-CAS activates it |
 | `cms:build` | emits content-hashed assets plus manifest |
 | `cms:init` | builds CMS assets, then initializes an idempotent repository-external local demo runtime under `HOME/.local/share/ai-study-note-reset/cms` |
-| `cms:start` | starts that initialized local demo runtime without path arguments |
+| `cms:start` | starts the initialized local CMS; open `http://127.0.0.1:43127/cms` directly in any browser |
 | `cms:serve --database <path> --media-root <path> --installed-plugins-root <path> --installed-themes-root <path> --cms-assets-root <path>` | composes Application-only authoring transport |
-| `cms:open --plugins\|--entry-id <id>` | mints one browser ticket and opens the exact CMS route in the macOS default browser; the ticket is carried in the URL fragment |
 | `site:build --database <path> --media-root <path> --installed-plugins-root <path> --installed-themes-root <path> --artifacts-root <path>` | composes published Projection → Renderer → Delivery; only successful Delivery prints artifact digest/directory and sanitized sorted sidecar |
 
 | Area | Required observable proof |

@@ -641,23 +641,7 @@ function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX
   return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
 }
 
-function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {
-  const [session, setSession] = useState<AuthoringSession>();
-  const [locked, setLocked] = useState(ticket === undefined);
-  const heading = useRef<HTMLHeadingElement>(null);
-  useEffect(() => { if (locked) heading.current?.focus(); }, [locked]);
-  useEffect(() => {
-    if (ticket === undefined) return;
-    let active = true;
-    let opened: AuthoringSession | undefined;
-    void openAuthoringSession(ticket, () => { if (active) setLocked(true); }).then((next) => { opened = next; if (active) setSession(next); else next.lock(); }).catch(() => { if (active) setLocked(true); });
-    return () => { active = false; opened?.lock(); };
-  }, [ticket]);
-  if (locked) return <main><h1 ref={heading} tabIndex={-1}>CMS 工作台已鎖定</h1><p>請由 cms:open 建立新的瀏覽器 session。</p></main>;
-  return session === undefined ? <main aria-busy="true"><h1>正在建立 CMS session</h1></main> : <CmsApp session={session} />;
-}
-
-export function startCms(ticket: string | undefined): void {
+export function startCms(): void {
   const root = document.getElementById("root");
-  if (root !== null) createRoot(root).render(<SessionGate ticket={ticket} />);
+  if (root !== null) createRoot(root).render(<CmsApp session={openAuthoringSession()} />);
 }
