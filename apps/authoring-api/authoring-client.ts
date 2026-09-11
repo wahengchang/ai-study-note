@@ -7,24 +7,26 @@ import type { ZodType } from "zod";
 import { openLocalAuthoringClientCredential } from "./credential-store.js";
 import type { AuthoringCredentialFailureCode, LocalAuthoringCredentialInput } from "./credential-store.js";
 import { AUTHORING_HOST, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN } from "./origin.js";
-import { authoringErrorSchema, authoringErrorStatuses, browserTicketSchema, publishRevisionRequestSchema, publishRevisionSuccessSchema, saveRevisionRequestSchema, saveRevisionSuccessSchema, serverProofSchema } from "./transport-contracts.js";
-import type { AuthoringRemoteErrorCode, BrowserTicketDto, PublishRevisionRequestDto, PublishRevisionSuccessDto, SaveRevisionRequestDto, SaveRevisionSuccessDto } from "./transport-contracts.js";
+import { authoringErrorSchema, authoringErrorStatuses, browserTicketSchema, publishRevisionRequestSchema, publishRevisionSuccessSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, saveRevisionSuccessSchema, serverProofSchema } from "./transport-contracts.js";
+import type { AuthoringRemoteErrorCode, BrowserTicketDto, PublishRevisionRequestDto, PublishRevisionSuccessDto, RestoreRevisionRequestDto, RestoreRevisionSuccessDto, SaveRevisionRequestDto, SaveRevisionSuccessDto } from "./transport-contracts.js";
 
 const proofLimit = 64 * 1024;
 const saveSuccessLimit = 16 * 1024 * 1024;
 const publishSuccessLimit = 64 * 1024;
+const restoreSuccessLimit = 64 * 1024;
 
-export type AuthoringClientFailureCode = AuthoringCredentialFailureCode | AuthoringRemoteErrorCode | "INVALID_CLIENT_REQUEST" | "AUTHORING_CONNECTION_FAILED" | "AUTHORING_PROOF_TIMEOUT" | "AUTHORING_TICKET_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT" | "AUTHORING_SERVER_PROOF_INVALID" | "AUTHORING_CONNECTION_CHANGED" | "INVALID_SERVER_RESPONSE";
+export type AuthoringClientFailureCode = AuthoringCredentialFailureCode | AuthoringRemoteErrorCode | "INVALID_CLIENT_REQUEST" | "AUTHORING_CONNECTION_FAILED" | "AUTHORING_PROOF_TIMEOUT" | "AUTHORING_TICKET_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT" | "AUTHORING_RESTORE_TIMEOUT" | "AUTHORING_SERVER_PROOF_INVALID" | "AUTHORING_CONNECTION_CHANGED" | "INVALID_SERVER_RESPONSE";
 export type AuthoringClientResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: AuthoringClientFailureCode }> }>;
 export interface LocalAuthoringClient {
   mintBrowserTicket(): Promise<AuthoringClientResult<BrowserTicketDto>>;
   saveRevision(input: Readonly<{ entryId: string; request: SaveRevisionRequestDto }>): Promise<AuthoringClientResult<SaveRevisionSuccessDto>>;
   publishRevision(input: Readonly<{ entryId: string; request: PublishRevisionRequestDto }>): Promise<AuthoringClientResult<PublishRevisionSuccessDto>>;
+  restoreRevision(input: Readonly<{ entryId: string; request: RestoreRevisionRequestDto }>): Promise<AuthoringClientResult<RestoreRevisionSuccessDto>>;
 }
 
 type HttpReply = Readonly<{ status: number; text: string }>;
 type ProofReply = Readonly<{ reply: HttpReply; socket: Socket }>;
-type CommandTimeoutCode = "AUTHORING_TICKET_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT";
+type CommandTimeoutCode = "AUTHORING_TICKET_TIMEOUT" | "AUTHORING_SAVE_TIMEOUT" | "AUTHORING_PUBLISH_TIMEOUT" | "AUTHORING_RESTORE_TIMEOUT";
 type AuthenticatedCommand<T> = Readonly<{ pathname: string; body: string; successLimit: number; timeoutCode: CommandTimeoutCode; successSchema: ZodType<T> }>;
 
 function failed<T>(code: AuthoringClientFailureCode): AuthoringClientResult<T> { return { ok: false, error: { code } }; }
@@ -195,6 +197,10 @@ export function createLocalAuthoringClient(location: LocalAuthoringCredentialInp
     publishRevision(input) {
       if (!AUTHORING_RESOURCE_ID_PATTERN.test(input.entryId) || !publishRevisionRequestSchema.safeParse(input.request).success) return Promise.resolve(failed("INVALID_CLIENT_REQUEST"));
       return authenticatedCommand(location, { pathname: `/v1/entries/${input.entryId}/publish`, body: JSON.stringify(input.request), successLimit: publishSuccessLimit, timeoutCode: "AUTHORING_PUBLISH_TIMEOUT", successSchema: publishRevisionSuccessSchema });
+    },
+    restoreRevision(input) {
+      if (!AUTHORING_RESOURCE_ID_PATTERN.test(input.entryId) || !restoreRevisionRequestSchema.safeParse(input.request).success) return Promise.resolve(failed("INVALID_CLIENT_REQUEST"));
+      return authenticatedCommand(location, { pathname: `/v1/entries/${input.entryId}/restore`, body: JSON.stringify(input.request), successLimit: restoreSuccessLimit, timeoutCode: "AUTHORING_RESTORE_TIMEOUT", successSchema: restoreRevisionSuccessSchema });
     },
   };
 }

@@ -117,6 +117,30 @@ export const saveRevisionSuccessSchema = z.object({
 }).strict();
 export const mediaVersionReplacementReceiptSchema = z.object({ contract: z.literal("media-version-replacement-receipt/v1"), version: mediaAssetVersionSchema, save: saveRevisionSuccessSchema, asset: mediaAssetDetailSchema }).strict();
 
+export const restoreRevisionRequestSchema = z.object({
+  contract: z.literal("restore-revision-request/v1"),
+  sourceRevisionId: z.string(),
+  newRevisionId: z.string(),
+  operationId: z.string(),
+}).strict();
+
+export const restoreRevisionSuccessSchema = z.object({
+  contract: z.literal("restore-revision-success/v1"),
+  entryId: z.string(),
+  revision: z.object({
+    revisionId: z.string(),
+    schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(),
+    contentDigest: z.string(),
+    lineage: z.object({ operationId: z.string(), operationKind: z.string() }).strict(),
+    restoredFromRevisionId: z.string(),
+  }).strict(),
+  references: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()),
+  pointer: z.object({ currentRevisionId: z.string(), publishedRevisionId: z.string().optional() }).strict(),
+  currentRoute: z.object({ normalizedRoute: z.string(), owner: z.string(), sourceRevisionId: z.string() }).strict(),
+  lineageIdentity: z.object({ entryId: z.string(), revisionId: z.string(), operationId: z.string() }).strict(),
+  stateDigest: z.string(),
+}).strict();
+
 export const publishRevisionRequestSchema = z.object({
   contract: z.literal("publish-revision-request/v1"),
   expectedCurrentRevisionId: z.string(),
@@ -252,8 +276,8 @@ export type MediaArchiveBlockedErrorDto = Readonly<z.infer<typeof mediaArchiveBl
 export type MediaRestoreRequiredErrorDto = Readonly<z.infer<typeof mediaRestoreRequiredErrorSchema>>;
 export const authoringErrorSchema = z.object({
   contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string().refine((code) => authoringErrorStatuses(code) !== undefined),
-  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection"]),
-  subjectIds: stringArray, remediation: messageRemediationSchema,
+  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection", "Taxonomy"]),
+  subjectIds: stringArray, remediation: messageRemediationSchema, restoreCommands: z.array(restoreCommandSchema).optional(),
 }).strict();
 export type ServerProofChallengeDto = Readonly<z.infer<typeof serverProofChallengeSchema>>;
 export type ServerProofDto = Readonly<z.infer<typeof serverProofSchema>>;
@@ -264,6 +288,8 @@ export type BrowserSessionDto = Readonly<z.infer<typeof browserSessionSchema>>;
 export type SaveRevisionRequestDto = Readonly<z.infer<typeof saveRevisionRequestSchema>>;
 export type SaveRevisionSuccessDto = Readonly<z.infer<typeof saveRevisionSuccessSchema>>;
 export type PublishRevisionRequestDto = Readonly<z.infer<typeof publishRevisionRequestSchema>>;
+export type RestoreRevisionRequestDto = Readonly<z.infer<typeof restoreRevisionRequestSchema>>;
+export type RestoreRevisionSuccessDto = Readonly<z.infer<typeof restoreRevisionSuccessSchema>>;
 export type MediaCatalogDto = Readonly<z.infer<typeof mediaCatalogSchema>>;
 export type MediaAssetDetailDto = Readonly<z.infer<typeof mediaAssetDetailSchema>>;
 export type MediaImportRequestDto = Readonly<z.infer<typeof mediaImportRequestSchema>>;
