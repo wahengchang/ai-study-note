@@ -19,7 +19,7 @@ import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
-import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
+import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -62,6 +62,10 @@ function saveBody(revisionId: string, route: string, expectedCurrentRevisionId: 
 function publishBody(expectedCurrentRevisionId: string, operationId = `publish-${expectedCurrentRevisionId}`): string {
   return JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId, operationId });
 }
+function restoreBody(sourceRevisionId: string, newRevisionId: string, operationId = `restore-${newRevisionId}`): string {
+  return JSON.stringify({ contract: "restore-revision-request/v1", sourceRevisionId, newRevisionId, operationId });
+}
+
 function failureCode(response: RawResponse): string {
   const value: unknown = JSON.parse(response.body);
   if (value === null || typeof value !== "object" || !("code" in value) || typeof value.code !== "string") throw new Error("authoring failure response lacks a code");
@@ -355,6 +359,48 @@ test("actual listener publishes the current revision with a safe receipt and rej
     assert.equal(stale.status, 409); assert.equal(failureCode(stale), "CURRENT_REVISION_MISMATCH");
     assert.equal(digest(), beforeStale, "stale publish 不得改變 canonical state");
     assert.equal(publishCalls(), 2, "stale request 已通過 transport 並抵達 DomainApplication");
+  });
+});
+
+test("actual listener restores an immutable source as new current while preserving published", async () => {
+  await withAuthoringApi(async ({ apiKey, persistence, digest, log }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
+    assert.equal((await post("/v1/entries/entry/revisions", headers, saveBody("source", "/source"))).status, 200);
+    assert.equal((await post("/v1/entries/entry/publish", headers, publishBody("source"))).status, 200);
+    assert.equal((await post("/v1/entries/entry/revisions", headers, saveBody("later", "/source", "source"))).status, 200);
+    const before = digest();
+    const restored = await post("/v1/entries/entry/restore", headers, restoreBody("source", "restored"));
+    assert.equal(restored.status, 201);
+    assertResponseHeaders(restored, "restore success");
+    const receipt = restoreRevisionSuccessSchema.safeParse(JSON.parse(restored.body));
+    assert.equal(receipt.success, true);
+    if (!receipt.success) return;
+    assert.equal(receipt.data.revision.restoredFromRevisionId, "source");
+    assert.deepEqual(receipt.data.pointer, { currentRevisionId: "restored", publishedRevisionId: "source" });
+    assert.equal(receipt.data.currentRoute.sourceRevisionId, "restored");
+    assert.notEqual(digest(), before);
+    assert.deepEqual(persistence.getEntryPointers("entry"), { ok: true, value: { entryId: "entry", currentRevisionId: "restored", publishedRevisionId: "source" } });
+    assert.deepEqual(log.at(-1), { requestId: log.at(-1)?.requestId ?? "", stableEventCode: "AUTHORING_REQUEST_OK", method: "POST", routeTemplate: "/v1/entries/:entryId/restore", status: 201 });
+  });
+});
+
+test("RestoreRevision transport rejects malformed and unauthenticated requests before command execution", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, log }) => {
+    const before = digest();
+    const cases: readonly Readonly<{ method: string; headers: Headers; body?: string; status: number; code: string }>[] = [
+      { method: "POST", headers: { "Content-Type": "application/json" }, body: restoreBody("source", "restored"), status: 401, code: "AUTHORIZATION_REQUIRED" },
+      { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ contract: "restore-revision-request/v1", sourceRevisionId: "source", newRevisionId: "restored", operationId: "op", extra: true }), status: 400, code: "INVALID_REQUEST_BODY" },
+      { method: "GET", headers: { Authorization: `Bearer ${apiKey}` }, status: 405, code: "METHOD_NOT_ALLOWED" },
+      { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/plain" }, body: restoreBody("source", "restored"), status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
+    ];
+    for (const item of cases) {
+      const response = await send(item.method, "/v1/entries/entry/restore", item.headers, item.body);
+      assert.equal(response.status, item.status);
+      assert.equal(failureCode(response), item.code);
+      assert.equal(log.at(-1)?.routeTemplate, "/v1/entries/:entryId/restore");
+      assertResponseHeaders(response, "restore rejection");
+    }
+    assert.equal(digest(), before);
   });
 });
 

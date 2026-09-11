@@ -99,6 +99,30 @@ export const saveRevisionSuccessSchema = z.object({
   activePluginStateDigest: z.string(),
 }).strict();
 
+export const restoreRevisionRequestSchema = z.object({
+  contract: z.literal("restore-revision-request/v1"),
+  sourceRevisionId: z.string(),
+  newRevisionId: z.string(),
+  operationId: z.string(),
+}).strict();
+
+export const restoreRevisionSuccessSchema = z.object({
+  contract: z.literal("restore-revision-success/v1"),
+  entryId: z.string(),
+  revision: z.object({
+    revisionId: z.string(),
+    schemaIdentity: z.object({ schemaId: z.string(), version: positiveInteger }).strict(),
+    contentDigest: z.string(),
+    lineage: z.object({ operationId: z.string(), operationKind: z.string() }).strict(),
+    restoredFromRevisionId: z.string(),
+  }).strict(),
+  references: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()),
+  pointer: z.object({ currentRevisionId: z.string(), publishedRevisionId: z.string().optional() }).strict(),
+  currentRoute: z.object({ normalizedRoute: z.string(), owner: z.string(), sourceRevisionId: z.string() }).strict(),
+  lineageIdentity: z.object({ entryId: z.string(), revisionId: z.string(), operationId: z.string() }).strict(),
+  stateDigest: z.string(),
+}).strict();
+
 export const publishRevisionRequestSchema = z.object({
   contract: z.literal("publish-revision-request/v1"),
   expectedCurrentRevisionId: z.string(),
@@ -188,6 +212,13 @@ const conflictCodes = ["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", 
 const invalidCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED", "INVALID_TAXONOMY_REQUEST", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE"] as const;
 const notFoundCodes = ["ENTRY_NOT_FOUND", "TAXONOMY_NOT_FOUND"] as const;
 const domainCodes = ["INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "CMS_SEO_ANALYSIS_FAILED", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED", "ENTRY_NOT_FOUND", "CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_NOT_FOUND", "MEDIA_REFERENCE_CONFLICT", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "SAVE_REVISION_FAILED", "PUBLISH_REVISION_FAILED", "RESTORE_REVISION_FAILED", "CHANGE_ROUTE_FAILED"] as const satisfies readonly DomainApplicationFailureCode[];
+const restoreAssetCommandSchema = z.object({
+  contract: z.literal("restore-asset-command/v1"),
+  command: z.literal("RestoreAsset"),
+  assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(),
+  recovery: z.enum(["none", "local-bytes-and-metadata"]),
+}).strict();
+
 const taxonomyCodes = ["INVALID_TAXONOMY_REQUEST", "TAXONOMY_NOT_FOUND", "TAXONOMY_CONFLICT", "TAXONOMY_STATE_CONFLICT", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE", "TAXONOMY_FAILED"] as const satisfies readonly TaxonomyFailureCode[];
 const pluginCodes = ["INVALID_PLUGIN_HOST_INPUT", "INVALID_TRUSTED_ROOT", "PLUGIN_DISCOVERY_FAILED", "PLUGIN_NOT_FOUND", "INVALID_PLUGIN_MANIFEST", "UNSUPPORTED_HOOK_CONTRACT", "UNSUPPORTED_CAPABILITY", "PLUGIN_EVIDENCE_MISMATCH", "PLUGIN_IDENTITY_CONFLICT", "PLUGIN_MODULE_INVALID", "PLUGIN_NOT_ACTIVE", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "ACTIVATION_STATE_CONFLICT", "ACTIVATION_STATE_FAILURE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CALLBACK_RESULT_INVALID", "PLUGIN_CALLBACK_FAILED", "PLUGIN_CAPABILITY_DENIED", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "PLUGIN_VALIDATION_SERVICE_FAILED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED"] as const satisfies readonly PluginHostFailureCode[];
 const contentCodes = ["INVALID_CONTENT_MODEL_INPUT", "CONTENT_DIGEST_MISMATCH", "NON_CANONICAL_CONTENT_BYTES", "UNSUPPORTED_CONTENT_CONTRACT", "INVALID_STRUCTURED_CONTENT", "RAW_FULL_PAGE_NOT_APPROVED"] as const satisfies readonly ContentReadFailureCode[];
@@ -214,8 +245,8 @@ export function authoringErrorStatuses(code: string): readonly number[] | undefi
 }
 export const authoringErrorSchema = z.object({
   contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string().refine((code) => authoringErrorStatuses(code) !== undefined),
-  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection"]),
-  subjectIds: stringArray, remediation: messageRemediationSchema,
+  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection", "Taxonomy"]),
+  subjectIds: stringArray, remediation: messageRemediationSchema, restoreCommands: z.array(restoreAssetCommandSchema).optional(),
 }).strict();
 export type ServerProofChallengeDto = Readonly<z.infer<typeof serverProofChallengeSchema>>;
 export type ServerProofDto = Readonly<z.infer<typeof serverProofSchema>>;
@@ -226,6 +257,8 @@ export type BrowserSessionDto = Readonly<z.infer<typeof browserSessionSchema>>;
 export type SaveRevisionRequestDto = Readonly<z.infer<typeof saveRevisionRequestSchema>>;
 export type SaveRevisionSuccessDto = Readonly<z.infer<typeof saveRevisionSuccessSchema>>;
 export type PublishRevisionRequestDto = Readonly<z.infer<typeof publishRevisionRequestSchema>>;
+export type RestoreRevisionRequestDto = Readonly<z.infer<typeof restoreRevisionRequestSchema>>;
+export type RestoreRevisionSuccessDto = Readonly<z.infer<typeof restoreRevisionSuccessSchema>>;
 export type PublishRevisionSuccessDto = Readonly<z.infer<typeof publishRevisionSuccessSchema>>;
 export type CreateContentTypeRequestDto = Readonly<z.infer<typeof createContentTypeRequestSchema>>;
 export type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
