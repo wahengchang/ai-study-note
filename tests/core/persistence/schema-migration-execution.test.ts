@@ -23,6 +23,8 @@ function fixture(databasePathname: string): Readonly<{ store: PersistenceStore; 
   const sourceBytes = bytes({ title: "before" });
   assert.equal(store.createRevision({ identity: { entryId: "entry", revisionId: "r1" }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: sourceBytes, contentDigest: sha256Digest(sourceBytes), lineage: { operationId: "save-r1", operationKind: "SaveRevision" } }).ok, true);
   assert.equal(store.setEntryPointers({ entryId: "entry", currentRevisionId: "r1", publishedRevisionId: "r1", lineage: { revisionId: "r1", operationId: "save-r1", operationKind: "SaveRevision" } }).ok, true);
+  assert.equal(store.replaceRouteClaim({ graph: "current", normalizedRoute: "/entry", owner: "entry", sourceRevisionId: "r1" }).ok, true);
+  assert.equal(store.replaceRouteClaim({ graph: "published", normalizedRoute: "/entry", owner: "entry", sourceRevisionId: "r1" }).ok, true);
   return { store, sourceBytes, mappedBytes: bytes({ title: "after" }) };
 }
 
@@ -59,7 +61,7 @@ test("executes one fresh approvable plan atomically and reconstructs durable lin
     ]);
     const canonical = store.canonicalState();
     assert.equal(canonical.ok, true);
-    if (canonical.ok) assert.deepEqual(canonical.value.counts, { schemaVersions: 2, revisions: 2, operationLineage: 3, entryPointers: 1, entryPointerLineage: 3, routeClaims: 0, mediaImportIntents: 0, mediaObjects: 0, mediaAssets: 0, assetVersions: 0, revisionReferences: 0, taxonomies: 0, taxonomyTermIdentities: 0, taxonomyTerms: 0, revisionTaxonomyBindings: 0, pluginActivationStates: 1, themeActivationStates: 1, pluginSettingsStates: 1, schemaMigrationExecutions: 1, schemaMigrationRevisionLineage: 1, schemaMigrationPointerLineage: 2 });
+    if (canonical.ok) assert.deepEqual(canonical.value.counts, { schemaVersions: 2, revisions: 2, operationLineage: 3, entryPointers: 1, entryPointerLineage: 3, routeClaims: 2, mediaImportIntents: 0, mediaObjects: 0, mediaAssets: 0, assetVersions: 0, revisionReferences: 0, taxonomies: 0, taxonomyTermIdentities: 0, taxonomyTerms: 0, revisionTaxonomyBindings: 0, pluginActivationStates: 1, themeActivationStates: 1, pluginSettingsStates: 1, schemaMigrationExecutions: 1, schemaMigrationRevisionLineage: 1, schemaMigrationPointerLineage: 2 });
     assert.deepEqual(store.getEntryPointers("entry"), { ok: true, value: { entryId: "entry", currentRevisionId: "r2", publishedRevisionId: "r1" } });
     const source = store.getRevision({ entryId: "entry", revisionId: "r1" });
     const replacement = store.getRevision({ entryId: "entry", revisionId: "r2" });
@@ -144,6 +146,8 @@ test("one execution moves both pointers, copies media references, and leaves pin
     const otherBytes = bytes({ title: "other" });
     assert.equal(store.createRevisionWithReferences({ revision: { identity: { entryId: "other", revisionId: "o1" }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: otherBytes, contentDigest: sha256Digest(otherBytes), lineage: { operationId: "save-o1", operationKind: "SaveRevision" } }, assetVersions: [media.identity] }).ok, true);
     assert.equal(store.setEntryPointers({ entryId: "other", currentRevisionId: "o1", publishedRevisionId: "o1", lineage: { revisionId: "o1", operationId: "save-o1", operationKind: "SaveRevision" } }).ok, true);
+    assert.equal(store.replaceRouteClaim({ graph: "current", normalizedRoute: "/other", owner: "other", sourceRevisionId: "o1" }).ok, true);
+    assert.equal(store.replaceRouteClaim({ graph: "published", normalizedRoute: "/other", owner: "other", sourceRevisionId: "o1" }).ok, true);
     const report = preflight(store, mappedBytes, [
       { entryId: "entry", pointer: "current", policy: "pin" },
       { entryId: "entry", pointer: "published", policy: "pin" },
@@ -166,6 +170,48 @@ test("one execution moves both pointers, copies media references, and leaves pin
     assert.deepEqual(store.getRevisionReferences({ entryId: "other", revisionId: "o2" }), { ok: true, value: [{ revision: { entryId: "other", revisionId: "o2" }, assetVersion: media.identity }] });
     assert.deepEqual(store.getRevisionReferences({ entryId: "other", revisionId: "o1" }), { ok: true, value: [{ revision: { entryId: "other", revisionId: "o1" }, assetVersion: media.identity }] });
     assert.deepEqual(store.getSchemaMigrationExecution("schema-migration-v2"), execution);
+    store.close();
+  } finally { rmSync(database.directory, { recursive: true, force: true }); }
+});
+
+test("execution preserves immutable taxonomy evidence and moves each moved pointer route claim", () => {
+  const database = databasePath();
+  try {
+    assert.equal(migrateDatabase({ databasePath: database.value }).ok, true);
+    const opened = openPersistence({ databasePath: database.value });
+    assert.equal(opened.ok, true);
+    if (!opened.ok) return;
+    const store = opened.value;
+    const schemaBytes = bytes({ type: "object", version: 1 });
+    assert.equal(store.registerSchemaVersion({ identity: { schemaId: "note", version: 1 }, schemaBytes, schemaDigest: sha256Digest(schemaBytes) }).ok, true);
+    assert.equal(store.createTaxonomy({ taxonomyId: "topics", label: "Topics" }).ok, true);
+    assert.equal(store.createTaxonomyTerm({ taxonomyId: "topics", termId: "alpha", label: "Original", slug: "alpha", order: 1 }).ok, true);
+    const sourceBytes = bytes({ title: "before" });
+    assert.equal(store.createRevisionWithReferences({ revision: { identity: { entryId: "entry", revisionId: "r1" }, schemaIdentity: { schemaId: "note", version: 1 }, contentBytes: sourceBytes, contentDigest: sha256Digest(sourceBytes), lineage: { operationId: "save-r1", operationKind: "SaveRevision" } }, assetVersions: [], taxonomyTerms: [{ taxonomyId: "topics", termId: "alpha" }] }).ok, true);
+    assert.equal(store.setEntryPointers({ entryId: "entry", currentRevisionId: "r1", publishedRevisionId: "r1", lineage: { revisionId: "r1", operationId: "save-r1", operationKind: "SaveRevision" } }).ok, true);
+    assert.equal(store.replaceRouteClaim({ graph: "current", normalizedRoute: "/entry", owner: "entry", sourceRevisionId: "r1" }).ok, true);
+    assert.equal(store.replaceRouteClaim({ graph: "published", normalizedRoute: "/entry", owner: "entry", sourceRevisionId: "r1" }).ok, true);
+    const sourceBindings = store.getRevisionTaxonomyBindings({ entryId: "entry", revisionId: "r1" });
+    assert.equal(sourceBindings.ok, true);
+    assert.equal(store.updateTaxonomyTerm({ taxonomyId: "topics", termId: "alpha", label: "Renamed" }).ok, true);
+    const mappedBytes = bytes({ title: "after" });
+    const report = preflight(store, mappedBytes, [
+      { entryId: "entry", pointer: "current", policy: "move" },
+      { entryId: "entry", pointer: "published", policy: "move" },
+    ]);
+    assert.equal(report.ok, true);
+    if (!report.ok) return;
+    assert.equal(store.executeSchemaMigration({ evidence: report.value.evidence, operationId: "schema-migration-v2", replacements: [{ sourceRevision: { entryId: "entry", revisionId: "r1" }, replacementRevisionId: "r2" }] }).ok, true);
+    assert.deepEqual(store.getRevisionTaxonomyBindings({ entryId: "entry", revisionId: "r2" }), sourceBindings);
+    const state = store.canonicalState();
+    assert.equal(state.ok, true);
+    if (state.ok) {
+      const routeClaims = (JSON.parse(new TextDecoder().decode(state.value.bytes)) as { routeClaims: unknown }).routeClaims;
+      assert.deepEqual(routeClaims, [
+        { graph: "current", normalizedRoute: "/entry", ownerEntryId: "entry", sourceRevisionId: "r2" },
+        { graph: "published", normalizedRoute: "/entry", ownerEntryId: "entry", sourceRevisionId: "r2" },
+      ]);
+    }
     store.close();
   } finally { rmSync(database.directory, { recursive: true, force: true }); }
 });

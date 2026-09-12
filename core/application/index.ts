@@ -2,6 +2,7 @@ export { createDomainApplication } from "./application.js";
 export { createPersistencePluginActivationStatePort } from "./plugin-activation-state-adapter.js";
 export { createPersistencePluginSettingsStatePort } from "./plugin-settings-state-adapter.js";
 export { createAuthoringReadFacade, createContentTypeAdministration } from "./authoring-read.js";
+export { createContentTypeMigrationAdministration } from "./content-type-migration.js";
 export type {
   AuthoringEntryV1,
   ChangeRouteRequest,
@@ -64,3 +65,14 @@ export type {
   EntryDetail,
   EntryRevisionCatalog,
 } from "./authoring-read.js";
+export type {
+  ContentTypeMigrationAdministration,
+  ContentTypeMigrationCommand,
+  ContentTypeMigrationExecution,
+  ContentTypeMigrationFailureCode,
+  ContentTypeMigrationImpact,
+  ContentTypeMigrationMapping,
+  ContentTypeMigrationPolicy,
+  ContentTypeMigrationProposal,
+  ContentTypeMigrationResult,
+} from "./content-type-migration.js";

@@ -75,8 +75,27 @@ export function executeSchemaMigrationInTransaction(
       assetVersions: refs.value.map((reference) => reference.assetVersion),
     });
     if (!created.ok) return created;
+    // Replacement Revision 必須逐 byte 保留 source 的 immutable taxonomy evidence；重新由 live catalog
+    // materialize 會讓 rename 後的歷史證據漂移。
+    database.run(
+      "INSERT INTO revision_taxonomy_bindings (entry_id,revision_id,taxonomy_id,term_id,evidence_bytes,evidence_digest) SELECT ?,?,taxonomy_id,term_id,evidence_bytes,evidence_digest FROM revision_taxonomy_bindings WHERE entry_id=? AND revision_id=?",
+      replacement.sourceRevision.entryId,
+      replacement.replacementRevisionId,
+      replacement.sourceRevision.entryId,
+      replacement.sourceRevision.revisionId,
+    );
     database.run("INSERT INTO schema_migration_revision_lineage (operation_id,entry_id,source_revision_id,replacement_revision_id) VALUES (?,?,?,?)", input.operationId, replacement.sourceRevision.entryId, replacement.sourceRevision.revisionId, replacement.replacementRevisionId);
     replacementRecords.push(Object.freeze({ sourceRevision: freezeRevisionIdentity(replacement.sourceRevision), replacementRevision: Object.freeze({ entryId: replacement.sourceRevision.entryId, revisionId: replacement.replacementRevisionId }) }));
+  }
+  for (const affected of plan.affectedPointers) {
+    if (affected.policy !== "move") continue;
+    const replacementRevisionId = replacementBySource.get(revisionKey({ entryId: affected.entryId, revisionId: affected.revisionId }));
+    const existing = database.get("SELECT normalized_route,source_revision_id FROM route_claims WHERE graph=? AND owner_entry_id=?", affected.pointer, affected.entryId);
+    const normalizedRoute = existing === undefined ? null : textField(existing, "normalized_route");
+    const sourceRevisionId = existing === undefined ? null : textField(existing, "source_revision_id");
+    if (replacementRevisionId === undefined || normalizedRoute === null || sourceRevisionId !== affected.revisionId) return persistenceResultFailure("CONSTRAINT_VIOLATION");
+    const moved = transaction.replaceRouteClaim({ graph: affected.pointer, normalizedRoute, owner: affected.entryId, sourceRevisionId: replacementRevisionId });
+    if (!moved.ok) return moved;
   }
   const pointers: SchemaMigrationExecutionPointerRecord[] = [];
   const entryUpdates = new Map<string, Readonly<{ currentRevisionId: string; publishedRevisionId?: string; anchors: readonly string[] }>>();

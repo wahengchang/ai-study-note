@@ -1,7 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
 import { createPublishedContentReadModel } from "../../core/content/index.js";
 import { type MessageRemediation } from "../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../core/media/index.js";
@@ -100,6 +100,7 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const domainApplication = createDomainApplication({ persistence, siteDefinition, dataMedia: dataMedia.value, schemaValidator, pluginHost: pluginHost.value, taxonomy });
     const authoringReadFacade = createAuthoringReadFacade({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value });
     const contentTypeAdministration = createContentTypeAdministration({ persistence, validator: schemaValidator });
+    const contentTypeMigrationAdministration = createContentTypeMigrationAdministration({ persistence, validator: schemaValidator });
     const themeHost = await createThemeHost({
       repositoryRoot,
       installedThemesRoot: input.installedThemesRoot,
@@ -109,7 +110,7 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const activeTheme = await themeHost.value.resolveActive();
     if (!activeTheme.ok) return failure("CMS_THEME_HOST_UNAVAILABLE");
     const projectionPreview = createProjectionPreview({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value, themeHost: themeHost.value, pluginHost: pluginHost.value });
-    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, projectionPreview });
+    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, contentTypeMigrationAdministration, projectionPreview });
     if (!started.ok) return failure("CMS_LISTENER_UNAVAILABLE");
     listener = started.value;
     let closed = false;

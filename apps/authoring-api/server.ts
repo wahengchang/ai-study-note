@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, DomainApplication, DomainApplicationFailure, ImportMediaRequest, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, RestoreRevisionSuccess, SaveRevisionSuccess, TaxonomyCommand } from "../../core/application/index.js";
+import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, ContentTypeMigrationAdministration, DomainApplication, DomainApplicationFailure, ImportMediaRequest, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, RestoreRevisionSuccess, SaveRevisionSuccess, TaxonomyCommand } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import { parsePreviewInput, renderPreviewDocument, type ProjectionPreview } from "../../core/projection/index.js";
 import type { Context } from "hono";
@@ -11,7 +11,7 @@ import type { AuthoringCredentialAuthority } from "./credential-store.js";
 import { createBrowserBootstrapState } from "./browser-bootstrap.js";
 import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
-import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, mediaArchiveRequestSchema, mediaAssetDetailSchema, mediaCatalogSchema, mediaImportRequestSchema, mediaRestoreRequestSchema, mediaVersionReplacementReceiptSchema, mediaVersionRequestSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
+import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeMigrationCommandSchema, contentTypeMigrationOutcomeSchema, contentTypeMigrationProposalSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, mediaArchiveRequestSchema, mediaAssetDetailSchema, mediaCatalogSchema, mediaImportRequestSchema, mediaRestoreRequestSchema, mediaVersionReplacementReceiptSchema, mediaVersionRequestSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
 import type { BrowserSessionDto, BrowserTicketDto, MediaArchiveBlockedErrorDto, MediaRestoreRequiredErrorDto, PublishRevisionSuccessDto, RestoreRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
@@ -60,13 +60,13 @@ export type { TransportCode } from "./transport-contracts.js";
 export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/versions" | "/v1/media/:assetId/archive" | "/v1/media/:assetId/restore" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/preview" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
-export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; projectionPreview: ProjectionPreview }>;
+export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; contentTypeMigrationAdministration?: ContentTypeMigrationAdministration; projectionPreview: ProjectionPreview }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
 type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "media" | "media-import" | "media-version" | "media-detail" | "media-archive" | "media-restore" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "entries" | "entry" | "entry-revisions" | "publish" | "restore" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "preview" | "proof" | "browser-ticket" | "browser-session" | "unknown";
 const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "media", "media-detail", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions", "taxonomies", "taxonomy"]);
-const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "entry-revisions", "taxonomies"]);
+const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "entry-revisions", "taxonomies"]);
 const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "media", "media-import", "media-version", "media-detail", "media-archive", "media-restore", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "entries", "entry", "entry-revisions", "publish", "restore", "taxonomies", "taxonomy", "taxonomy-commands", "preview"]);
 
 
@@ -101,6 +101,7 @@ function routeFor(pathname: string): RouteClass {
   if (/^\/v1\/entries\/[^/%?#/]+\/current\/editor-blocks$/u.test(pathname)) return "editor-blocks";
   if (/^\/v1\/entries\/[^/%?#/]+\/seo-analysis$/u.test(pathname)) return "seo-analysis";
   if (pathname === "/v1/content-types") return "content-types";
+  if (/^\/v1\/content-types\/[^/%?#/]+\/migrations(?:\/preview)?$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "")) return "content-type";
   if (/^\/v1\/content-types\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length))) return "content-type";
   if (pathname === "/v1/entries") return "entries";
   if (/^\/v1\/entries\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length))) return "entry";
@@ -497,6 +498,22 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   app.get("/v1/content-types/:schemaId", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.authoringReadFacade.getContentType({ schemaId: context.req.param("schemaId") ?? "" });
     return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
+  }));
+  app.post("/v1/content-types/:schemaId/migrations/preview", async (context) => authenticatedJson(context, input, 1_048_576, "Content type migration request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
+    const parsed = contentTypeMigrationProposalSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    if (input.contentTypeMigrationAdministration === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+    const result = await input.contentTypeMigrationAdministration.preview(context.req.param("schemaId") ?? "", parsed.data as never);
+    if (!result.ok) return facadeError(requestId, result.error);
+    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, result.value.kind === "blocked" ? 422 : 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+  }));
+  app.post("/v1/content-types/:schemaId/migrations", async (context) => authenticatedJson(context, input, 1_048_576, "Content type migration request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
+    const parsed = contentTypeMigrationCommandSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    if (input.contentTypeMigrationAdministration === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+    const result = await input.contentTypeMigrationAdministration.execute(context.req.param("schemaId") ?? "", parsed.data as never);
+    if (!result.ok) return facadeError(requestId, result.error);
+    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, result.value.kind === "blocked" ? 422 : 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   }));
   app.get("/v1/entries", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.authoringReadFacade.listEntries();
