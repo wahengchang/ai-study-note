@@ -42,16 +42,12 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
   if (!runtime.ok) return;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
-    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-    if (!minted.ok) return;
     browser = await chromium.launch();
     const context_ = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } });
     const page = await context_.newPage();
-    await page.goto(`${runtime.value.origin}/cms#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`${runtime.value.origin}/cms`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "CMS 文章工作台", exact: true }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/cms");
-    assert.equal(await page.getByText("Browser session 已建立。", { exact: true }).count(), 1);
     assert.equal(await page.getByRole("main").getAttribute("aria-labelledby"), "page-title");
     await page.waitForFunction(() => document.activeElement?.id === "page-title");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
@@ -294,11 +290,8 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     await page.keyboard.press("Enter");
     await page.getByRole("alert").getByText(`仍被已發布內容引用，無法封存此媒體版本。目前引用：${entryId} / ${publishedRevisionId}`, { exact: true }).waitFor();
     await publishedRow.getByText("ready", { exact: true }).waitFor();
-    const missingTicket = await client.mintBrowserTicket();
-    assert.equal(missingTicket.ok, true, missingTicket.ok ? "" : missingTicket.error.code);
-    if (!missingTicket.ok) return;
     const missingPage = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false })).newPage();
-    await missingPage.goto(`${runtime.value.origin}/cms/media/missing-media#${missingTicket.value.ticket}`, { waitUntil: "networkidle" });
+    await missingPage.goto(`${runtime.value.origin}/cms/media/missing-media`, { waitUntil: "networkidle" });
     await missingPage.getByRole("heading", { name: "媒體詳情", exact: true }).waitFor();
     await missingPage.getByText("找不到媒體 asset。", { exact: true }).waitFor();
     await missingPage.waitForFunction(() => document.activeElement?.id === "page-title");
@@ -330,10 +323,6 @@ test("真實 CMS runtime 完成 taxonomy list、create 與 detail browser/a11y j
   if (!runtime.ok) return;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    const client = createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
-    const minted = await client.mintBrowserTicket();
-    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-    if (!minted.ok) return;
     browser = await chromium.launch();
     const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
     const taxonomiesPath = `${runtime.value.origin}/v1/taxonomies`;
@@ -343,7 +332,7 @@ test("真實 CMS runtime 完成 taxonomy list、create 與 detail browser/a11y j
       if (route.request().method() === "GET") await catalogHeld;
       await route.continue();
     });
-    await page.goto(`${runtime.value.origin}/cms#${minted.value.ticket}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${runtime.value.origin}/cms`, { waitUntil: "domcontentloaded" });
     await page.getByRole("heading", { name: "CMS 文章工作台", exact: true }).waitFor();
     const skip = page.getByRole("link", { name: "跳到主標題", exact: true });
     await skip.focus();
@@ -422,10 +411,7 @@ test("真實 CMS runtime 完成 taxonomy list、create 與 detail browser/a11y j
     assert.equal(await taxonomyId.getAttribute("aria-invalid"), "true");
     assert.equal(await taxonomyId.getAttribute("aria-describedby"), "taxonomy-id-error");
     assert.equal(await page.locator("#taxonomy-id-error").textContent(), "Taxonomy 或 term 已存在，或其生命週期狀態不允許此操作。");
-    const missingTicket = await client.mintBrowserTicket();
-    assert.equal(missingTicket.ok, true, missingTicket.ok ? "" : missingTicket.error.code);
-    if (!missingTicket.ok) return;
-    await page.goto(`${runtime.value.origin}/cms/taxonomies/missing#${missingTicket.value.ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`${runtime.value.origin}/cms/taxonomies/missing`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "分類詳情", exact: true }).waitFor();
     await page.waitForFunction(() => document.activeElement?.id === "page-title");
     const missing = page.locator('p[role="alert"]').filter({ hasText: "找不到分類。" });
@@ -486,12 +472,9 @@ test("真實 CMS runtime 以既有 taxonomy 呈現 catalog 與 term 表格", asy
   if (!runtime.ok) return;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
-    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-    if (!minted.ok) return;
     browser = await chromium.launch();
     const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
-    await page.goto(`${runtime.value.origin}/cms/taxonomies#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`${runtime.value.origin}/cms/taxonomies`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "分類全覽", exact: true }).waitFor();
     const catalog = page.getByRole("table", { name: "所有分類", exact: true });
     await catalog.waitFor();
@@ -559,12 +542,9 @@ test("真實 CMS runtime 在 CAS reload 後保留 taxonomy binding 並發布", a
     const initiallyPublished = await client.publishRevision({ entryId, request: { contract: "publish-revision-request/v1", expectedCurrentRevisionId: "bound-alpha", operationId: "bound-alpha-publish" } });
     assert.equal(initiallyPublished.ok, true, initiallyPublished.ok ? "" : initiallyPublished.error.code);
     if (!initiallyPublished.ok) return;
-    const minted = await client.mintBrowserTicket();
-    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-    if (!minted.ok) return;
     browser = await chromium.launch();
     const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
-    await page.goto(`${runtime.value.origin}/cms/entries/${entryId}#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`${runtime.value.origin}/cms/entries/${entryId}`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "編輯文章", exact: true }).waitFor();
     const competing = await client.saveRevision({ entryId, request: { contract: "save-revision-request/v1", revisionId: "bound-beta-external", operationId: "bound-beta-external-save", expectedCurrentRevisionId: "bound-alpha", schemaIdentity: { schemaId: "site-content", version: 1 }, content: content("Taxonomy Beta 外部更新", "以 Beta 更新。"), route: "/taxonomy-bound-entry", assetVersions: [], taxonomyTerms: [{ taxonomyId: "topics", termId: "beta" }] } });
     assert.equal(competing.ok, true, competing.ok ? "" : competing.error.code);
@@ -630,12 +610,9 @@ test("真實 CMS runtime 完成 Content Type empty、create 與 detail/history b
   if (!runtime.ok) return;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
-    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-    if (!minted.ok) return;
     browser = await chromium.launch();
     const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
-    await page.goto(`${runtime.value.origin}/cms#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`${runtime.value.origin}/cms`, { waitUntil: "networkidle" });
     const contentTypes = page.getByRole("link", { name: "內容類型", exact: true });
     await contentTypes.focus();
     await page.keyboard.press("Enter");
@@ -728,12 +705,9 @@ test("真實 CMS runtime 以單一 catalog snapshot 呈現 immutable Content Typ
   if (!runtime.ok) return;
   let browser: Awaited<ReturnType<typeof chromium.launch>> | undefined;
   try {
-    const minted = await createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }).mintBrowserTicket();
-    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-    if (!minted.ok) return;
     browser = await chromium.launch();
     const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
-    await page.goto(`${runtime.value.origin}/cms/content-types/note#${minted.value.ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`${runtime.value.origin}/cms/content-types/note`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "內容類型：note", exact: true }).waitFor();
     await page.waitForFunction(() => document.activeElement?.id === "page-title");
     const history = page.locator('section[aria-labelledby="content-type-history"] li');
@@ -779,16 +753,13 @@ test("真實 CMS runtime 的 release diagnostics 保留 loading、安全錯誤�
     const published = await client.publishRevision({ entryId: "release-entry", request: { contract: "publish-revision-request/v1", expectedCurrentRevisionId: "release-draft", operationId: "release-publish" } });
     assert.equal(published.ok, true, published.ok ? "" : published.error.code);
     if (!published.ok) return;
-    const minted = await client.mintBrowserTicket();
-    assert.equal(minted.ok, true, minted.ok ? "" : minted.error.code);
-    if (!minted.ok) return;
     browser = await chromium.launch();
     const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
     const diagnosePath = `${runtime.value.origin}/v1/release/diagnose`;
     let releaseDiagnosis: (() => void) | undefined;
     const diagnosisHeld = new Promise<void>((resolve) => { releaseDiagnosis = resolve; });
     await page.route(diagnosePath, async (route) => { await diagnosisHeld; await route.continue(); });
-    await page.goto(`${runtime.value.origin}/cms/release#${minted.value.ticket}`, { waitUntil: "domcontentloaded" });
+    await page.goto(`${runtime.value.origin}/cms/release`, { waitUntil: "domcontentloaded" });
     await page.getByRole("heading", { name: "發布診斷", exact: true }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/cms/release");
     assert.equal(await page.getByRole("main").getAttribute("aria-labelledby"), "page-title");

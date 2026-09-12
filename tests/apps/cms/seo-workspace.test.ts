@@ -9,8 +9,6 @@ import { chromium } from "playwright";
 import { loadCmsAssets } from "../../../apps/authoring-api/index.js";
 
 const distRoot = resolve(import.meta.dirname, "../../../dist/cms");
-const ticket = `asn_bt_v1_${"a".repeat(43)}`;
-const apiKey = `asn_v1_${"b".repeat(43)}`;
 const digest = `sha256:${"c".repeat(64)}`;
 const identity = { id: "seo-basics", version: "1.0.0", hookContract: "plugin-hooks/v1", manifestHash: digest, capabilities: ["cms-seo-analysis", "public-seo-page-contribution", "public-seo-site-contribution"] };
 
@@ -40,13 +38,7 @@ test("外掛工作台先保存 SEO 設定，再以 fresh snapshot 啟用 seo-bas
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     if (pathname === "/cms/plugins") {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      response.end(`<!doctype html><html><body><div id="root"><h1>CMS 工作台已鎖定</h1></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`);
-      return;
-    }
-    if (pathname === "/_local/browser-session") {
-      assert.deepEqual(await responseBody(request), { contract: "browser-session-exchange/v1", ticket });
-      response.writeHead(200, { "Content-Type": "application/json" });
-      response.end(JSON.stringify({ contract: "browser-session/v1", generation: 1, apiKey }));
+      response.end(`<!doctype html><html><body><div id="root"><main aria-busy="true"><h1>CMS 工作台載入中</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`);
       return;
     }
     const asset = assets.read(pathname);
@@ -55,7 +47,7 @@ test("外掛工作台先保存 SEO 設定，再以 fresh snapshot 啟用 seo-bas
       response.end(asset.bytes);
       return;
     }
-    if (request.headers.authorization !== `Bearer ${apiKey}`) { response.writeHead(401).end(); return; }
+    assert.equal(request.headers.authorization, undefined);
     if (pathname === "/v1/plugins") { response.writeHead(200, { "Content-Type": "application/json" }); response.end(JSON.stringify(snapshot(saved, active))); return; }
     if (pathname === "/v1/plugins/settings") {
       const body = await responseBody(request);
@@ -79,7 +71,7 @@ test("外掛工作台先保存 SEO 設定，再以 fresh snapshot 啟用 seo-bas
   try {
     const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false });
     const page = await context.newPage();
-    await page.goto(`http://127.0.0.1:${address.port}/cms/plugins#${ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`http://127.0.0.1:${address.port}/cms/plugins`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "外掛", exact: true }).waitFor();
     assert.equal(await page.getByRole("button", { name: "啟用 SEO Plugin", exact: true }).isDisabled(), true);
     await page.getByRole("textbox", { name: "公開網站 URL", exact: true }).fill("https://example.test/study-notes/");

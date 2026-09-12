@@ -11,10 +11,8 @@ import { loadCmsAssets } from "../../../apps/authoring-api/index.js";
 // 讓這個 test 不依賴呼叫端的 cwd。
 const distRoot = resolve(import.meta.dirname, "../../../dist/cms");
 
-const ticket = `asn_bt_v1_${"a".repeat(43)}`;
-const apiKey = `asn_v1_${"b".repeat(43)}`;
 
-test("bundled CMS clears the raw ticket before session exchange and keeps the key out of browser storage", async () => {
+test("bundled CMS directly loads the local workspace without browser ticket or credential storage", async () => {
   const assets = loadCmsAssets(distRoot);
   assert.notEqual(assets, undefined, "cms:build 必須先產生 Vite manifest");
   if (assets === undefined) return;
@@ -24,17 +22,7 @@ test("bundled CMS clears the raw ticket before session exchange and keeps the ke
     seenPaths.push(request.url ?? "");
     if (pathname === "/cms") {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      response.end(`<!doctype html><html><head><title>CMS Workspace</title></head><body><div id="root"><main><h1>CMS 工作台已鎖定</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`);
-      return;
-    }
-    if (pathname === "/_local/browser-session") {
-      const chunks: Buffer[] = [];
-      request.on("data", (chunk: Buffer) => chunks.push(chunk));
-      request.on("end", () => {
-        assert.deepEqual(JSON.parse(Buffer.concat(chunks).toString("utf8")), { contract: "browser-session-exchange/v1", ticket });
-        response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-        response.end(JSON.stringify({ contract: "browser-session/v1", generation: 1, apiKey }));
-      });
+      response.end(`<!doctype html><html><head><title>CMS Workspace</title></head><body><div id="root"><main aria-busy="true"><h1>CMS 工作台載入中</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`);
       return;
     }
     const asset = assets.read(pathname);
@@ -54,18 +42,16 @@ test("bundled CMS clears the raw ticket before session exchange and keeps the ke
     const page = await context.newPage();
     const consoleMessages: string[] = [];
     page.on("console", (message) => consoleMessages.push(message.text()));
-    await page.goto(`http://127.0.0.1:${address.port}/cms#${ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`http://127.0.0.1:${address.port}/cms`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "CMS 文章工作台", exact: true }).waitFor();
-    await page.getByText("Browser session 已建立。", { exact: true }).waitFor();
     const browserState = await page.evaluate(() => ({ href: location.href, hash: location.hash, title: document.title, dom: document.documentElement.outerHTML, local: Object.keys(localStorage), session: Object.keys(sessionStorage) }));
     assert.equal(browserState.hash, "");
-    assert.equal(browserState.href.includes(ticket), false);
-    assert.equal(browserState.title.includes(ticket) || browserState.title.includes(apiKey), false);
-    assert.equal(browserState.dom.includes(ticket) || browserState.dom.includes(apiKey), false);
+    assert.equal(browserState.title.includes("asn_v1_") || browserState.title.includes("asn_bt_v1_"), false);
+    assert.equal(browserState.dom.includes("asn_v1_") || browserState.dom.includes("asn_bt_v1_"), false);
     assert.deepEqual(browserState.local, []);
     assert.deepEqual(browserState.session, []);
-    assert.equal(seenPaths.some((path) => path.includes(ticket) || path.includes(apiKey)), false);
-    assert.equal(consoleMessages.some((message) => message.includes(ticket) || message.includes(apiKey)), false);
+    assert.equal(seenPaths.some((path) => path.startsWith("/_local/browser-")), false);
+    assert.equal(consoleMessages.some((message) => message.includes("asn_v1_") || message.includes("asn_bt_v1_")), false);
   } finally {
     await browser.close();
     await closeServer();
