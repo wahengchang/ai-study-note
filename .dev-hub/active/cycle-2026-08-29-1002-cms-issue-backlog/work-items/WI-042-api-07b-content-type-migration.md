@@ -1,8 +1,8 @@
 ---
 id: WI-042
-status: pending
+status: done
 title: Content Type migration
-work_group: null
+work_group: WG-041
 depends_on: []
 ---
 
@@ -15,4 +15,4 @@ depends_on: []
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #282；由 #241 planning parent 建立，status：planned。
+完成：Content Type migration preview／execution、SQLite taxonomy evidence 與 route claim preservation 已交付；PR #369。

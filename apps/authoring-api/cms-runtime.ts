@@ -1,7 +1,7 @@
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
 import { createPublishedContentReadModel } from "../../core/content/index.js";
 import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../core/delivery/index.js";
 import { type MessageRemediation } from "../../core/foundation/index.js";
@@ -105,6 +105,7 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const domainApplication = createDomainApplication({ persistence, siteDefinition, dataMedia: dataMedia.value, schemaValidator, pluginHost: pluginHost.value, taxonomy });
     const authoringReadFacade = createAuthoringReadFacade({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value });
     const contentTypeAdministration = createContentTypeAdministration({ persistence, validator: schemaValidator });
+    const contentTypeMigrationAdministration = createContentTypeMigrationAdministration({ persistence, validator: schemaValidator });
     const themeHost = await createThemeHost({
       repositoryRoot,
       installedThemesRoot: input.installedThemesRoot,
@@ -123,7 +124,7 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const effectiveRelation = relative(effectiveRepositoryRoot, effectiveReleaseRoot);
     if (effectiveRelation === "" || (!effectiveRelation.startsWith(`..${sep}`) && effectiveRelation !== ".." && !isAbsolute(effectiveRelation))) return failure("CMS_DELIVERY_UNAVAILABLE");
     const releaseTransport = createAuthoringReleaseTransport({ projection: projectionPreview, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
-    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, projectionPreview, releaseTransport });
+    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, contentTypeMigrationAdministration, projectionPreview, releaseTransport });
     if (!started.ok) return failure("CMS_LISTENER_UNAVAILABLE");
     listener = started.value;
     let closed = false;

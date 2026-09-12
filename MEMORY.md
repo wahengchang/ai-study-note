@@ -31,3 +31,7 @@
 3. **用真實情境測試**：正常路徑、權限不足、資料衝突、plugin 停用時的行為都要測；測試盯著對外契約，不測內部實作細節。
 
 5. **保持可回退或可修復。** 每次上線前能講清楚改了什麼、誰負責、怎麼監控、怎麼緊急關閉；應用程式可回退，資料庫則依 migration 策略安全地前移修復或回復資料。
+
+## 已核准 Content Type migration contract
+
+2026-09-12 Owner 決定：`content-type-migration/v1` 採每個 source Revision 的完整 replacement JSON，不採 patch、script 或 mapper registry；request 明確指定 `sourceVersion`，target 固定為同 `schemaId` 的下一版；partial／invalid mapping 以可消費的 rich migration report 回 HTTP 422。正式 boundary 見 [contracts/README.md](contracts/README.md) 的 Application、HTTP and CMS 條款。

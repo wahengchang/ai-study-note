@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createPublishedContentReadModel, getSiteContentSchemaEvidence } from "../../../core/content/index.js";
 import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../../core/delivery/index.js";
@@ -165,7 +165,8 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     const delivery = createPublicDelivery({ artifactsRoot: path.join(directory, "artifacts") }); if (!delivery.ok) throw new Error(delivery.error.code);
     const releaseDelivery = createFixedRootReleaseDelivery({ artifactsRoot: path.join(directory, "artifacts"), releaseRoot: path.join(directory, "release") }); if (!releaseDelivery.ok) throw new Error(releaseDelivery.error.code);
     const releaseTransport = createAuthoringReleaseTransport({ projection: releaseProjection, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
-    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, projectionPreview, releaseTransport });
+    const contentTypeMigrationAdministration = createContentTypeMigrationAdministration({ persistence: persistence.value, validator: createAjvSchemaValidator() });
+    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, contentTypeMigrationAdministration, projectionPreview, releaseTransport });
     if (!started.ok) throw new Error(`${started.error.code}（127.0.0.1:43127 是否已被佔用？）`);
     close = started.value.close;
     const digest = (): string => { const state = persistence.value.canonicalState(); if (!state.ok) throw new Error(state.error.code); return state.value.digest; };
@@ -932,4 +933,53 @@ test("actual listener admits only flat taxonomy routes and maps stale or duplica
 test("CMS SEO domain failure code 具有契約化 HTTP status", () => {
   assert.deepEqual(authoringErrorStatuses("INVALID_SEO_ANALYSIS_REQUEST"), [422]);
   assert.deepEqual(authoringErrorStatuses("CMS_SEO_ANALYSIS_FAILED"), [500]);
+});
+
+test("actual listener projects an approvable Content Type migration preview", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const response = await post("/v1/content-types/note/migrations/preview", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority }, JSON.stringify({ contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [] }));
+    assert.equal(response.status, 200, response.body);
+    const body = JSON.parse(response.body) as { contract: string; kind: string; sourceSchemaIdentity: { schemaId: string; version: number }; targetSchemaIdentity: { schemaId: string; version: number }; mappingIdentity: string; affectedPointers: unknown[]; historicalRevisions: unknown[]; mapping: unknown[]; blockedRows: unknown[]; stateDigest: string };
+    assert.equal(body.contract, "content-type-migration/v1");
+    assert.equal(body.kind, "preview");
+    assert.deepEqual(body.sourceSchemaIdentity, { schemaId: "note", version: 1 });
+    assert.deepEqual(body.targetSchemaIdentity, { schemaId: "note", version: 2 });
+    assert.equal(typeof body.mappingIdentity, "string");
+    assert.equal(typeof body.stateDigest, "string");
+    assert.deepEqual({ affectedPointers: body.affectedPointers, historicalRevisions: body.historicalRevisions, mapping: body.mapping, blockedRows: body.blockedRows }, { affectedPointers: [], historicalRevisions: [], mapping: [], blockedRows: [] });
+    assertResponseHeaders(response, "Content Type migration preview");
+    const execution = await post("/v1/content-types/note/migrations", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority }, JSON.stringify({ contract: "content-type-migration/v1", kind: "command", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [], expectedStateDigest: body.stateDigest, operationId: "content-type-migration-preview", replacements: [] }));
+    assert.equal(execution.status, 200, execution.body);
+    const outcome = JSON.parse(execution.body) as { contract: string; kind: string; operationId: string; targetSchemaIdentity: { schemaId: string; version: number }; afterDigest: string; stateDigest: string; replacements: unknown[]; pointers: unknown[] };
+    assert.deepEqual({ contract: outcome.contract, kind: outcome.kind, operationId: outcome.operationId, targetSchemaIdentity: outcome.targetSchemaIdentity, replacements: outcome.replacements, pointers: outcome.pointers }, { contract: "content-type-migration/v1", kind: "execution", operationId: "content-type-migration-preview", targetSchemaIdentity: { schemaId: "note", version: 2 }, replacements: [], pointers: [] });
+    assert.equal(typeof outcome.afterDigest, "string");
+    assert.equal(typeof outcome.stateDigest, "string");
+    assertResponseHeaders(execution, "Content Type migration execution");
+  });
+});
+
+// Migration route 自成 route class：`/v1/content-types/:schemaId` 不得因為 migrations 需要 POST
+// 而被放寬成可 POST，否則會落到 Hono 預設 404（text/plain、無 security header）。
+test("content-type detail route still rejects POST with the contract 405 envelope", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const response = await post("/v1/content-types/note", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority }, JSON.stringify({}));
+    assert.equal(response.status, 405, response.body);
+    const body = JSON.parse(response.body) as { contract: string; code: string; owner: string };
+    assert.equal(body.contract, "authoring-error/v1");
+    assert.equal(body.code, "METHOD_NOT_ALLOWED");
+    assert.equal(body.owner, "AuthoringApi");
+    assertResponseHeaders(response, "content-type detail POST");
+  });
+});
+
+test("migration routes log their own route template and reject GET", async () => {
+  await withAuthoringApi(async ({ apiKey, log }) => {
+    const bearer = { Authorization: `Bearer ${apiKey}`, Host: authority };
+    const rejected = await send("GET", "/v1/content-types/note/migrations", bearer);
+    assert.equal(rejected.status, 405, rejected.body);
+    assertResponseHeaders(rejected, "migrations GET");
+    await post("/v1/content-types/note/migrations/preview", { ...bearer, "Content-Type": "application/json" }, JSON.stringify({ contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [] }));
+    assert.equal(log.some((event) => event.routeTemplate === "/v1/content-types/:schemaId/migrations/preview"), true, "preview 必須記錄自己的 route template");
+    assert.equal(log.some((event) => event.routeTemplate === "/v1/content-types/:schemaId/migrations"), true, "GET 拒絕必須記錄 migrations route template");
+  });
 });
