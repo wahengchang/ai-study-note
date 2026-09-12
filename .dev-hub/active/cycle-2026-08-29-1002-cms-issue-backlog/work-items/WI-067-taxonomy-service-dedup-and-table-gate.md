@@ -1,8 +1,8 @@
 ---
-id: WI-068
+id: WI-067
 status: done
 title: Taxonomy service dedup 與 CMS taxonomy 表格 browser gate
-work_group: WG-049
+work_group: WG-034
 depends_on: ["WI-057", "WI-066"]
 ---
 
@@ -19,7 +19,3 @@ Taxonomy 對外行為（snapshot bytes、state digest、failure code、usage imp
 ## Notes
 
 PR #353／#354 合併後審閱發現：`TaxonomyList` 的表格分支與 `TaxonomyDetail` 的 term 表格分支（含 `使用中`／`已停用` 對應）在既有 browser gate 中完全未被執行；`core/taxonomy/service.ts` 的重複實作已於三份工作紀錄中順延。本 Work Item 一併結清。
-
-## Identifier repair
-
-2026-09-12 將重複的 `WI-067` 更正為 `WI-068`；其依賴維持 WI-057、WI-066，不再與 Media transport 的 WI-067 混淆。

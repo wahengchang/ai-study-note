@@ -1,8 +1,8 @@
 ---
-id: WG-049
+id: WG-034
 status: completed
 title: Taxonomy service dedup 與 CMS taxonomy 表格 browser gate
-work_items: ["WI-068"]
+work_items: ["WI-067"]
 owner: Main
 branch: fix/cms-taxonomy-workspace-review
 worktree: null
