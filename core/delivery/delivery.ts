@@ -3,7 +3,7 @@ import path from "node:path";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type Digest } from "../foundation/index.js";
 import { isArtifactFilePath } from "../renderer/index.js";
-import type { ArtifactManifest, CreatePublicDeliveryInput, DeliveryFailure, DeliveryResult, PublicDelivery, VerifiedDeliveredArtifact } from "./contracts.js";
+import type { ArtifactManifest, CreateFixedRootReleaseDeliveryInput, CreatePublicDeliveryInput, DeliveryFailure, DeliveryResult, FixedRootReleaseDelivery, PublicDelivery, ReleaseReceipt, VerifiedDeliveredArtifact } from "./contracts.js";
 
 const manifestFile = "artifact-manifest.json";
 
@@ -150,6 +150,78 @@ function rendererOutput(value: unknown): RendererDeliveryOutput | null {
   } catch { return null; }
 }
 
+function releaseTargetManifest(artifactDigest: Digest, sourceManifestDigest: Digest): Uint8Array | null {
+  const bytes = canonicalJsonBytes({ contract: "release-target-manifest/v1", artifactDigest, sourceManifestDigest });
+  return bytes.ok ? bytes.value : null;
+}
+
+function verifiedTarget(directory: string, source: VerifiedDeliveredArtifact): ReleaseReceipt | null {
+  try {
+    const sourceManifest = manifestBytes(source.manifest);
+    if (sourceManifest === null) return null;
+    const targetManifest = releaseTargetManifest(source.artifactDigest, sha256Digest(sourceManifest));
+    if (targetManifest === null) return null;
+    const found = filesIn(directory);
+    const expected = [manifestFile, "release-target-manifest.json", ...source.files.map((file) => file.path)].sort(compare);
+    if (found === null || found.length !== expected.length || [...found].sort(compare).some((file, index) => file !== expected[index])) return null;
+    const targetBytes = new Uint8Array(readFileSync(path.join(directory, "release-target-manifest.json")));
+    if (targetBytes.byteLength !== targetManifest.byteLength || targetBytes.some((byte, index) => byte !== targetManifest[index])) return null;
+    for (const file of source.files) {
+      const bytes = new Uint8Array(readFileSync(path.join(directory, file.path)));
+      if (bytes.byteLength !== file.bytes.byteLength || sha256Digest(bytes) !== file.digest) return null;
+    }
+    const copiedManifest = new Uint8Array(readFileSync(path.join(directory, manifestFile)));
+    if (copiedManifest.byteLength !== sourceManifest.byteLength || copiedManifest.some((byte, index) => byte !== sourceManifest[index])) return null;
+    return Object.freeze({ artifactDigest: source.artifactDigest, targetDigest: sha256Digest(targetManifest) });
+  } catch {
+    return null;
+  }
+}
+
+function separated(left: string, right: string): boolean {
+  const relation = path.relative(left, right);
+  return relation === ".." || relation.startsWith(`..${path.sep}`) || path.isAbsolute(relation);
+}
+
+class FixedRootRelease implements FixedRootReleaseDelivery {
+  public constructor(private readonly delivery: PublicDelivery, private readonly root: string) {}
+
+  public release(input: Readonly<{ artifactDigest: Digest }>): DeliveryResult<ReleaseReceipt> {
+    if (input === null || typeof input !== "object" || !isDigest(input.artifactDigest)) return fail("REDELIVERY_SOURCE_INVALID");
+    const source = this.delivery.loadVerifiedArtifact(input);
+    if (!source.ok) return source;
+    const destination = path.join(this.root, input.artifactDigest);
+    const existing = verifiedTarget(destination, source.value);
+    if (existing !== null) return { ok: true, value: existing };
+    if (existsSync(destination)) return fail("RELEASE_TARGET_CONFLICT");
+    let temporary: string;
+    try { temporary = mkdtempSync(path.join(this.root, ".release-")); } catch { return fail("RELEASE_TARGET_FAILED"); }
+    try {
+      const sourceManifest = manifestBytes(source.value.manifest);
+      const targetManifest = sourceManifest === null ? null : releaseTargetManifest(source.value.artifactDigest, sha256Digest(sourceManifest));
+      if (sourceManifest === null || targetManifest === null) throw new Error("invalid source");
+      for (const file of source.value.files) {
+        const target = path.join(temporary, file.path);
+        mkdirSync(path.dirname(target), { recursive: true });
+        writeFileSync(target, file.bytes, { flag: "wx" });
+      }
+      writeFileSync(path.join(temporary, manifestFile), sourceManifest, { flag: "wx" });
+      writeFileSync(path.join(temporary, "release-target-manifest.json"), targetManifest, { flag: "wx" });
+      renameSync(temporary, destination);
+    } catch {
+      rmSync(temporary, { recursive: true, force: true });
+      const won = verifiedTarget(destination, source.value);
+      return won === null ? existsSync(destination) ? fail("RELEASE_TARGET_CONFLICT") : fail("RELEASE_TARGET_FAILED") : { ok: true, value: won };
+    }
+    const written = verifiedTarget(destination, source.value);
+    return written === null ? fail("RELEASE_TARGET_FAILED") : { ok: true, value: written };
+  }
+
+  public redeliver(input: Readonly<{ artifactDigest: Digest }>): DeliveryResult<ReleaseReceipt> {
+    return this.release(input);
+  }
+}
+
 class Delivery implements PublicDelivery {
   public constructor(private readonly root: string) {}
 
@@ -187,39 +259,21 @@ class Delivery implements PublicDelivery {
     return loaded === null ? fail("REDELIVERY_SOURCE_INVALID") : { ok: true, value: loaded };
   }
 
-  public redeliver(input: Readonly<{ artifactDigest: Digest; destination: string }>): DeliveryResult<void> {
-    if (input === null || typeof input !== "object" || !isDigest(input.artifactDigest) || typeof input.destination !== "string" || !path.isAbsolute(input.destination)) return fail("REDELIVERY_SOURCE_INVALID");
-    const requested = path.resolve(input.destination);
-    const leaf = path.basename(requested);
-    if (leaf === "." || leaf === path.sep) return fail("REDELIVERY_SOURCE_INVALID");
-    let destination = "";
-    let parent = "";
-    try {
-      parent = realpathSync(path.dirname(requested));
-      if (!lstatSync(parent).isDirectory()) return fail("REDELIVERY_SOURCE_INVALID");
-      destination = path.join(parent, leaf);
-      lstatSync(destination);
-      return fail("REDELIVERY_SOURCE_INVALID");
-    } catch (error) {
-      if ((error as NodeJS.ErrnoException).code !== "ENOENT") return fail("REDELIVERY_SOURCE_INVALID");
-    }
-    const relation = path.relative(this.root, destination);
-    if (destination === this.root || (relation !== "" && !relation.startsWith(`..${path.sep}`) && relation !== ".." && !path.isAbsolute(relation))) return fail("REDELIVERY_SOURCE_INVALID");
-    const loaded = this.loadVerifiedArtifact({ artifactDigest: input.artifactDigest });
-    if (!loaded.ok) return loaded;
-    const manifest = manifestBytes(loaded.value.manifest);
-    if (manifest === null) return fail("REDELIVERY_SOURCE_INVALID");
-    let temporary: string;
-    try { temporary = mkdtempSync(path.join(parent, ".redelivery-")); } catch { return fail("ARTIFACT_WRITE_FAILED"); }
-    try {
-      for (const file of loaded.value.files) { const target = path.join(temporary, file.path); mkdirSync(path.dirname(target), { recursive: true }); writeFileSync(target, file.bytes, { flag: "wx" }); }
-      writeFileSync(path.join(temporary, manifestFile), manifest, { flag: "wx" });
-      renameSync(temporary, destination);
-      return { ok: true, value: undefined };
-    } catch {
-      rmSync(temporary, { recursive: true, force: true });
-      return fail("ARTIFACT_WRITE_FAILED");
-    }
+
+}
+
+export function createFixedRootReleaseDelivery(input: CreateFixedRootReleaseDeliveryInput): DeliveryResult<FixedRootReleaseDelivery> {
+  if (input === null || typeof input !== "object" || !path.isAbsolute(input.artifactsRoot) || !path.isAbsolute(input.releaseRoot)) return fail("RELEASE_TARGET_FAILED");
+  const artifacts = createPublicDelivery({ artifactsRoot: input.artifactsRoot });
+  if (!artifacts.ok) return artifacts;
+  try {
+    mkdirSync(input.releaseRoot, { recursive: true });
+    const releaseRoot = realpathSync(input.releaseRoot);
+    const artifactsRoot = realpathSync(input.artifactsRoot);
+    if (!separated(artifactsRoot, releaseRoot) || !separated(releaseRoot, artifactsRoot)) return fail("RELEASE_TARGET_FAILED");
+    return { ok: true, value: new FixedRootRelease(artifacts.value, releaseRoot) };
+  } catch {
+    return fail("RELEASE_TARGET_FAILED");
   }
 }
 

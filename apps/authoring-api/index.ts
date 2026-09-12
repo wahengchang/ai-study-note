@@ -36,6 +36,8 @@ export { loadCmsAssets } from "./cms-assets.js";
 export type { CmsAsset, CmsAssets } from "./cms-assets.js";
 export type { BrowserBootstrapFailure, BrowserBootstrapState, BrowserTicketMint } from "./browser-bootstrap.js";
 export { createAjvSchemaValidator } from "./schema-validator.js";
+export { createAuthoringReleaseTransport } from "./release-transport.js";
+export type { AuthoringReleaseTransport, CreateAuthoringReleaseTransportInput, ReleaseBuild, ReleaseDiagnosis, ReleaseDiagnostic, ReleaseTransportFailureCode, ReleaseTransportResult } from "./release-transport.js";
 export { startAuthoringApi } from "./server.js";
 export { startCmsRuntime } from "./cms-runtime.js";
 export type { CmsRuntimeFailure, CmsRuntimeFailureCode, CmsRuntimeResult, RunningCmsRuntime, StartCmsRuntimeInput } from "./cms-runtime.js";
@@ -89,6 +91,13 @@ export {
   serverProofChallengeSchema,
   authoringEntrySchema,
   serverProofSchema,
+  releaseBuildSchema,
+  releaseBuildRequestSchema,
+  releaseDiagnosisSchema,
+  releaseDiagnoseRequestSchema,
+  releaseReceiptSchema,
+  releaseRequestSchema,
+  redeliverRequestSchema,
 } from "./transport-contracts.js";
 export type {
   AuthoringErrorDto,
@@ -130,4 +139,11 @@ export type {
   PluginManagementSnapshotDto,
   ServerProofChallengeDto,
   ServerProofDto,
+  RedeliverRequestDto,
+  ReleaseBuildDto,
+  ReleaseBuildRequestDto,
+  ReleaseDiagnosisDto,
+  ReleaseDiagnoseRequestDto,
+  ReleaseReceiptDto,
+  ReleaseRequestDto,
 } from "./transport-contracts.js";
