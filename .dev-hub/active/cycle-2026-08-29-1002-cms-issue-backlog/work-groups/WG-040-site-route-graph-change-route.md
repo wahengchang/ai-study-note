@@ -6,7 +6,7 @@ work_items: ["WI-048"]
 owner: Main
 branch: wg-040-site-route-graph-change-route
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/wg-040-site-route-graph-change-route
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/366
 ---
 
 # Site route graph 與 ChangeRoute
