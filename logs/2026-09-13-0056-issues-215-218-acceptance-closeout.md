@@ -32,4 +32,4 @@
 ## 相關 Branch／PR
 
 - Branch：`chore/backlog-closeout-215-218`
-- PR：待建立；建立後以本 Work Group 的第二個且最後一個 tracking commit 回填。
+- PR：https://github.com/wahengchang/ai-study-note/pull/380
