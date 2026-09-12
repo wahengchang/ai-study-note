@@ -16,10 +16,11 @@ import { migrateDatabase, openPersistence } from "../../../core/persistence/inde
 import type { PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import { createProjectionPreview } from "../../../core/projection/index.js";
-import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
+import { createSiteDefinition, routeSnapshotDigest, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
 import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
+import { routeChangeReceiptSchema, routeGraphSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -171,6 +172,118 @@ test("actual listener proves current credential and saves a revision", async () 
     assert.equal(body.contract, "save-revision-success/v1"); assert.equal(body.entryId, "entry");
     assert.equal(body.revision.revisionId, "revision-1"); assert.equal(body.pointer.currentRevisionId, "revision-1");
     assertResponseHeaders(saved, "save success");
+  });
+});
+
+test("actual listener reads a digest-bound route graph and commits ChangeRoute without exposing a direct claim mutation", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, log }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
+    assert.equal((await post("/v1/entries/entry/revisions", headers, saveBody("revision-1", "/before"))).status, 200);
+
+    const read = await send("GET", "/v1/site/routes?selection=current", { Authorization: `Bearer ${apiKey}` });
+    assert.equal(read.status, 200, read.body);
+    const parsedGraph = routeGraphSchema.safeParse(JSON.parse(read.body));
+    assert.equal(parsedGraph.success, true, read.body);
+    if (!parsedGraph.success) return;
+    const graph = parsedGraph.data;
+    assert.equal(graph.normalization, "route-normalization/v1");
+    assert.equal(graph.selection, "current");
+    assert.deepEqual(graph.claims, [{ graph: "current", normalizedRoute: "/before", owner: "entry", sourceRevisionId: "revision-1" }]);
+    assert.equal(graph.graphDigests.current, routeSnapshotDigest("current", graph.claims));
+    const published = await send("GET", "/v1/site/routes?selection=published", { Authorization: `Bearer ${apiKey}` });
+    assert.equal(published.status, 200, published.body);
+    const parsedPublished = routeGraphSchema.safeParse(JSON.parse(published.body));
+    assert.equal(parsedPublished.success, true, published.body);
+    if (!parsedPublished.success) return;
+    assert.deepEqual(parsedPublished.data.claims, []);
+    const beforeChange = digest();
+    const changed = await post("/v1/site/routes/change", headers, JSON.stringify({
+      contract: "route-change-command/v1",
+      operationId: "change-route",
+      proposal: {
+        contract: "route-change-proposal/v1",
+        baselineDigests: graph.graphDigests,
+        target: { graph: "current", owner: "entry", route: "/after", sourceRevisionId: "revision-1" },
+      },
+    }));
+    assert.equal(changed.status, 200, changed.body);
+    const parsedReceipt = routeChangeReceiptSchema.safeParse(JSON.parse(changed.body));
+    assert.equal(parsedReceipt.success, true, changed.body);
+    if (!parsedReceipt.success) return;
+    const receipt = parsedReceipt.data;
+    assert.equal(receipt.claim.normalizedRoute, "/after");
+    assert.deepEqual(receipt.baselineDigests, graph.graphDigests);
+    assert.notDeepEqual(receipt.resultingDigests, graph.graphDigests);
+    assert.notEqual(digest(), beforeChange);
+    assert.deepEqual(log.at(-1), { requestId: log.at(-1)?.requestId ?? "", stableEventCode: "AUTHORING_REQUEST_OK", method: "POST", routeTemplate: "/v1/site/routes/change", status: 200 });
+    assert.equal((await post("/v1/entries/other/revisions", headers, saveBody("other-revision", "/occupied"))).status, 200);
+
+    const beforeStale = digest();
+    const stale = await post("/v1/site/routes/change", headers, JSON.stringify({
+      contract: "route-change-command/v1",
+      operationId: "stale-change-route",
+      proposal: {
+        contract: "route-change-proposal/v1",
+        baselineDigests: graph.graphDigests,
+        target: { graph: "current", owner: "entry", route: "/occupied", sourceRevisionId: "revision-1" },
+      },
+    }));
+    assert.equal(stale.status, 409);
+    assert.equal(failureCode(stale), "STALE_ROUTE_PROPOSAL");
+    assert.equal(digest(), beforeStale, "stale proposal 不得改變 canonical state");
+
+    const denied = await send("GET", "/v1/site/routes?selection=current", {});
+    assert.equal(denied.status, 401);
+    assert.equal(failureCode(denied), "AUTHORIZATION_REQUIRED");
+    const invalidQuery = await send("GET", "/v1/site/routes?selection=current&selection=published", { Authorization: `Bearer ${apiKey}` });
+    assert.equal(invalidQuery.status, 400);
+    assert.equal(failureCode(invalidQuery), "INVALID_REQUEST_BODY");
+    const malformed = await post("/v1/site/routes/change", headers, JSON.stringify({ contract: "route-change-command/v1", operationId: "bad", proposal: { contract: "route-change-proposal/v1" } }));
+    assert.equal(malformed.status, 400);
+    assert.equal(failureCode(malformed), "INVALID_REQUEST_BODY");
+    const wrongMethod = await send("PUT", "/v1/site/routes?selection=current", { Authorization: `Bearer ${apiKey}` });
+    assert.equal(wrongMethod.status, 405);
+    assert.equal(failureCode(wrongMethod), "METHOD_NOT_ALLOWED");
+    assert.equal(digest(), beforeStale, "transport rejection 不得改變 canonical state");
+  });
+});
+
+test("route graph refuses evidence that response redaction would alter", async () => {
+  await withAuthoringApi(async ({ apiKey, digest }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
+    const canaryEntryId = `asn_v1_${"A".repeat(43)}`;
+    assert.equal((await post(`/v1/entries/${canaryEntryId}/revisions`, headers, saveBody("revision-1", "/canary"))).status, 200);
+    const beforeRead = digest();
+    const graph = await send("GET", "/v1/site/routes?selection=current", { Authorization: `Bearer ${apiKey}` });
+    assert.equal(graph.status, 500);
+    assert.equal(graph.body.includes(canaryEntryId), false);
+    assert.equal(digest(), beforeRead, "無法安全投影的 graph 不得改變 canonical state");
+  });
+});
+
+test("route change refuses a retained claim that response redaction would alter before mutation", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, siteDefinition }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" };
+    const canaryEntryId = `asn_v1_${"B".repeat(43)}`;
+    assert.equal((await post("/v1/entries/safe/revisions", headers, saveBody("safe-revision", "/safe"))).status, 200);
+    assert.equal((await post(`/v1/entries/${canaryEntryId}/revisions`, headers, saveBody("canary-revision", "/canary"))).status, 200);
+    const current = siteDefinition.snapshot("current");
+    const published = siteDefinition.snapshot("published");
+    assert.equal(current.ok && published.ok, true);
+    if (!current.ok || !published.ok) return;
+    const beforeChange = digest();
+    const changed = await post("/v1/site/routes/change", headers, JSON.stringify({
+      contract: "route-change-command/v1",
+      operationId: "safe-change",
+      proposal: {
+        contract: "route-change-proposal/v1",
+        baselineDigests: { current: current.value.digest, published: published.value.digest },
+        target: { graph: "current", owner: "safe", route: "/after", sourceRevisionId: "safe-revision" },
+      },
+    }));
+    assert.equal(changed.status, 500);
+    assert.equal(changed.body.includes(canaryEntryId), false);
+    assert.equal(digest(), beforeChange, "遮蔽會改寫 retained impact 時不得執行 ChangeRoute");
   });
 });
 

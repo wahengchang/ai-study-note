@@ -14,7 +14,7 @@ import type { PersistenceCanonicalState, PersistenceStore } from "../../../core/
 import { createPluginHost } from "../../../core/plugin-host/index.js";
 import type { PluginHost } from "../../../core/plugin-host/index.js";
 import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
-import { createSiteDefinition } from "../../../core/site-definition/index.js";
+import { createSiteDefinition, routeSnapshotDigest } from "../../../core/site-definition/index.js";
 import type { SiteDefinition } from "../../../core/site-definition/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
@@ -152,6 +152,42 @@ test("ChangeRoute atomically changes current and published claims without moving
     assert.equal(value.store.getRevision({ entryId: "entry-a", revisionId: "r1" }).ok, true);
     assert.equal(value.store.getRevision({ entryId: "entry-a", revisionId: "r2" }).ok, true);
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("route graph façade creates an issuer-bound ChangeRoute proposal and rejects an outdated cross-graph baseline", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "change-route-facade-"));
+  try {
+    const value = await harness(directory);
+    await seedPublished(value);
+    const current = await value.application.readSiteRouteGraph("current");
+    const published = await value.application.readSiteRouteGraph("published");
+    assert.equal(current.ok && published.ok, true);
+    if (!current.ok || !published.ok) return;
+    assert.equal(current.value.graphDigests.current, routeSnapshotDigest("current", current.value.claims));
+    assert.equal(published.value.graphDigests.published, routeSnapshotDigest("published", published.value.claims));
+    assert.deepEqual(current.value.graphDigests, published.value.graphDigests);
+
+    const prepared = await value.application.prepareChangeRoute({
+      baselineDigests: current.value.graphDigests,
+      target: { graph: "current", owner: "entry-a", route: "/facade", sourceRevisionId: "r2" },
+    });
+    assert.equal(prepared.ok, true, prepared.ok ? "" : prepared.error.code);
+    if (!prepared.ok) return;
+    const changed = await value.application.changeRoute({ operationId: "facade-change", proposal: prepared.value });
+    assert.equal(changed.ok, true, changed.ok ? "" : changed.error.code);
+
+    await save(value.application, "entry-b", "b1", "/occupied");
+    const beforeStale = canonical(value.store);
+    const stale = await value.application.prepareChangeRoute({
+      baselineDigests: current.value.graphDigests,
+      target: { graph: "current", owner: "entry-a", route: "/occupied", sourceRevisionId: "r2" },
+    });
+    assert.equal(stale.ok, false);
+    if (!stale.ok) assert.equal(stale.error.code, "STALE_ROUTE_PROPOSAL");
+    assertUnchanged(value, beforeStale);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("ChangeRoute rejects malformed, cloned, foreign, mutated, stale, and unselected proposals without mutation", async () => {

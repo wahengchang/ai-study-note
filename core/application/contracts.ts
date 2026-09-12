@@ -2,7 +2,7 @@ import type { Digest, JsonValue, MessageRemediation } from "../foundation/index.
 import type { ArchiveAssetImpact, AssetVersionIdentity, DataMedia, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { EntryPointerRecord, OperationLineageIdentity, PersistenceStore, RevisionRecord, RevisionReferenceRecord, SchemaVersionIdentity, SchemaVersionRecord } from "../persistence/index.js";
 import type { CmsEditorBlockIdentity, CmsSeoAnalysisResult, PluginActivationIdentity, PluginHost, PluginHostFailure, SeoPluginSettingsV1 } from "../plugin-host/index.js";
-import type { RouteClaim, RouteClaimReplacementProposal, RouteClaimReplacementResult, SiteDefinition } from "../site-definition/index.js";
+import type { RouteClaim, RouteClaimReplacementProposal, RouteClaimReplacementResult, RouteGraph, SiteDefinition } from "../site-definition/index.js";
 import type { CreateTaxonomyRequest, RevisionTaxonomyTermBinding, Taxonomy, TaxonomyCatalog, TaxonomyCommand, TaxonomyCommandResult, TaxonomyFailure, TaxonomySnapshot } from "../taxonomy/index.js";
 
 export type SaveRevisionRequest = Readonly<{ entryId: string; revisionId: string; operationId: string; expectedCurrentRevisionId: string | null; schemaIdentity: SchemaVersionIdentity; content: JsonValue; route: string; assetVersions: readonly AssetVersionIdentity[]; taxonomyTerms: readonly Readonly<{ taxonomyId: string; termId: string }>[] }>;
@@ -11,6 +11,8 @@ export type SaveRevisionCommandRequest = SaveRevisionRequest | SaveRevisionMedia
 export type PublishRevisionRequest = Readonly<{ entryId: string; expectedCurrentRevisionId: string; operationId: string }>;
 export type RestoreRevisionRequest = Readonly<{ entryId: string; sourceRevisionId: string; revisionId: string; operationId: string }>;
 export type ChangeRouteRequest = Readonly<{ operationId: string; proposal: RouteClaimReplacementProposal }>;
+export type PrepareChangeRouteRequest = Readonly<{ baselineDigests: Readonly<{ current: string; published: string }>; target: Readonly<{ graph: RouteGraph; owner: string; route: string; sourceRevisionId: string }> }>;
+export type SiteRouteGraph = Readonly<{ contract: "route-graph/v1"; normalization: "route-normalization/v1"; selection: RouteGraph; claims: readonly RouteClaim[]; graphDigests: Readonly<{ current: Digest; published: Digest }> }>;
 export interface RevisionSchemaValidator { validate(input: Readonly<{ schema: SchemaVersionRecord; contentBytes: Uint8Array; contentDigest: Digest }>): Readonly<{ ok: true }> | Readonly<{ ok: false }>; }
 export type SaveRevisionSuccess = Readonly<{ revision: RevisionRecord; references: readonly RevisionReferenceRecord[]; currentPointer: EntryPointerRecord; currentClaim: RouteClaim; lineageIdentity: OperationLineageIdentity; stateDigest: Digest; activePluginStateDigest: Digest }>;
 export type RestoreRevisionSuccess = Readonly<{
@@ -60,6 +62,8 @@ export interface DomainApplication {
   publishRevision(request: PublishRevisionRequest): Promise<DomainApplicationResult<PublishRevisionSuccess>>;
   restoreRevision(request: RestoreRevisionRequest): Promise<DomainApplicationResult<RestoreRevisionSuccess>>;
   changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>>;
+  prepareChangeRoute(request: PrepareChangeRouteRequest): Promise<DomainApplicationResult<RouteClaimReplacementProposal>>;
+  readSiteRouteGraph(selection: RouteGraph): Promise<DomainApplicationResult<SiteRouteGraph>>;
   listMedia(): Promise<DomainApplicationResult<MediaCatalogV1>>;
   importMedia(request: ImportMediaRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>>;
   getMedia(request: GetMediaRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>>;

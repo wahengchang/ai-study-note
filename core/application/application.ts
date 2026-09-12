@@ -3,12 +3,14 @@ import { timingSafeEqual } from "node:crypto";
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
 import type { ArchiveAssetImpact, AssetVersionIdentity, MediaAssetDetailView, MediaAssetView, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { CmsEditorBlockSource, PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
-import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal } from "../site-definition/index.js";
+import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal, type RouteGraph } from "../site-definition/index.js";
 
 import type {
   AuthoringEntryV1,
   ChangeRouteRequest,
   ChangeRouteSuccess,
+  PrepareChangeRouteRequest,
+  SiteRouteGraph,
   CmsEditorBlockResolutions,
   CmsEditorBlockResolutionsRequest,
   CmsEditorBlockResolutionItem,
@@ -172,7 +174,39 @@ function editorBlockSources(content: JsonValue, entryId: string, revisionId: str
   return Object.freeze(sources);
 }
 
+
 export function createDomainApplication({ persistence, siteDefinition, dataMedia, schemaValidator, pluginHost, taxonomy }: DomainApplicationDependencies): DomainApplication {
+  const routeGraphState = (): DomainApplicationResult<Readonly<{ current: Readonly<{ claims: readonly RouteClaim[]; digest: Digest }>; published: Readonly<{ claims: readonly RouteClaim[]; digest: Digest }> }>> => {
+    const read = persistence.runReadSnapshot<Readonly<{ current: Readonly<{ claims: readonly RouteClaim[]; digest: Digest }>; published: Readonly<{ claims: readonly RouteClaim[]; digest: Digest }> }>, DomainApplicationFailure>((snapshot) => {
+      const current = siteDefinition.snapshotInReadSnapshot("current", snapshot);
+      const published = siteDefinition.snapshotInReadSnapshot("published", snapshot);
+      if (!current.ok || !published.ok) return fail("CHANGE_ROUTE_FAILED", "SiteDefinition");
+      return {
+        ok: true,
+        value: {
+          current: { claims: current.value.claims.map((claim) => ({ ...claim })), digest: current.value.digest },
+          published: { claims: published.value.claims.map((claim) => ({ ...claim })), digest: published.value.digest },
+        },
+      };
+    });
+    return read.ok ? read : fail("CHANGE_ROUTE_FAILED", "SiteDefinition");
+  };
+
+  const prepareChangeRoute = (request: unknown): DomainApplicationResult<RouteClaimReplacementProposal> => {
+    const input = normalizePrepareChangeRouteRequest(request);
+    if (input === null) return fail("INVALID_CHANGE_ROUTE_REQUEST");
+    const before = routeGraphState();
+    if (!before.ok) return before;
+    if (!sameRouteDigests(input.baselineDigests, { current: before.value.current.digest, published: before.value.published.digest })) {
+      return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition", [input.target.owner]);
+    }
+    const prepared = siteDefinition.prepareRouteClaimReplacement(input.target);
+    if (!prepared.ok) return prepareRouteFailure(prepared.error.code, input.target.owner);
+    if (!sameRouteDigests(input.baselineDigests, prepared.value.baselineDigests)) {
+      return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition", [input.target.owner]);
+    }
+    return prepared;
+  };
   const mediaUnavailable = <T>(assetVersions: readonly AssetVersionIdentity[]): DomainApplicationResult<T> => {
     const unavailable = assetVersions.filter((assetVersion) => !dataMedia.getReadyAssetVersion(assetVersion).ok);
     return fail("MEDIA_UNAVAILABLE", "DataMedia", (unavailable.length > 0 ? unavailable : assetVersions).map((item) => item.assetId));
@@ -577,6 +611,26 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         : executeMediaReferenceReplacement(command.request);
     },
 
+    async readSiteRouteGraph(selection: RouteGraph): Promise<DomainApplicationResult<SiteRouteGraph>> {
+      if (selection !== "current" && selection !== "published") return fail("INVALID_CHANGE_ROUTE_REQUEST");
+      const state = routeGraphState();
+      if (!state.ok) return state;
+      return {
+        ok: true,
+        value: {
+          contract: "route-graph/v1",
+          normalization: "route-normalization/v1",
+          selection,
+          claims: state.value[selection].claims.map((claim) => ({ ...claim })),
+          graphDigests: { current: state.value.current.digest, published: state.value.published.digest },
+        },
+      };
+    },
+
+    async prepareChangeRoute(request: PrepareChangeRouteRequest): Promise<DomainApplicationResult<RouteClaimReplacementProposal>> {
+      return prepareChangeRoute(request);
+    },
+
     async changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>> {
       const change = normalizeChangeRouteRequest(request);
       if (change === null) return fail("INVALID_CHANGE_ROUTE_REQUEST");
@@ -898,6 +952,65 @@ function route<T>(code: string, entryId: string, operation: CommandOperation): D
   return code === "ROUTE_CONFLICT" || code === "ROUTE_CHANGE_REQUIRED" || code === "STALE_ROUTE_PROPOSAL"
     ? fail(code, "SiteDefinition", [entryId])
     : fail(operationFailure[operation]);
+}
+
+function prepareRouteFailure<T>(code: string, owner: string): DomainApplicationResult<T> {
+  if (code === "ROUTE_CONFLICT") return fail("ROUTE_CONFLICT", "SiteDefinition", [owner]);
+  if (
+    code === "INVALID_SITE_DEFINITION_INPUT"
+    || code === "INVALID_ROUTE"
+    || code === "ROUTE_CLAIM_NOT_FOUND"
+    || code === "ROUTE_REPLACEMENT_REQUIRED"
+  ) {
+    return fail("INVALID_CHANGE_ROUTE_REQUEST", "SiteDefinition", [owner]);
+  }
+  return fail("CHANGE_ROUTE_FAILED", "SiteDefinition", [owner]);
+}
+
+function sameRouteDigests(left: Readonly<{ current: Digest; published: Digest }>, right: unknown): boolean {
+  if (typeof right !== "object" || right === null || Array.isArray(right)) return false;
+  const fields = ownEnumerableFields(right, ["current", "published"]);
+  return fields !== null && sameDigest(left.current, fields.current) && sameDigest(left.published, fields.published);
+}
+
+function normalizePrepareChangeRouteRequest(value: unknown): Readonly<{ baselineDigests: Readonly<{ current: Digest; published: Digest }>; target: PrepareChangeRouteRequest["target"] }> | null {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const request = ownEnumerableFields(value, ["baselineDigests", "target"]);
+    if (
+      request === null
+      || typeof request.baselineDigests !== "object"
+      || request.baselineDigests === null
+      || Array.isArray(request.baselineDigests)
+      || typeof request.target !== "object"
+      || request.target === null
+      || Array.isArray(request.target)
+    ) {
+      return null;
+    }
+    const baselineDigests = ownEnumerableFields(request.baselineDigests, ["current", "published"]);
+    const target = ownEnumerableFields(request.target, ["graph", "owner", "route", "sourceRevisionId"]);
+    if (
+      baselineDigests === null
+      || typeof baselineDigests.current !== "string"
+      || !isDigest(baselineDigests.current)
+      || typeof baselineDigests.published !== "string"
+      || !isDigest(baselineDigests.published)
+      || target === null
+      || (target.graph !== "current" && target.graph !== "published")
+      || !text(target.owner)
+      || !text(target.route)
+      || !text(target.sourceRevisionId)
+    ) {
+      return null;
+    }
+    return {
+      baselineDigests: { current: baselineDigests.current, published: baselineDigests.published },
+      target: { graph: target.graph, owner: target.owner, route: target.route, sourceRevisionId: target.sourceRevisionId },
+    };
+  } catch {
+    return null;
+  }
 }
 
 function validPublish(value: unknown): value is PublishRevisionRequest {

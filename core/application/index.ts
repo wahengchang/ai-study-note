@@ -6,6 +6,8 @@ export type {
   AuthoringEntryV1,
   ChangeRouteRequest,
   ChangeRouteSuccess,
+  PrepareChangeRouteRequest,
+  SiteRouteGraph,
   CmsEditorBlockResolutionItem,
   CmsEditorBlockResolutions,
   CmsEditorBlockResolutionsRequest,
