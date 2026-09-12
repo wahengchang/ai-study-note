@@ -16,5 +16,5 @@ pr: 379
 ## Verification
 
 - `npm run typecheck`
-- `node --import tsx --test tests/core/application/content-type-migration.test.ts tests/apps/authoring-api/http-contract.test.ts`：34/34 通過，含 fixed-origin actual listener、direct Application fail-closed、blocked envelope、foreign mapping、409 collision 與 admission rejection。
+- `node --import tsx --test tests/core/application/content-type-migration.test.ts tests/apps/authoring-api/http-contract.test.ts`：36/36 通過，含 fixed-origin actual listener、direct Application fail-closed、blocked envelope、foreign mapping、409 collision，以及兩個 migration route 的完整 admission/security 矩陣（credential lifecycle、evil Host／Origin／forwarded、OPTIONS、404／405／415／400／503、零 command、零 canonical mutation、無 credential canary）。
 - `npm run check:architecture`

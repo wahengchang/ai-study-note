@@ -1062,6 +1062,100 @@ test("migration routes log their own route template and reject GET", async () =>
   });
 });
 
+test("every Content Type migration route rejects hostile transport before any migration command or canonical mutation", async () => {
+  await withAuthoringApi(async ({ apiKey, credentials, digest, log, migrationCalls }) => {
+    const json = { "Content-Type": "application/json" } as const;
+    const bearer = { ...json, Authorization: `Bearer ${apiKey}`, Host: authority } as const;
+    const proposal = { contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [] } as const;
+    const routes: readonly Readonly<{ path: string; body: string }>[] = [
+      { path: "/v1/content-types/note/migrations/preview", body: JSON.stringify(proposal) },
+      { path: "/v1/content-types/note/migrations", body: JSON.stringify({ ...proposal, kind: "command", expectedStateDigest: `sha256:${"0".repeat(64)}`, operationId: "hostile-migration", replacements: [] }) },
+    ];
+    const before = digest();
+    for (const route of routes) {
+      const hostile: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string; remediation?: string }>[] = [
+        { name: "missing key", headers: json, status: 401, code: "AUTHORIZATION_REQUIRED" },
+        { name: "malformed scheme", headers: { ...json, Authorization: "Basic abc" }, status: 401, code: "AUTHORIZATION_MALFORMED" },
+        { name: "malformed key shape", headers: { ...json, Authorization: "Bearer asn_v1_short" }, status: 401, code: "AUTHORIZATION_MALFORMED" },
+        { name: "duplicate key", headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, status: 401, code: "AUTHORIZATION_DUPLICATE" },
+        { name: "invalid key", headers: { ...json, Authorization: `Bearer asn_v1_${"C".repeat(43)}` }, status: 401, code: "AUTHORIZATION_INVALID" },
+        { name: "cookie transport", headers: { ...bearer, Cookie: "session=1" }, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+        { name: "query transport", path: `${route.path}?key=1`, headers: bearer, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+        { name: "evil host", headers: { ...bearer, Host: "localhost:43127" }, status: 421, code: "MISDIRECTED_REQUEST" },
+        { name: "x-forwarded-for", headers: { ...bearer, "X-Forwarded-For": "203.0.113.1" }, status: 421, code: "MISDIRECTED_REQUEST" },
+        { name: "forwarded", headers: { ...bearer, Forwarded: "for=203.0.113.1" }, status: 421, code: "MISDIRECTED_REQUEST" },
+        { name: "evil origin", headers: { ...bearer, Origin: "http://evil.test", "Sec-Fetch-Site": "cross-site" }, status: 403, code: "ORIGIN_FORBIDDEN" },
+        { name: "exact origin without same-origin fetch metadata", headers: { ...bearer, Origin: origin, "Sec-Fetch-Site": "cross-site" }, status: 403, code: "ORIGIN_FORBIDDEN" },
+        { name: "OPTIONS", method: "OPTIONS", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
+        { name: "GET", method: "GET", headers: bearer, status: 405, code: "METHOD_NOT_ALLOWED" },
+        { name: "unsupported media type", headers: { ...bearer, "Content-Type": "text/plain" }, status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
+        { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },
+        // migration route 的上限是 1 MiB；remediation 不得沿用 SaveRevision 的 4 MiB 說明。
+        { name: "oversized body", headers: bearer, body: JSON.stringify({ ...proposal, targetSchema: { type: "object", title: "x".repeat(1_048_576) } }), status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "Content type migration request 不得超過 1 MiB。" },
+        { name: "percent-encoded schemaId", path: route.path.replace("/note/", "/no%2Dte/"), headers: bearer, status: 404, code: "ROUTE_NOT_FOUND" },
+      ];
+      for (const attempt of hostile) {
+        const method = attempt.method ?? "POST";
+        const label = `${route.path} ${attempt.name}`;
+        const response = await send(method, attempt.path ?? route.path, attempt.headers, method === "POST" ? (attempt.body ?? route.body) : undefined);
+        assert.equal(response.status, attempt.status, `${label} status`);
+        assert.equal(failureCode(response), attempt.code, `${label} code`);
+        assert.equal(response.body.includes("asn_"), false, `${label} 不得回吐 credential 形狀字串`);
+        if (attempt.remediation !== undefined) assert.equal((JSON.parse(response.body) as { remediation: { message: string } }).remediation.message, attempt.remediation, `${label} remediation`);
+        assertResponseHeaders(response, label);
+      }
+    }
+    assert.deepEqual(await credentials.transition("rotate"), { ok: true, value: { generation: 2, status: "active" } });
+    for (const route of routes) {
+      const response = await post(route.path, bearer, route.body);
+      assert.equal(response.status, 401, `${route.path} old credential`);
+      assert.equal(failureCode(response), "AUTHORIZATION_INVALID");
+    }
+    assert.equal((await credentials.transition("revoke")).ok, true);
+    for (const route of routes) {
+      const response = await post(route.path, bearer, route.body);
+      assert.equal(response.status, 401, `${route.path} revoked credential`);
+      assert.equal(failureCode(response), "AUTHORIZATION_REVOKED");
+    }
+    assert.equal(migrationCalls(), 0, "被拒絕的 transport 不得進入 migration command seam");
+    assert.equal(digest(), before, "被拒絕的 migration transport 不得執行任何 canonical mutation");
+    assert.equal(JSON.stringify(log).includes("asn_"), false, "migration route log 不得含 credential 形狀字串");
+  });
+});
+
+test("migration routes map an unknown Content Type to 404 and an unsafe credential store to 503", async () => {
+  await withAuthoringApi(async ({ apiKey, directory, digest, log, migrationCalls }) => {
+    const bearer = { "Content-Type": "application/json", Authorization: `Bearer ${apiKey}`, Host: authority } as const;
+    const proposal = { contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [] } as const;
+    const routes: readonly Readonly<{ path: string; body: string }>[] = [
+      { path: "/v1/content-types/absent-type/migrations/preview", body: JSON.stringify(proposal) },
+      { path: "/v1/content-types/absent-type/migrations", body: JSON.stringify({ ...proposal, kind: "command", expectedStateDigest: `sha256:${"0".repeat(64)}`, operationId: "absent-type-migration", replacements: [] }) },
+    ];
+    const before = digest();
+    for (const route of routes) {
+      const response = await post(route.path, bearer, route.body);
+      assert.equal(response.status, 404, `${route.path} unknown Content Type`);
+      assert.deepEqual({ code: failureCode(response), owner: failureOwner(response) }, { code: "CONTENT_TYPE_NOT_FOUND", owner: "ContentTypeMigration" });
+      assertResponseHeaders(response, `${route.path} unknown Content Type`);
+    }
+    assert.equal(migrationCalls(), routes.length);
+    assert.equal(digest(), before, "未知 Content Type 的拒絕不得執行任何 canonical mutation");
+
+    chmodSync(path.join(directory, "config", "ai-study-note", "local-authoring-v1.json"), 0o644);
+    for (const route of routes) {
+      const response = await post(route.path, bearer, route.body);
+      assert.equal(response.status, 503, `${route.path} credential store status`);
+      assert.equal(failureCode(response), "INTERNAL_SERVER_ERROR", `${route.path} credential store code`);
+      assert.equal(response.body.includes(apiKey), false, `${route.path} 不得洩漏 key`);
+      assert.equal(response.body.includes("asn_"), false, `${route.path} 不得回吐 credential 形狀字串`);
+      assertResponseHeaders(response, `${route.path} credential store rejection`);
+    }
+    assert.equal(migrationCalls(), routes.length, "不安全的 credential store 不得進入 migration command seam");
+    assert.equal(digest(), before, "不安全的 credential store 不得執行任何 canonical mutation");
+    assert.equal(JSON.stringify(log).includes("asn_"), false);
+  });
+});
+
 test("actual listener reads isolated route graphs and commits only a dual-digest-bound ChangeRoute", async () => {
   await withAuthoringApi(async ({ apiKey, digest, log }) => {
     const headers = { Authorization: `Bearer ${apiKey}`, Host: authority, "Content-Type": "application/json" } as const;
