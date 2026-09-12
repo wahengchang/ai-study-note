@@ -11,6 +11,7 @@ import test from "node:test";
 import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createPublishedContentReadModel, getSiteContentSchemaEvidence } from "../../../core/content/index.js";
+import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../../core/delivery/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import type { PersistenceStore } from "../../../core/persistence/index.js";
@@ -19,7 +20,7 @@ import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
-import { authoringErrorStatuses, createAjvSchemaValidator, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
+import { authoringErrorStatuses, createAjvSchemaValidator, createAuthoringReleaseTransport, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -66,6 +67,16 @@ function restoreBody(sourceRevisionId: string, newRevisionId: string, operationI
   return JSON.stringify({ contract: "restore-revision-request/v1", sourceRevisionId, newRevisionId, operationId });
 }
 
+function releaseOutput() {
+  const bytes = new TextEncoder().encode("<main>release</main>\n");
+  const provenance = { publishedRevisionIds: [], routeGraphDigest: sha256Digest(new TextEncoder().encode("routes")), mediaSelectionDigest: sha256Digest(new TextEncoder().encode("media")), theme: { id: "theme", version: "1.0.0", manifestHash: sha256Digest(new TextEncoder().encode("theme")) }, plugins: [], seo: { count: 0, digest: sha256Digest(new TextEncoder().encode("seo")) } };
+  const routes = [{ route: "/release", filePath: "release/index.html" }];
+  const files = [{ path: "release/index.html", bytes, digest: sha256Digest(bytes) }];
+  const evidence = canonicalJsonBytes({ provenance, routes, files: files.map((file) => ({ path: file.path, digest: file.digest })) });
+  if (!evidence.ok) throw new Error(evidence.error.code);
+  return { contract: "renderer-output/v1" as const, rendererInputDigest: sha256Digest(new TextEncoder().encode("input")), provenance, routes, files, outputDigest: sha256Digest(evidence.value) };
+}
+
 function failureCode(response: RawResponse): string {
   const value: unknown = JSON.parse(response.body);
   if (value === null || typeof value !== "object" || !("code" in value) || typeof value.code !== "string") throw new Error("authoring failure response lacks a code");
@@ -96,7 +107,7 @@ function shippedSaveRevision(args: readonly string[], environment: NodeJS.Proces
   });
 }
 
-type Harness = Readonly<{ directory: string; persistence: PersistenceStore; siteDefinition: SiteDefinition; credentials: AuthoringCredentialAuthority; apiKey: string; log: readonly AuthoringApiLogEvent[]; digest(): string; publishCalls(): number }>;
+type Harness = Readonly<{ directory: string; persistence: PersistenceStore; siteDefinition: SiteDefinition; credentials: AuthoringCredentialAuthority; apiKey: string; log: readonly AuthoringApiLogEvent[]; digest(): string; publishCalls(): number; releaseProjectionCalls(): number; seedReleaseArtifact(): string }>;
 
 async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promise<void> {
   const directory = mkdtempSync(path.join(tmpdir(), "authoring-http-"));
@@ -147,13 +158,18 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     const activation = await themeHost.value.getActivationSnapshot(); if (!activation.ok) throw new Error(activation.error.code);
     const activated = await themeHost.value.activate({ identity: themeIdentity, expectedActivationStateDigest: activation.value.stateDigest }); if (!activated.ok) throw new Error(activated.error.code);
     const projectionPreview = createProjectionPreview({ persistence: persistence.value, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value, themeHost: themeHost.value, pluginHost: pluginHost.value });
+    let releaseProjections = 0;
+    const releaseProjection = { ...projectionPreview, async produceRendererInput(request: Record<string, never>) { releaseProjections += 1; return projectionPreview.produceRendererInput(request); } };
     const authoringReadFacade = createAuthoringReadFacade({ persistence: persistence.value, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value });
     const contentTypeAdministration = createContentTypeAdministration({ persistence: persistence.value, validator: createAjvSchemaValidator() });
-    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, projectionPreview });
+    const delivery = createPublicDelivery({ artifactsRoot: path.join(directory, "artifacts") }); if (!delivery.ok) throw new Error(delivery.error.code);
+    const releaseDelivery = createFixedRootReleaseDelivery({ artifactsRoot: path.join(directory, "artifacts"), releaseRoot: path.join(directory, "release") }); if (!releaseDelivery.ok) throw new Error(releaseDelivery.error.code);
+    const releaseTransport = createAuthoringReleaseTransport({ projection: releaseProjection, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
+    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, projectionPreview, releaseTransport });
     if (!started.ok) throw new Error(`${started.error.code}（127.0.0.1:43127 是否已被佔用？）`);
     close = started.value.close;
     const digest = (): string => { const state = persistence.value.canonicalState(); if (!state.ok) throw new Error(state.error.code); return state.value.digest; };
-    await run({ directory, persistence: persistence.value, siteDefinition, credentials, apiKey, log, digest, publishCalls: () => published });
+    await run({ directory, persistence: persistence.value, siteDefinition, credentials, apiKey, log, digest, publishCalls: () => published, releaseProjectionCalls: () => releaseProjections, seedReleaseArtifact: () => { const seeded = delivery.value.deliver(releaseOutput()); if (!seeded.ok) throw new Error(seeded.error.code); return seeded.value.artifactDigest; } });
   } finally { if (close !== undefined) await close(); closePersistence?.(); rmSync(directory, { recursive: true, force: true }); }
 }
 
@@ -171,6 +187,50 @@ test("actual listener proves current credential and saves a revision", async () 
     assert.equal(body.contract, "save-revision-success/v1"); assert.equal(body.entryId, "entry");
     assert.equal(body.revision.revisionId, "revision-1"); assert.equal(body.pointer.currentRevisionId, "revision-1");
     assertResponseHeaders(saved, "save success");
+  });
+});
+
+test("actual listener release transport is fixed-root, receipt-only, and never publishes or rebuilds redelivery", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, publishCalls, releaseProjectionCalls, seedReleaseArtifact }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const unauthenticated = [
+      ["/v1/release/diagnose", { contract: "release-diagnose-request/v1" }],
+      ["/v1/release/build", { contract: "release-build-request/v1" }],
+      ["/v1/release", { contract: "release-request/v1", artifactDigest: sha256Digest(new TextEncoder().encode("artifact")) }],
+      ["/v1/redeliver", { contract: "redeliver-request/v1", artifactDigest: sha256Digest(new TextEncoder().encode("artifact")) }],
+    ] as const;
+    for (const [pathname, body] of unauthenticated) {
+      const rejected = await post(pathname, { "Content-Type": "application/json", Host: authority }, JSON.stringify(body));
+      assert.equal(rejected.status, 401, rejected.body);
+    }
+    assert.equal(releaseProjectionCalls(), 0);
+    const before = digest();
+    const diagnosis = await post("/v1/release/diagnose", headers, JSON.stringify({ contract: "release-diagnose-request/v1" }));
+    assert.equal(diagnosis.status, 200, diagnosis.body);
+    assert.equal(JSON.parse(diagnosis.body).contract, "release-diagnosis/v1");
+    const blocked = await post("/v1/release/build", headers, JSON.stringify({ contract: "release-build-request/v1" }));
+    assert.equal(blocked.status, 422, blocked.body);
+    assert.equal(publishCalls(), 0);
+    const projectionsBeforeRelease = releaseProjectionCalls();
+    const artifactDigest = seedReleaseArtifact();
+    const rejectedDestination = await post("/v1/release", headers, JSON.stringify({ contract: "release-request/v1", artifactDigest, destination: "/tmp/forbidden" }));
+    assert.equal(rejectedDestination.status, 400, rejectedDestination.body);
+    const released = await post("/v1/release", headers, JSON.stringify({ contract: "release-request/v1", artifactDigest }));
+    assert.equal(released.status, 200, released.body);
+    const receipt = JSON.parse(released.body) as Record<string, unknown>;
+    assert.deepEqual(Object.keys(receipt).sort(), ["artifactDigest", "contract", "targetDigest"]);
+    assert.equal(receipt.contract, "release-receipt/v1");
+    assert.equal(typeof receipt.targetDigest, "string");
+    assert.equal(released.body.includes("/release"), false);
+    const redelivered = await post("/v1/redeliver", headers, JSON.stringify({ contract: "redeliver-request/v1", artifactDigest }));
+    assert.equal(redelivered.status, 200, redelivered.body);
+    assert.deepEqual(JSON.parse(redelivered.body), receipt);
+    assert.equal(publishCalls(), 0);
+    assert.equal(releaseProjectionCalls(), projectionsBeforeRelease);
+    assert.equal(digest(), before);
+    const unknown = await post("/v1/redeliver", headers, JSON.stringify({ contract: "redeliver-request/v1", artifactDigest: sha256Digest(new TextEncoder().encode("unknown")) }));
+    assert.equal(unknown.status, 422, unknown.body);
+    assert.equal(publishCalls(), 0);
   });
 });
 
