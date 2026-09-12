@@ -15,7 +15,7 @@ import { createPluginHost } from "../../../core/plugin-host/index.js";
 import type { PluginHost } from "../../../core/plugin-host/index.js";
 import { openSqliteAdapter } from "../../../core/persistence/sqlite-adapter.js";
 import { createSiteDefinition } from "../../../core/site-definition/index.js";
-import type { SiteDefinition } from "../../../core/site-definition/index.js";
+import type { RouteClaimReplacementProposal, SiteDefinition } from "../../../core/site-definition/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
 
 type Harness = Readonly<{
@@ -108,6 +108,20 @@ function assertUnchanged(value: Harness, before: PersistenceCanonicalState): voi
   assert.deepEqual(after.counts, before.counts);
 }
 
+function command(operationId: string, proposal: RouteClaimReplacementProposal) {
+  return {
+    contract: "change-route-command/v1" as const,
+    operationId,
+    proposal: {
+      contract: "route-change-proposal/v1" as const,
+      baselineDigests: { ...proposal.baselineDigests },
+      claim: { ...proposal.claim },
+      impact: proposal.impact.map((item) => ({ ...item })),
+      resultingDigests: { ...proposal.resultingDigests },
+    },
+  };
+}
+
 test("ChangeRoute atomically changes current and published claims without moving pointers or creating revisions", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "change-route-success-"));
   try {
@@ -127,7 +141,7 @@ test("ChangeRoute atomically changes current and published claims without moving
       const proposal = value.site.prepareRouteClaimReplacement({ graph: input.graph, owner: "entry-a", route: input.route, sourceRevisionId: input.sourceRevisionId });
       assert.equal(proposal.ok, true, proposal.ok ? "" : proposal.error.code);
       if (!proposal.ok) return;
-      const changed = await app.changeRoute({ operationId: input.operationId, proposal: proposal.value });
+      const changed = await app.changeRoute(command(input.operationId, proposal.value));
       assert.equal(changed.ok, true, changed.ok ? "" : changed.error.code);
       if (!changed.ok) return;
       const after = snapshots(value.site);
@@ -154,72 +168,67 @@ test("ChangeRoute atomically changes current and published claims without moving
   } finally { rmSync(directory, { recursive: true, force: true }); }
 });
 
-test("ChangeRoute rejects malformed, cloned, foreign, mutated, stale, and unselected proposals without mutation", async () => {
+test("ChangeRoute rejects malformed, tampered, stale, and unselected serialized proposals without mutation", async () => {
   const directory = mkdtempSync(path.join(tmpdir(), "change-route-rejections-"));
   try {
     const value = await harness(directory);
     await seedPublished(value);
-    await save(value.application, "entry-b", "b1", "/b");
     const app = changeOnlyApplication(value);
     const baseline = canonical(value.store);
-    const prepared = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/new", sourceRevisionId: "r2" });
+    const graphs = snapshots(value.site);
+    const prepared = await app.prepareRouteChange({
+      contract: "route-change-proposal-request/v1",
+      expectedRouteGraphDigests: { current: graphs.current.digest, published: graphs.published.digest },
+      graph: "current",
+      owner: "entry-a",
+      route: "/new",
+      sourceRevisionId: "r2",
+    });
     assert.equal(prepared.ok, true);
     if (!prepared.ok) return;
 
-    const accessor = { operationId: "change", proposal: prepared.value };
-    Object.defineProperty(accessor, "proposal", { enumerable: true, get() { return prepared.value; } });
-    const symbolKey = { operationId: "change", proposal: prepared.value };
-    Object.defineProperty(symbolKey, Symbol("extra"), { enumerable: true, value: true });
-    const throwingProxy = new Proxy({}, { ownKeys() { throw new Error("request-canary"); } });
-    const malformed: unknown[] = [null, [], { operationId: "", proposal: prepared.value }, { operationId: "change" }, { operationId: "change", proposal: prepared.value, extra: true }, { operationId: "change", proposal: null }, { operationId: "change", proposal: 1 }, symbolKey, accessor, throwingProxy, { operationId: "change\0", proposal: prepared.value }];
+    const malformed: unknown[] = [
+      null,
+      [],
+      { contract: "change-route-command/v1", operationId: "", proposal: prepared.value },
+      { contract: "change-route-command/v1", operationId: "change" },
+      { contract: "change-route-command/v1", operationId: "change", proposal: prepared.value, extra: true },
+      { contract: "change-route-command/v1", operationId: "change", proposal: null },
+      { contract: "change-route-command/v1", operationId: "change", proposal: 1 },
+      { contract: "change-route-command/v1", operationId: "change\0", proposal: prepared.value },
+      new Proxy({}, { ownKeys() { throw new Error("request-canary"); } }),
+    ];
     for (const request of malformed) {
       assertFailure(await app.changeRoute(request as never), "INVALID_CHANGE_ROUTE_REQUEST", "DomainApplication", []);
       assertUnchanged(value, baseline);
     }
 
-    const clone = { ...prepared.value, claim: { ...prepared.value.claim }, impact: prepared.value.impact.map((item) => ({ ...item })), nextTargetBytes: prepared.value.nextTargetBytes.slice() };
-    assertFailure(await app.changeRoute({ operationId: "clone", proposal: clone }), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
-    assertUnchanged(value, baseline);
-    const foreignSite = createSiteDefinition({ persistence: value.store });
-    const foreign = foreignSite.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/foreign", sourceRevisionId: "r2" });
-    assert.equal(foreign.ok, true);
-    if (!foreign.ok) return;
-    assertFailure(await app.changeRoute({ operationId: "foreign", proposal: foreign.value }), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
-    assertUnchanged(value, baseline);
-    const mutated = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/mutated", sourceRevisionId: "r2" });
-    assert.equal(mutated.ok, true);
-    if (!mutated.ok) return;
-    (mutated.value.impact as unknown as Array<{ owner: string }>)[0]!.owner = "forged";
-    assertFailure(await app.changeRoute({ operationId: "mutated", proposal: mutated.value }), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
+    const tampered = { contract: "change-route-command/v1" as const, operationId: "tampered", proposal: { ...prepared.value, impact: prepared.value.impact.map((item) => ({ ...item })) } };
+    tampered.proposal.impact[0] = { ...tampered.proposal.impact[0]!, owner: "forged" };
+    assertFailure(await app.changeRoute(tampered), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
     assertUnchanged(value, baseline);
 
-    const stateful = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/stateful", sourceRevisionId: "r2" });
-    assert.equal(stateful.ok, true);
-    if (!stateful.ok) return;
-    const issuedClaim = stateful.value.claim;
-    let claimReads = 0;
-    Object.defineProperty(stateful.value, "claim", {
-      configurable: true,
-      enumerable: true,
-      get() {
-        claimReads += 1;
-        return claimReads <= 4 ? issuedClaim : { ...issuedClaim, owner: "entry-b", sourceRevisionId: "b1" };
-      },
+    const historical = await app.prepareRouteChange({
+      contract: "route-change-proposal-request/v1",
+      expectedRouteGraphDigests: { ...prepared.value.baselineDigests },
+      graph: "current",
+      owner: "entry-a",
+      route: "/historical",
+      sourceRevisionId: "r1",
     });
-    const statefulResult = await app.changeRoute({ operationId: "stateful-issuer", proposal: stateful.value });
-    assert.equal(statefulResult.ok, true, statefulResult.ok ? "" : statefulResult.error.code);
-    if (!statefulResult.ok) return;
-    assert.deepEqual(statefulResult.value.lineageIdentity, { entryId: "entry-a", revisionId: "r2", operationId: "stateful-issuer" });
-    assert.equal(value.store.getOperationLineage({ entryId: "entry-b", revisionId: "b1", operationId: "stateful-issuer" }).ok, false);
-
-    const afterStateful = canonical(value.store);
-
-    const historical = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/historical", sourceRevisionId: "r1" });
     assert.equal(historical.ok, true);
     if (!historical.ok) return;
-    assertFailure(await app.changeRoute({ operationId: "historical", proposal: historical.value }), "CURRENT_REVISION_MISMATCH", "Content", ["entry-a"]);
-    assertUnchanged(value, afterStateful);
-    const noPublished = value.site.prepareRouteClaimReplacement({ graph: "published", owner: "entry-a", route: "/published-missing", sourceRevisionId: "r1" });
+    assertFailure(await app.changeRoute({ contract: "change-route-command/v1", operationId: "historical", proposal: historical.value }), "CURRENT_REVISION_MISMATCH", "Content", ["entry-a"]);
+    assertUnchanged(value, baseline);
+
+    const noPublished = await app.prepareRouteChange({
+      contract: "route-change-proposal-request/v1",
+      expectedRouteGraphDigests: { ...prepared.value.baselineDigests },
+      graph: "published",
+      owner: "entry-a",
+      route: "/published-missing",
+      sourceRevisionId: "r1",
+    });
     assert.equal(noPublished.ok, true);
     if (!noPublished.ok) return;
     const pointer = value.store.getEntryPointers("entry-a");
@@ -227,9 +236,11 @@ test("ChangeRoute rejects malformed, cloned, foreign, mutated, stale, and unsele
     if (!pointer.ok) return;
     assert.equal(value.store.setEntryPointers({ entryId: "entry-a", currentRevisionId: pointer.value.currentRevisionId, lineage: { revisionId: pointer.value.currentRevisionId, operationId: "clear-published", operationKind: "SaveRevision" } }).ok, true);
     const afterClearPublished = canonical(value.store);
-    assertFailure(await app.changeRoute({ operationId: "published-missing", proposal: noPublished.value }), "CURRENT_REVISION_MISMATCH", "Content", ["entry-a"]);
+    assertFailure(await app.changeRoute({ contract: "change-route-command/v1", operationId: "published-missing", proposal: noPublished.value }), "CURRENT_REVISION_MISMATCH", "Content", ["entry-a"]);
     assertUnchanged(value, afterClearPublished);
-  } finally { rmSync(directory, { recursive: true, force: true }); }
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test("ChangeRoute detects target and non-target graph advances, but isolates route keys across graphs", async () => {
@@ -244,23 +255,23 @@ test("ChangeRoute detects target and non-target graph advances, but isolates rou
     if (!target.ok) return;
     await save(value.application, "entry-c", "c1", "/other");
     const afterTargetAdvance = canonical(value.store);
-    assertFailure(await app.changeRoute({ operationId: "target-stale", proposal: target.value }), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
+    assertFailure(await app.changeRoute(command("target-stale", target.value)), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
     assertUnchanged(value, afterTargetAdvance);
     const nonTarget = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/non-target", sourceRevisionId: "r2" });
     assert.equal(nonTarget.ok, true);
     if (!nonTarget.ok) return;
     assert.equal((await value.application.publishRevision({ entryId: "entry-c", expectedCurrentRevisionId: "c1", operationId: "publish-entry-c" })).ok, true);
     const afterNonTargetAdvance = canonical(value.store);
-    assertFailure(await app.changeRoute({ operationId: "non-target-stale", proposal: nonTarget.value }), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
+    assertFailure(await app.changeRoute(command("non-target-stale", nonTarget.value)), "STALE_ROUTE_PROPOSAL", "SiteDefinition", []);
     assertUnchanged(value, afterNonTargetAdvance);
     const current = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-a", route: "/shared", sourceRevisionId: "r2" });
     assert.equal(current.ok, true);
     if (!current.ok) return;
-    assert.equal((await app.changeRoute({ operationId: "current-shared", proposal: current.value })).ok, true);
+    assert.equal((await app.changeRoute(command("current-shared", current.value))).ok, true);
     const published = value.site.prepareRouteClaimReplacement({ graph: "published", owner: "entry-a", route: "/shared", sourceRevisionId: "r1" });
     assert.equal(published.ok, true);
     if (!published.ok) return;
-    assert.equal((await app.changeRoute({ operationId: "published-shared", proposal: published.value })).ok, true);
+    assert.equal((await app.changeRoute(command("published-shared", published.value))).ok, true);
     const graph = snapshots(value.site);
     assert.equal(graph.current.claims.find((claim) => claim.owner === "entry-a")?.normalizedRoute, "/shared");
     assert.equal(graph.published.claims.find((claim) => claim.owner === "entry-a")?.normalizedRoute, "/shared");
@@ -278,7 +289,7 @@ test("ChangeRoute competition admits exactly one same-graph owner and rolls back
     const second = value.site.prepareRouteClaimReplacement({ graph: "current", owner: "entry-b", route: "/collision", sourceRevisionId: "r2" });
     assert.equal(first.ok && second.ok, true);
     if (!first.ok || !second.ok) return;
-    const raced = await Promise.all([app.changeRoute({ operationId: "winner-a", proposal: first.value }), app.changeRoute({ operationId: "winner-b", proposal: second.value })]);
+    const raced = await Promise.all([app.changeRoute(command("winner-a", first.value)), app.changeRoute(command("winner-b", second.value))]);
     assert.equal(raced.filter((result) => result.ok).length, 1);
     const loser = raced.find((result) => !result.ok);
     if (loser === undefined) return;
@@ -304,7 +315,7 @@ test("ChangeRoute competition admits exactly one same-graph owner and rolls back
     assert.equal(lineageFault.ok, true);
     if (!lineageFault.ok) return;
     const beforeLineageFault = canonical(value.store);
-    const lineageFailed = await app.changeRoute({ operationId: "lineage-conflict", proposal: lineageFault.value });
+    const lineageFailed = await app.changeRoute(command("lineage-conflict", lineageFault.value));
     assertFailure(lineageFailed, "CHANGE_ROUTE_FAILED", "DomainApplication", []);
     assertUnchanged(value, beforeLineageFault);
 
@@ -316,7 +327,7 @@ test("ChangeRoute competition admits exactly one same-graph owner and rolls back
     const adapter = openSqliteAdapter(value.databasePath);
     adapter.exec("CREATE TRIGGER fail_change_route BEFORE INSERT ON route_claims BEGIN SELECT RAISE(ABORT, 'change-route-canary'); END");
     adapter.close();
-    const failed = await app.changeRoute({ operationId: "operation-canary", proposal: fault.value });
+    const failed = await app.changeRoute(command("operation-canary", fault.value));
     assertFailure(failed, "CHANGE_ROUTE_FAILED", "DomainApplication", []);
     if (!failed.ok) {
       const serialized = JSON.stringify(failed.error);
@@ -340,7 +351,7 @@ test("ChangeRoute reports a SiteDefinition snapshot storage fault as CHANGE_ROUT
     const hidden = openSqliteAdapter(value.databasePath);
     hidden.exec("ALTER TABLE route_claims RENAME TO route_claims_hidden");
     hidden.close();
-    const failed = await app.changeRoute({ operationId: "storage-fault", proposal: proposal.value });
+    const failed = await app.changeRoute(command("storage-fault", proposal.value));
     const restored = openSqliteAdapter(value.databasePath);
     restored.exec("ALTER TABLE route_claims_hidden RENAME TO route_claims");
     restored.close();
@@ -348,9 +359,45 @@ test("ChangeRoute reports a SiteDefinition snapshot storage fault as CHANGE_ROUT
     // snapshot 讀取 fault 不是 staleness：它必須收斂為 CHANGE_ROUTE_FAILED，不得偽裝成可重取 proposal 的 STALE_ROUTE_PROPOSAL。
     assertFailure(failed, "CHANGE_ROUTE_FAILED", "DomainApplication", []);
     assertUnchanged(value, before);
-    const retried = await app.changeRoute({ operationId: "storage-fault-retry", proposal: proposal.value });
+    const retried = await app.changeRoute(command("storage-fault-retry", proposal.value));
     assert.equal(retried.ok, true, retried.ok ? "" : retried.error.code);
     if (!retried.ok) return;
     assert.equal(retried.value.claim.normalizedRoute, "/storage-fault");
   } finally { rmSync(directory, { recursive: true, force: true }); }
+});
+
+test("serializable Site route graph read, proposal, and command retain dual-graph binding", async () => {
+  const directory = mkdtempSync(path.join(tmpdir(), "site-route-command-"));
+  try {
+    const value = await harness(directory);
+    await seedPublished(value);
+    const app = changeOnlyApplication(value);
+    const current = await app.readSiteRouteGraph({ contract: "site-route-graph-read-request/v1", selection: "current" });
+    const published = await app.readSiteRouteGraph({ contract: "site-route-graph-read-request/v1", selection: "published" });
+    assert.equal(current.ok, true);
+    assert.equal(published.ok, true);
+    if (!current.ok || !published.ok) return;
+    assert.equal("bytes" in current.value, false);
+    assert.equal(current.value.claims.some((claim) => claim.graph === "published"), false);
+    assert.equal(published.value.claims.some((claim) => claim.graph === "current"), false);
+
+    const prepared = await app.prepareRouteChange({
+      contract: "route-change-proposal-request/v1",
+      expectedRouteGraphDigests: { current: current.value.digest, published: published.value.digest },
+      graph: "current",
+      owner: "entry-a",
+      route: "/Current Command/",
+      sourceRevisionId: "r2",
+    });
+    assert.equal(prepared.ok, true);
+    if (!prepared.ok) return;
+    const changed = await app.changeRoute({ contract: "change-route-command/v1", operationId: "site-route-command", proposal: prepared.value });
+    assert.equal(changed.ok, true, changed.ok ? "" : changed.error.code);
+    if (!changed.ok) return;
+    assert.equal(changed.value.claim.normalizedRoute, "/current command");
+    assert.equal(changed.value.resultingDigests.published, published.value.digest);
+    assert.equal((await app.changeRoute({ contract: "change-route-command/v1", operationId: "stale-command", proposal: prepared.value })).ok, false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
 });

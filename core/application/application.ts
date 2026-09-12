@@ -9,6 +9,10 @@ import type {
   AuthoringEntryV1,
   ChangeRouteRequest,
   ChangeRouteSuccess,
+  RouteChangeProposalRequest,
+  RouteChangeProposalV1,
+  SiteRouteGraphReadRequest,
+  SiteRouteGraphV1,
   CmsEditorBlockResolutions,
   CmsEditorBlockResolutionsRequest,
   CmsEditorBlockResolutionItem,
@@ -72,6 +76,7 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   MEDIA_UNAVAILABLE: "請先完成所有引用媒體的匯入或復原。",
   BLOCKED_ARCHIVED_MEDIA_RESTORE: "請先復原所有不可用的 media asset version。",
   ROUTE_CONFLICT: "請選擇未被其他內容占用的 route。",
+  ROUTE_CLAIM_NOT_FOUND: "目標 route claim 不存在。",
   ROUTE_CHANGE_REQUIRED: "請改用 ChangeRoute 變更既有 route。",
   STALE_ROUTE_PROPOSAL: "Route graph 已變更，請重新取得 proposal。",
   SAVE_REVISION_FAILED: "草稿未儲存；canonical state 未變更。",
@@ -577,15 +582,55 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
         : executeMediaReferenceReplacement(command.request);
     },
 
+    async readSiteRouteGraph(request: SiteRouteGraphReadRequest): Promise<DomainApplicationResult<SiteRouteGraphV1>> {
+      const read = normalizeSiteRouteGraphReadRequest(request);
+      if (read === null) return fail("INVALID_CHANGE_ROUTE_REQUEST");
+      const snapshot = siteDefinition.snapshot(read.selection);
+      if (!snapshot.ok) return fail("CHANGE_ROUTE_FAILED");
+      return {
+        ok: true,
+        value: {
+          contract: "route-graph/v1",
+          normalization: "route-normalization/v1",
+          graph: snapshot.value.graph,
+          claims: snapshot.value.claims.map((claim) => ({ ...claim })),
+          digest: snapshot.value.digest,
+        },
+      };
+    },
+
+    async prepareRouteChange(request: RouteChangeProposalRequest): Promise<DomainApplicationResult<RouteChangeProposalV1>> {
+      const proposalRequest = normalizeRouteChangeProposalRequest(request);
+      if (proposalRequest === null) return fail("INVALID_CHANGE_ROUTE_REQUEST");
+      const prepared = siteDefinition.prepareRouteClaimReplacement(proposalRequest);
+      if (!prepared.ok) return routeChangePreparationFailure(prepared.error.code);
+      if (!sameRouteGraphDigests(prepared.value.baselineDigests, proposalRequest.expectedRouteGraphDigests)) return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition");
+      return { ok: true, value: routeChangeProposal(prepared.value) };
+    },
+
     async changeRoute(request: ChangeRouteRequest): Promise<DomainApplicationResult<ChangeRouteSuccess>> {
-      const change = normalizeChangeRouteRequest(request);
-      if (change === null) return fail("INVALID_CHANGE_ROUTE_REQUEST");
+      const command = normalizeChangeRouteRequest(request);
+      if (command === null) return fail("INVALID_CHANGE_ROUTE_REQUEST");
+      const current = siteDefinition.snapshot("current");
+      const published = siteDefinition.snapshot("published");
+      if (!current.ok || !published.ok) return fail("CHANGE_ROUTE_FAILED");
+      if (!sameRouteGraphDigests(
+        { current: current.value.digest, published: published.value.digest },
+        command.proposal.baselineDigests,
+      )) return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition");
+      // wire proposal 僅是 immutable intent/evidence；唯一可提交的 opaque token 由此 SiteDefinition instance 重新簽發。
+      const prepared = siteDefinition.prepareRouteClaimReplacement({
+        graph: command.proposal.claim.graph,
+        owner: command.proposal.claim.owner,
+        route: command.proposal.claim.normalizedRoute,
+        sourceRevisionId: command.proposal.claim.sourceRevisionId,
+      });
+      if (!prepared.ok) return routeChangePreparationFailure(prepared.error.code);
+      if (!sameRouteChangeProposal(command.proposal, routeChangeProposal(prepared.value))) return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition");
 
       const result = persistence.runTransaction<ChangeRouteSuccess, DomainApplicationFailure>((transaction) => {
-        const token = siteDefinition.validateRouteClaimReplacementInTransaction(change.proposal, transaction);
+        const token = siteDefinition.validateRouteClaimReplacementInTransaction(prepared.value, transaction);
         if (!token.ok) return changeRouteFailure(token.error.code);
-
-        // token 驗證後不可再讀取呼叫端 proposal；只使用 SiteDefinition apply 的權威 claim。
         const applied = siteDefinition.applyValidatedRouteClaimReplacementInTransaction(token.value, transaction);
         if (!applied.ok) return changeRouteFailure(applied.error.code);
         const { claim } = applied.value;
@@ -605,7 +650,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
           entryId: claim.owner,
           currentRevisionId: pointer.value.currentRevisionId,
           ...(pointer.value.publishedRevisionId === undefined ? {} : { publishedRevisionId: pointer.value.publishedRevisionId }),
-          lineage: { revisionId: claim.sourceRevisionId, operationId: change.operationId, operationKind: "ChangeRoute" },
+          lineage: { revisionId: claim.sourceRevisionId, operationId: command.operationId, operationKind: "ChangeRoute" },
         });
         if (!unchanged.ok) return fail("CHANGE_ROUTE_FAILED");
         const state = transaction.canonicalState();
@@ -616,7 +661,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
               value: {
                 ...applied.value,
                 entryPointer: unchanged.value,
-                lineageIdentity: { entryId: claim.owner, revisionId: claim.sourceRevisionId, operationId: change.operationId },
+                lineageIdentity: { entryId: claim.owner, revisionId: claim.sourceRevisionId, operationId: command.operationId },
                 stateDigest: state.value.digest,
               },
             };
@@ -911,23 +956,128 @@ function validPublish(value: unknown): value is PublishRevisionRequest {
     && (value as PublishRevisionRequest).operationId.length > 0;
 }
 
-function normalizeChangeRouteRequest(value: unknown): ChangeRouteRequest | null {
+function routeGraph(value: unknown): value is "current" | "published" {
+  return value === "current" || value === "published";
+}
+
+function routeGraphDigests(value: unknown): Readonly<{ current: Digest; published: Digest }> | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["current", "published"]);
+  return fields === null || typeof fields.current !== "string" || typeof fields.published !== "string" || !isDigest(fields.current) || !isDigest(fields.published)
+    ? null
+    : { current: fields.current, published: fields.published };
+}
+
+function normalizedRouteClaim(value: unknown): RouteClaim | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["graph", "normalizedRoute", "owner", "sourceRevisionId"]);
+  return fields === null || !routeGraph(fields.graph) || !text(fields.normalizedRoute) || !text(fields.owner) || !text(fields.sourceRevisionId)
+    ? null
+    : { graph: fields.graph, normalizedRoute: fields.normalizedRoute, owner: fields.owner, sourceRevisionId: fields.sourceRevisionId };
+}
+
+function normalizedRouteImpact(value: unknown): RouteChangeProposalV1["impact"][number] | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["change", "graph", "owner", "from", "to", "resultingSourceRevisionId"]);
+  return fields === null
+    || (fields.change !== "route-move" && fields.change !== "attribution-only" && fields.change !== "retained")
+    || !routeGraph(fields.graph)
+    || !text(fields.owner)
+    || !text(fields.from)
+    || !text(fields.to)
+    || !text(fields.resultingSourceRevisionId)
+    ? null
+    : { change: fields.change, graph: fields.graph, owner: fields.owner, from: fields.from, to: fields.to, resultingSourceRevisionId: fields.resultingSourceRevisionId };
+}
+
+function normalizedRouteChangeProposal(value: unknown): RouteChangeProposalV1 | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+  const fields = ownEnumerableFields(value, ["contract", "baselineDigests", "claim", "impact", "resultingDigests"]);
+  if (fields === null || fields.contract !== "route-change-proposal/v1" || !Array.isArray(fields.impact)) return null;
+  const baselineDigests = routeGraphDigests(fields.baselineDigests);
+  const claim = normalizedRouteClaim(fields.claim);
+  const impact = fields.impact.map(normalizedRouteImpact);
+  const resultingDigests = routeGraphDigests(fields.resultingDigests);
+  return baselineDigests === null || claim === null || impact.some((item) => item === null) || resultingDigests === null
+    ? null
+    : { contract: "route-change-proposal/v1", baselineDigests, claim, impact: impact as RouteChangeProposalV1["impact"], resultingDigests };
+}
+
+function normalizeSiteRouteGraphReadRequest(value: unknown): SiteRouteGraphReadRequest | null {
   try {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-    const fields = ownEnumerableFields(value, ["operationId", "proposal"]);
-    if (
-      fields === null
-      || !text(fields.operationId)
-      || typeof fields.proposal !== "object"
-      || fields.proposal === null
-      || Array.isArray(fields.proposal)
-    ) {
-      return null;
-    }
-    return { operationId: fields.operationId, proposal: fields.proposal as RouteClaimReplacementProposal };
+    const fields = ownEnumerableFields(value, ["contract", "selection"]);
+    return fields === null || fields.contract !== "site-route-graph-read-request/v1" || !routeGraph(fields.selection)
+      ? null
+      : { contract: "site-route-graph-read-request/v1", selection: fields.selection };
   } catch {
     return null;
   }
+}
+
+function normalizeRouteChangeProposalRequest(value: unknown): RouteChangeProposalRequest | null {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const fields = ownEnumerableFields(value, ["contract", "expectedRouteGraphDigests", "graph", "owner", "route", "sourceRevisionId"]);
+    const expectedRouteGraphDigests = fields === null ? null : routeGraphDigests(fields.expectedRouteGraphDigests);
+    return fields === null
+      || fields.contract !== "route-change-proposal-request/v1"
+      || expectedRouteGraphDigests === null
+      || !routeGraph(fields.graph)
+      || !text(fields.owner)
+      || !text(fields.route)
+      || !text(fields.sourceRevisionId)
+      ? null
+      : { contract: "route-change-proposal-request/v1", expectedRouteGraphDigests, graph: fields.graph, owner: fields.owner, route: fields.route, sourceRevisionId: fields.sourceRevisionId };
+  } catch {
+    return null;
+  }
+}
+
+function normalizeChangeRouteRequest(value: unknown): ChangeRouteRequest | null {
+  try {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
+    const fields = ownEnumerableFields(value, ["contract", "operationId", "proposal"]);
+    const proposal = fields === null ? null : normalizedRouteChangeProposal(fields.proposal);
+    return fields === null || fields.contract !== "change-route-command/v1" || !text(fields.operationId) || proposal === null
+      ? null
+      : { contract: "change-route-command/v1", operationId: fields.operationId, proposal };
+  } catch {
+    return null;
+  }
+}
+
+function routeChangeProposal(value: RouteClaimReplacementProposal): RouteChangeProposalV1 {
+  return {
+    contract: "route-change-proposal/v1",
+    baselineDigests: { ...value.baselineDigests },
+    claim: { ...value.claim },
+    impact: value.impact.map((item) => ({ ...item })),
+    resultingDigests: { ...value.resultingDigests },
+  };
+}
+
+function sameRouteGraphDigests(left: Readonly<{ current: Digest; published: Digest }>, right: Readonly<{ current: Digest; published: Digest }>): boolean {
+  return sameDigest(left.current, right.current) && sameDigest(left.published, right.published);
+}
+
+function sameRouteChangeProposal(left: RouteChangeProposalV1, right: RouteChangeProposalV1): boolean {
+  return sameRouteGraphDigests(left.baselineDigests, right.baselineDigests)
+    && sameRouteGraphDigests(left.resultingDigests, right.resultingDigests)
+    && left.claim.graph === right.claim.graph
+    && left.claim.normalizedRoute === right.claim.normalizedRoute
+    && left.claim.owner === right.claim.owner
+    && left.claim.sourceRevisionId === right.claim.sourceRevisionId
+    && left.impact.length === right.impact.length
+    && left.impact.every((item, index) => item.change === right.impact[index]?.change && item.graph === right.impact[index]?.graph && item.owner === right.impact[index]?.owner && item.from === right.impact[index]?.from && item.to === right.impact[index]?.to && item.resultingSourceRevisionId === right.impact[index]?.resultingSourceRevisionId);
+}
+
+function routeChangePreparationFailure<T>(code: string): DomainApplicationResult<T> {
+  if (code === "ROUTE_CONFLICT") return fail("ROUTE_CONFLICT", "SiteDefinition");
+  if (code === "ROUTE_CLAIM_NOT_FOUND") return fail("ROUTE_CLAIM_NOT_FOUND", "SiteDefinition");
+  if (code === "STALE_ROUTE_PROPOSAL") return fail("STALE_ROUTE_PROPOSAL", "SiteDefinition");
+  if (code === "INVALID_ROUTE" || code === "INVALID_SITE_DEFINITION_INPUT" || code === "ROUTE_REPLACEMENT_REQUIRED") return fail("INVALID_CHANGE_ROUTE_REQUEST");
+  return fail("CHANGE_ROUTE_FAILED");
 }
 
 function normalizeSaveRevisionCommand(value: unknown): NormalizedSaveRevisionCommand | null {
