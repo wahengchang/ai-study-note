@@ -11,7 +11,7 @@ pr: 369
 
 # Content Type migration
 
-完成：Content Type migration 已由 PR #369 交付。固定 Authoring API listener 已恢復可用；migration-specific preview 與 execution actual-listener regression 通過。
+完成：Content Type migration 初版已由 PR #369 交付。固定 Authoring API listener 已恢復可用；migration-specific preview 與 execution actual-listener regression 通過。後續 #282 contract hardening 由 WG-051／WI-070 交付。
 
 ## Verification
 

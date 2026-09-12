@@ -20,7 +20,7 @@ import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
-import { authoringErrorStatuses, createAjvSchemaValidator, createAuthoringReleaseTransport, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
+import { authoringErrorSchema, authoringErrorStatuses, contentTypeMigrationBlockedErrorSchema, contentTypeMigrationOutcomeSchema, createAjvSchemaValidator, createAuthoringReleaseTransport, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -107,7 +107,7 @@ function shippedSaveRevision(args: readonly string[], environment: NodeJS.Proces
   });
 }
 
-type Harness = Readonly<{ directory: string; persistence: PersistenceStore; siteDefinition: SiteDefinition; credentials: AuthoringCredentialAuthority; apiKey: string; log: readonly AuthoringApiLogEvent[]; digest(): string; publishCalls(): number; releaseProjectionCalls(): number; seedReleaseArtifact(): string }>;
+type Harness = Readonly<{ directory: string; persistence: PersistenceStore; siteDefinition: SiteDefinition; credentials: AuthoringCredentialAuthority; apiKey: string; log: readonly AuthoringApiLogEvent[]; digest(): string; migrationCalls(): number; publishCalls(): number; releaseProjectionCalls(): number; seedReleaseArtifact(): string }>;
 
 async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promise<void> {
   const directory = mkdtempSync(path.join(tmpdir(), "authoring-http-"));
@@ -165,12 +165,17 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     const delivery = createPublicDelivery({ artifactsRoot: path.join(directory, "artifacts") }); if (!delivery.ok) throw new Error(delivery.error.code);
     const releaseDelivery = createFixedRootReleaseDelivery({ artifactsRoot: path.join(directory, "artifacts"), releaseRoot: path.join(directory, "release") }); if (!releaseDelivery.ok) throw new Error(releaseDelivery.error.code);
     const releaseTransport = createAuthoringReleaseTransport({ projection: releaseProjection, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
-    const contentTypeMigrationAdministration = createContentTypeMigrationAdministration({ persistence: persistence.value, validator: createAjvSchemaValidator() });
+    const migrationAdministration = createContentTypeMigrationAdministration({ persistence: persistence.value, validator: createAjvSchemaValidator() });
+    let migrationCalls = 0;
+    const contentTypeMigrationAdministration = {
+      async preview(...args: Parameters<typeof migrationAdministration.preview>) { migrationCalls += 1; return migrationAdministration.preview(...args); },
+      async execute(...args: Parameters<typeof migrationAdministration.execute>) { migrationCalls += 1; return migrationAdministration.execute(...args); },
+    };
     const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, contentTypeMigrationAdministration, projectionPreview, releaseTransport });
     if (!started.ok) throw new Error(`${started.error.code}（127.0.0.1:43127 是否已被佔用？）`);
     close = started.value.close;
     const digest = (): string => { const state = persistence.value.canonicalState(); if (!state.ok) throw new Error(state.error.code); return state.value.digest; };
-    await run({ directory, persistence: persistence.value, siteDefinition, credentials, apiKey, log, digest, publishCalls: () => published, releaseProjectionCalls: () => releaseProjections, seedReleaseArtifact: () => { const seeded = delivery.value.deliver(releaseOutput()); if (!seeded.ok) throw new Error(seeded.error.code); return seeded.value.artifactDigest; } });
+    await run({ directory, persistence: persistence.value, siteDefinition, credentials, apiKey, log, digest, migrationCalls: () => migrationCalls, publishCalls: () => published, releaseProjectionCalls: () => releaseProjections, seedReleaseArtifact: () => { const seeded = delivery.value.deliver(releaseOutput()); if (!seeded.ok) throw new Error(seeded.error.code); return seeded.value.artifactDigest; } });
   } finally { if (close !== undefined) await close(); closePersistence?.(); rmSync(directory, { recursive: true, force: true }); }
 }
 
@@ -938,26 +943,96 @@ test("CMS SEO domain failure code 具有契約化 HTTP status", () => {
   assert.deepEqual(authoringErrorStatuses("CMS_SEO_ANALYSIS_FAILED"), [500]);
 });
 
-test("actual listener projects an approvable Content Type migration preview", async () => {
+test("actual listener emits strict nonempty Content Type migration preview and execution outcomes", async () => {
   await withAuthoringApi(async ({ apiKey }) => {
-    const response = await post("/v1/content-types/note/migrations/preview", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority }, JSON.stringify({ contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [] }));
-    assert.equal(response.status, 200, response.body);
-    const body = JSON.parse(response.body) as { contract: string; kind: string; sourceSchemaIdentity: { schemaId: string; version: number }; targetSchemaIdentity: { schemaId: string; version: number }; mappingIdentity: string; affectedPointers: unknown[]; historicalRevisions: unknown[]; mapping: unknown[]; blockedRows: unknown[]; stateDigest: string };
-    assert.equal(body.contract, "content-type-migration/v1");
-    assert.equal(body.kind, "preview");
-    assert.deepEqual(body.sourceSchemaIdentity, { schemaId: "note", version: 1 });
-    assert.deepEqual(body.targetSchemaIdentity, { schemaId: "note", version: 2 });
-    assert.equal(typeof body.mappingIdentity, "string");
-    assert.equal(typeof body.stateDigest, "string");
-    assert.deepEqual({ affectedPointers: body.affectedPointers, historicalRevisions: body.historicalRevisions, mapping: body.mapping, blockedRows: body.blockedRows }, { affectedPointers: [], historicalRevisions: [], mapping: [], blockedRows: [] });
-    assertResponseHeaders(response, "Content Type migration preview");
-    const execution = await post("/v1/content-types/note/migrations", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority }, JSON.stringify({ contract: "content-type-migration/v1", kind: "command", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [], expectedStateDigest: body.stateDigest, operationId: "content-type-migration-preview", replacements: [] }));
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    assert.equal((await post("/v1/entries/migration-entry/revisions", headers, saveBody("r1", "/migration"))).status, 200);
+    const proposal = { contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [{ entryId: "migration-entry", pointer: "current", policy: "move" }], mappings: [{ sourceRevision: { entryId: "migration-entry", revisionId: "r1" }, replacement: { title: "after" } }] } as const;
+    const preview = await post("/v1/content-types/note/migrations/preview", headers, JSON.stringify(proposal));
+    assert.equal(preview.status, 200, preview.body);
+    const previewBody = contentTypeMigrationOutcomeSchema.parse(JSON.parse(preview.body));
+    assert.equal(previewBody.kind, "preview");
+    if (previewBody.kind !== "preview") throw new Error("preview outcome expected");
+    assert.deepEqual(previewBody.mapping, [{ sourceRevision: { entryId: "migration-entry", revisionId: "r1" }, targetSchemaIdentity: { schemaId: "note", version: 2 }, affectedPointers: [{ entryId: "migration-entry", pointer: "current", revisionId: "r1", targetSchemaIdentity: { schemaId: "note", version: 2 }, policy: "move" }], outcome: "validated" }]);
+    assertResponseHeaders(preview, "strict Content Type migration preview");
+    const execution = await post("/v1/content-types/note/migrations", headers, JSON.stringify({ ...proposal, kind: "command", expectedStateDigest: previewBody.stateDigest, operationId: "content-type-migration-preview", replacements: [{ sourceRevision: { entryId: "migration-entry", revisionId: "r1" }, replacementRevisionId: "r2" }] }));
     assert.equal(execution.status, 200, execution.body);
-    const outcome = JSON.parse(execution.body) as { contract: string; kind: string; operationId: string; targetSchemaIdentity: { schemaId: string; version: number }; afterDigest: string; stateDigest: string; replacements: unknown[]; pointers: unknown[] };
-    assert.deepEqual({ contract: outcome.contract, kind: outcome.kind, operationId: outcome.operationId, targetSchemaIdentity: outcome.targetSchemaIdentity, replacements: outcome.replacements, pointers: outcome.pointers }, { contract: "content-type-migration/v1", kind: "execution", operationId: "content-type-migration-preview", targetSchemaIdentity: { schemaId: "note", version: 2 }, replacements: [], pointers: [] });
-    assert.equal(typeof outcome.afterDigest, "string");
-    assert.equal(typeof outcome.stateDigest, "string");
-    assertResponseHeaders(execution, "Content Type migration execution");
+    const executionBody = contentTypeMigrationOutcomeSchema.parse(JSON.parse(execution.body));
+    assert.equal(executionBody.kind, "execution");
+    if (executionBody.kind !== "execution") throw new Error("execution outcome expected");
+    assert.deepEqual(executionBody.replacements, [{ sourceRevision: { entryId: "migration-entry", revisionId: "r1" }, replacementRevision: { entryId: "migration-entry", revisionId: "r2" } }]);
+    assert.deepEqual(executionBody.pointers, [{ entryId: "migration-entry", pointer: "current", sourceRevisionId: "r1", policy: "move", resultRevisionId: "r2" }]);
+    assertResponseHeaders(execution, "strict Content Type migration execution");
+  });
+});
+
+test("migration listener fails closed, returns a rich blocked envelope, and admits no rejected request", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, migrationCalls }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    assert.equal((await post("/v1/entries/migration-entry/revisions", headers, saveBody("r1", "/migration"))).status, 200);
+    const before = digest();
+    const blocked = await post("/v1/content-types/note/migrations/preview", headers, JSON.stringify({ contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [] }));
+    assert.equal(blocked.status, 422, blocked.body);
+    const blockedBody = contentTypeMigrationBlockedErrorSchema.parse(JSON.parse(blocked.body));
+    assert.equal(blockedBody.impact.kind, "blocked");
+    assert.deepEqual(blockedBody.impact.blockedRows.map((row) => ({ subject: row.subject, codes: row.reasons.map((reason) => reason.code), remediationKinds: row.reasons.map((reason) => reason.remediation.kind) })), [{ subject: { kind: "pointer", entryId: "migration-entry", pointer: "current", revisionId: "r1" }, codes: ["POINTER_POLICY_MISSING"], remediationKinds: ["message"] }]);
+    assert.equal(migrationCalls(), 1);
+    assert.equal(digest(), before);
+    assertResponseHeaders(blocked, "blocked migration");
+
+    const malformed = await post("/v1/content-types/note/migrations/preview", headers, JSON.stringify({ contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [{ entryId: "migration-entry", pointer: "current", policy: "move", extra: true }], mappings: [] }));
+    assert.equal(malformed.status, 400, malformed.body);
+    assert.equal(failureCode(malformed), "INVALID_REQUEST_BODY");
+    assert.equal(migrationCalls(), 1);
+    assert.equal(digest(), before);
+
+    const duplicate = await post("/v1/content-types/note/migrations/preview", headers, JSON.stringify({ contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [{ entryId: "migration-entry", pointer: "current", policy: "move" }, { entryId: "migration-entry", pointer: "current", policy: "pin" }], mappings: [] }));
+    assert.equal(duplicate.status, 422, duplicate.body);
+    assert.equal(failureCode(duplicate), "INVALID_CONTENT_TYPE_MIGRATION");
+    assert.equal(migrationCalls(), 2);
+    assert.equal(digest(), before);
+    const foreign = await post("/v1/content-types/note/migrations/preview", headers, JSON.stringify({ contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [{ entryId: "migration-entry", pointer: "current", policy: "move" }], mappings: [{ sourceRevision: { entryId: "foreign-entry", revisionId: "r1" }, replacement: { title: "foreign" } }] }));
+    assert.equal(foreign.status, 422, foreign.body);
+    assert.equal(failureCode(foreign), "INVALID_CONTENT_TYPE_MIGRATION");
+    assert.equal(migrationCalls(), 3);
+    assert.equal(digest(), before);
+
+    const rejected = [
+      { name: "missing credential", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { "Content-Type": "application/json", Host: authority }, body: "{}", status: 401, code: "AUTHORIZATION_REQUIRED" },
+      { name: "cookie credential", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { ...headers, Cookie: "session=1" }, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+      { name: "forwarded request", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { ...headers, Forwarded: "for=203.0.113.1" }, body: "{}", status: 421, code: "MISDIRECTED_REQUEST" },
+      { name: "wrong media type", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/plain", Host: authority }, body: "{}", status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
+      { name: "wrong method", method: "GET", path: "/v1/content-types/note/migrations/preview", headers: { Authorization: `Bearer ${apiKey}`, Host: authority }, body: undefined, status: 405, code: "METHOD_NOT_ALLOWED" },
+    ] as const;
+    for (const item of rejected) {
+      const response = await send(item.method, item.path, item.headers, item.body);
+      assert.equal(response.status, item.status, item.name);
+      assert.equal(failureCode(response), item.code, item.name);
+      assertResponseHeaders(response, item.name);
+    }
+    assert.equal(migrationCalls(), 3);
+    assert.equal(digest(), before);
+  });
+});
+
+test("migration listener maps a target schema collision to a strict 409 stale envelope", async () => {
+  await withAuthoringApi(async ({ apiKey, persistence, digest, migrationCalls }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const proposal = { contract: "content-type-migration/v1", kind: "proposal", sourceVersion: 1, targetSchema: { type: "object" }, pointerPolicies: [], mappings: [] } as const;
+    const preview = await post("/v1/content-types/note/migrations/preview", headers, JSON.stringify(proposal));
+    assert.equal(preview.status, 200, preview.body);
+    const previewBody = contentTypeMigrationOutcomeSchema.parse(JSON.parse(preview.body));
+    const schemaBytes = canonicalJsonBytes(proposal.targetSchema); if (!schemaBytes.ok) throw new Error("schema fixture failed");
+    assert.equal(persistence.registerSchemaVersion({ identity: { schemaId: "note", version: 2 }, schemaBytes: schemaBytes.value, schemaDigest: sha256Digest(schemaBytes.value) }).ok, true);
+    const beforeExecution = digest();
+    const collision = await post("/v1/content-types/note/migrations", headers, JSON.stringify({ ...proposal, kind: "command", expectedStateDigest: previewBody.stateDigest, operationId: "content-type-migration-collision", replacements: [] }));
+    assert.equal(collision.status, 409, collision.body);
+    const error = authoringErrorSchema.parse(JSON.parse(collision.body));
+    assert.deepEqual({ code: error.code, owner: error.owner, subjectIds: error.subjectIds }, { code: "CONTENT_TYPE_MIGRATION_STALE", owner: "ContentTypeMigration", subjectIds: ["note"] });
+    assert.equal(migrationCalls(), 2);
+    assert.equal(digest(), beforeExecution);
+    assert.equal(persistence.getSchemaMigrationExecution("content-type-migration-collision").ok, false);
+    assertResponseHeaders(collision, "migration target collision");
   });
 });
 
