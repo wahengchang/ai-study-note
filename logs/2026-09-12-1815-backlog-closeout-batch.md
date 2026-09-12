@@ -3,6 +3,7 @@
 ## 交付
 
 - 為 #214–#218 建立 acceptance traceability：每項連到已合併 PR、完成 Work Item、現行測試與工作紀錄；WI-001–005 均為 done，並補上實際直接依賴。
+- 結案 metadata 的唯一 PR 為 [#377](https://github.com/wahengchang/ai-study-note/pull/377)。
 - 已關閉 #214–#218、#262、#285、#288、#317–#320。#282 保持 OPEN：PR #369 review 所記 strict nested DTO、Application direct-input validation 與 schema-version collision status mapping 缺口已建立最小 WI-070。
 - 將原本三份 `WI-067` 分為 Media transport `WI-067`、taxonomy table gate `WI-068`、taxonomy a11y `WI-069`，並同步修正其 Work Group ID 與依賴，消除依賴歧義。
 - 將 Dev Hub overview snapshot 更新為 #262/WI-034/WG-042 的 closed/done/completed 與 PR #370，重新產生 HTML。
