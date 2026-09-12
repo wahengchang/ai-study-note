@@ -9,13 +9,10 @@ depends_on: []
 # Content Type migration
 
 ## Outcome
-
-完成 GitHub #282 的 migration preview／execution 基礎交付：SQLite taxonomy evidence、route claim preservation 與 actual listener happy-path 已由 PR #369 證明。
+完成 [GitHub Issue #282](https://github.com/wahengchang/ai-study-note/issues/282) 的核准結果。
 
 ## Acceptance
-
-WI-042 的原交付完成；PR #369 review 揭露 `content-type-migration/v1` 的 strict nested DTO、Application direct-input validation 與 schema-version collision status mapping 尚未達到 #282 的完整 transport acceptance。這些缺口移交 WI-070；#282 不得在 WI-070 完成前關閉。
+Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-
-PR #369；WG-041 已 completed。後續只追蹤 WI-070 的最小 contract hardening，不重開已交付的 migration core。
+完成：Content Type migration preview／execution、SQLite taxonomy evidence 與 route claim preservation 已交付；PR #369。

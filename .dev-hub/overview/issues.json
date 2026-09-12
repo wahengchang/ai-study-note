@@ -1,10 +1,10 @@
 {
   "contract": "dev-hub-overview-issues/v2",
-  "captured_at": "2026-09-12T18:14:29+08:00",
+  "captured_at": "2026-09-12T11:11:40+08:00",
   "issues": [
     {
       "number": 262,
-      "state": "closed",
+      "state": "open",
       "title": "Dev Hub Overview｜整合可重用的 Issue／Dev Hub overview 機制",
       "url": "https://github.com/wahengchang/ai-study-note/issues/262",
       "dependencies": []
@@ -21,19 +21,16 @@
     {
       "id": "WI-034",
       "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
-      "status": "done"
+      "status": "in_progress"
     }
   ],
   "work_groups": [
     {
       "id": "WG-042",
       "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
-      "status": "completed",
+      "status": "in_progress",
       "owner": "Main",
-      "pr": {
-        "number": 370,
-        "url": "https://github.com/wahengchang/ai-study-note/pull/370"
-      }
+      "pr": null
     }
   ]
 }

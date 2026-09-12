@@ -1,12 +1,12 @@
 ---
 id: WG-041
-status: completed
+status: done
 title: Content Type migration
 work_items: ["WI-042"]
 owner: Main
 branch: wg-041-content-type-migration
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/wg-041-content-type-migration
-pr: https://github.com/wahengchang/ai-study-note/pull/369
+pr: 369
 ---
 
 # Content Type migration

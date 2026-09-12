@@ -1,8 +1,8 @@
 ---
-id: WG-050
+id: WG-034
 status: completed
 title: CMS taxonomy a11y acceptance hardening
-work_items: ["WI-069"]
+work_items: ["WI-067"]
 owner: Main
 branch: fix/cms-taxonomy-a11y
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/cms-taxonomy-a11y
