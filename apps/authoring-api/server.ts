@@ -216,7 +216,7 @@ function publishSuccess(value: PublishRevisionSuccess): PublishRevisionSuccessDt
 async function authenticatedJson(context: Context, input: StartAuthoringApiInput, bodyLimit: number, oversizedRemediation: string, handle: (requestId: string, entryId: string, body: unknown) => Promise<Response>): Promise<Response> {
   const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
   if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
-  if (values(headers, "authorization").length === 0 && values(headers, "origin").length === 1 && values(headers, "origin")[0] === ORIGIN) {
+  if (values(headers, "authorization").length === 0) {
     if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
     const body = await boundedJson(context.req.raw, bodyLimit);
     if (!body.ok) return errorResponse(requestId, body.code, 400, "AuthoringApi", body.code === "REQUEST_BODY_TOO_LARGE" ? oversizedRemediation : ERROR_REMEDIATION.INVALID_REQUEST_BODY);
@@ -236,7 +236,7 @@ async function authenticatedJson(context: Context, input: StartAuthoringApiInput
 async function authenticatedRead(context: Context, input: StartAuthoringApiInput, handle: (requestId: string) => Promise<Response>): Promise<Response> {
   const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
   if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
-  if (values(headers, "authorization").length === 0 && values(headers, "origin").length === 1 && values(headers, "origin")[0] === ORIGIN) return handle(requestId);
+  if (values(headers, "authorization").length === 0) return handle(requestId);
   const parsedAuthorization = authorization(headers); if (!parsedAuthorization.ok) return errorResponse(requestId, parsedAuthorization.code, 401);
   const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
   try { return admission.value.verifyBearer(parsedAuthorization.candidate) ? handle(requestId) : errorResponse(requestId, "AUTHORIZATION_INVALID", 401, "AuthoringCredential"); } finally { admission.value.dispose(); }
