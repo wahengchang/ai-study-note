@@ -6,12 +6,12 @@ work_items: ["WI-060"]
 owner: Main
 branch: wg-043-cms-entry-preview-diagnostics
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/wg-043-cms-entry-preview-diagnostics
-pr: null
+pr: 371
 ---
 
 # CMS entry preview diagnostics
 
-完成：entry editor 的 preview diagnostics 已交付；PR 待建立。
+完成：entry editor 的 preview diagnostics 已由 PR #371 交付。
 
 ## Verification
 

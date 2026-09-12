@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-049"]
 
 ## Notes
 
-完成：entry route 的 current/published/未發布/safe-error preview diagnostics 與 a11y browser proof 已交付；PR 待建立。
+完成：entry route 的 current/published/未發布/safe-error preview diagnostics 與 a11y browser proof 已交付；PR #371。
