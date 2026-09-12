@@ -38,6 +38,7 @@ test("authenticated CMS 完成 article-first history、save、preview 與 publis
   let entryId = "";
   let revisionCount = 0;
   let publishRequests = 0;
+  let rejectCurrentPreview = false;
   const seenApiPaths: string[] = [];
   const server = createServer(async (request, response) => {
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
@@ -87,6 +88,7 @@ test("authenticated CMS 完成 article-first history、save、preview 與 publis
     if (pathname === "/v1/preview" && request.method === "POST") {
       const requestBody = await body(request);
       const selection = requestBody.selection;
+      if (selection === "current" && rejectCurrentPreview) { response.writeHead(500, { "Content-Type": "application/json" }); response.end(JSON.stringify(failure("PREVIEW_UNAVAILABLE", "目前版本預覽暫時無法使用。"))); return; }
       const revision = selection === "current" ? current : published;
       if (revision === undefined) { response.writeHead(404, { "Content-Type": "application/json" }); response.end(JSON.stringify(failure("SUBJECT_NOT_PUBLISHED", "尚未發布。"))); return; }
       response.writeHead(200, { "Content-Type": "application/json" }); response.end(JSON.stringify({ contract: "preview-document/v1", selection, subject: { entryId }, revisionId: revision.revisionId, contentDigest: digest, document: `<h1>${revision.content.title}</h1><p>${revision.content.blocks[0]?.text ?? ""}</p>` })); return;
@@ -154,9 +156,11 @@ test("authenticated CMS 完成 article-first history、save、preview 與 publis
     const publishedFrame = page.getByTitle("已發布版本頁面預覽", { exact: true });
     await publishedFrame.waitFor();
     assert.equal(await publishedFrame.getAttribute("sandbox"), "");
+    rejectCurrentPreview = true;
     await page.getByRole("textbox", { name: "標題", exact: true }).fill("Article v2");
     await page.getByRole("button", { name: "儲存", exact: true }).click();
     await page.getByText("已儲存。", { exact: true }).waitFor();
+    await page.getByRole("alert").filter({ hasText: "目前版本預覽暫時無法使用。" }).waitFor();
     await page.setViewportSize({ width: 375, height: 844 });
     await page.getByRole("button", { name: "儲存", exact: true }).scrollIntoViewIfNeeded();
     assert.notEqual(await page.getByRole("button", { name: "儲存", exact: true }).boundingBox(), null);
