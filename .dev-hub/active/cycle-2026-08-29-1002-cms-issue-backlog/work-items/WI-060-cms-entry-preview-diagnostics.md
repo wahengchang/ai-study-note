@@ -1,8 +1,8 @@
 ---
 id: WI-060
-status: pending
+status: done
 title: CMS entry preview diagnostics
-work_group: null
+work_group: WG-043
 depends_on: ["WI-040", "WI-049"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-049"]
 
 ## Notes
 
-GitHub #319；planned。
+完成：entry route 的 current/published/未發布/safe-error preview diagnostics 與 a11y browser proof 已交付；PR #371。
