@@ -996,7 +996,7 @@ function normalizedRouteChangeProposal(value: unknown): RouteChangeProposalV1 | 
   if (fields === null || fields.contract !== "route-change-proposal/v1" || !Array.isArray(fields.impact)) return null;
   const baselineDigests = routeGraphDigests(fields.baselineDigests);
   const claim = normalizedRouteClaim(fields.claim);
-  const impact = fields.impact.map(normalizedRouteImpact);
+  const impact = Array.from(fields.impact, normalizedRouteImpact);
   const resultingDigests = routeGraphDigests(fields.resultingDigests);
   return baselineDigests === null || claim === null || impact.some((item) => item === null) || resultingDigests === null
     ? null
