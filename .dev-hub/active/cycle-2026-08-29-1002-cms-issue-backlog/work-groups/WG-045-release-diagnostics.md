@@ -6,12 +6,12 @@ work_items: ["WI-061"]
 owner: Main
 branch: wg-045-release-diagnostics
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/wg-045-release-diagnostics
-pr: null
+pr: 373
 ---
 
 # CMS release diagnostics workspace
 
-完成：`/cms/release` diagnostics 已交付；PR 待建立。
+完成：`/cms/release` diagnostics 已由 PR #373 交付。
 
 ## Verification
 

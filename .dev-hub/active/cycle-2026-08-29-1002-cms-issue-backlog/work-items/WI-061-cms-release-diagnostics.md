@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-050"]
 
 ## Notes
 
-完成：`/cms/release` diagnostics workspace 與 actual browser/a11y proof 已交付；PR 待建立。
+完成：`/cms/release` diagnostics workspace 與 actual browser/a11y proof 已由 PR #373 交付。
