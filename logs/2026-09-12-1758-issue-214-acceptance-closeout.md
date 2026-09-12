@@ -25,9 +25,9 @@
 
 ## 已知限制／後續
 
-無。#214 的 GitHub closure 在 WG-047 唯一 PR 建立後以追蹤收尾 commit 記錄其 URL。
+無。GitHub #214 已以 `COMPLETED` 關閉。
 
 ## 相關 Branch／PR
 
 - Branch：`chore/backlog-closeout-214`
-- PR：建立前為 `null`
+- PR：https://github.com/wahengchang/ai-study-note/pull/376

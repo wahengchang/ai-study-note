@@ -6,7 +6,7 @@ work_items: ["WI-001"]
 owner: Main
 branch: chore/backlog-closeout-214
 worktree: .dev-hub/worktrees/backlog-closeout-214
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/376
 ---
 
 # Issue 214 acceptance closeout
@@ -19,4 +19,4 @@ pr: null
 
 - `node --import tsx --test tests/core/persistence/migration-runner.test.ts tests/core/persistence/revision-store.test.ts tests/core/persistence/pointer-lineage.test.ts tests/core/persistence/atomicity-and-failures.test.ts tests/core/persistence/schema-migration-impact.test.ts tests/core/persistence/schema-migration-execution.test.ts`：26 pass。
 - `npm run check:architecture`：通過。
-- GitHub：PR #242、#243、#248、#271、#272 均為 MERGED；#214 closure 由本 Work Group 的唯一 PR 追蹤收尾後執行。
+- GitHub：PR #242、#243、#248、#271、#272 均為 MERGED；#214 已以 COMPLETED 關閉；本 Work Group 唯一 PR 為 #376。
