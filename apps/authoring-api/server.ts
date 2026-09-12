@@ -146,9 +146,9 @@ function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
 function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
 function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAsset["destination"] | undefined, method: string): boolean {
   const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site");
-  if (route === "cms-document") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && (fetchSite.length === 0 || (fetchSite.length === 1 && (fetchSite[0] === "none" || fetchSite[0] === "same-origin"))) && (one(headers, "sec-fetch-mode") === undefined || one(headers, "sec-fetch-mode") === "navigate") && (one(headers, "sec-fetch-dest") === undefined || one(headers, "sec-fetch-dest") === "document");
-  // module script fetch 會帶 exact same-origin `Origin`；支援未送 Fetch Metadata 的預設瀏覽器。
-  if (route === "cms-asset") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && (fetchSite.length === 0 || (fetchSite.length === 1 && fetchSite[0] === "same-origin")) && assetDestination !== undefined && (one(headers, "sec-fetch-dest") === undefined || one(headers, "sec-fetch-dest") === assetDestination);
+  // 本機單使用者 CMS 必須支援不同瀏覽器的 navigation/header 實作；loopback Host 是唯一 boundary。
+  if (route === "cms-document") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0;
+  if (route === "cms-asset") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && assetDestination !== undefined;
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
   if (route === "browser-ticket") return origin.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
   if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && (fetchSite.length === 0 || (fetchSite.length === 1 && fetchSite[0] === "same-origin")) && values(headers, "authorization").length === 0;
