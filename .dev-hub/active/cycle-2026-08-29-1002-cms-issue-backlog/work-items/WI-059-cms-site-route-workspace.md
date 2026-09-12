@@ -1,8 +1,8 @@
 ---
 id: WI-059
-status: pending
+status: done
 title: CMS site route workspace
-work_group: null
+work_group: WG-046
 depends_on: ["WI-040", "WI-035", "WI-048"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-035", "WI-048"]
 
 ## Notes
 
-GitHub #318；planned。
+GitHub #318；WG-046 已完成直接 workspace、雙圖讀取、ChangeRoute outcome、browser/a11y gate；production nav 與 entry history 保持不變。

@@ -87,7 +87,7 @@ function values(headers: HeaderMap, name: string): readonly string[] { return he
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
 /** dynamic ID 與 asset path 都不接受 percent encoding，防止 URL 與 canonical identity 脫節。 */
 function routeFor(pathname: string): RouteClass {
-  if (pathname === "/cms" || pathname === "/cms/plugins" || pathname === "/cms/release" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/media" || pathname === "/cms/media/import" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:entries|content-types|taxonomies|media)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
+  if (pathname === "/cms" || pathname === "/cms/site/routes" || pathname === "/cms/plugins" || pathname === "/cms/release" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/media" || pathname === "/cms/media/import" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:entries|content-types|taxonomies|media)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
   if (/^\/cms\/assets\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(pathname)) return "cms-asset";
   if (pathname === "/_local/server-proof") return "proof";
   if (pathname === "/_local/browser-tickets") return "browser-ticket";
@@ -124,7 +124,23 @@ function routeFor(pathname: string): RouteClass {
   return /^\/v1\/entries\/[^/%?#/]+\/publish$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length, -"/publish".length)) ? "publish" : "unknown";
 }
 function templateFor(route: RouteClass, pathname: string): RouteTemplate {
-  if (route === "cms-document") return pathname === "/cms" ? "/cms" : pathname === "/cms/plugins" ? "/cms/plugins" : pathname === "/cms/release" ? "/cms/release" : pathname === "/cms/entries" ? "/cms/entries" : pathname === "/cms/entries/new" ? "/cms/entries/new" : pathname === "/cms/media" ? "/cms/media" : pathname === "/cms/media/import" ? "/cms/media/import" : pathname === "/cms/content-types" ? "/cms/content-types" : pathname === "/cms/content-types/new" ? "/cms/content-types/new" : pathname === "/cms/taxonomies" ? "/cms/taxonomies" : pathname === "/cms/taxonomies/new" ? "/cms/taxonomies/new" : pathname.startsWith("/cms/content-types/") ? "/cms/content-types/:schemaId" : pathname.startsWith("/cms/taxonomies/") ? "/cms/taxonomies/:taxonomyId" : pathname.startsWith("/cms/media/") ? "/cms/media/:assetId" : "/cms/entries/:entryId";
+  if (route === "cms-document") {
+    if (pathname === "/cms" || pathname === "/cms/site/routes") return "/cms";
+    if (pathname === "/cms/plugins") return "/cms/plugins";
+    if (pathname === "/cms/release") return "/cms/release" as RouteTemplate;
+    if (pathname === "/cms/entries") return "/cms/entries";
+    if (pathname === "/cms/entries/new") return "/cms/entries/new";
+    if (pathname === "/cms/media") return "/cms/media";
+    if (pathname === "/cms/media/import") return "/cms/media/import";
+    if (pathname === "/cms/content-types") return "/cms/content-types";
+    if (pathname === "/cms/content-types/new") return "/cms/content-types/new";
+    if (pathname === "/cms/taxonomies") return "/cms/taxonomies";
+    if (pathname === "/cms/taxonomies/new") return "/cms/taxonomies/new";
+    if (pathname.startsWith("/cms/content-types/")) return "/cms/content-types/:schemaId";
+    if (pathname.startsWith("/cms/taxonomies/")) return "/cms/taxonomies/:taxonomyId";
+    if (pathname.startsWith("/cms/media/")) return "/cms/media/:assetId";
+    return "/cms/entries/:entryId";
+  }
   if (route === "cms-asset") return "/cms/assets/:asset";
   if (route === "plugins") return "/v1/plugins";
   if (route === "plugin-activate") return "/v1/plugins/activate";

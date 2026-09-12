@@ -51,6 +51,10 @@ const cmsEditorBlockResolutionSchema = z.object({ blockIndex: z.number().int().n
 });
 const cmsEditorBlockResolutionsSchema = z.object({ contract: z.literal("cms-editor-block-resolutions/v1"), entryId: z.string(), revisionId: z.string(), contentDigest: digestSchema, stateDigest: digestSchema, items: z.array(cmsEditorBlockResolutionSchema) }).strict();
 const saveRevisionSuccessSchema = z.unknown();
+const siteRouteClaimSchema = z.object({ graph: z.enum(["current", "published"]), normalizedRoute: z.string(), owner: z.string(), sourceRevisionId: z.string() }).strict();
+const siteRouteGraphSchema = z.object({ contract: z.literal("route-graph/v1"), normalization: z.literal("route-normalization/v1"), graph: z.enum(["current", "published"]), claims: z.array(siteRouteClaimSchema), digest: digestSchema }).strict();
+const routeGraphDigestsSchema = z.object({ current: digestSchema, published: digestSchema }).strict();
+const routeChangeProposalSchema = z.object({ contract: z.literal("route-change-proposal/v1"), baselineDigests: routeGraphDigestsSchema, claim: siteRouteClaimSchema, impact: z.array(z.object({ change: z.enum(["route-move", "attribution-only", "retained"]), graph: z.enum(["current", "published"]), owner: z.string(), from: z.string(), to: z.string(), resultingSourceRevisionId: z.string() }).strict()), resultingDigests: routeGraphDigestsSchema }).strict();
 const publishRevisionSuccessSchema = z.unknown();
 const releaseDiagnosticSchema = z.object({ code: z.string().regex(/^[A-Z0-9_]+$/u) }).strict();
 const releaseDiagnosisSchema = z.object({ contract: z.literal("release-diagnosis/v1"), status: z.enum(["ready", "blocked"]), diagnostics: z.array(releaseDiagnosticSchema) }).strict();
@@ -73,6 +77,8 @@ type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
 type MediaCatalogDto = Readonly<z.infer<typeof mediaCatalogSchema>>;
 type MediaVersionReplacementReceiptDto = Readonly<z.infer<typeof mediaVersionReplacementReceiptSchema>>;
 type MediaAssetDetailDto = Readonly<z.infer<typeof mediaAssetDetailSchema>>;
+type SiteRouteGraphDto = Readonly<z.infer<typeof siteRouteGraphSchema>>;
+type RouteChangeProposalDto = Readonly<z.infer<typeof routeChangeProposalSchema>>;
 type StructuredBlock = StructuredContent["blocks"][number];
 type InteractiveDemoBlock = Extract<StructuredBlock, Readonly<{ kind: "interactive-demo" }>>;
 
@@ -148,6 +154,9 @@ class CmsApiClient {
   constructor(private readonly session: AuthoringSession) {}
 
   listEntries(): Promise<EntryCatalogDto> { return this.json("/v1/entries", entryCatalogSchema); }
+  routeGraph(selection: "current" | "published"): Promise<SiteRouteGraphDto> { return this.json(`/v1/site/routes?selection=${selection}` as `/v1/${string}`, siteRouteGraphSchema); }
+  proposeRouteChange(body: Record<string, unknown>): Promise<RouteChangeProposalDto> { return this.json("/v1/site/routes/change", routeChangeProposalSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
+  changeRoute(proposal: RouteChangeProposalDto): Promise<unknown> { return this.json("/v1/site/routes/change", undefined, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "change-route-command/v1", operationId: crypto.randomUUID(), proposal }) }); }
   media(): Promise<MediaCatalogDto> { return this.json("/v1/media", mediaCatalogSchema); }
   mediaDetail(assetId: string): Promise<MediaAssetDetailDto> { return this.json(`/v1/media/${this.resourceId(assetId)}`, mediaAssetDetailSchema); }
   async importMedia(assetId: string, assetVersionId: string, file: File, metadata: unknown): Promise<MediaAssetDetailDto> {
@@ -766,7 +775,52 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
         <aside aria-labelledby="page-preview-heading"><h2 id="page-preview-heading">頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}<div role="tablist" aria-label="頁面預覽版本"><button ref={currentPreviewTab} id="current-preview-tab" type="button" role="tab" tabIndex={previewSelection === "current" ? 0 : -1} aria-selected={previewSelection === "current"} aria-controls="current-preview-panel" onClick={() => selectPreview("current")} onKeyDown={previewKeyDown}>目前版本</button><button ref={publishedPreviewTab} id="published-preview-tab" type="button" role="tab" tabIndex={previewSelection === "published" ? 0 : -1} aria-selected={previewSelection === "published"} aria-controls="published-preview-panel" onClick={() => selectPreview("published")} onKeyDown={previewKeyDown}>已發布版本</button></div>{previewSelection === "current" ? <section id="current-preview-panel" role="tabpanel" aria-labelledby="current-preview-tab">{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前版本頁面預覽" sandbox="" srcDoc={currentPreview} />}</section> : <section id="published-preview-panel" role="tabpanel" aria-labelledby="published-preview-tab">{publishedPreview === null || publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布版本頁面預覽" sandbox="" srcDoc={publishedPreview} />}</section>}</aside>
       </div>
     </section>
+
     <dialog ref={dialog} aria-labelledby="publish-dialog-title" aria-describedby="publish-dialog-description" onKeyDown={trapPublishFocus}><h2 id="publish-dialog-title">發布文章</h2><p id="publish-dialog-description">將發布目前 revision：<span className="breakable">{currentRevisionText}</span>。發布只會更新已發布版本。</p>{publishError !== undefined && <p role="alert">{publishError}</p>}<button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button ref={confirmPublish} type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
+  </Layout>;
+}
+function SiteRouteWorkspace({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const [current, setCurrent] = useState<SiteRouteGraphDto>();
+  const [published, setPublished] = useState<SiteRouteGraphDto>();
+  const [error, setError] = useState<string>();
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState("");
+  const [graph, setGraph] = useState<"current" | "published">("current");
+  const [owner, setOwner] = useState("");
+  const [sourceRevisionId, setSourceRevisionId] = useState("");
+  const [route, setRoute] = useState("");
+  const load = useCallback((): void => {
+    setCurrent(undefined); setPublished(undefined); setError(undefined);
+    void Promise.all([api.routeGraph("current"), api.routeGraph("published")]).then(([nextCurrent, nextPublished]) => {
+      setCurrent(nextCurrent); setPublished(nextPublished);
+    }).catch((reason: unknown) => setError(message(reason)));
+  }, [api]);
+  useEffect(load, [load]);
+  const claims = graph === "current" ? current?.claims ?? [] : published?.claims ?? [];
+  const selectClaim = (value: string): void => {
+    const claim = claims[Number(value)];
+    if (claim === undefined) return;
+    setOwner(claim.owner); setSourceRevisionId(claim.sourceRevisionId); setRoute(claim.normalizedRoute);
+  };
+  const submit = (event: React.FormEvent): void => {
+    event.preventDefault();
+    if (current === undefined || published === undefined || owner === "" || sourceRevisionId === "" || route.trim() === "") return;
+    setBusy(true); setError(undefined); setStatus("正在驗證路由變更。");
+    void api.proposeRouteChange({ contract: "route-change-proposal-request/v1", expectedRouteGraphDigests: { current: current.digest, published: published.digest }, graph, owner, route, sourceRevisionId }).then((proposal) => api.changeRoute(proposal)).then(() => {
+      setStatus("路由已更新。"); load();
+    }).catch((reason: unknown) => {
+      const code = reason instanceof CmsApiError ? reason.code : "";
+      setError(code === "STALE_ROUTE_PROPOSAL" || code === "ROUTE_CONFLICT" ? "路由已由其他操作更新；請重新載入後再試。" : message(reason));
+    }).finally(() => setBusy(false));
+  };
+  return <Layout><PageHeading>Site route 管理</PageHeading>
+    <p role="status" aria-live="polite" aria-atomic="true">{status}</p>
+    {error !== undefined && <p role="alert">{error}</p>}
+    {current === undefined || published === undefined
+      ? error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入路由圖。</p> : <button onClick={load}>重試</button>
+      : <><section aria-labelledby="route-graphs-heading"><h2 id="route-graphs-heading">目前與已發布路由</h2>
+        {(["current", "published"] as const).map((selection) => { const snapshot = selection === "current" ? current : published; return <section key={selection} aria-labelledby={`${selection}-routes-heading`}><h3 id={`${selection}-routes-heading`}>{selection === "current" ? "目前版本" : "已發布版本"}</h3>{snapshot.claims.length === 0 ? <p>此路由圖尚無 route claim。</p> : <table><caption>{selection === "current" ? "目前版本 route claims" : "已發布版本 route claims"}</caption><thead><tr><th scope="col">路徑</th><th scope="col">Owner</th><th scope="col">來源 revision</th></tr></thead><tbody>{snapshot.claims.map((claim) => <tr key={`${claim.normalizedRoute}\0${claim.owner}`}><td>{claim.normalizedRoute}</td><td>{claim.owner}</td><td className="breakable">{claim.sourceRevisionId}</td></tr>)}</tbody></table>}</section>; })}
+      </section><section aria-labelledby="change-route-heading"><h2 id="change-route-heading">變更路由</h2><form onSubmit={submit}><label>Route graph<select value={graph} onChange={(event) => { const next = event.target.value as "current" | "published"; setGraph(next); setOwner(""); setSourceRevisionId(""); setRoute(""); }} disabled={busy}><option value="current">目前版本</option><option value="published">已發布版本</option></select></label><label>現有 claim<select value={owner === "" ? "" : String(claims.findIndex((claim) => claim.owner === owner && claim.sourceRevisionId === sourceRevisionId))} onChange={(event) => selectClaim(event.target.value)} disabled={busy || claims.length === 0}><option value="">選擇 claim</option>{claims.map((claim, index) => <option key={`${claim.normalizedRoute}\0${claim.owner}`} value={index}>{claim.normalizedRoute} — {claim.owner}</option>)}</select></label><label>新 route<input required value={route} onChange={(event) => setRoute(event.target.value)} disabled={busy || owner === ""} /></label><button type="submit" disabled={busy || owner === ""}>{busy ? "正在變更…" : "變更路由"}</button></form></section></>}
   </Layout>;
 }
 
@@ -806,7 +860,7 @@ function Release({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/site/routes" element={<SiteRouteWorkspace api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></BrowserRouter>;
 }
 
 function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {
