@@ -52,6 +52,10 @@ const cmsEditorBlockResolutionSchema = z.object({ blockIndex: z.number().int().n
 const cmsEditorBlockResolutionsSchema = z.object({ contract: z.literal("cms-editor-block-resolutions/v1"), entryId: z.string(), revisionId: z.string(), contentDigest: digestSchema, stateDigest: digestSchema, items: z.array(cmsEditorBlockResolutionSchema) }).strict();
 const saveRevisionSuccessSchema = z.unknown();
 const publishRevisionSuccessSchema = z.unknown();
+const releaseDiagnosticSchema = z.object({ code: z.string().regex(/^[A-Z0-9_]+$/u) }).strict();
+const releaseDiagnosisSchema = z.object({ contract: z.literal("release-diagnosis/v1"), status: z.enum(["ready", "blocked"]), diagnostics: z.array(releaseDiagnosticSchema) }).strict();
+const releaseBuildSchema = z.object({ contract: z.literal("release-build/v1"), artifactDigest: digestSchema, diagnostics: z.array(releaseDiagnosticSchema) }).strict();
+const releaseReceiptSchema = z.object({ contract: z.literal("release-receipt/v1"), artifactDigest: digestSchema, targetDigest: digestSchema }).strict();
 type AuthoringEntryDto = Readonly<z.infer<typeof authoringEntrySchema>>;
 type CmsEditorBlockResolutionsDto = Readonly<z.infer<typeof cmsEditorBlockResolutionsSchema>>;
 type CmsSeoAnalysisResponseDto = Readonly<z.infer<typeof cmsSeoAnalysisResponseSchema>>;
@@ -60,6 +64,9 @@ type ContentTypeCatalogDto = Readonly<z.infer<typeof contentTypeCatalogSchema>>;
 type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
 type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManagementSnapshotSchema>>;
 type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
+type ReleaseDiagnosisDto = Readonly<z.infer<typeof releaseDiagnosisSchema>>;
+type ReleaseBuildDto = Readonly<z.infer<typeof releaseBuildSchema>>;
+type ReleaseReceiptDto = Readonly<z.infer<typeof releaseReceiptSchema>>;
 type TaxonomySnapshotDto = Readonly<z.infer<typeof taxonomySnapshotSchema>>;
 type TaxonomyCatalogDto = Readonly<z.infer<typeof taxonomyCatalogSchema>>;
 type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
@@ -176,6 +183,10 @@ class CmsApiClient {
   preview(entryId: string, selection: "current" | "published"): Promise<PreviewDocumentDto> {
     return this.json("/v1/preview", previewDocumentSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "preview-request/v1", selection, subject: { entryId: this.resourceId(entryId) } }) });
   }
+  diagnoseRelease(): Promise<ReleaseDiagnosisDto> { return this.json("/v1/release/diagnose", releaseDiagnosisSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "release-diagnose-request/v1" }) }); }
+  buildRelease(): Promise<ReleaseBuildDto> { return this.json("/v1/release/build", releaseBuildSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "release-build-request/v1" }) }); }
+  releaseArtifact(artifactDigest: string): Promise<ReleaseReceiptDto> { return this.json("/v1/release", releaseReceiptSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "release-request/v1", artifactDigest }) }); }
+  redeliverArtifact(artifactDigest: string): Promise<ReleaseReceiptDto> { return this.json("/v1/redeliver", releaseReceiptSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "redeliver-request/v1", artifactDigest }) }); }
 
   private resourceId(value: string): string {
     if (!AUTHORING_RESOURCE_ID_PATTERN.test(value)) throw new CmsApiError("CMS_RESPONSE_INVALID", 0, "CMS request 無法驗證。");
@@ -222,7 +233,7 @@ function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): Rea
 }
 
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>Browser session 已建立。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink><NavLink to="/cms/release">發布診斷</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -759,9 +770,43 @@ function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }
   </Layout>;
 }
 
+function Release({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const [diagnosis, setDiagnosis] = useState<ReleaseDiagnosisDto>();
+  const [build, setBuild] = useState<ReleaseBuildDto>();
+  const [receipt, setReceipt] = useState<ReleaseReceiptDto>();
+  const [busy, setBusy] = useState<"build" | "release" | "redeliver">();
+  const [error, setError] = useState<string>();
+  const [notice, setNotice] = useState("");
+  const retry = useRef<HTMLButtonElement>(null);
+  const load = useCallback((): void => {
+    setDiagnosis(undefined); setBuild(undefined); setReceipt(undefined); setError(undefined); setNotice("");
+    void api.diagnoseRelease().then(setDiagnosis).catch((reason: unknown) => setError(message(reason)));
+  }, [api]);
+  useEffect(load, [load]);
+  useEffect(() => { if (error !== undefined) retry.current?.focus(); }, [error]);
+  const run = async (operation: "build" | "release" | "redeliver"): Promise<void> => {
+    if (busy !== undefined || (operation !== "build" && build === undefined)) return;
+    setBusy(operation); setError(undefined); setNotice("");
+    try {
+      if (operation === "build") {
+        const next = await api.buildRelease();
+        setBuild(next); setReceipt(undefined); setNotice("已建立 release artifact；尚未發布。");
+      } else {
+        const next = operation === "release" ? await api.releaseArtifact(build!.artifactDigest) : await api.redeliverArtifact(build!.artifactDigest);
+        setReceipt(next); setNotice(operation === "release" ? "已發布 artifact。" : "已重新發布 artifact。");
+      }
+    } catch (reason) { setError(message(reason)); }
+    finally { setBusy(undefined); }
+  };
+  if (diagnosis === undefined) return <Layout><PageHeading>發布診斷</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在檢查 release 狀態。</p> : <><p role="alert">{error}</p><button ref={retry} onClick={load}>重新診斷</button></>}</Layout>;
+  const blocked = diagnosis.status === "blocked";
+  const status = busy === "build" ? "正在建立 release artifact…" : busy === "release" ? "正在發布 artifact…" : busy === "redeliver" ? "正在重新發布 artifact…" : notice || (blocked ? "診斷已阻擋；請先處理診斷項目。" : "診斷完成；可以建立 release artifact。");
+  return <Layout><PageHeading>發布診斷</PageHeading><p role="status" aria-live="polite" aria-atomic="true">{status}</p>{error !== undefined && <p role="alert">{error}</p>}<section aria-labelledby="release-diagnosis-heading"><h2 id="release-diagnosis-heading">Release 狀態</h2><p>{blocked ? "已阻擋" : "已就緒"}</p>{diagnosis.diagnostics.length === 0 ? <p>沒有診斷項目。</p> : <ul aria-label="Release 診斷項目">{diagnosis.diagnostics.map((diagnostic) => <li key={diagnostic.code}>{diagnostic.code}</li>)}</ul>}<button ref={retry} type="button" onClick={load} disabled={busy !== undefined}>重新診斷</button></section><section aria-labelledby="release-actions-heading"><h2 id="release-actions-heading">Release 動作</h2><p>建立 artifact 不會發布；發布只使用已建立且驗證過的 artifact。</p><button type="button" onClick={() => void run("build")} disabled={blocked || busy !== undefined}>{busy === "build" ? "正在建立 artifact…" : "建立 artifact"}</button><button type="button" onClick={() => void run("release")} disabled={build === undefined || busy !== undefined}>{busy === "release" ? "正在發布 artifact…" : "發布 artifact"}</button><button type="button" onClick={() => void run("redeliver")} disabled={build === undefined || busy !== undefined}>{busy === "redeliver" ? "正在重新發布 artifact…" : "重新發布 artifact"}</button>{build !== undefined && <dl><dt>Artifact digest</dt><dd className="breakable">{build.artifactDigest}</dd>{receipt !== undefined && <><dt>Target digest</dt><dd className="breakable">{receipt.targetDigest}</dd></>}</dl>}</section></Layout>;
+}
+
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></BrowserRouter>;
 }
 
 function SessionGate({ ticket }: Readonly<{ ticket: string | undefined }>): React.JSX.Element {

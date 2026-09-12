@@ -1,8 +1,8 @@
 ---
 id: WI-061
-status: blocked
+status: done
 title: CMS release diagnostics workspace
-work_group: null
+work_group: WG-045
 depends_on: ["WI-040", "WI-050"]
 ---
 
@@ -18,4 +18,4 @@ depends_on: ["WI-040", "WI-050"]
 
 ## Notes
 
-GitHub #320；blocked。解除條件：Owner 對 release／GitHub Pages 最終階段做出明確決策。未實作前不進 production nav 或 history allowlist。
+完成：`/cms/release` diagnostics workspace 與 actual browser/a11y proof 已交付；PR 待建立。
