@@ -6,7 +6,7 @@ work_items: ["WI-070"]
 owner: Main
 branch: fix/content-type-migration-contract-hardening
 worktree: /Volumes/UGREEN 2TB /projects/ai-study-note-reset/.dev-hub/worktrees/content-type-migration-hardening
-pr: null
+pr: 379
 ---
 
 # Content Type migration contract hardening
