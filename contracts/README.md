@@ -13,6 +13,11 @@
 - Content、Persistence、Taxonomy、Application、SiteDefinition、Media、PluginHost、ThemeHost、Projection、Renderer、Delivery 與 CLI 各有 owner。Taxonomy 只可依賴 Persistence 與 Foundation；Application、Projection 可透過其 public entry 讀取 Taxonomy。Plugin/Theme repository source 不是 trusted/installed/active root；installed runtime 是 repository-external、realpath-validated、self-contained ESM。
 - #308 是 pre-launch clean cutover：遷移所有 caller、fixture、test 與 wire；不留 `v2`、舊 parser branch、alias 或 deprecated path。它不增加 marketplace、catalog/history/delete、auto-save、deploy、off-origin canonical、social image、raw JSON-LD 或 custom robots text。
 
+## Dev Hub overview v2
+
+- `.dev-hub/overview/config.json` is exact `{contract:"dev-hub-overview-config/v2",github_repository:"owner/repository"}` and the sole repository identity. `issues.json` is exact `{contract:"dev-hub-overview-issues/v2",captured_at,issues,cycles,work_items,work_groups}`; Issue has verified same-repository URL and recursive `dependencies`; Cycle has exact `.dev-hub/active/<cycle_id>` path; Work Group owns `owner` and optional verified same-repository PR URL. `links.json` is exact `{contract:"dev-hub-overview-links/v2",captured_at,items}` and each item is exact `{issue_number,cycle_id,work_item_id,work_group_id}`. Links are one-to-one and must resolve within one Cycle.
+- Every ID, timestamp equality, local path and Issue/PR URL is validated before any output write. Active linked Issues require a complete recursive dependency closure; dependency cycles, invalid schema/version and cross-repository URLs fail closed. `npm run dev-hub:overview` renders deterministic escaped `.dev-hub/overview/index.html` from local JSON only; it never reads network and refuses overwrite. `npm run dev-hub:overview:check` performs identical validation without a write; README is the sole setup/reuse entry.
+
 ## 1. Domain, Content, route and media
 
 ### Implemented baseline
