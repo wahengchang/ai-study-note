@@ -3,6 +3,7 @@ import type { ContentReadFailureCode } from "../../core/content/index.js";
 import type { PluginHostFailureCode } from "../../core/plugin-host/index.js";
 import type { ProjectionFailureCode } from "../../core/projection/index.js";
 import type { ThemeHostFailureCode } from "../../core/theme-host/index.js";
+import type { ReleaseTransportFailureCode } from "./release-transport.js";
 import { z } from "zod";
 
 import { API_KEY_PATTERN, BROWSER_TICKET_PATTERN, SECRET_TEXT_PATTERN } from "./origin.js";
@@ -188,6 +189,15 @@ export const taxonomyCommandResultSchema = z.object({ snapshot: taxonomySnapshot
 export const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()), taxonomyBindings: z.array(taxonomyBindingSchema) }).strict(), stateDigest: digestSchema }).strict();
 export const cmsSeoAnalysisResponseSchema = z.object({ contract: z.literal("cms-seo-analysis-response/v1"), documentDigest: digestSchema, status: z.enum(["available", "unavailable"]), preview: z.object({ title: z.string(), description: z.string().optional(), canonicalUrl: z.string().url().optional() }).strict().optional(), suggestions: z.array(z.object({ code: z.string() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
 
+export const releaseDiagnoseRequestSchema = z.object({ contract: z.literal("release-diagnose-request/v1") }).strict();
+export const releaseBuildRequestSchema = z.object({ contract: z.literal("release-build-request/v1") }).strict();
+export const releaseRequestSchema = z.object({ contract: z.literal("release-request/v1"), artifactDigest: digestSchema }).strict();
+export const redeliverRequestSchema = z.object({ contract: z.literal("redeliver-request/v1"), artifactDigest: digestSchema }).strict();
+const releaseDiagnosticSchema = z.object({ code: z.string().regex(/^[A-Z0-9_]+$/u) }).strict();
+export const releaseDiagnosisSchema = z.object({ contract: z.literal("release-diagnosis/v1"), status: z.enum(["ready", "blocked"]), diagnostics: z.array(releaseDiagnosticSchema) }).strict();
+export const releaseBuildSchema = z.object({ contract: z.literal("release-build/v1"), artifactDigest: digestSchema, diagnostics: z.array(releaseDiagnosticSchema) }).strict();
+export const releaseReceiptSchema = z.object({ contract: z.literal("release-receipt/v1"), artifactDigest: digestSchema, targetDigest: digestSchema }).strict();
+
 const cmsEditorBlockIdentitySchema = z.object({ id: z.string(), version: z.string(), hook: z.literal("cms/editor-block/resolve"), manifestHash: digestSchema }).strict();
 const cmsEditorBlockSourceSchema = z.object({ html: z.string(), css: z.string(), javascript: z.string() }).strict();
 const cmsEditorBlockDiagnostic = (code: "PLUGIN_BLOCK_INACTIVE" | "PLUGIN_BLOCK_MISSING" | "PLUGIN_BLOCK_IDENTITY_CHANGED", cause: "inactive" | "missing" | "identity-changed") => z.object({
@@ -219,12 +229,15 @@ export type TransportCode =
   | "SERVER_PROOF_GENERATION_MISMATCH" | "BROWSER_BOOTSTRAP_INVALID" | "INVALID_REQUEST_BODY"
   | "REQUEST_BODY_TOO_LARGE" | "ROUTE_NOT_FOUND" | "METHOD_NOT_ALLOWED" | "UNSUPPORTED_MEDIA_TYPE"
   | "INTERNAL_SERVER_ERROR";
-type RemoteFailureCode = TransportCode | DomainApplicationFailureCode | TaxonomyFailureCode | ContentReadFailureCode | PluginHostFailureCode | AuthoringReadFailureCode | ContentTypeAdministrationFailureCode | ProjectionFailureCode | ThemeHostFailureCode;
+type RemoteFailureCode = TransportCode | ReleaseTransportFailureCode | DomainApplicationFailureCode | TaxonomyFailureCode | ContentReadFailureCode | PluginHostFailureCode | AuthoringReadFailureCode | ContentTypeAdministrationFailureCode | ProjectionFailureCode | ThemeHostFailureCode;
 const transportStatuses: Readonly<Record<TransportCode, readonly number[]>> = {
   INVALID_REQUEST_FRAMING: [400], MISDIRECTED_REQUEST: [421], ORIGIN_FORBIDDEN: [403],
   AUTHORIZATION_REQUIRED: [401], AUTHORIZATION_MALFORMED: [401], AUTHORIZATION_DUPLICATE: [401], AUTHORIZATION_ALTERNATE_TRANSPORT: [401], AUTHORIZATION_INVALID: [401], AUTHORIZATION_REVOKED: [401],
   SERVER_PROOF_GENERATION_MISMATCH: [401], BROWSER_BOOTSTRAP_INVALID: [401], INVALID_REQUEST_BODY: [400], REQUEST_BODY_TOO_LARGE: [400],
   ROUTE_NOT_FOUND: [404], METHOD_NOT_ALLOWED: [405], UNSUPPORTED_MEDIA_TYPE: [415], INTERNAL_SERVER_ERROR: [500, 503],
+};
+const releaseStatuses: Readonly<Record<ReleaseTransportFailureCode, readonly number[]>> = {
+  RELEASE_BUILD_BLOCKED: [422], RELEASE_BUILD_FAILED: [500], RELEASE_ARTIFACT_INVALID: [422], RELEASE_TARGET_CONFLICT: [409], RELEASE_TARGET_FAILED: [500],
 };
 const conflictCodes = ["CURRENT_REVISION_MISMATCH", "MEDIA_REFERENCE_CONFLICT", "MEDIA_IMPORT_CONFLICT", "MEDIA_ARCHIVE_BLOCKED_PUBLISHED", "MEDIA_READ_STATE_STALE", "ROUTE_CONFLICT", "ROUTE_CHANGE_REQUIRED", "STALE_ROUTE_PROPOSAL", "PLUGIN_IDENTITY_CONFLICT", "ACTIVATION_STATE_CONFLICT", "ACTIVE_PLUGIN_IDENTITY_MISMATCH", "INVALID_PLUGIN_OPERATION_SNAPSHOT", "TAXONOMY_CONFLICT", "TAXONOMY_STATE_CONFLICT"] as const;
 const invalidCodes = ["MEDIA_RESTORE_REQUIRED", "MEDIA_RESTORE_MISMATCH", "INVALID_SAVE_REVISION_REQUEST", "INVALID_PUBLISH_REVISION_REQUEST", "INVALID_RESTORE_REVISION_REQUEST", "INVALID_CHANGE_ROUTE_REQUEST", "INVALID_PLUGIN_ACTIVATION_REQUEST", "INVALID_PLUGIN_SETTINGS_REQUEST", "INVALID_SEO_ANALYSIS_REQUEST", "INVALID_CMS_EDITOR_BLOCK_RESOLUTIONS_REQUEST", "MEDIA_REFERENCE_NOT_FOUND", "SCHEMA_INVALID", "MEDIA_UNAVAILABLE", "BLOCKED_ARCHIVED_MEDIA_RESTORE", "PLUGIN_NOT_FOUND", "PLUGIN_NOT_ACTIVE", "PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED", "PLUGIN_VALIDATION_REJECTED", "PLUGIN_CAPABILITY_DENIED", "ACTIVE_PLUGIN_SOURCE_MISSING", "ACTIVE_PLUGIN_REACTIVATION_REQUIRED", "INVALID_TAXONOMY_REQUEST", "TERM_NOT_FOUND", "TERM_ACTIVE_USAGE", "TAXONOMY_MAPPING_UNRESOLVABLE"] as const;
@@ -249,7 +262,7 @@ const projectionStatuses: Readonly<Record<ProjectionFailureCode, readonly number
   PROJECTION_STATE_CHANGED: [409], PROJECTION_PAYLOAD_TOO_LARGE: [422],
   PROJECTION_ENCODING_FAILED: [500], INVALID_RENDERER_INPUT: [422], INVALID_PREVIEW_INPUT: [422],
 };
-const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...domainStatuses, ...taxonomyStatuses, ...contentStatuses, ...pluginStatuses, ...readStatuses, ...contentTypeAdministrationStatuses, ...projectionStatuses, ...themeStatuses };
+const statusByCode: Readonly<Record<RemoteFailureCode, readonly number[]>> = { ...transportStatuses, ...releaseStatuses, ...domainStatuses, ...taxonomyStatuses, ...contentStatuses, ...pluginStatuses, ...readStatuses, ...contentTypeAdministrationStatuses, ...projectionStatuses, ...themeStatuses };
 export type AuthoringRemoteErrorCode = keyof typeof statusByCode;
 export function authoringErrorStatuses(code: string): readonly number[] | undefined {
   return Object.prototype.hasOwnProperty.call(statusByCode, code) ? statusByCode[code as AuthoringRemoteErrorCode] : undefined;
@@ -276,7 +289,7 @@ export type MediaArchiveBlockedErrorDto = Readonly<z.infer<typeof mediaArchiveBl
 export type MediaRestoreRequiredErrorDto = Readonly<z.infer<typeof mediaRestoreRequiredErrorSchema>>;
 export const authoringErrorSchema = z.object({
   contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string().refine((code) => authoringErrorStatuses(code) !== undefined),
-  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection", "Taxonomy"]),
+  owner: z.enum(["AuthoringApi", "AuthoringCredential", "DomainApplication", "Content", "DataMedia", "SiteDefinition", "PluginHost", "ThemeHost", "AuthoringReadFacade", "ContentTypeAdministration", "Projection", "Taxonomy", "Delivery"]),
   subjectIds: stringArray, remediation: messageRemediationSchema, restoreCommands: z.array(restoreCommandSchema).optional(),
 }).strict();
 export type ServerProofChallengeDto = Readonly<z.infer<typeof serverProofChallengeSchema>>;
@@ -312,3 +325,10 @@ export type TaxonomySnapshotDto = Readonly<z.infer<typeof taxonomySnapshotSchema
 export type CreateTaxonomyRequestDto = Readonly<z.infer<typeof createTaxonomyRequestSchema>>;
 export type TaxonomyCommandDto = Readonly<z.infer<typeof taxonomyCommandSchema>>;
 export type TaxonomyCommandResultDto = Readonly<z.infer<typeof taxonomyCommandResultSchema>>;
+export type ReleaseDiagnoseRequestDto = Readonly<z.infer<typeof releaseDiagnoseRequestSchema>>;
+export type ReleaseBuildRequestDto = Readonly<z.infer<typeof releaseBuildRequestSchema>>;
+export type ReleaseRequestDto = Readonly<z.infer<typeof releaseRequestSchema>>;
+export type RedeliverRequestDto = Readonly<z.infer<typeof redeliverRequestSchema>>;
+export type ReleaseDiagnosisDto = Readonly<z.infer<typeof releaseDiagnosisSchema>>;
+export type ReleaseBuildDto = Readonly<z.infer<typeof releaseBuildSchema>>;
+export type ReleaseReceiptDto = Readonly<z.infer<typeof releaseReceiptSchema>>;
