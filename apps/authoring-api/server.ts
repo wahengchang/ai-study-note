@@ -15,6 +15,8 @@ import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
 import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeMigrationCommandSchema, contentTypeMigrationOutcomeSchema, contentTypeMigrationProposalSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, mediaArchiveRequestSchema, mediaAssetDetailSchema, mediaCatalogSchema, mediaImportRequestSchema, mediaRestoreRequestSchema, mediaVersionReplacementReceiptSchema, mediaVersionRequestSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
 import type { BrowserSessionDto, BrowserTicketDto, MediaArchiveBlockedErrorDto, MediaRestoreRequiredErrorDto, PublishRevisionSuccessDto, RestoreRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
+import type { ChangeRouteRequest, RouteChangeProposalRequest, SiteRouteGraphReadRequest } from "../../core/application/index.js";
+import { changeRouteCommandSchema, changeRouteSuccessSchema, routeChangeProposalRequestSchema, routeChangeProposalSchema, siteRouteGraphSchema } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
 const SECURITY_HEADERS = {
@@ -59,17 +61,17 @@ const MEDIA_ENCODED_BYTES_LIMIT = 4_128_768;
 const MEDIA_ENVELOPE_LIMIT = 65_536;
 const MEDIA_ENVELOPE_REMEDIATION = "Media request 的非 bytes envelope 不得超過 64 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/release" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/versions" | "/v1/media/:assetId/archive" | "/v1/media/:assetId/restore" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/content-types/:schemaId/migrations" | "/v1/content-types/:schemaId/migrations/preview" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/preview" | "/v1/release/diagnose" | "/v1/release/build" | "/v1/release" | "/v1/redeliver" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/site/routes" | "/v1/site/routes/change" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/versions" | "/v1/media/:assetId/archive" | "/v1/media/:assetId/restore" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/content-types/:schemaId/migrations" | "/v1/content-types/:schemaId/migrations/preview" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/preview" | "/v1/release/diagnose" | "/v1/release/build" | "/v1/release" | "/v1/redeliver" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
 export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; contentTypeMigrationAdministration: ContentTypeMigrationAdministration; projectionPreview: ProjectionPreview; releaseTransport: AuthoringReleaseTransport }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "media" | "media-import" | "media-version" | "media-detail" | "media-archive" | "media-restore" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "content-type-migrations" | "entries" | "entry" | "entry-revisions" | "publish" | "restore" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "preview" | "release-diagnose" | "release-build" | "release" | "redeliver" | "proof" | "browser-ticket" | "browser-session" | "unknown";
-const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "media", "media-detail", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions", "taxonomies", "taxonomy"]);
+type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "site-routes" | "site-route-change" | "media" | "media-import" | "media-version" | "media-detail" | "media-archive" | "media-restore" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "content-type-migrations" | "entries" | "entry" | "entry-revisions" | "publish" | "restore" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "preview" | "release-diagnose" | "release-build" | "release" | "redeliver" | "proof" | "browser-ticket" | "browser-session" | "unknown";
+const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "site-routes", "media", "media-detail", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions", "taxonomies", "taxonomy"]);
 const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "entry-revisions", "taxonomies"]);
-const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "media", "media-import", "media-version", "media-detail", "media-archive", "media-restore", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "content-type-migrations", "entries", "entry", "entry-revisions", "publish", "restore", "taxonomies", "taxonomy", "taxonomy-commands", "preview", "release-diagnose", "release-build", "release", "redeliver"]);
+const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "site-routes", "site-route-change", "media", "media-import", "media-version", "media-detail", "media-archive", "media-restore", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "content-type-migrations", "entries", "entry", "entry-revisions", "publish", "restore", "taxonomies", "taxonomy", "taxonomy-commands", "preview", "release-diagnose", "release-build", "release", "redeliver"]);
 
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
@@ -85,7 +87,7 @@ function values(headers: HeaderMap, name: string): readonly string[] { return he
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
 /** dynamic ID 與 asset path 都不接受 percent encoding，防止 URL 與 canonical identity 脫節。 */
 function routeFor(pathname: string): RouteClass {
-  if (pathname === "/cms" || pathname === "/cms/plugins" || pathname === "/cms/release" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/media" || pathname === "/cms/media/import" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:entries|content-types|taxonomies|media)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
+  if (pathname === "/cms" || pathname === "/cms/site/routes" || pathname === "/cms/plugins" || pathname === "/cms/release" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/media" || pathname === "/cms/media/import" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:entries|content-types|taxonomies|media)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
   if (/^\/cms\/assets\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(pathname)) return "cms-asset";
   if (pathname === "/_local/server-proof") return "proof";
   if (pathname === "/_local/browser-tickets") return "browser-ticket";
@@ -93,6 +95,8 @@ function routeFor(pathname: string): RouteClass {
   if (pathname === "/v1/plugins") return "plugins";
   if (pathname === "/v1/plugins/activate") return "plugin-activate";
   if (pathname === "/v1/plugins/settings") return "plugin-settings";
+  if (pathname === "/v1/site/routes") return "site-routes";
+  if (pathname === "/v1/site/routes/change") return "site-route-change";
   if (pathname === "/v1/media") return "media";
   if (pathname === "/v1/media/import") return "media-import";
   if (/^\/v1\/media\/[^/%?#/]+\/versions$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length, -"/versions".length))) return "media-version";
@@ -120,11 +124,29 @@ function routeFor(pathname: string): RouteClass {
   return /^\/v1\/entries\/[^/%?#/]+\/publish$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length, -"/publish".length)) ? "publish" : "unknown";
 }
 function templateFor(route: RouteClass, pathname: string): RouteTemplate {
-  if (route === "cms-document") return pathname === "/cms" ? "/cms" : pathname === "/cms/plugins" ? "/cms/plugins" : pathname === "/cms/release" ? "/cms/release" : pathname === "/cms/entries" ? "/cms/entries" : pathname === "/cms/entries/new" ? "/cms/entries/new" : pathname === "/cms/media" ? "/cms/media" : pathname === "/cms/media/import" ? "/cms/media/import" : pathname === "/cms/content-types" ? "/cms/content-types" : pathname === "/cms/content-types/new" ? "/cms/content-types/new" : pathname === "/cms/taxonomies" ? "/cms/taxonomies" : pathname === "/cms/taxonomies/new" ? "/cms/taxonomies/new" : pathname.startsWith("/cms/content-types/") ? "/cms/content-types/:schemaId" : pathname.startsWith("/cms/taxonomies/") ? "/cms/taxonomies/:taxonomyId" : pathname.startsWith("/cms/media/") ? "/cms/media/:assetId" : "/cms/entries/:entryId";
+  if (route === "cms-document") {
+    if (pathname === "/cms" || pathname === "/cms/site/routes") return "/cms";
+    if (pathname === "/cms/plugins") return "/cms/plugins";
+    if (pathname === "/cms/release") return "/cms/release" as RouteTemplate;
+    if (pathname === "/cms/entries") return "/cms/entries";
+    if (pathname === "/cms/entries/new") return "/cms/entries/new";
+    if (pathname === "/cms/media") return "/cms/media";
+    if (pathname === "/cms/media/import") return "/cms/media/import";
+    if (pathname === "/cms/content-types") return "/cms/content-types";
+    if (pathname === "/cms/content-types/new") return "/cms/content-types/new";
+    if (pathname === "/cms/taxonomies") return "/cms/taxonomies";
+    if (pathname === "/cms/taxonomies/new") return "/cms/taxonomies/new";
+    if (pathname.startsWith("/cms/content-types/")) return "/cms/content-types/:schemaId";
+    if (pathname.startsWith("/cms/taxonomies/")) return "/cms/taxonomies/:taxonomyId";
+    if (pathname.startsWith("/cms/media/")) return "/cms/media/:assetId";
+    return "/cms/entries/:entryId";
+  }
   if (route === "cms-asset") return "/cms/assets/:asset";
   if (route === "plugins") return "/v1/plugins";
   if (route === "plugin-activate") return "/v1/plugins/activate";
   if (route === "plugin-settings") return "/v1/plugins/settings";
+  if (route === "site-routes") return "/v1/site/routes";
+  if (route === "site-route-change") return "/v1/site/routes/change";
   if (route === "media") return "/v1/media";
   if (route === "media-import") return "/v1/media/import";
   if (route === "media-version") return "/v1/media/:assetId/versions";
@@ -288,6 +310,14 @@ function publishSuccess(value: PublishRevisionSuccess): PublishRevisionSuccessDt
   };
 }
 
+function exactSiteRouteSelection(incoming: IncomingMessage): "current" | "published" | undefined {
+  return incoming.url === "/v1/site/routes?selection=current"
+    ? "current"
+    : incoming.url === "/v1/site/routes?selection=published"
+      ? "published"
+      : undefined;
+}
+
 async function authenticatedJson(context: Context, input: StartAuthoringApiInput, bodyLimit: number, oversizedRemediation: string, handle: (requestId: string, entryId: string, body: unknown) => Promise<Response>): Promise<Response> {
   const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
   if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
@@ -303,8 +333,9 @@ async function authenticatedJson(context: Context, input: StartAuthoringApiInput
   } finally { admission.value.dispose(); }
 }
 async function authenticatedRead(context: Context, input: StartAuthoringApiInput, handle: (requestId: string) => Promise<Response>): Promise<Response> {
-  const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
-  if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
+  const requestId = randomUUID(); const incoming = (context.env as { incoming: IncomingMessage }).incoming; const headers = headersOf(incoming);
+  const allowedSiteRouteQuery = exactSiteRouteSelection(incoming) !== undefined;
+  if (values(headers, "cookie").length > 0 || (!allowedSiteRouteQuery && new URL(context.req.url).search.length > 0)) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
   const parsedAuthorization = authorization(headers); if (!parsedAuthorization.ok) return errorResponse(requestId, parsedAuthorization.code, 401);
   const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
   try { return admission.value.verifyBearer(parsedAuthorization.candidate) ? handle(requestId) : errorResponse(requestId, "AUTHORIZATION_INVALID", 401, "AuthoringCredential"); } finally { admission.value.dispose(); }
@@ -393,6 +424,26 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
       return bootstrapSecretResponse(dto, 200);
     } finally { admission.value.dispose(); }
   });
+  app.get("/v1/site/routes", async (context) => authenticatedRead(context, input, async (requestId) => {
+    const selection = exactSiteRouteSelection((context.env as { incoming: IncomingMessage }).incoming);
+    if (selection === undefined) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
+    const result = await input.domainApplication.readSiteRouteGraph({ contract: "site-route-graph-read-request/v1", selection } satisfies SiteRouteGraphReadRequest);
+    return result.ok && siteRouteGraphSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+  }));
+  app.post("/v1/site/routes/change", async (context) => authenticatedJson(context, input, 65_536, "ChangeRoute request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
+    if ((context.env as { incoming: IncomingMessage }).incoming.url !== "/v1/site/routes/change") return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const proposal = routeChangeProposalRequestSchema.safeParse(body);
+    if (proposal.success) {
+      const result = await input.domainApplication.prepareRouteChange(proposal.data as RouteChangeProposalRequest);
+      return result.ok && routeChangeProposalSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+    }
+    const command = changeRouteCommandSchema.safeParse(body);
+    if (!command.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.domainApplication.changeRoute(command.data as ChangeRouteRequest);
+    if (!result.ok) return domainError(requestId, result.error);
+    const receipt = { contract: "change-route-success/v1" as const, ...result.value };
+    return changeRouteSuccessSchema.safeParse(receipt).success ? response(receipt, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+  }));
   app.get("/v1/media", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.domainApplication.listMedia();
     return result.ok && mediaCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);

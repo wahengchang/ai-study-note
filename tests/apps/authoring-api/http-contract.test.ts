@@ -983,3 +983,45 @@ test("migration routes log their own route template and reject GET", async () =>
     assert.equal(log.some((event) => event.routeTemplate === "/v1/content-types/:schemaId/migrations"), true, "GET 拒絕必須記錄 migrations route template");
   });
 });
+
+test("actual listener reads isolated route graphs and commits only a dual-digest-bound ChangeRoute", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, log }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, Host: authority, "Content-Type": "application/json" } as const;
+    assert.equal((await post("/v1/entries/route-entry/revisions", headers, saveBody("r1", "/published"))).status, 200);
+    assert.equal((await post("/v1/entries/route-entry/publish", headers, publishBody("r1"))).status, 200);
+    const draft = await post("/v1/entries/route-entry/revisions", headers, saveBody("r2", "/published", "r1"));
+    assert.equal(draft.status, 200, draft.body);
+    const before = digest();
+    const current = await send("GET", "/v1/site/routes?selection=current", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    const published = await send("GET", "/v1/site/routes?selection=published", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(current.status, 200, current.body);
+    assert.equal(published.status, 200, published.body);
+    const currentGraph = JSON.parse(current.body) as { contract: string; digest: string; claims: readonly { graph: string; normalizedRoute: string; owner: string; sourceRevisionId: string }[] };
+    const publishedGraph = JSON.parse(published.body) as { digest: string; claims: readonly { normalizedRoute: string }[] };
+    assert.equal(currentGraph.contract, "route-graph/v1");
+    assert.deepEqual(currentGraph.claims, [{ graph: "current", normalizedRoute: "/published", owner: "route-entry", sourceRevisionId: "r2" }]);
+    assert.deepEqual(publishedGraph.claims, [{ graph: "published", normalizedRoute: "/published", owner: "route-entry", sourceRevisionId: "r1" }]);
+    assert.equal(current.body.includes("bytes"), false);
+    assert.equal(digest(), before);
+
+    const prepared = await post("/v1/site/routes/change", headers, JSON.stringify({ contract: "route-change-proposal-request/v1", expectedRouteGraphDigests: { current: currentGraph.digest, published: publishedGraph.digest }, graph: "current", owner: "route-entry", route: "/Changed/", sourceRevisionId: "r2" }));
+    assert.equal(prepared.status, 200, prepared.body);
+    const proposal = JSON.parse(prepared.body);
+    const changed = await post("/v1/site/routes/change", headers, JSON.stringify({ contract: "change-route-command/v1", operationId: "route-change", proposal }));
+    assert.equal(changed.status, 200, changed.body);
+    const receipt = JSON.parse(changed.body) as { contract: string; claim: { normalizedRoute: string }; resultingDigests: { published: string } };
+    assert.equal(receipt.contract, "change-route-success/v1");
+    assert.equal(receipt.claim.normalizedRoute, "/changed");
+    assert.equal(receipt.resultingDigests.published, publishedGraph.digest);
+    assert.notEqual(digest(), before);
+
+    const stale = await post("/v1/site/routes/change", headers, JSON.stringify({ contract: "change-route-command/v1", operationId: "stale", proposal }));
+    assert.equal(stale.status, 409, stale.body);
+    assert.equal(failureCode(stale), "STALE_ROUTE_PROPOSAL");
+    const hostile = await send("GET", "/v1/site/routes?selection=current&extra=1", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(hostile.status, 401, hostile.body);
+    assert.equal(failureCode(hostile), "AUTHORIZATION_ALTERNATE_TRANSPORT");
+    assert.equal(log.some((event) => String(event.routeTemplate) === "/v1/site/routes"), true);
+    assert.equal(JSON.stringify(log).includes("asn_"), false);
+  });
+});

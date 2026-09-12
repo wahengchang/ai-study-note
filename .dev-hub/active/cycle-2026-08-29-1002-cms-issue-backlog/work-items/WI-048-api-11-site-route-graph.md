@@ -1,8 +1,8 @@
 ---
 id: WI-048
-status: pending
+status: done
 title: Site route graph 與 ChangeRoute
-work_group: null
+work_group: WG-045
 depends_on: ["WI-023"]
 ---
 
@@ -15,4 +15,4 @@ depends_on: ["WI-023"]
 Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
 
 ## Notes
-GitHub #288；由 #241 planning parent 建立，status：planned。
+GitHub #288；由 WG-045 完成：雙圖 read/proposal/command DTO、authenticated transport 與 zero-write proof 已通過。
