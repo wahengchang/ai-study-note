@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { createPublicDelivery } from "../../../core/delivery/index.js";
+import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../../core/delivery/index.js";
 
 function canonical(value: unknown): Uint8Array { const result = canonicalJsonBytes(value); assert.equal(result.ok, true); if (!result.ok) throw new Error("canonical"); return result.value; }
 function digest(value: unknown) { return sha256Digest(canonical(value)); }
@@ -31,26 +31,27 @@ test("Delivery writes an immediately verified immutable artifact", () => {
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 
-test("Re-delivery atomically writes beside the destination and never enters artifacts root", () => {
+test("Fixed-root release copies only a verified artifact atomically and is idempotent", () => {
   const root = mkdtempSync(path.join(tmpdir(), "delivery-"));
   try {
     const artifacts = path.join(root, "artifacts");
+    const releases = path.join(root, "releases");
     const delivery = createPublicDelivery({ artifactsRoot: artifacts });
-    assert.equal(delivery.ok, true);
-    if (!delivery.ok) return;
+    const release = createFixedRootReleaseDelivery({ artifactsRoot: artifacts, releaseRoot: releases });
+    assert.equal(delivery.ok && release.ok, true);
+    if (!delivery.ok || !release.ok) return;
     const built = delivery.value.deliver(output());
     assert.equal(built.ok, true);
     if (!built.ok) return;
-    const destination = path.join(root, "published");
-    assert.equal(delivery.value.redeliver({ artifactDigest: built.value.artifactDigest, destination }).ok, true);
-    assert.equal(existsSync(path.join(destination, "guide/index.html")), true);
-    assert.equal(delivery.value.redeliver({ artifactDigest: built.value.artifactDigest, destination: path.join(artifacts, "forbidden") }).ok, false);
-
-    const raced = path.join(root, "raced");
-    symlinkSync(path.join(root, "absent-target"), raced);
-    assert.equal(delivery.value.redeliver({ artifactDigest: built.value.artifactDigest, destination: raced }).ok, false);
-    assert.equal(lstatSync(raced).isSymbolicLink(), true);
-    assert.deepEqual(readdirSync(root).filter((entry) => entry.startsWith(".redelivery-")), []);
+    const first = release.value.release({ artifactDigest: built.value.artifactDigest });
+    const second = release.value.redeliver({ artifactDigest: built.value.artifactDigest });
+    assert.equal(first.ok && second.ok, true);
+    if (!first.ok || !second.ok) return;
+    assert.equal(first.value.targetDigest, second.value.targetDigest);
+    assert.equal(existsSync(path.join(releases, built.value.artifactDigest, "guide/index.html")), true);
+    assert.equal(release.value.release({ artifactDigest: digest("unknown") }).ok, false);
+    assert.equal(createFixedRootReleaseDelivery({ artifactsRoot: artifacts, releaseRoot: path.join(artifacts, "forbidden") }).ok, false);
+    assert.deepEqual(readdirSync(releases).filter((entry) => entry.startsWith(".release-")), []);
   } finally { rmSync(root, { recursive: true, force: true }); }
 });
 test("Delivery 拒絕會在驗證後改變 path 的 accessor 輸入", () => {

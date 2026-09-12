@@ -134,6 +134,13 @@ Renderer consumes Projection's immutable renderer input; Delivery creates immuta
 - Renderer requires one Theme page per route, copies only verified Theme CSS to `assets/theme/<digest>.css`, and emits head order charset → viewport → stylesheet → title → description? → canonical → Open Graph → ordered JCS JSON-LD. It applies HTML/RCDATA and JSON-LD escaping; duplicate/contradictory SEO contribution, meta key, site contribution, public URL or artifact path is `SEO_CONTRIBUTION_CONFLICT`, never priority override.
 - Valid site SEO alone produces route-sorted escaped final-newline `sitemap.xml` and fixed final-newline `robots.txt`; typed CR/LF/NUL is rejected. Renderer/Delivery manifest exposes aggregate SEO evidence count/digest only—never diagnostics or omission fields. Existing artifact directories require full listed-byte/no-extra-file verification; mismatch is `ARTIFACT_IMMUTABILITY_CONFLICT` and is never overwritten.
 
+### Release transport
+
+- Authoring API 只接受四個 exact POST DTO：`release-diagnose-request/v1`、`release-build-request/v1`、`release-request/v1 {artifactDigest}`、`redeliver-request/v1 {artifactDigest}`；wire 不接受 destination、root 或任何 filesystem path。
+- `diagnose` 只執行 Projection → Renderer，回傳 `release-diagnosis/v1 {status:"ready"|"blocked",diagnostics:[{code}]}`，blocked 絕不 Delivery。`build` 執行一次 Projection → Renderer → Delivery → verified read-back，成功只回傳 `release-build/v1 {artifactDigest,diagnostics}`。
+- runtime 將 artifacts 與 release target 固定在 repository 外的 local root。`release`／`redeliver` 只可從 verified artifact 交付至該固定 target；兩者不得呼叫 Projection、Renderer 或 Publish。target 使用 sibling staging 與 atomic rename，既有完整 target 是 idempotent success，`targetDigest` 為 target-owned canonical manifest bytes 的 SHA-256。
+- `release`／`redeliver` 成功回傳 exact `release-receipt/v1 {artifactDigest,targetDigest}`；response、diagnostic 與 log 不得包含 filesystem path。
+
 ## 7. Production CLI and observable matrix
 
 ### #308 approved command matrix

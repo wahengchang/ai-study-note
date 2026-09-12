@@ -1,8 +1,9 @@
 import { lstatSync, realpathSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
 import { createAuthoringReadFacade, createContentTypeAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
 import { createPublishedContentReadModel } from "../../core/content/index.js";
+import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../core/delivery/index.js";
 import { type MessageRemediation } from "../../core/foundation/index.js";
 import { createLocalMediaObjectStore, startDataMedia } from "../../core/media/index.js";
 import { openPersistence, type PersistenceStore } from "../../core/persistence/index.js";
@@ -15,9 +16,10 @@ import { createThemeHost, type ThemeActivationStatePort } from "../../core/theme
 import { loadCmsAssets } from "./cms-assets.js";
 import { createLocalAuthoringCredentialAuthority, type LocalAuthoringCredentialInput } from "./credential-store.js";
 import { createAjvSchemaValidator } from "./schema-validator.js";
+import { createAuthoringReleaseTransport } from "./release-transport.js";
 import { startAuthoringApi, type AuthoringApiLogEvent, type RunningAuthoringApi } from "./server.js";
 
-export type CmsRuntimeFailureCode = "INVALID_CMS_RUNTIME_INPUT" | "CMS_ASSETS_UNAVAILABLE" | "CMS_CREDENTIAL_UNAVAILABLE" | "CMS_PERSISTENCE_UNAVAILABLE" | "CMS_MEDIA_UNAVAILABLE" | "CMS_PLUGIN_HOST_UNAVAILABLE" | "CMS_THEME_HOST_UNAVAILABLE" | "CMS_PROJECTION_UNAVAILABLE" | "CMS_LISTENER_UNAVAILABLE";
+export type CmsRuntimeFailureCode = "INVALID_CMS_RUNTIME_INPUT" | "CMS_ASSETS_UNAVAILABLE" | "CMS_CREDENTIAL_UNAVAILABLE" | "CMS_PERSISTENCE_UNAVAILABLE" | "CMS_MEDIA_UNAVAILABLE" | "CMS_PLUGIN_HOST_UNAVAILABLE" | "CMS_THEME_HOST_UNAVAILABLE" | "CMS_PROJECTION_UNAVAILABLE" | "CMS_DELIVERY_UNAVAILABLE" | "CMS_LISTENER_UNAVAILABLE";
 export type CmsRuntimeFailure = Readonly<{ code: CmsRuntimeFailureCode; owner: "CmsRuntime"; subjectIds: readonly []; remediation: MessageRemediation }>;
 export type CmsRuntimeResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: CmsRuntimeFailure }>;
 export type StartCmsRuntimeInput = Readonly<{ repositoryRoot: string; databasePath: string; mediaRoot: string; installedPluginsRoot: string; installedThemesRoot: string; cmsAssetsRoot: string; credential: LocalAuthoringCredentialInput; logger: (event: AuthoringApiLogEvent) => void }>;
@@ -68,8 +70,11 @@ function createPersistenceThemeActivationStatePort(
 
 
 export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsRuntimeResult<RunningCmsRuntime>> {
-  if (!isAbsolute(input.repositoryRoot) || !isAbsolute(input.databasePath) || !isAbsolute(input.mediaRoot) || !isAbsolute(input.installedPluginsRoot) || !isAbsolute(input.installedThemesRoot) || !isAbsolute(input.cmsAssetsRoot) || typeof input.logger !== "function") return failure("INVALID_CMS_RUNTIME_INPUT");
+  if (!isAbsolute(input.repositoryRoot) || !isAbsolute(input.databasePath) || !isAbsolute(input.mediaRoot) || !isAbsolute(input.installedPluginsRoot) || !isAbsolute(input.installedThemesRoot) || !isAbsolute(input.cmsAssetsRoot) || !isAbsolute(input.credential.homeDirectory) || typeof input.logger !== "function") return failure("INVALID_CMS_RUNTIME_INPUT");
   const repositoryRoot = resolve(input.repositoryRoot);
+  const localReleaseRoot = resolve(input.credential.homeDirectory, ".local", "share", "ai-study-note-reset");
+  const releaseRelation = relative(repositoryRoot, localReleaseRoot);
+  if (releaseRelation === "" || (!releaseRelation.startsWith(`..${sep}`) && releaseRelation !== ".." && !isAbsolute(releaseRelation))) return failure("CMS_DELIVERY_UNAVAILABLE");
   if (resolve(input.cmsAssetsRoot) !== resolve(repositoryRoot, "dist", "cms") || !trustedDirectory(resolve(input.cmsAssetsRoot))) return failure("CMS_ASSETS_UNAVAILABLE");
   if (!trustedDatabase(input.databasePath)) return failure("CMS_PERSISTENCE_UNAVAILABLE");
   const assets = loadCmsAssets(input.cmsAssetsRoot);
@@ -109,7 +114,16 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const activeTheme = await themeHost.value.resolveActive();
     if (!activeTheme.ok) return failure("CMS_THEME_HOST_UNAVAILABLE");
     const projectionPreview = createProjectionPreview({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value, themeHost: themeHost.value, pluginHost: pluginHost.value });
-    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, projectionPreview });
+    const delivery = createPublicDelivery({ artifactsRoot: join(localReleaseRoot, "artifacts") });
+    if (!delivery.ok) return failure("CMS_DELIVERY_UNAVAILABLE");
+    const releaseDelivery = createFixedRootReleaseDelivery({ artifactsRoot: join(localReleaseRoot, "artifacts"), releaseRoot: join(localReleaseRoot, "release") });
+    if (!releaseDelivery.ok) return failure("CMS_DELIVERY_UNAVAILABLE");
+    const effectiveReleaseRoot = realpathSync(join(localReleaseRoot, "release"));
+    const effectiveRepositoryRoot = realpathSync(repositoryRoot);
+    const effectiveRelation = relative(effectiveRepositoryRoot, effectiveReleaseRoot);
+    if (effectiveRelation === "" || (!effectiveRelation.startsWith(`..${sep}`) && effectiveRelation !== ".." && !isAbsolute(effectiveRelation))) return failure("CMS_DELIVERY_UNAVAILABLE");
+    const releaseTransport = createAuthoringReleaseTransport({ projection: projectionPreview, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
+    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, projectionPreview, releaseTransport });
     if (!started.ok) return failure("CMS_LISTENER_UNAVAILABLE");
     listener = started.value;
     let closed = false;
