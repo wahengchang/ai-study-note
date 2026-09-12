@@ -464,13 +464,16 @@ test("actual listener resolves the durable active Theme and preserves the previe
 });
 
 test("CMS documents and manifest assets apply their independent Fetch Metadata gate", async () => {
-  await withAuthoringApi(async ({ digest }) => {
+  await withAuthoringApi(async ({ digest, log }) => {
     const before = digest();
     const document = await send("GET", "/cms/entries/new", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
     assert.equal(document.status, 200);
     assert.match(document.body, /<script type="module" src="\/cms\/assets\/bootstrap-test\.js"><\/script>/u);
     const history = await send("GET", "/cms/entries", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
     assert.equal(history.status, 200);
+    const siteRoutes = await send("GET", "/cms/site/routes", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
+    assert.equal(siteRoutes.status, 200);
+    assert.equal(log.at(-1)?.routeTemplate, "/cms/site/routes");
     assert.equal(document.headers["content-security-policy"] !== undefined, true);
     const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
     assert.equal(asset.status, 200);

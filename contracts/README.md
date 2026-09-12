@@ -120,7 +120,7 @@ Before secret/auth/body parsing, every `/_local` and `/v1` route rejects Cookie 
 
 ### #308 contract — CMS document admission
 
-CMS document routing is a finite exact allowlist: `GET /cms`, `GET /cms/`, `GET /cms/entries`, `GET /cms/entries/new`, `GET /cms/entries/:entryId`, `GET /cms/content-types`, `GET /cms/content-types/new`, `GET /cms/content-types/:schemaId`, `GET /cms/taxonomies`, `GET /cms/taxonomies/new`, `GET /cms/taxonomies/:taxonomyId`, and `GET /cms/plugins`. Built assets are admitted only from the built manifest allowlist. Every named CMS document route must be in both the CMS-document allowlist and the central logger's document route-template union; no `/cms/*`, prefix, history, SPA or wildcard fallback is permitted.
+CMS document routing is a finite exact allowlist: `GET /cms`, `GET /cms/`, `GET /cms/site/routes`, `GET /cms/entries`, `GET /cms/entries/new`, `GET /cms/entries/:entryId`, `GET /cms/content-types`, `GET /cms/content-types/new`, `GET /cms/content-types/:schemaId`, `GET /cms/taxonomies`, `GET /cms/taxonomies/new`, `GET /cms/taxonomies/:taxonomyId`, and `GET /cms/plugins`. Built assets are admitted only from the built manifest allowlist. Every named CMS document route must be in both the CMS-document allowlist and the central logger document-route union; no route may be implied by a prefix or fallback.
 
 Every CMS document route, including `/cms/plugins`, requires exact Host; document/navigation request semantics; exactly one `Sec-Fetch-Site` of `none` or `same-origin`; and absent Origin, Bearer, Cookie and query. Unknown, encoded, nested or trailing-slash variants fail closed. This profile is distinct from authenticated API admission.
 
