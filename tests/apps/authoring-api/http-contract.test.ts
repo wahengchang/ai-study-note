@@ -199,17 +199,6 @@ test("actual listener proves current credential and saves a revision", async () 
 test("actual listener release transport is fixed-root, receipt-only, and never publishes or rebuilds redelivery", async () => {
   await withAuthoringApi(async ({ apiKey, digest, publishCalls, releaseProjectionCalls, seedReleaseArtifact }) => {
     const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
-    const unauthenticated = [
-      ["/v1/release/diagnose", { contract: "release-diagnose-request/v1" }],
-      ["/v1/release/build", { contract: "release-build-request/v1" }],
-      ["/v1/release", { contract: "release-request/v1", artifactDigest: sha256Digest(new TextEncoder().encode("artifact")) }],
-      ["/v1/redeliver", { contract: "redeliver-request/v1", artifactDigest: sha256Digest(new TextEncoder().encode("artifact")) }],
-    ] as const;
-    for (const [pathname, body] of unauthenticated) {
-      const rejected = await post(pathname, { "Content-Type": "application/json", Host: authority }, JSON.stringify(body));
-      assert.equal(rejected.status, 401, rejected.body);
-    }
-    assert.equal(releaseProjectionCalls(), 0);
     const before = digest();
     const diagnosis = await post("/v1/release/diagnose", headers, JSON.stringify({ contract: "release-diagnose-request/v1" }));
     assert.equal(diagnosis.status, 200, diagnosis.body);
@@ -349,7 +338,6 @@ test("every Media route rejects hostile transport before Media or canonical muta
     const before = digest();
     for (const route of routes) {
       const hostile: readonly Readonly<{ headers: Headers; path?: string; method?: string; status: number; code: string }>[] = [
-        { headers: json, status: 401, code: "AUTHORIZATION_REQUIRED" },
         { headers: { ...json, Authorization: "Basic abc" }, status: 401, code: "AUTHORIZATION_MALFORMED" },
         { headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, status: 401, code: "AUTHORIZATION_DUPLICATE" },
         { headers: { ...json, Authorization: `Bearer asn_v1_${"C".repeat(43)}` }, status: 401, code: "AUTHORIZATION_INVALID" },
@@ -468,8 +456,8 @@ test("actual listener resolves the durable active Theme and preserves the previe
   });
 });
 
-test("CMS documents and manifest assets apply their independent Fetch Metadata gate", async () => {
-  await withAuthoringApi(async ({ digest, log }) => {
+test("CMS documents and manifest assets reject foreign origin, credential transport, and malformed Fetch Metadata", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, log }) => {
     const before = digest();
     const document = await send("GET", "/cms/entries/new", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
     assert.equal(document.status, 200);
@@ -480,17 +468,25 @@ test("CMS documents and manifest assets apply their independent Fetch Metadata g
     assert.equal(siteRoutes.status, 200);
     assert.equal(log.at(-1)?.routeTemplate, "/cms/site/routes");
     assert.equal(document.headers["content-security-policy"] !== undefined, true);
+    const defaultBrowserDocument = await send("GET", "/cms/plugins", { Host: authority, Origin: origin });
+    assert.equal(defaultBrowserDocument.status, 200);
     const asset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
     assert.equal(asset.status, 200);
     assert.equal(asset.body, "export {};");
-    // module script fetch 實際會帶 exact same-origin Origin；只有 exact 值可通過。
+    const defaultBrowserAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: origin });
+    assert.equal(defaultBrowserAsset.status, 200);
     const moduleAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: origin, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
     assert.equal(moduleAsset.status, 200);
-    const crossOriginAsset = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Origin: "https://attacker.example", "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "script" });
-    assert.equal(crossOriginAsset.status, 403);
-    assert.equal(failureCode(crossOriginAsset), "ORIGIN_FORBIDDEN");
-    const wrongDestination = await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "style" });
-    assert.equal(wrongDestination.status, 403);
+    const rejected = [
+      await send("GET", "/cms/plugins", { Host: authority, Origin: "https://attacker.example", "Sec-Fetch-Site": "cross-site", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" }),
+      await send("GET", "/cms/entries", { Host: authority, Cookie: "session=1" }),
+      await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, Authorization: `Bearer ${apiKey}` }),
+      await send("GET", "/cms/assets/bootstrap-test.js", { Host: authority, "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Dest": "style" }),
+    ];
+    for (const response of rejected) {
+      assert.equal(response.status, 403);
+      assert.equal(failureCode(response), "ORIGIN_FORBIDDEN");
+    }
     const encoded = await send("GET", "/cms/entries/a%2Fb", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
     assert.equal(encoded.status, 404);
     const query = await send("GET", "/cms?ticket=leak", { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" });
@@ -499,32 +495,28 @@ test("CMS documents and manifest assets apply their independent Fetch Metadata g
   });
 });
 
-/** `Origin` 的省略是 GET 專屬的瀏覽器行為；把它擴到 state-changing method 會讓同源證明只剩 Fetch Metadata。 */
-test("authenticated /v1 routes admit originless same-origin GET but never an originless state change", async () => {
-  await withAuthoringApi(async ({ apiKey, digest }) => {
+/** local-only CMS 可省略 Bearer；仍在 Host、Cookie/query 與 Origin/Fetch Metadata gate 內。 */
+test("local CMS /v1 routes accept credential-free same-machine traffic and reject foreign origin", async () => {
+  await withAuthoringApi(async ({ digest }) => {
     const before = digest();
+    const json = { Host: authority, "Content-Type": "application/json" } as const;
     const fetchMetadata = { "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty" } as const;
-    const bearer = { Host: authority, Authorization: `Bearer ${apiKey}` } as const;
-    const previewBody = JSON.stringify({ contract: "preview-request/v1", selection: "current", subject: { entryId: "absent" } });
-    const json = { ...bearer, "Content-Type": "application/json" } as const;
-    for (const [name, response, status] of [
-      ["originless same-origin GET", await send("GET", "/v1/entries", { ...bearer, ...fetchMetadata }), 200],
-      ["exact Origin GET", await send("GET", "/v1/entries", { ...bearer, Origin: origin, ...fetchMetadata }), 200],
-      ["cross-site GET", await send("GET", "/v1/entries", { ...bearer, ...fetchMetadata, "Sec-Fetch-Site": "cross-site" }), 403],
-      ["foreign Origin GET", await send("GET", "/v1/entries", { ...bearer, Origin: "https://attacker.example", ...fetchMetadata }), 403],
-      ["originless same-origin POST", await post("/v1/preview", { ...json, ...fetchMetadata }, previewBody), 403],
-      ["exact Origin POST", await post("/v1/entries/absent/seo-analysis/nested", { ...json, Origin: origin, ...fetchMetadata }, previewBody), 404],
-      ["CLI POST without Fetch Metadata", await post("/v1/entries/absent/seo-analysis/nested", json, previewBody), 404],
-    ] as const) {
+    const responses = [
+      ["local browser read", await send("GET", "/v1/entries", { Host: authority, Origin: origin, ...fetchMetadata }), 200],
+      ["local CLI mutation", await post("/v1/entries/local/revisions", json, saveBody("local-revision", "/local")), 200],
+      ["foreign Origin GET", await send("GET", "/v1/entries", { Host: authority, Origin: "https://attacker.example", ...fetchMetadata }), 403],
+      ["foreign Origin POST", await post("/v1/entries/local/publish", { ...json, Origin: "https://attacker.example", ...fetchMetadata }, publishBody("local-revision", "publish-local")), 403],
+    ] as const;
+    for (const [name, response, status] of responses) {
       assert.equal(response.status, status, name);
       if (status === 403) assert.equal(failureCode(response), "ORIGIN_FORBIDDEN", name);
       assertResponseHeaders(response, name);
     }
-    assert.equal(digest(), before, "gate 的接受與拒絕皆不得改變 canonical state");
+    assert.notEqual(digest(), before, "local direct mutation 必須抵達 command seam");
   });
 });
 
-test("typed client mints one browser ticket and browser exchange receives the sole session secret response", async () => {
+test("typed client mints one browser ticket and browser exchange supports default browsers without Fetch Metadata", async () => {
   await withAuthoringApi(async ({ directory, apiKey }) => {
     const client = createLocalAuthoringClient({ homeDirectory: directory, xdgConfigHome: path.join(directory, "config") });
     const minted = await client.mintBrowserTicket();
@@ -534,7 +526,7 @@ test("typed client mints one browser ticket and browser exchange receives the so
     assert.equal(minted.value.ticket.includes(apiKey), false);
     const exchange = await fetch(`${origin}/_local/browser-session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin" },
+      headers: { "Content-Type": "application/json", Origin: origin },
       body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: minted.value.ticket }),
     });
     assert.equal(exchange.status, 200);
@@ -542,11 +534,22 @@ test("typed client mints one browser ticket and browser exchange receives the so
     assert.deepEqual(session, { contract: "browser-session/v1", generation: 1, apiKey });
     const replay = await fetch(`${origin}/_local/browser-session`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "same-origin" },
+      headers: { "Content-Type": "application/json", Origin: origin },
       body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: minted.value.ticket }),
     });
     assert.equal(replay.status, 401);
     assert.equal((await replay.text()).includes(minted.value.ticket), false);
+
+    const crossSite = await client.mintBrowserTicket();
+    assert.equal(crossSite.ok, true);
+    if (!crossSite.ok) return;
+    const rejected = await fetch(`${origin}/_local/browser-session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Origin: origin, "Sec-Fetch-Site": "cross-site" },
+      body: JSON.stringify({ contract: "browser-session-exchange/v1", ticket: crossSite.value.ticket }),
+    });
+    assert.equal(rejected.status, 403);
+    assert.equal((await rejected.json() as { code: string }).code, "ORIGIN_FORBIDDEN");
   });
 });
 
@@ -614,11 +617,10 @@ test("actual listener restores an immutable source as new current while preservi
   });
 });
 
-test("RestoreRevision transport rejects malformed and unauthenticated requests before command execution", async () => {
+test("RestoreRevision transport rejects malformed requests before command execution", async () => {
   await withAuthoringApi(async ({ apiKey, digest, log }) => {
     const before = digest();
     const cases: readonly Readonly<{ method: string; headers: Headers; body?: string; status: number; code: string }>[] = [
-      { method: "POST", headers: { "Content-Type": "application/json" }, body: restoreBody("source", "restored"), status: 401, code: "AUTHORIZATION_REQUIRED" },
       { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ contract: "restore-revision-request/v1", sourceRevisionId: "source", newRevisionId: "restored", operationId: "op", extra: true }), status: 400, code: "INVALID_REQUEST_BODY" },
       { method: "GET", headers: { Authorization: `Bearer ${apiKey}` }, status: 405, code: "METHOD_NOT_ALLOWED" },
       { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/plain" }, body: restoreBody("source", "restored"), status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
@@ -653,7 +655,6 @@ test("publish rejections stay outside the command seam and canonical state", asy
     const bearer = { ...json, Authorization: `Bearer ${apiKey}` } as const;
     const oversized = JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: "draft", operationId: "x".repeat(4_096) });
     const cases: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string; template?: AuthoringApiLogEvent["routeTemplate"]; remediation?: string }>[] = [
-      { name: "missing key", headers: json, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_REQUIRED" },
       { name: "malformed scheme", headers: { ...json, Authorization: "Basic abc" }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_MALFORMED" },
       { name: "malformed key shape", headers: { ...json, Authorization: "Bearer invalid" }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_MALFORMED" },
       { name: "duplicate key", headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, body: publishBody("draft"), status: 401, code: "AUTHORIZATION_DUPLICATE" },
@@ -742,7 +743,6 @@ test("every rejected transport shape fails closed with its contract status and m
     const bearer = { ...json, Authorization: `Bearer ${apiKey}` } as const;
     const oversized = JSON.stringify({ contract: "save-revision-request/v1", content: "x".repeat(4_194_305) });
     const cases: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string; remediation?: string }>[] = [
-      { name: "missing key", headers: json, body: saveBody("r", "/a"), status: 401, code: "AUTHORIZATION_REQUIRED" },
       { name: "malformed scheme", headers: { ...json, Authorization: "Basic abc" }, body: saveBody("r", "/a"), status: 401, code: "AUTHORIZATION_MALFORMED" },
       { name: "malformed key shape", headers: { ...json, Authorization: "Bearer asn_v1_short" }, body: saveBody("r", "/a"), status: 401, code: "AUTHORIZATION_MALFORMED" },
       { name: "duplicate key", headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, body: saveBody("r", "/a"), status: 401, code: "AUTHORIZATION_DUPLICATE" },
@@ -760,7 +760,6 @@ test("every rejected transport shape fails closed with its contract status and m
       { name: "oversized body", headers: bearer, body: oversized, status: 400, code: "REQUEST_BODY_TOO_LARGE", remediation: "SaveRevision request 不得超過 4 MiB。" },
       { name: "invalid json", headers: bearer, body: "{", status: 400, code: "INVALID_REQUEST_BODY" },
       { name: "percent-encoded entryId", path: "/v1/entries/a%2Fb/revisions", headers: bearer, body: saveBody("r", "/a"), status: 404, code: "ROUTE_NOT_FOUND" },
-      { name: "browser ticket rejects malformed body", path: "/_local/browser-tickets", headers: bearer, body: "{}", status: 400, code: "INVALID_REQUEST_BODY" },
       { name: "server proof rejects cookie", path: "/_local/server-proof", headers: { ...json, Cookie: "session=1" }, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       { name: "server proof rejects query", path: "/_local/server-proof?key=1", headers: json, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       // proof route 的上限是 4 KiB；remediation 不得沿用 SaveRevision 的 4 MiB 說明。
@@ -998,7 +997,6 @@ test("migration listener fails closed, returns a rich blocked envelope, and admi
     assert.equal(digest(), before);
 
     const rejected = [
-      { name: "missing credential", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { "Content-Type": "application/json", Host: authority }, body: "{}", status: 401, code: "AUTHORIZATION_REQUIRED" },
       { name: "cookie credential", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { ...headers, Cookie: "session=1" }, body: "{}", status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
       { name: "forwarded request", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { ...headers, Forwarded: "for=203.0.113.1" }, body: "{}", status: 421, code: "MISDIRECTED_REQUEST" },
       { name: "wrong media type", method: "POST", path: "/v1/content-types/note/migrations/preview", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "text/plain", Host: authority }, body: "{}", status: 415, code: "UNSUPPORTED_MEDIA_TYPE" },
@@ -1074,7 +1072,6 @@ test("every Content Type migration route rejects hostile transport before any mi
     const before = digest();
     for (const route of routes) {
       const hostile: readonly Readonly<{ name: string; method?: string; path?: string; headers: Headers; body?: string; status: number; code: string; remediation?: string }>[] = [
-        { name: "missing key", headers: json, status: 401, code: "AUTHORIZATION_REQUIRED" },
         { name: "malformed scheme", headers: { ...json, Authorization: "Basic abc" }, status: 401, code: "AUTHORIZATION_MALFORMED" },
         { name: "malformed key shape", headers: { ...json, Authorization: "Bearer asn_v1_short" }, status: 401, code: "AUTHORIZATION_MALFORMED" },
         { name: "duplicate key", headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, status: 401, code: "AUTHORIZATION_DUPLICATE" },

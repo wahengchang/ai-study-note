@@ -183,7 +183,7 @@ function bootstrapSecretResponse(body: BrowserTicketDto | BrowserSessionDto, sta
   return new Response(JSON.stringify(body), { status, headers: { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8" } });
 }
 function cmsDocumentResponse(assets: CmsAssets): Response {
-  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>CMS Workspace</title></head><body><div id="root"><main><h1>CMS 工作台已鎖定</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`;
+  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>CMS Workspace</title></head><body><div id="root"><main aria-busy="true"><h1>CMS 工作台載入中</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`;
   return new Response(html, { status: 200, headers: { ...CMS_DOCUMENT_HEADERS, "Content-Type": "text/html; charset=utf-8" } });
 }
 function cmsAssetResponse(asset: CmsAsset): Response {
@@ -199,18 +199,35 @@ function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
 }
 function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
 function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAsset["destination"] | undefined, method: string): boolean {
-  const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site");
-  if (route === "cms-document") return origin.length === 0 && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && (fetchSite[0] === "none" || fetchSite[0] === "same-origin") && one(headers, "sec-fetch-mode") === "navigate" && one(headers, "sec-fetch-dest") === "document";
-  // module script fetch 會帶 exact same-origin `Origin`；其餘 asset destination 則省略，兩者都必須是 same-origin。
-  if (route === "cms-asset") return (origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN)) && values(headers, "authorization").length === 0 && values(headers, "cookie").length === 0 && fetchSite.length === 1 && fetchSite[0] === "same-origin" && assetDestination !== undefined && one(headers, "sec-fetch-dest") === assetDestination;
+  const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site"); const fetchMode = values(headers, "sec-fetch-mode"); const fetchDestination = values(headers, "sec-fetch-dest");
+  const localOrigin = origin.length === 0 || (origin.length === 1 && origin[0] === ORIGIN);
+  if (route === "cms-document") {
+    return localOrigin
+      && values(headers, "authorization").length === 0
+      && values(headers, "cookie").length === 0
+      && (
+        (fetchSite.length === 0 && fetchMode.length === 0 && fetchDestination.length === 0)
+        || (fetchSite.length === 1 && (fetchSite[0] === "none" || fetchSite[0] === "same-origin") && fetchMode.length === 1 && fetchMode[0] === "navigate" && fetchDestination.length === 1 && fetchDestination[0] === "document")
+      );
+  }
+  if (route === "cms-asset") {
+    return localOrigin
+      && values(headers, "authorization").length === 0
+      && values(headers, "cookie").length === 0
+      && assetDestination !== undefined
+      && (
+        (fetchSite.length === 0 && fetchMode.length === 0 && fetchDestination.length === 0)
+        || (fetchSite.length === 1 && fetchSite[0] === "same-origin" && fetchMode.length <= 1 && fetchDestination.length === 1 && fetchDestination[0] === assetDestination)
+      );
+  }
   if (route === "proof") return origin.length === 0 && fetchSite.length === 0 && values(headers, "authorization").length === 0;
   if (route === "browser-ticket") return origin.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
-  if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && fetchSite.length === 1 && fetchSite[0] === "same-origin" && values(headers, "authorization").length === 0;
+  if (route === "browser-session") return origin.length === 1 && origin[0] === ORIGIN && (fetchSite.length === 0 || (fetchSite.length === 1 && fetchSite[0] === "same-origin")) && values(headers, "authorization").length === 0;
   if (!AUTHENTICATED_ROUTES.has(route)) return true;
   // Fetch 只在 non-GET/HEAD 或 CORS-tainted request 附加 `Origin`，故 same-origin `GET` 合法省略；
   // state-changing method 必定帶 `Origin`，因此省略在此一律拒絕，不讓它成為同源證明的繞道。
   const omittedOrigin = origin.length === 0 && (method === "GET" || method === "HEAD");
-  const browser = (omittedOrigin || (origin.length === 1 && origin[0] === ORIGIN)) && fetchSite.length === 1 && fetchSite[0] === "same-origin";
+  const browser = (omittedOrigin || (origin.length === 1 && origin[0] === ORIGIN)) && (fetchSite.length === 0 || (fetchSite.length === 1 && fetchSite[0] === "same-origin"));
   const cli = origin.length === 0 && fetchSite.length === 0 && [...headers.keys()].every((name) => !name.startsWith("sec-fetch-"));
   return browser || cli;
 }
@@ -322,6 +339,12 @@ function exactSiteRouteSelection(incoming: IncomingMessage): "current" | "publis
 async function authenticatedJson(context: Context, input: StartAuthoringApiInput, bodyLimit: number, oversizedRemediation: string, handle: (requestId: string, entryId: string, body: unknown) => Promise<Response>): Promise<Response> {
   const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
   if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
+  if (values(headers, "authorization").length === 0) {
+    if (!jsonMediaType(headers)) return errorResponse(requestId, "UNSUPPORTED_MEDIA_TYPE", 415);
+    const body = await boundedJson(context.req.raw, bodyLimit);
+    if (!body.ok) return errorResponse(requestId, body.code, 400, "AuthoringApi", body.code === "REQUEST_BODY_TOO_LARGE" ? oversizedRemediation : ERROR_REMEDIATION.INVALID_REQUEST_BODY);
+    return handle(requestId, context.req.param("entryId") ?? "", body.value);
+  }
   const parsedAuthorization = authorization(headers); if (!parsedAuthorization.ok) return errorResponse(requestId, parsedAuthorization.code, 401);
   const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
   try {
@@ -337,6 +360,7 @@ async function authenticatedRead(context: Context, input: StartAuthoringApiInput
   const requestId = randomUUID(); const incoming = (context.env as { incoming: IncomingMessage }).incoming; const headers = headersOf(incoming);
   const allowedSiteRouteQuery = exactSiteRouteSelection(incoming) !== undefined;
   if (values(headers, "cookie").length > 0 || (!allowedSiteRouteQuery && new URL(context.req.url).search.length > 0)) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
+  if (values(headers, "authorization").length === 0) return handle(requestId);
   const parsedAuthorization = authorization(headers); if (!parsedAuthorization.ok) return errorResponse(requestId, parsedAuthorization.code, 401);
   const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
   try { return admission.value.verifyBearer(parsedAuthorization.candidate) ? handle(requestId) : errorResponse(requestId, "AUTHORIZATION_INVALID", 401, "AuthoringCredential"); } finally { admission.value.dispose(); }

@@ -9,8 +9,6 @@ import { chromium } from "playwright";
 import { loadCmsAssets } from "../../../apps/authoring-api/index.js";
 
 const distRoot = resolve(import.meta.dirname, "../../../dist/cms");
-const ticket = `asn_bt_v1_${"a".repeat(43)}`;
-const apiKey = `asn_v1_${"b".repeat(43)}`;
 const digest = `sha256:${"c".repeat(64)}`;
 
 type Revision = Readonly<{ revisionId: string; content: Readonly<{ contract: "site-content/v1"; title: string; blocks: readonly Readonly<{ kind: "article"; text: string }>[]; seo: Record<string, never> }>; route: string }>;
@@ -29,7 +27,7 @@ function failure(code: string, message: string) {
   return { contract: "authoring-error/v1", requestId: "test-request", code, owner: "AuthoringApi", subjectIds: ["article-v1"], remediation: { kind: "message", message } };
 }
 
-test("authenticated CMS 完成 article-first history、save、preview 與 published-with-draft workflow", async () => {
+test("local CMS 完成 article-first history、save、preview 與 published-with-draft workflow", async () => {
   const assets = loadCmsAssets(distRoot);
   assert.notEqual(assets, undefined, "cms:build 必須先產生 Vite manifest");
   if (assets === undefined) return;
@@ -44,13 +42,7 @@ test("authenticated CMS 完成 article-first history、save、preview 與 publis
     const pathname = new URL(request.url ?? "/", "http://127.0.0.1").pathname;
     if (pathname === "/cms" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || /^\/cms\/entries\/[^/]+$/u.test(pathname)) {
       response.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-      response.end(`<!doctype html><html><head><title>CMS Workspace</title></head><body><div id="root"><main><h1>CMS 工作台已鎖定</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`);
-      return;
-    }
-    if (pathname === "/_local/browser-session") {
-      assert.deepEqual(await body(request), { contract: "browser-session-exchange/v1", ticket });
-      response.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" });
-      response.end(JSON.stringify({ contract: "browser-session/v1", generation: 1, apiKey }));
+      response.end(`<!doctype html><html><head><title>CMS Workspace</title></head><body><div id="root"><main aria-busy="true"><h1>CMS 工作台載入中</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`);
       return;
     }
     const asset = assets.read(pathname);
@@ -59,7 +51,7 @@ test("authenticated CMS 完成 article-first history、save、preview 與 publis
       response.end(asset.bytes);
       return;
     }
-    if (request.headers.authorization !== `Bearer ${apiKey}`) { response.writeHead(401).end(); return; }
+    assert.equal(request.headers.authorization, undefined);
     seenApiPaths.push(pathname);
     if (pathname === "/v1/entries" && request.method === "GET") {
       const items = current === undefined ? [] : [{ entryId, title: current.content.title, status: published === undefined ? "draft" : published.revisionId === current.revisionId ? "published" : "published-with-draft", current: { revisionId: current.revisionId, contentDigest: digest, normalizedRoute: current.route }, ...(published === undefined ? {} : { published: { revisionId: published.revisionId, contentDigest: digest, normalizedRoute: published.route } }) }];
@@ -107,7 +99,7 @@ test("authenticated CMS 完成 article-first history、save、preview 與 publis
   try {
     const context = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } });
     const page = await context.newPage();
-    await page.goto(`http://127.0.0.1:${address.port}/cms#${ticket}`, { waitUntil: "networkidle" });
+    await page.goto(`http://127.0.0.1:${address.port}/cms`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "CMS 文章工作台", exact: true }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/cms");
     assert.equal(await page.getByRole("main").count(), 1);
