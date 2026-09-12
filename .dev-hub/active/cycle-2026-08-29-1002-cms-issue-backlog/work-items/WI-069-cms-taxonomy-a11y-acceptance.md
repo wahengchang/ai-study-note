@@ -1,8 +1,8 @@
 ---
-id: WI-067
+id: WI-069
 status: done
 title: CMS taxonomy a11y acceptance hardening
-work_group: WG-034
+work_group: WG-050
 depends_on: ["WI-057"]
 ---
 
@@ -19,3 +19,7 @@ depends_on: ["WI-057"]
 ## Notes
 
 僅調整既有 taxonomy create 的可及性回饋與 production-composition browser gate。
+
+## Identifier repair
+
+2026-09-12 將重複的 `WI-067` 更正為 `WI-069`；其唯一直接依賴維持 WI-057。
