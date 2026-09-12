@@ -27,7 +27,9 @@
     "cms:open": "node --import tsx apps/authoring-api/open-cms-cli.ts",
     "cms:serve": "node --import tsx apps/authoring-api/cms-serve-cli.ts",
     "site:build": "node --import tsx apps/cli/site-build.ts",
-    "site:serve": "node --import tsx apps/public-ui/serve.ts"
+    "site:serve": "node --import tsx apps/public-ui/serve.ts",
+    "dev-hub:overview": "node --import tsx scripts/dev-hub-overview.ts",
+    "dev-hub:overview:check": "node --import tsx scripts/dev-hub-overview.ts --check"
   },
   "dependencies": {
     "@hono/node-server": "2.1.1",
