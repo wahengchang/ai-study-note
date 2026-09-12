@@ -3,7 +3,7 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, ContentTypeMigrationAdministration, DomainApplication, DomainApplicationFailure, ImportMediaRequest, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, RestoreRevisionSuccess, SaveRevisionSuccess, TaxonomyCommand } from "../../core/application/index.js";
+import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, ContentTypeMigrationAdministration, ContentTypeMigrationImpact, DomainApplication, DomainApplicationFailure, ImportMediaRequest, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, RestoreRevisionSuccess, SaveRevisionSuccess, TaxonomyCommand } from "../../core/application/index.js";
 import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
 import { parsePreviewInput, renderPreviewDocument, type ProjectionPreview } from "../../core/projection/index.js";
 import type { Context } from "hono";
@@ -13,7 +13,7 @@ import { releaseBuildSchema, releaseBuildRequestSchema, releaseDiagnosisSchema, 
 import { createBrowserBootstrapState } from "./browser-bootstrap.js";
 import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
-import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeMigrationCommandSchema, contentTypeMigrationOutcomeSchema, contentTypeMigrationProposalSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, mediaArchiveRequestSchema, mediaAssetDetailSchema, mediaCatalogSchema, mediaImportRequestSchema, mediaRestoreRequestSchema, mediaVersionReplacementReceiptSchema, mediaVersionRequestSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
+import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeMigrationBlockedErrorSchema, contentTypeMigrationCommandSchema, contentTypeMigrationOutcomeSchema, contentTypeMigrationProposalSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, mediaArchiveRequestSchema, mediaAssetDetailSchema, mediaCatalogSchema, mediaImportRequestSchema, mediaRestoreRequestSchema, mediaVersionReplacementReceiptSchema, mediaVersionRequestSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
 import type { BrowserSessionDto, BrowserTicketDto, MediaArchiveBlockedErrorDto, MediaRestoreRequiredErrorDto, PublishRevisionSuccessDto, RestoreRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 import type { ChangeRouteRequest, RouteChangeProposalRequest, SiteRouteGraphReadRequest } from "../../core/application/index.js";
 import { changeRouteCommandSchema, changeRouteSuccessSchema, routeChangeProposalRequestSchema, routeChangeProposalSchema, siteRouteGraphSchema } from "./transport-contracts.js";
@@ -345,6 +345,18 @@ function facadeError(requestId: string, error: Readonly<{ code: string; owner: s
   const status = authoringErrorStatuses(error.code)?.[0];
   return status === undefined ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : response({ contract: "authoring-error/v1", requestId, code: error.code, owner: error.owner, subjectIds: error.subjectIds, remediation: error.remediation }, status);
 }
+function migrationBlockedError(requestId: string, impact: ContentTypeMigrationImpact): Response {
+  const body = {
+    contract: "content-type-migration-blocked/v1" as const,
+    requestId,
+    code: "CONTENT_TYPE_MIGRATION_BLOCKED" as const,
+    owner: "ContentTypeMigration" as const,
+    subjectIds: [impact.sourceSchemaIdentity.schemaId],
+    remediation: { kind: "message" as const, message: "請補齊每個受影響 pointer 的 policy 與 moved Revision 的 replacement JSON。" },
+    impact,
+  };
+  return contentTypeMigrationBlockedErrorSchema.safeParse(body).success ? response(body, 422) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+}
 function projectionError(requestId: string, error: unknown): Response {
   if (error === null || typeof error !== "object") return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   const descriptor = Object.getOwnPropertyDescriptors(error);
@@ -572,16 +584,18 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   app.post("/v1/content-types/:schemaId/migrations/preview", async (context) => authenticatedJson(context, input, 1_048_576, "Content type migration request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
     const parsed = contentTypeMigrationProposalSchema.safeParse(body);
     if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.contentTypeMigrationAdministration.preview(context.req.param("schemaId") ?? "", parsed.data as never);
+    const result = await input.contentTypeMigrationAdministration.preview(context.req.param("schemaId") ?? "", parsed.data);
     if (!result.ok) return facadeError(requestId, result.error);
-    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, result.value.kind === "blocked" ? 422 : 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+    if (result.value.kind === "blocked") return migrationBlockedError(requestId, result.value);
+    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   }));
   app.post("/v1/content-types/:schemaId/migrations", async (context) => authenticatedJson(context, input, 1_048_576, "Content type migration request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
     const parsed = contentTypeMigrationCommandSchema.safeParse(body);
     if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.contentTypeMigrationAdministration.execute(context.req.param("schemaId") ?? "", parsed.data as never);
+    const result = await input.contentTypeMigrationAdministration.execute(context.req.param("schemaId") ?? "", parsed.data);
     if (!result.ok) return facadeError(requestId, result.error);
-    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, result.value.kind === "blocked" ? 422 : 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
+    if (result.value.kind === "blocked") return migrationBlockedError(requestId, result.value);
+    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   }));
   app.get("/v1/entries", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.authoringReadFacade.listEntries();

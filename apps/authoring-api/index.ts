@@ -61,6 +61,7 @@ export {
   contentTypeSchema,
   createContentTypeRequestSchema,
   contentTypeMigrationCommandSchema,
+  contentTypeMigrationBlockedErrorSchema,
   contentTypeMigrationOutcomeSchema,
   contentTypeMigrationProposalSchema,
   createTaxonomyRequestSchema,

@@ -9,10 +9,11 @@ depends_on: []
 # Content Type migration
 
 ## Outcome
-完成 [GitHub Issue #282](https://github.com/wahengchang/ai-study-note/issues/282) 的核准結果。
+交付 Content Type migration 的初版 preview／execution seam；#282 的後續 contract hardening 由 WI-070 完成。
 
 ## Acceptance
-Issue body 的 public seam、fail-closed 與 proof 均通過；未滿足依賴前不得建立 Work Group。
+
+初版 public seam、fail-closed 與 proof 均通過；後續 strict direct DTO、blocked envelope 與 collision status 的驗收見 WI-070。
 
 ## Notes
-完成：Content Type migration preview／execution、SQLite taxonomy evidence 與 route claim preservation 已交付；PR #369。
+初版 migration preview／execution、SQLite taxonomy evidence 與 route claim preservation 已由 PR #369 交付；WI-070 補齊 #282 的 remaining gaps。
