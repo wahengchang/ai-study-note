@@ -129,7 +129,7 @@ function bootstrapSecretResponse(body: BrowserTicketDto | BrowserSessionDto, sta
   return new Response(JSON.stringify(body), { status, headers: { ...SECURITY_HEADERS, "Content-Type": "application/json; charset=utf-8" } });
 }
 function cmsDocumentResponse(assets: CmsAssets): Response {
-  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>CMS Workspace</title></head><body><div id="root"><main><h1>CMS 工作台已鎖定</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`;
+  const html = `<!doctype html><html lang="zh-Hant-TW"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><title>CMS Workspace</title></head><body><div id="root"><main aria-busy="true"><h1>CMS 工作台載入中</h1></main></div><script type="module" src="/cms/${assets.bootstrapPath}"></script></body></html>`;
   return new Response(html, { status: 200, headers: { ...CMS_DOCUMENT_HEADERS, "Content-Type": "text/html; charset=utf-8" } });
 }
 function cmsAssetResponse(asset: CmsAsset): Response {

@@ -1,10 +1,16 @@
 import { execFileSync } from "node:child_process";
+import { pathToFileURL } from "node:url";
 
-const PORT = "43127";
+import { AUTHORING_HOST, AUTHORING_PORT } from "./origin.js";
+
+export type CmsKillCliIo = Readonly<{ stdout(text: string): void; stderr(text: string): void }>;
+
+/** 只認這兩個 local CMS entrypoint；其餘 listener 一律不送 signal。 */
+const CMS_ENTRYPOINTS = ["apps/authoring-api/cms-local-cli.ts", "apps/authoring-api/cms-serve-cli.ts"] as const;
 
 function listeningPids(): readonly number[] {
   try {
-    return execFileSync("lsof", ["-nP", `-iTCP:${PORT}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" })
+    return execFileSync("lsof", ["-nP", `-iTCP@${AUTHORING_HOST}:${AUTHORING_PORT}`, "-sTCP:LISTEN", "-t"], { encoding: "utf8" })
       .split("\n")
       .map((value) => Number(value))
       .filter((value) => Number.isSafeInteger(value) && value > 0);
@@ -16,16 +22,28 @@ function listeningPids(): readonly number[] {
 function isCmsProcess(pid: number): boolean {
   try {
     const command = execFileSync("ps", ["-p", String(pid), "-o", "command="], { encoding: "utf8" });
-    return command.includes("apps/authoring-api/cms-local-cli.ts") || command.includes("apps/authoring-api/cms-serve-cli.ts");
+    return CMS_ENTRYPOINTS.some((entrypoint) => command.includes(entrypoint));
   } catch {
     return false;
   }
 }
 
-function main(): void {
-  const pids = listeningPids().filter(isCmsProcess);
-  for (const pid of pids) process.kill(pid, "SIGTERM");
-  process.stdout.write(pids.length === 0 ? "CMS_KILL_OK stopped=0\n" : `CMS_KILL_OK stopped=${pids.length}\n`);
+export function runCmsKillCli(argv: readonly string[], io: CmsKillCliIo): number {
+  if (argv.length !== 0) { io.stderr("CMS_KILL_FAILED code=INVALID_ARGUMENTS\n"); return 2; }
+  let stopped = 0;
+  for (const pid of listeningPids().filter(isCmsProcess)) {
+    // listener 可能在 lsof 與 kill 之間結束，pid 重用則已被 isCmsProcess 擋下。
+    try { process.kill(pid, "SIGTERM"); stopped += 1; } catch { continue; }
+  }
+  io.stdout(`CMS_KILL_OK stopped=${stopped}\n`);
+  return 0;
 }
 
-main();
+export function cmsKillMain(): void {
+  process.exitCode = runCmsKillCli(process.argv.slice(2), {
+    stdout: (text) => { process.stdout.write(text); },
+    stderr: (text) => { process.stderr.write(text); },
+  });
+}
+
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) cmsKillMain();

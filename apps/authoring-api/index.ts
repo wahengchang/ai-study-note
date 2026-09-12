@@ -20,6 +20,8 @@ export type { SaveRevisionCliEnvironment, SaveRevisionCliIo } from "./save-revis
 export { cmsServeMain, runCmsServe } from "./cms-serve-cli.js";
 export type { CmsServeCliIo } from "./cms-serve-cli.js";
 export { runCmsLocalCli } from "./cms-local-cli.js";
+export { cmsKillMain, runCmsKillCli } from "./cms-kill-cli.js";
+export type { CmsKillCliIo } from "./cms-kill-cli.js";
 export type { CmsLocalCliEnvironment, CmsLocalCliIo } from "./cms-local-cli.js";
 export {
   API_KEY_PATTERN,

@@ -122,7 +122,7 @@ Real entrypoints, not test hosts or hand-built artifacts, are required:
 | `cms:build` | emits content-hashed assets plus manifest |
 | `cms:init` | builds CMS assets, then initializes an idempotent repository-external local demo runtime under `HOME/.local/share/ai-study-note-reset/cms` |
 | `cms:start` | starts the initialized local CMS; open `http://127.0.0.1:43127/cms` directly in any browser |
-| `cms:kill` | sends `SIGTERM` only to a local `cms:start` / `cms:serve` process listening on `127.0.0.1:43127`; does not terminate unrelated listeners |
+| `cms:kill` | accepts no arguments; sends `SIGTERM` only to a `cms:start` / `cms:serve` process listening on `127.0.0.1:43127`, and never to an unrelated listener on that port |
 | `cms:serve --database <path> --media-root <path> --installed-plugins-root <path> --installed-themes-root <path> --cms-assets-root <path>` | composes Application-only authoring transport |
 | `site:build --database <path> --media-root <path> --installed-plugins-root <path> --installed-themes-root <path> --artifacts-root <path>` | composes published Projection → Renderer → Delivery; only successful Delivery prints artifact digest/directory and sanitized sorted sidecar |
 

@@ -11,7 +11,7 @@ Don't tell me it works. Show me the behavior. 啟動實際 app，用可見（非
 ## 本專案的實際入口
 
 - 公開站台：先取得已驗證的 artifact，再以 `npm run site:serve -- --artifacts-root <絕對路徑> --artifact-digest <sha256:...> --base-path <base>` 啟動，然後用自行啟動的 headed Chromium（Playwright `chromium.launch({ headless: false })`）開啟它印出的 URL。
-- CMS：`npm run cms:build` 產生 bundle。官方入口 `npm run cms:open` 以 Playwright private pipe **headless** 啟動，且刻意不傳 profile、debug port 或帶 ticket 的 argv——那是 `apps/authoring-api/open-cms-cli.ts` 的安全設計，不得為了示範改動它。需要可見示範時，另外以 headed Chromium 重現同一條使用者路徑。
+- CMS：`npm run cms:init` 建置 bundle 並初始化 repository 外的 local runtime，`npm run cms:start` 啟動它，接著直接於瀏覽器開啟 `http://127.0.0.1:43127/cms`；`npm run cms:kill` 只停止本機 CMS listener。已不再有 `cms:open`、browser ticket 或 private Playwright launcher。需要可見示範時，以 headed Chromium 走同一條使用者路徑。
 - 資料庫：`npm run db:migrate -- --database <路徑>`。
 
 ## Blocker
