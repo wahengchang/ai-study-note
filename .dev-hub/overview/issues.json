@@ -1,6 +1,6 @@
 {
   "contract": "dev-hub-overview-issues/v2",
-  "captured_at": "2026-09-12T11:11:40+08:00",
+  "captured_at": "2026-09-13T17:57:19+08:00",
   "issues": [
     {
       "number": 262,
@@ -10,27 +10,7 @@
       "dependencies": []
     }
   ],
-  "cycles": [
-    {
-      "id": "cycle-2026-08-29-1002-cms-issue-backlog",
-      "status": "active",
-      "path": ".dev-hub/active/cycle-2026-08-29-1002-cms-issue-backlog"
-    }
-  ],
-  "work_items": [
-    {
-      "id": "WI-034",
-      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
-      "status": "in_progress"
-    }
-  ],
-  "work_groups": [
-    {
-      "id": "WG-042",
-      "cycle_id": "cycle-2026-08-29-1002-cms-issue-backlog",
-      "status": "in_progress",
-      "owner": "Main",
-      "pr": null
-    }
-  ]
+  "cycles": [],
+  "work_items": [],
+  "work_groups": []
 }
