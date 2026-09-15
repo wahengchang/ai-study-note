@@ -13,6 +13,58 @@
 - Content、Persistence、Taxonomy、Application、SiteDefinition、Media、PluginHost、ThemeHost、Projection、Renderer、Delivery 與 CLI 各有 owner。Taxonomy 只可依賴 Persistence 與 Foundation；Application、Projection 可透過其 public entry 讀取 Taxonomy。Plugin/Theme repository source 不是 trusted/installed/active root；installed runtime 是 repository-external、realpath-validated、self-contained ESM。
 - #308 是 pre-launch clean cutover：遷移所有 caller、fixture、test 與 wire；不留 `v2`、舊 parser branch、alias 或 deprecated path。它不增加 marketplace、catalog/history/delete、auto-save、deploy、off-origin canonical、social image、raw JSON-LD 或 custom robots text。
 
+## Approved target — current-only CMS/Core data reset（尚未實作）
+
+### Status, authority and clean cutover
+
+- Owner 於 2026-09-15 核准 CMS、Core/Application、Persistence 與 Authoring API 改採 current-only mutable data model。本節是待實作 target；下方 `Implemented baseline` 與程式碼／測試仍描述現行行為，直到 clean-cutover Work Item 完成。
+- 新模型落地時會完整取代 authoring-side `Revision` history、`RestoreRevision`、current/published 雙 snapshot、獨立 Publish command、schema-version migration、raw JSON Schema Content Type administration、media asset versions、media archive/restore，以及 #315 的 two-step Publish 與 current/published preview。所有 caller、fixture、test、文件與 route 必須同批遷移，再移除 obsolete contract；不得保留 alias、shim 或 deprecated path。
+- Content-hashed public artifact 的 immutable/atomic delivery 性質不因本節改變；Projection、Renderer、archive page、canonical public URL、Release、Public UI 與視覺重設不在本 target。
+
+### Shared identity, slug and concurrency
+
+- 每個 Content Type、entry、taxonomy、term 與 media asset 都有 server-generated immutable stable ID 與 user-facing mutable `slug`。所有 entity kind 共用一個 global slug namespace；比較鍵採 Unicode NFC、full case-fold、再 NFC。
+- Server 從 label、title 或 filename 提供保留 Unicode 的 slug 建議值。衝突時必須在同一 transaction 配置最小可用的 `-2`、`-3` 後綴並回傳實際 slug。Rename 或 real Delete 立即釋放舊 slug；沒有 redirect 或 tombstone，之後可被重用。
+- 每個 current mutation 都攜帶 `expectedStateDigest`。Application 必須在任何 callback 或 durable write 前比較 CAS；stale state 回 HTTP 409 的 stable failure，整個 transaction 零寫入，不得自動重試或 merge。
+
+### Content Type definition and content payload
+
+- `content-type-definition/v1` 是單一 mutable definition record；`content-type-catalog/v1` 是 current catalog。Definition Save 接受 complete replacement 加 `expectedStateDigest`，回傳 server 實際配置的 slug 與新 state digest。沒有 definition history、draft、publish 或 migration。
+- 第一版不提供 Content Type deactivate 或 delete；`showInMenu` 只是 navigation visibility，不改 definition 的 active/manageable 狀態。
+- Content Type 已有 entry 後只允許可證明 non-breaking 的變更：修改 type/menu/field label、help、order、`showInMenu`、`showInGenericTemplate`；新增 optional field或 select option；放寬文字長度、數值、MIME 與 media count。禁止改 stable ID/type、刪除 field/option、optional 改 required、縮緊 validation、移除 taxonomy attachment；違規 Save fail closed，definition 與 entries 不變。
+- 每個 Content Type 固定擁有 title、body、slug、excerpt、featured media、Categories、Tags、SEO、status 與 `publishedAt`。Title、slug 與非空 body 每次 Save 必填。Categories cardinality 為 `0..1`，Tags 為 `0..many`，兩者自動附加每個 Content Type。
+- Custom field 只支援 text、textarea、number、boolean、URL、date、datetime、single-select、multi-select、single-media 與 multi-media。Group／field 有 immutable stable ID 與明確排序；validation 只含 required、文字長度、數值範圍、stable option IDs、media MIME 與最大數量。不支援 relationship、repeater、nested group 或 conditional logic。
+- Custom required field 可在 draft 缺少，但 status=`published` 的 Save 必須完整驗證。Default 只初始化新 entry，不回填既有資料。`showInGenericTemplate` 預設 false，只保存未來 public rendering intent。
+- `cpt-content/v1` 是新 content payload：Content Type stable ID、固定 system fields、#315 已核准／已實作的現有 body-block payload、按 field ID 排序的 custom values 與 SEO。Taxonomy binding 與 media reference 是同一 entry state 的受驗證關聯 evidence，不再依附 Revision ID。Body editor 技術不重開選型；#315 只保留可操作 CMS 與 browser／a11y precedent。
+- Content Type Builder 永遠出現在 CMS navigation。每個 `showInMenu=true` 的 Content Type 另產生動態內容選單；false 只隱藏該選單，catalog 與 direct content URL 仍可管理。新安裝與既有 runtime 都必須 seed active Article Content Type（slug `articles`）及 Categories／Tags。
+
+### Entry lifecycle, catalog and deletion
+
+- `cpt-entry/v1` 是單一 mutable entry record，status 僅有 `draft|published`。Save request 攜帶 complete replacement、status 與 `expectedStateDigest`，同時覆寫 content 與 status；沒有 `published-with-draft`、獨立 Publish、Revision history 或 Restore。
+- status=`published` 且 publishable content digest 實質改變時，transaction 以 UTC 現在時間覆寫 `publishedAt` 與 last-published digest；相同 publishable bytes 的重複 Save 不改時間。改回 draft 保留最後一次 `publishedAt`；目前是否發布只由 status 決定。從未發布者可沒有 `publishedAt`。
+- Entry Delete request 必須帶 `expectedStateDigest`，並以一個 transaction real delete entry、slug claim、taxonomy/media binding 與 authoring route evidence。Published entry 可直接 Delete。Command 只刪 active CMS state，不承諾清除舊 immutable artifacts。
+- `legacy-entry/v1` 可讀、可 real Delete，但不可 Save。Legacy cutover 沒有 published selection 時保留 current 為 draft；current 等於 published 時保留為 published；`published-with-draft` 必須逐 entry 選 `keep-published-as-published`、`keep-current-as-draft` 或 `keep-current-as-published`。所有 divergent choice 齊備後才可原子 cutover；舊 Revision history 不遷移。
+- Entry catalog 提供 title／slug search、status filter、taxonomy filter 與 server-side pagination。Exact read-only `POST /v1/content-types/:typeId/entries/search` 接受 `entry-search-request/v1` 的 type ID、search、statuses、taxonomy filters 與 page；response 固定 page size 20，包含 page、total items、total pages、items 與 state digest。
+
+### Taxonomy current registry
+
+- `taxonomy/v2` 是 current-only reusable registry。Categories 固定 hierarchical，Tags 固定 flat；custom taxonomy 建立後不得改 `hierarchical`。Content Type attachment 保存 cardinality、required 與 `allowTermCreation`。
+- Term parent 使用 stable term ID。Missing parent、parent cycle、invalid attachment 或 cardinality 必須回 stable failure 且零寫入；child assignment 不推導 parent binding。
+- Retire 保留既有 binding，但禁止新選取。Delete 只允許零 entry usage且零 children；otherwise 回完整 usage／children evidence 且零寫入。Term public path、archive 與 descendant aggregation留待 public follow-up。
+
+### Media current asset and streaming transport
+
+- `media-asset/v2` 是單一 mutable record，包含 title、slug、可空 alt text、caption、description，以及唯讀 original filename、sniffed MIME、byte length、checksum、image dimensions、uploadedAt 與 thumbnail evidence。Raster image、PDF、audio、video、plain text 可接受；SVG、HTML、JavaScript 與 executable 必須拒絕。Raster image 產生 content-addressed thumbnail；其他檔案只顯示 metadata。
+- Media import／replace 使用單次 streaming multipart request，raw file ceiling 為 400 MiB，multipart metadata envelope ceiling 為 64 KiB；不得將整檔讀進 JavaScript memory 或以 Base64 JSON 傳輸。Browser queue 最多兩檔同時進行，每檔顯示 progress、cancel、retry；retry 從 byte 0 重來，不宣稱 resumable upload。
+- Server 流程必須是 staging → MIME sniff／size／checksum／thumbnail → atomic promote。Abort、validation failure 或 promote 前 fault 要清除 staging 且不得建立 record；任何 response、diagnostic 或 log 都不得洩漏 host path、staging/object key、media bytes 或 raw cause。
+- Metadata Save、Replace 與 Delete 都使用 stable asset ID 及 state digest CAS。任一 draft 或 published entry 引用時禁止 Replace／Delete並回完整 usage；只有零引用時可 streaming Replace 或 real Delete。Featured media 與 custom media field 都精確指向 current asset stable ID，並在 entry Save 驗證 MIME 與 count。
+
+### CMS and Authoring API boundary
+
+- CMS entry document routes clean cutover 為 `/cms/content/:typeId`、`/cms/content/:typeId/new`、`/cms/content/:typeId/:entryId`；default Article 也使用這組 routes。`/cms/entries*` 必須移除且不 redirect。
+- `apps/authoring-api` 仍是唯一 authoring transport composition root，保留 finite exact route、loopback-only、same-origin、no-cache、sanitized error/log 與 Application-only dependency boundary。新的 JSON mutation 只接受 exact POST command DTO；streaming media bytes route 是唯一 multipart 例外。
+- Application contract test 是 atomic/CAS/data invariant 的最高可觀察 seam；Authoring API contract test 驗 exact JSON／multipart／limit；真實 `cms:start` Chromium journey 驗 CMS 功能操作及既有 keyboard、focus、a11y precedent。不得以 component props、field forwarding、source text 或純 DOM 存在作為行為證據。
+
 ## Dev Hub overview v2
 
 - `.dev-hub/overview/config.json` is exact `{contract:"dev-hub-overview-config/v2",github_repository:"owner/repository"}` and the sole repository identity. `issues.json` is exact `{contract:"dev-hub-overview-issues/v2",captured_at,issues,cycles,work_items,work_groups}`; Issue has verified same-repository URL and recursive `dependencies`; Cycle has exact `.dev-hub/active/<cycle_id>` path; Work Group owns `owner` and optional verified same-repository PR URL. `links.json` is exact `{contract:"dev-hub-overview-links/v2",captured_at,items}` and each item is exact `{issue_number,cycle_id,work_item_id,work_group_id}`. Links are one-to-one and must resolve within one Cycle.
