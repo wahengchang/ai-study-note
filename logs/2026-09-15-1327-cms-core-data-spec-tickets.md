@@ -8,7 +8,7 @@
 
 - `contracts/README.md` 新增明確標示尚未實作的 current-only CMS/Core approved target，保留現行 implemented baseline。
 - `specs/cms-core-data-reset.md` 定義 56 個 user stories、external contracts、testing seams 與 out-of-scope boundary。
-- `docs/INDEX.md` 新增 contract→spec→Persistence/Application/API/CMS→tests 的工作路由；`MEMORY.md` 保存長期 Owner 決策並 supersede 新 CPT 的 schema migration 路徑。
+- `docs/INDEX.md` 新增 contract→ADR→spec→Persistence/Application/API/CMS→tests 的工作路由；`docs/adr/2026-09-15-current-only-cms-core-data.md` 保存長期 Owner 決策並 supersede 新 CPT 的 schema migration 路徑。`MEMORY.md` 維持長期原則與 ADR 指標。
 - 功能稽核 `draft_2026-09-14/pages-audit/uiux-todo-report.md` 同步為 current-only CMS/Core scope；此 dated draft 受 repository ignore 規則管理，只是本工作樹的本地稽核 artifact。
 - 專用 active Cycle 建立 WI-001～WI-009；每張為未認領的 vertical slice，帶真實 blocking edges、可觀察 Acceptance、規格與 #315 precedent 連結。未建立 Work Group、GitHub Issue 或 PR。
 
@@ -30,7 +30,7 @@
 
 ## 已知限制／後續
 
-- 本工作只交付 contract、spec、文件路由、active Cycle 與 Work Items；沒有產品程式碼、Public pipeline、視覺、Work Group、GitHub Issue 或 PR。
+- 本工作只交付 contract、ADR、spec、文件路由、active Cycle 與 Work Items；沒有產品程式碼、Public pipeline、視覺、Work Group 或 GitHub Issue。
 - 後續從 frontier WI-001 開始使用 `/do-work`；WI-003、WI-004、WI-005 在 blockers 完成後可平行，WI-009 最後做 clean cutover。
 - `draft_2026-09-14/` 依 `.gitignore` 不會進入 branch diff；其同步版本留在本規格 worktree作本地參考。
 
@@ -38,4 +38,4 @@
 
 - Branch：`spec/cms-core-data-reset`
 - Worktree：`.dev-hub/worktrees/cms-core-data-reset`
-- PR：待建立
+- PR：[規格與 Work Items #384](https://github.com/wahengchang/ai-study-note/pull/384)（已合併）、[ADR 與文件路由 #385](https://github.com/wahengchang/ai-study-note/pull/385)
