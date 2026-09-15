@@ -38,6 +38,7 @@
 - [contracts/README.md](../contracts/README.md) 是已核准範圍與設計約束的唯一 contract，供尚未實作或準備變更的工作使用。
 - [specs/cms-basic-contracts-v1/](../specs/cms-basic-contracts-v1/) 只拆分已核准工作，不得擴張範圍。
 - [MEMORY.md](../MEMORY.md) 只保存長期原則與文件指標。
+- [ADR](adr/README.md) 保存已確認、跨時間影響架構邊界或工作方式的 Owner 決策；每份 ADR 連回其 canonical contract 或工作摘要。
 - [.dev-hub/active/](../.dev-hub/active/) 是進行中狀態；[logs/](../logs/) 是完成 provenance；兩者都不是行為或 architecture contract。
 
 ## 目前工作
