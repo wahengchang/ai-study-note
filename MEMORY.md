@@ -1,37 +1,16 @@
-# CMS 專案宣言（JS/TS 全新打造版）
+# CMS 專案長期原則
 
-> 我們要從零打造一個全新的 CMS 平台，用 JavaScript／TypeScript 全端實作。
-> 精神上參考 WordPress「核心穩定、擴充在邊緣」的哲學，但這是我們自己的程式碼、自己的 Hook 系統、自己的 Plugin/Theme 機制——不是架在別人的 WordPress PHP 之上。
-> 核心保持穩定、簡單、可預期；能力透過清楚、受控、可相容的擴充點增加。
+本專案自建 JavaScript／TypeScript local-first CMS：authoring canonical state 與 media 留在本機，公開端只服務 published projection 的 immutable static artifact。它借鏡 WordPress 的穩定核心與受控擴充哲學，但不採用其程式碼或 runtime。
 
-面向從零開始這個平台的架構師與開發同事：定義怎麼切 core / plugin / theme、怎麼設計 hook、怎麼處理資料與相容性、怎麼交付變更的共同準則。
+## 架構邊界
 
-> **先釐清一個容易誤會的地方**：這份文件裡「核心穩定」「核心不可碰」不是說你們不能開發或修改核心——核心正是這個專案最主要的開發標的，從第一行程式碼到後續每個版本都是你們自己寫、自己演進的。真正被限制的是：**一旦核心對外公開的東西（API、hook、資料結構）被 plugin 或其他模組開始依賴，就不能說改就 改、沒版本化就直接打破。** 開發核心、擴充核心、重構核心，都是分內工作；破壞已經被依賴的契約而不打招呼，才是這份宣言要擋下的事。
+- Core 是最小可信任內核；共通且長期必要的 domain logic 可進 core，特定產品能力經 Plugin／Theme 與 versioned Hook API 擴充。
+- 已公開的 API、Hook、資料結構與 wire contract 不可無版本破壞；需要新能力時先定義明確 contract。
+- Plugin／Theme 不得繞過 owner boundary、Persistence、Media 或 transaction；失敗保留結構化、可行動且去敏的結果。
+- 優先使用無聊、可預期的設計，不為假設中的需求預建抽象；安全、可觀測與可修復是功能本身。
 
+## 工作方式
 
-
-## 真理
-
-1. **核心是我們自己寫的最小可信任內核，沒有人替我們維護它。** 它必須無聊、穩定、被充分測試，不為每個需求長特例。
-2. **選擇性或特定場域的能力走 Plugin / Theme + Hook API。** 所有安裝環境共通且長期必要的 domain logic 可以進 core；特定產品／產業邏輯不寫死進核心。
-5. **慣例優先於設定。** 提供合理的預設 content model 與預設權限，複雜設定只在真正需要差異化時開放。
-7. **簡單是對未來工程師的責任。** 不為「未來可能要支援的功能」預先蓋一堆抽象框架。
-8. **安全、可觀測、可回退是平台功能本身。** 認證授權、驗證、必要的審計紀錄、DB migration 與 plugin 版本檢查必須隨相關能力設計與交付，不能事後補強。
-
-## 規則
-
-1. 不把 plugin 才需要的功能塞進 core。
-2. 不用 try/catch 吞掉錯誤裝作成功；失敗要往外拋出結構化錯誤。
-3. 腳本為每角色人員準備好，讓團隊快速進入狀態，Such As DB、Build/deploy、Dev 。
-
-## 工作方法
-
-1. **先定義 contract**：這個功能要暴露什麼 API/hook/資料結構，寫成 TypeScript type 或 OpenAPI/GraphQL schema。
-2. **設計最小垂直切片**：API + migration + 測試 + 文件一次做完，不分批留尾巴。
-3. **用真實情境測試**：正常路徑、權限不足、資料衝突、plugin 停用時的行為都要測；測試盯著對外契約，不測內部實作細節。
-
-5. **保持可回退或可修復。** 每次上線前能講清楚改了什麼、誰負責、怎麼監控、怎麼緊急關閉；應用程式可回退，資料庫則依 migration 策略安全地前移修復或回復資料。
-
-## 已核准 Content Type migration contract
-
-2026-09-12 Owner 決定：`content-type-migration/v1` 採每個 source Revision 的完整 replacement JSON，不採 patch、script 或 mapper registry；request 明確指定 `sourceVersion`，target 固定為同 `schemaId` 的下一版；partial／invalid mapping 以可消費的 rich migration report 回 HTTP 422。正式 boundary 見 [contracts/README.md](contracts/README.md) 的 Application、HTTP and CMS 條款。
+- 先由 `contracts/README.md` 定義核准 scope，再交付最小垂直切片：API/contract、migration、測試與文件一起完成。
+- 測試真實 consumer 可觀察的正常、拒絕、衝突與復原行為，不測 private plumbing。
+- 長期 Owner 決策記入 [ADR](docs/adr/README.md)；已核准 migration boundary 見 [contracts/README.md](contracts/README.md) 與 ADR，不在本檔重述 wire 細節。

@@ -1,52 +1,32 @@
 # AI Study Note Reset — 專案設定
 
-此專案從零打造 JavaScript／TypeScript CMS 平台，並由 published projection 產生 AI 學習筆記的公開靜態網站。
-- 將 `draft/`、`source-drafts/`、`dev-hub-*/` 與 `project-*/` handoff artifact 視為唯讀歷史參考資料。不得編輯、刪除、將其發布為網站內容，或在未經新的 Owner 決策下從中抽取需求。
+本專案是 JavaScript／TypeScript local-first CMS；公開網站只服務 published projection 產生的 static artifact。
 
-## 專案持久紀錄
+## Authority and records
 
-- `MEMORY.md` 保存跨工作階段仍有效的專案脈絡。開始涉及既有決策、架構或工作方式的工作前先閱讀；僅記錄已確認且具長期價值的資訊。
-- 任何 CMS／renderer 規劃、issue 或實作前必須閱讀 `contracts/README.md`。該檔是已核准範圍與設計約束的唯一 contract；程式碼與對應測試是已實作行為的 SSOT。已核准範圍或約束的變更只改該檔。
-- `logs/` 根目錄只保留 `README.md` 與三份主題摘要；新增大型工作不得建立逐次 log。長期 Owner 決策記入 `docs/adr/`；逐次交付、review 與完整驗證以 Git history、PR、completed Dev Hub summary 與程式測試追溯。
-- 「大型工作」的跨階段交接資訊只更新最相關的主題摘要；已核准範圍改 `contracts/README.md`，可觀察行為改程式與測試，避免重複記錄。
+- `draft/`、`source-drafts/`、`dev-hub-*/`、`project-*/` 是唯讀歷史 handoff；不得修改、刪除、發布或重新抽取需求，除非 Owner 明確決定。
+- 規劃、issue、CMS/renderer 實作前先讀 `MEMORY.md` 與 `contracts/README.md`。contract 是核准範圍與跨 owner boundary 的唯一來源；程式與對應測試是已實作行為 SSOT；改核准範圍只改 contract。
+- `logs/` 根目錄固定 README 加三份主題摘要；completed Cycle 的跨階段摘要更新至對應主題檔。長期 Owner 決策進 `docs/adr/`；逐次交付、review 與完整驗證從 Git/PR、completed Dev Hub summary 與程式測試追溯。
+- 大型工作先依 `docs/dev-hub-workflow.md` 操作 `.dev-hub/active/`；completed Cycle 必須移除 active state。純問答、小型修正與唯讀查詢不建立 Cycle。
 
-### Dev Hub 大型工作流程
+## Git
 
-- 只有上述定義的「大型工作」必須在執行前閱讀並遵循 `docs/dev-hub-workflow.md`；純問答、小型修正與唯讀查詢不建立 Cycle。該檔是 `.dev-hub/` 狀態流程的唯一操作入口。
-- `.dev-hub/active/` 只保存進行中的 Cycle 協作狀態。Cycle 完成時整包刪除，永久摘要改寫入上述 `logs/` 工作紀錄；因此查詢已完成工作一律看 `logs/`，不看 `.dev-hub/`。
+- `site-reset` 是整合分支；只有本機 clean 且與 `origin/site-reset` 同步時，才能自它建立 feature branch/worktree。
+- 所有進入 `site-reset` 的變更走 PR/merge；不得 cherry-pick 已合併 feature/integration commit。
+- housekeeping 清理已合併分支後，確認 `site-reset` clean 並 `git pull --ff-only origin site-reset`。
 
-## Git 分支策略
+## Engineering documentation
 
-- `site-reset` 是儲存庫的預設主整合分支。
-- 不得將已合併 feature 或 integration branch 的提交 cherry-pick 至 `site-reset`；所有進入該分支的變更必須遵循核准的 PR／merge 流程。
-- 每次 housekeeping 清理已合併分支後，必須確認 `site-reset` worktree 乾淨，並以 `git pull --ff-only origin site-reset` 同步；dirty worktree 或 fast-forward 失敗會阻擋下一個工作。
-- 只有本機 `site-reset` 與 `origin/site-reset` 相同時，才能建立下一個 branch 或 worktree。
+- 修改程式碼前讀 `docs/INDEX.md` 的相關路徑、public entry 與測試。
+- 行為、邊界、資料流、公開介面或運維程序變更時，同步更新受影響文件與必要的鄰近 flow；文件不可把規劃誤寫為現況。
 
-## 專案文件
+## AI sources
 
-修改程式碼前：
+- 規則只改 `.rulesync/rules/`，技能只改 `.rulesync/skills/`；根目錄 `AGENTS.md`、`CLAUDE.md` 與 agent skill directories 都是 generated output。
+- 修改 `.rulesync/` 後執行 `npm run sync:ai`，提交生成輸出，並以 `npm run check:ai-sync` 驗證。
 
-1. 閱讀 `docs/INDEX.md`。
-2. 只跟隨與當前工作相關的任務或 domain 路徑。
-3. 在作出假設前，閱讀路徑列出的程式入口與相關測試。
+## Collaboration
 
-程式碼與對應測試是已實作行為的 SSOT；已核准範圍與設計約束以 `contracts/README.md` 為準。文件不得把規劃誤寫成現況。
-
-文件、決策背景、ASCII 圖與資料夾 `README.md` 的判斷與維護，必須遵循 `docs/INDEX.md` 的「文件與圖表原則」及「維護規則」。程式碼變更行為、邊界、資料流、公開介面、維運方式或既有程序時，必須在同一變更更新受影響的文件與鄰近 ASCII flow 註解。
-
-## AI 指令與技能同步
-
-- AI 指令與技能的 canonical source 只在 `.rulesync/`：規則寫在 `.rulesync/rules/`，技能寫在 `.rulesync/skills/<name>/SKILL.md`（同目錄的其他檔案會一併同步，可作為延伸參考）。
-- 根目錄 `AGENTS.md`、`CLAUDE.md` 與 `.agents/`、`.claude/`、`.opencode/` 下的 skills 都是 `npm run sync:ai` 的生成輸出，不得直接編輯；只存在於生成輸出、沒有 `.rulesync/` 來源的技能，會在下一次同步被刪除。
-- 變更 `.rulesync/` 後必須執行 `npm run sync:ai` 並一併提交生成輸出；`npm run check:ai-sync` 用來驗證輸出已同步。
-
-## 開發溝通語言
-
-- 開發溝通一律使用臺灣繁體中文（`zh-TW`），包括 AI 回覆、計畫、程式碼註解、提交訊息與文件；程式碼識別字與既有外部 API／產品名稱除外。
-
-## OMP 任務路由
-
-- 當平台 delegation policy 允許且確有必要委派時，依工作類型選擇最精確的 agent：唯讀研究使用 `scout` 或 `librarian`、UI/UX 使用 `designer`、程式碼審查使用 `reviewer`、安全審查使用 `security-reviewer`、機械性工作使用 `sonic`、實作使用 `task`。
-- 專案本地模型路由定義於 `.omp/config.yml`；當已設定的 role 適合工作時，不得臨時覆寫 agent 的模型。
-- 主 session 不會依任務語意自行切換模型；工作需要不同模型能力時，使用綁定 role 的 subagent。
-一般程式碼審查使用原生 `reviewer`；跨模型第二意見額外使用 `reviewer-deepseek`，不得取代原生 reviewer。涉及 core module 時，實作前固定依 `.rulesync/subagents/` 的責任邊界，由兩個職責不同且均非 owner 的專案子代理交叉審查並將結論納入實作計畫；`.codex/agents/` 僅為 generated view，platform reviewer 或 `/ai-x` 的跨模型第二意見不得替代此要求。安全邊界再加 `security-reviewer`。
+- 開發溝通、註解、文件與 commit message 使用臺灣繁體中文；識別字與外部 API 名稱除外。
+- 有必要委派時，研究用 `scout`/`librarian`、UI 用 `designer`、實作用 `task`、機械工作用 `sonic`、一般審查用 `reviewer`、安全邊界加 `security-reviewer`；遵循 `.omp/config.yml` 的 role model。
+- core module 實作前，依 `.rulesync/subagents/` 由兩個不同且非 owner 的專案子代理交叉審查；跨模型第二意見可補充，但不得取代此要求。
