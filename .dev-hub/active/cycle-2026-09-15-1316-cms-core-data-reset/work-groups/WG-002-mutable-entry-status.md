@@ -6,7 +6,7 @@ work_items: [WI-002]
 owner: domain_application_engineer
 branch: wg-002-mutable-entry-status
 worktree: .dev-hub/worktrees/mutable-entry-status
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/388
 ---
 
 ## Delivery
