@@ -66,6 +66,7 @@ const shippedMigrationFilenames: readonly string[] = [
   "0010-add-plugin-settings-state.sql",
   "0011-add-taxonomy-storage.sql",
   "0012-add-current-content-types-and-global-slugs.sql",
+  "0013-add-current-entries.sql",
 ];
 
 // 刻意不在 module top-level 讀檔：讀取失敗必須成為 structured failure，

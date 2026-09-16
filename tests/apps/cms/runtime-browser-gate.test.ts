@@ -614,10 +614,10 @@ test("真實 CMS runtime 建立 current Content Type 並呈現 server slug", asy
     const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
     await page.goto(`${runtime.value.origin}/cms/content-types`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "內容類型全覽", exact: true }).waitFor();
-    const articleMenu = page.getByText("文章（內容功能將於下一階段啟用）", { exact: true });
-    await articleMenu.waitFor();
-    assert.equal(await articleMenu.getAttribute("aria-disabled"), "true");
-    await page.getByRole("link", { name: "文章", exact: true }).waitFor();
+    const navigationEntries = page.locator('nav[aria-label="CMS 導覽"] a[href^="/cms/post"]');
+    await navigationEntries.first().waitFor();
+    assert.deepEqual(await navigationEntries.allInnerTexts(), ["文章"]);
+    assert.equal(await page.locator('nav[aria-label="CMS 導覽"] a[href^="/cms/post"][aria-current="page"]').count(), 0);
     await page.getByRole("link", { name: "建立內容類型", exact: true }).click();
     await page.getByRole("heading", { name: "建立內容類型", exact: true }).waitFor();
     await page.getByRole("textbox", { name: "名稱", exact: true }).fill("Categories");
@@ -641,7 +641,7 @@ test("真實 CMS runtime 建立 current Content Type 並呈現 server slug", asy
     await page.getByRole("checkbox", { name: "顯示於選單", exact: true }).uncheck();
     await page.getByRole("button", { name: "儲存內容類型", exact: true }).focus();
     await page.keyboard.press("Enter");
-    await page.getByText("Categories 更新（內容功能將於下一階段啟用）", { exact: true }).waitFor({ state: "detached" });
+    await navigationEntries.getByText("Categories 更新", { exact: true }).waitFor({ state: "detached" });
     await page.goto(`${runtime.value.origin}${direct}`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "內容類型：Categories 更新", exact: true }).waitFor();
     await page.goto(`${runtime.value.origin}/cms/content-types/new`, { waitUntil: "networkidle" });
@@ -654,9 +654,188 @@ test("真實 CMS runtime 建立 current Content Type 並呈現 server slug", asy
     await catalogTable.waitFor();
     assert.deepEqual(await catalogTable.locator("tbody tr td:nth-child(1)").allInnerTexts(), ["Zebra", "文章", "Categories 更新"]);
     assert.deepEqual(await catalogTable.locator("tbody tr td:nth-child(4)").allInnerTexts(), ["-1", "0", "0"]);
-    assert.deepEqual(await page.locator('nav[aria-label="CMS 導覽"] [role="link"][aria-disabled="true"]').allInnerTexts(), ["Zebra（內容功能將於下一階段啟用）", "文章（內容功能將於下一階段啟用）"]);
+    assert.deepEqual(await navigationEntries.allInnerTexts(), ["Zebra", "文章"]);
     await page.setViewportSize({ width: 375, height: 844 });
-    await page.getByText("文章（內容功能將於下一階段啟用）", { exact: true }).waitFor();
+    await navigationEntries.getByText("文章", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  } finally {
+    await browser?.close();
+    await runtime.value.close();
+  }
+});
+
+test("真實 CMS runtime 完成 current entry 建立、發布、衝突復原與 real Delete journey", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-current-entry-browser-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(runDbMigrate(["--database", databasePath], capture().io), 0);
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch();
+    const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
+    const cptNavigation = page.locator('nav[aria-label="CMS 導覽"] a[href^="/cms/post"]');
+    await page.goto(`${runtime.value.origin}/cms/post`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "文章內容", exact: true }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/cms/post");
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    assert.equal(await page.locator('nav[aria-label="CMS 導覽"] a[href^="/cms/post"][aria-current="page"]').getAttribute("href"), "/cms/post");
+    await page.getByText("尚無內容。", { exact: true }).waitFor();
+
+    // 建立 draft，並在 readback 看到 server 配置的 slug 與狀態。
+    await page.getByRole("button", { name: "建立內容", exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.id === "entry-editor-heading");
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("第一篇內容");
+    await page.getByRole("textbox", { name: "Slug", exact: true }).fill("first-current-post");
+    await page.getByRole("textbox", { name: "本文", exact: true }).fill("第一版內容");
+    await page.getByRole("textbox", { name: "Meta description", exact: true }).fill("第一版摘要");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "已儲存。");
+    const entryRow = page.getByRole("row", { name: /first-current-post/u });
+    assert.deepEqual(await entryRow.getByRole("cell").allInnerTexts(), ["第一篇內容", "first-current-post", "草稿", "尚未發布"]);
+
+    // 一次 Save 同時寫入 content 與 published status。
+    await page.getByRole("radio", { name: "已發布", exact: true }).check();
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    const publishedCells = await entryRow.getByRole("cell").allInnerTexts();
+    assert.equal(publishedCells[2], "已發布");
+    assert.match(publishedCells[3] ?? "", /^\d{4}-\d{2}-\d{2}T/u);
+
+    // 鍵盤選取 catalog 的內容並進入 editor。
+    await page.getByRole("button", { name: "第一篇內容", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    await page.waitForFunction(() => document.activeElement?.id === "entry-editor-heading");
+    assert.equal(await page.getByRole("textbox", { name: "本文", exact: true }).inputValue(), "第一版內容");
+
+    // 另一個頁面以相同 baseline Save 後，這個頁面的 stale Save 必須回 conflict 並可重新載入。
+    const stalePage = await page.context().newPage();
+    await stalePage.goto(`${runtime.value.origin}/cms/post`, { waitUntil: "networkidle" });
+    await stalePage.getByRole("button", { name: "第一篇內容", exact: true }).click();
+    await stalePage.getByRole("textbox", { name: "本文", exact: true }).waitFor();
+    await page.getByRole("textbox", { name: "本文", exact: true }).fill("第二版內容");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    await stalePage.getByRole("textbox", { name: "本文", exact: true }).fill("過期內容");
+    await stalePage.getByRole("button", { name: "儲存", exact: true }).click();
+    await stalePage.getByRole("alert").getByText("這筆內容已由另一個頁面更新，表單的 baseline 已過期。", { exact: true }).waitFor();
+    assert.equal(await stalePage.evaluate(() => document.activeElement?.textContent), "重新載入內容");
+    await stalePage.getByRole("button", { name: "重新載入內容", exact: true }).click();
+    await stalePage.waitForFunction(() => document.activeElement?.id === "entry-editor-heading");
+    assert.equal(await stalePage.getByRole("textbox", { name: "本文", exact: true }).inputValue(), "第二版內容");
+    assert.equal(await stalePage.evaluate(() => document.querySelector("p[role=alert]") === null), true);
+    await stalePage.getByRole("button", { name: "刪除內容", exact: true }).click();
+    const staleDialog = stalePage.getByRole("dialog");
+    await staleDialog.waitFor();
+    await staleDialog.getByRole("button", { name: "取消", exact: true }).click();
+    await stalePage.close();
+
+    // real Delete：內容與其 slug 立即消失，且舊 slug 可重用。
+    await page.getByRole("button", { name: "刪除內容", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor();
+    const confirm = dialog.getByRole("button", { name: "確認刪除", exact: true });
+    const cancel = dialog.getByRole("button", { name: "取消", exact: true });
+    await confirm.focus();
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "取消");
+    await cancel.focus();
+    await page.keyboard.press("Shift+Tab");
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "確認刪除");
+    await confirm.click();
+    await page.getByText("已刪除。", { exact: true }).waitFor();
+    await page.getByText("尚無內容。", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "建立內容", exact: true }).click();
+    await page.waitForFunction(() => document.activeElement?.id === "entry-editor-heading");
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("重用 slug");
+    await page.getByRole("textbox", { name: "Slug", exact: true }).fill("first-current-post");
+    await page.getByRole("textbox", { name: "本文", exact: true }).fill("重用內容");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    await page.getByRole("row", { name: /first-current-post/u }).waitFor();
+
+    // 既有 entry 的非 article body block 必須原樣保留：Save 不得靜默刪掉 interactive-demo。
+    const seeded = await page.evaluate(async (typeId) => {
+      const list = await fetch(`/v1/content-types/${typeId}/entries`).then((response) => response.json() as Promise<{ stateDigest: string }>);
+      const created = await fetch(`/v1/content-types/${typeId}/entries`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: list.stateDigest, slug: "block-preserving", content: { contract: "cpt-content/v1", typeId, title: "多區塊內容", blocks: [{ kind: "interactive-demo", identity: { id: "demo", version: "1.0.0" }, hook: "cms/editor-block/resolve", manifestHash: `sha256:${"a".repeat(64)}`, source: { html: "<p>demo</p>", css: "", javascript: "" }, staticFallback: "demo" }, { kind: "article", text: "原始本文" }], excerpt: "", seo: {} }, status: "draft" }) });
+      return await created.json() as Promise<{ entryId: string }>;
+    }, "00000000-0000-4000-8000-000000000001");
+    await page.goto(`${runtime.value.origin}/cms/post`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "多區塊內容", exact: true }).click();
+    await page.getByText("這個內容另有 1 個非本文區塊；儲存時會原樣保留在原本位置。", { exact: true }).waitFor();
+    await page.getByRole("textbox", { name: "本文", exact: true }).fill("改過的本文");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    const readBack = await page.evaluate(async (input) => await fetch(`/v1/content-types/${input.typeId}/entries/${input.entryId}`).then((response) => response.json() as Promise<{ content: { blocks: readonly { kind: string; text?: string }[] } }>), { typeId: "00000000-0000-4000-8000-000000000001", entryId: seeded.entryId });
+    assert.deepEqual(readBack.content.blocks.map((block) => block.kind), ["interactive-demo", "article"]);
+    assert.equal(readBack.content.blocks[1]?.text, "改過的本文");
+
+    // 兩個 article block 的內容無法辨識唯一本文：CMS 必須 fail closed，不得自行挑一段來改。
+    await page.evaluate(async (typeId) => {
+      const list = await fetch(`/v1/content-types/${typeId}/entries`).then((response) => response.json() as Promise<{ stateDigest: string }>);
+      await fetch(`/v1/content-types/${typeId}/entries`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: list.stateDigest, slug: "two-articles", content: { contract: "cpt-content/v1", typeId, title: "兩段本文", blocks: [{ kind: "article", text: "第一段" }, { kind: "article", text: "第二段" }], excerpt: "", seo: {} }, status: "draft" }) });
+    }, "00000000-0000-4000-8000-000000000001");
+    await page.goto(`${runtime.value.origin}/cms/post`, { waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "兩段本文", exact: true }).click();
+    await page.getByRole("alert").getByText("這筆內容的 article block 不是恰好一個，無法在 CMS 編輯本文；請以 API 調整 block 後再試。", { exact: true }).waitFor();
+    assert.equal(await page.getByRole("textbox", { name: "本文", exact: true }).count(), 0);
+
+    // 其他 CPT 使用 canonical `?cpt=` document；Article 不帶 query。
+    await page.goto(`${runtime.value.origin}/cms/content-types/new`, { waitUntil: "networkidle" });
+    await page.getByRole("textbox", { name: "名稱", exact: true }).fill("電子報");
+    await page.getByRole("button", { name: "建立內容類型", exact: true }).click();
+    await page.getByRole("heading", { name: "內容類型：電子報", exact: true }).waitFor();
+    await page.goto(`${runtime.value.origin}/cms/content-types`, { waitUntil: "networkidle" });
+    const cptLink = cptNavigation.getByText("電子報", { exact: true });
+    await cptLink.waitFor();
+    await cptLink.click();
+    await page.getByRole("heading", { name: "電子報內容", exact: true }).waitFor();
+    assert.deepEqual(new URL(page.url()).searchParams.get("cpt"), await page.evaluate(() => location.search.replace("?cpt=", "")));
+    assert.equal(await page.locator('nav[aria-label="CMS 導覽"] a[href^="/cms/post"][aria-current="page"]').count(), 1);
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    await page.getByRole("button", { name: "建立內容", exact: true }).click();
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("電子報第一期");
+    await page.getByRole("textbox", { name: "本文", exact: true }).fill("電子報內容");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    await page.getByRole("row", { name: /電子報第一期/u }).waitFor();
+    const cptUrl = page.url();
+
+    // showInMenu=false 只隱藏選單；direct URL 仍可管理這個 CPT 的內容。
+    await page.goto(`${runtime.value.origin}/cms/content-types`, { waitUntil: "networkidle" });
+    await page.getByRole("table", { name: "所有內容類型", exact: true }).getByRole("link", { name: "電子報", exact: true }).click();
+    await page.getByRole("heading", { name: "內容類型：電子報", exact: true }).waitFor();
+    await page.getByRole("checkbox", { name: "顯示於選單", exact: true }).uncheck();
+    await page.getByRole("button", { name: "儲存內容類型", exact: true }).click();
+    await page.getByRole("heading", { name: "內容類型：電子報", exact: true }).waitFor();
+    await cptNavigation.getByText("電子報", { exact: true }).waitFor({ state: "detached" });
+    await page.goto(cptUrl, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "電子報內容", exact: true }).waitFor();
+    await page.getByRole("row", { name: /電子報第一期/u }).waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+
+    // CPT 之間切換時頁面標題必須重新取得焦點。
+    await page.evaluate(() => { history.pushState(null, "", "/cms/post"); dispatchEvent(new PopStateEvent("popstate")); });
+    await page.getByRole("heading", { name: "文章內容", exact: true }).waitFor();
+    await page.evaluate((url) => { history.pushState(null, "", url); dispatchEvent(new PopStateEvent("popstate")); }, cptUrl);
+    await page.getByRole("heading", { name: "電子報內容", exact: true }).waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    await page.setViewportSize({ width: 375, height: 844 });
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
   } finally {
     await browser?.close();

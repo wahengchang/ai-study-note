@@ -2,6 +2,7 @@ import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest } from "../founda
 
 import {
   SiteContentSchemaIdentity,
+  type CmsBodyBlock,
   type ContentReadFailureCode,
   type ContentReadInput,
   type ContentReadResult,
@@ -53,13 +54,21 @@ function interactiveDemoIdentity(value: unknown): value is InteractiveDemoBlock[
   return exact(value, ["id", "version"]) && text(value.id) && text(value.version);
 }
 
-function block(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>): StructuredArticleBlock | RawFullPageBlock | InteractiveDemoBlock | ContentReadFailureCode {
+/** #315 editor body-block payload（`article` 與 `interactive-demo`）；CMS authoring 與 revision read model 共用同一份 strict parse。 */
+export function parseCmsBodyBlocks(value: unknown): readonly CmsBodyBlock[] | undefined {
+  if (!Array.isArray(value) || value.length === 0) return undefined;
+  const blocks: CmsBodyBlock[] = [];
+  for (const item of value) {
+    const parsed = cmsBodyBlock(item);
+    if (parsed === undefined) return undefined;
+    blocks.push(parsed);
+  }
+  return Object.freeze(blocks);
+}
+
+function cmsBodyBlock(value: unknown): CmsBodyBlock | undefined {
   if (exact(value, ["kind", "text"]) && value.kind === "article" && text(value.text)) {
     return Object.freeze({ kind: "article", text: value.text });
-  }
-  if (exact(value, ["kind", "html", "staticFallback"]) && value.kind === "raw-full-page" && text(value.html) && text(value.staticFallback)) {
-    if (approvedRawFullPageSchemas.size === 0) return "RAW_FULL_PAGE_NOT_APPROVED";
-    return Object.freeze({ kind: "raw-full-page", html: value.html, staticFallback: value.staticFallback });
   }
   if (
     exact(value, ["kind", "identity", "hook", "manifestHash", "source", "staticFallback"])
@@ -79,6 +88,16 @@ function block(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>):
       source: Object.freeze({ html: value.source.html, css: value.source.css, javascript: value.source.javascript }),
       staticFallback: value.staticFallback,
     });
+  }
+  return undefined;
+}
+
+function block(value: unknown, approvedRawFullPageSchemas: ReadonlySet<string>): StructuredArticleBlock | RawFullPageBlock | InteractiveDemoBlock | ContentReadFailureCode {
+  const parsed = cmsBodyBlock(value);
+  if (parsed !== undefined) return parsed;
+  if (exact(value, ["kind", "html", "staticFallback"]) && value.kind === "raw-full-page" && text(value.html) && text(value.staticFallback)) {
+    if (approvedRawFullPageSchemas.size === 0) return "RAW_FULL_PAGE_NOT_APPROVED";
+    return Object.freeze({ kind: "raw-full-page", html: value.html, staticFallback: value.staticFallback });
   }
   return "INVALID_STRUCTURED_CONTENT";
 }

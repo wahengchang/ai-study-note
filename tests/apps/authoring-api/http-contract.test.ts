@@ -8,7 +8,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createCurrentEntryAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createPublishedContentReadModel, getSiteContentSchemaEvidence } from "../../../core/content/index.js";
 import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../../core/delivery/index.js";
@@ -162,6 +162,7 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     const releaseProjection = { ...projectionPreview, async produceRendererInput(request: Record<string, never>) { releaseProjections += 1; return projectionPreview.produceRendererInput(request); } };
     const authoringReadFacade = createAuthoringReadFacade({ persistence: persistence.value, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value });
     const contentTypeAdministration = createContentTypeAdministration({ persistence: persistence.value, newStableId: randomUUID, validator: createAjvSchemaValidator() });
+    const currentEntryAdministration = createCurrentEntryAdministration({ persistence: persistence.value, newStableId: randomUUID });
     const delivery = createPublicDelivery({ artifactsRoot: path.join(directory, "artifacts") }); if (!delivery.ok) throw new Error(delivery.error.code);
     const releaseDelivery = createFixedRootReleaseDelivery({ artifactsRoot: path.join(directory, "artifacts"), releaseRoot: path.join(directory, "release") }); if (!releaseDelivery.ok) throw new Error(releaseDelivery.error.code);
     const releaseTransport = createAuthoringReleaseTransport({ projection: releaseProjection, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
@@ -171,7 +172,7 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
       async preview(...args: Parameters<typeof migrationAdministration.preview>) { migrationCalls += 1; return migrationAdministration.preview(...args); },
       async execute(...args: Parameters<typeof migrationAdministration.execute>) { migrationCalls += 1; return migrationAdministration.execute(...args); },
     };
-    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, contentTypeMigrationAdministration, projectionPreview, releaseTransport });
+    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, currentEntryAdministration, contentTypeMigrationAdministration, projectionPreview, releaseTransport });
     if (!started.ok) throw new Error(`${started.error.code}（127.0.0.1:43127 是否已被佔用？）`);
     close = started.value.close;
     const digest = (): string => { const state = persistence.value.canonicalState(); if (!state.ok) throw new Error(state.error.code); return state.value.digest; };
@@ -1237,6 +1238,149 @@ test("actual listener reads isolated route graphs and commits only a dual-digest
     assert.equal(hostile.status, 401, hostile.body);
     assert.equal(failureCode(hostile), "AUTHORIZATION_ALTERNATE_TRANSPORT");
     assert.equal(log.some((event) => String(event.routeTemplate) === "/v1/site/routes"), true);
+    assert.equal(JSON.stringify(log).includes("asn_"), false);
+  });
+});
+
+const articleTypeId = "00000000-0000-4000-8000-000000000001";
+
+function entryContent(typeId: string, title: string, text = "內文"): unknown {
+  return { contract: "cpt-content/v1", typeId, title, blocks: [{ kind: "article", text }], excerpt: "", seo: {} };
+}
+
+/** 建立一個非 Article 的 CPT，取得 canonical `/cms/post?cpt=` 需要的第二個 type ID。 */
+async function createMenuContentType(headers: Headers, label: string): Promise<string> {
+  const catalog = await send("GET", "/v1/content-types", headers);
+  assert.equal(catalog.status, 200, catalog.body);
+  const created = await post("/v1/content-types", headers, JSON.stringify({ contract: "content-type-create-request/v1", expectedStateDigest: (JSON.parse(catalog.body) as { stateDigest: string }).stateDigest, label, help: "", order: 1, showInMenu: true, fieldGroups: [], taxonomyAttachments: [] }));
+  assert.equal(created.status, 201, created.body);
+  return (JSON.parse(created.body) as { typeId: string }).typeId;
+}
+
+test("canonical /cms/post document admission admits only its own CPT query", async () => {
+  await withAuthoringApi(async ({ apiKey, digest }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const otherTypeId = await createMenuContentType(headers, "電子報");
+    const before = digest();
+    const navigation = { Host: authority, "Sec-Fetch-Site": "none", "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" } as const;
+
+    const article = await send("GET", "/cms/post", navigation);
+    assert.equal(article.status, 200, article.body);
+    assert.equal(article.body.includes("CMS Workspace"), true);
+    const other = await send("GET", `/cms/post?cpt=${otherTypeId}`, navigation);
+    assert.equal(other.status, 200, other.body);
+    assert.equal(other.headers["content-security-policy"] !== undefined, true);
+
+    const refused = [
+      `/cms/post?cpt=${articleTypeId}`,
+      "/cms/post?cpt=",
+      `/cms/post?cpt=${otherTypeId}&cpt=${otherTypeId}`,
+      `/cms/post?cpt=${otherTypeId}&page=2`,
+      `/cms/post?cpt%3D${otherTypeId}`,
+      `/cms/post?cpt=${otherTypeId}%26x%3D1`,
+      `/cms/post?cpt=${otherTypeId.toUpperCase()}`,
+      `/cms/post?cpt=${otherTypeId}#fragment`,
+    ];
+    for (const pathname of refused) {
+      const response = await send("GET", pathname, navigation);
+      assert.equal(response.status, 403, `${pathname} 必須 fail closed`);
+      assert.equal(failureCode(response), "ORIGIN_FORBIDDEN", pathname);
+    }
+    for (const pathname of ["/cms/post/new", "/cms/post/00000000-0000-4000-8000-0000000000aa", "/cms/post/"]) {
+      const response = await send("GET", pathname, navigation);
+      assert.equal(response.status, 404, `${pathname} 不是 admitted document`);
+      assert.equal(failureCode(response), "ROUTE_NOT_FOUND", pathname);
+    }
+    const wrongMethod = await post("/cms/post", navigation, "");
+    assert.equal(wrongMethod.status, 405);
+    const cookie = await send("GET", "/cms/post", { Host: authority, Cookie: "session=1" });
+    assert.equal(cookie.status, 403);
+    assert.equal(digest(), before, "document admission 不得改動 canonical state");
+  });
+});
+
+test("current entry API is exact, CAS-protected, and really deletes every active relation", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, log }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const collection = `/v1/content-types/${articleTypeId}/entries`;
+    const emptyCatalog = await send("GET", collection, headers);
+    assert.equal(emptyCatalog.status, 200, emptyCatalog.body);
+    const empty = JSON.parse(emptyCatalog.body) as { contract: string; typeId: string; items: readonly unknown[]; stateDigest: string };
+    assert.equal(empty.contract, "cpt-entry-catalog/v1");
+    assert.equal(empty.typeId, articleTypeId);
+    assert.deepEqual(empty.items, []);
+
+    const unknownType = await send("GET", "/v1/content-types/00000000-0000-4000-8000-0000000000fe/entries", headers);
+    assert.equal(unknownType.status, 404, unknownType.body);
+    assert.equal(failureCode(unknownType), "CONTENT_TYPE_NOT_FOUND");
+
+    const before = digest();
+    const created = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: empty.stateDigest, content: entryContent(articleTypeId, "第一篇"), status: "draft" }));
+    assert.equal(created.status, 201, created.body);
+    const entry = JSON.parse(created.body) as { contract: string; entryId: string; typeId: string; slug: string; status: string; stateDigest: string; content: { title: string } };
+    assert.equal(entry.contract, "cpt-entry/v1");
+    assert.equal(entry.typeId, articleTypeId);
+    assert.equal(entry.slug, "第一篇");
+    assert.equal(entry.status, "draft");
+    assert.equal(entry.content.title, "第一篇");
+    assertResponseHeaders(created, "current entry create");
+
+    const detail = await send("GET", `${collection}/${entry.entryId}`, headers);
+    assert.equal(detail.status, 200, detail.body);
+    assert.deepEqual(JSON.parse(detail.body), entry);
+    const missing = await send("GET", `${collection}/00000000-0000-4000-8000-0000000000dd`, headers);
+    assert.equal(missing.status, 404);
+    assert.equal(failureCode(missing), "ENTRY_NOT_FOUND");
+
+    const foreignType = await post(`/v1/content-types/00000000-0000-4000-8000-0000000000fe/entries/${entry.entryId}`, headers, JSON.stringify({ contract: "cpt-entry-save-request/v1", expectedStateDigest: entry.stateDigest, slug: entry.slug, content: entryContent("00000000-0000-4000-8000-0000000000fe", "外來型別"), status: "draft" }));
+    assert.equal(foreignType.status, 404, foreignType.body);
+    assert.equal(failureCode(foreignType), "ENTRY_NOT_FOUND");
+
+    const mismatch = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: empty.stateDigest, content: entryContent("00000000-0000-4000-8000-0000000000fe", "路徑不符"), status: "draft" }));
+    assert.equal(mismatch.status, 400, mismatch.body);
+    assert.equal(failureCode(mismatch), "INVALID_REQUEST_BODY");
+    const extraProperty = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: empty.stateDigest, content: entryContent(articleTypeId, "多餘欄位"), status: "draft", entryId: entry.entryId }));
+    assert.equal(extraProperty.status, 400, extraProperty.body);
+
+    const saved = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify({ contract: "cpt-entry-save-request/v1", expectedStateDigest: entry.stateDigest, slug: "first-post", content: entryContent(articleTypeId, "第一篇", "改過"), status: "published" }));
+    assert.equal(saved.status, 200, saved.body);
+    const published = JSON.parse(saved.body) as { slug: string; status: string; publishedAt?: string; stateDigest: string };
+    assert.equal(published.slug, "first-post");
+    assert.equal(published.status, "published");
+    assert.equal(typeof published.publishedAt, "string");
+
+    const afterPublish = digest();
+    const stale = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify({ contract: "cpt-entry-save-request/v1", expectedStateDigest: entry.stateDigest, slug: "stale-write", content: entryContent(articleTypeId, "過期"), status: "draft" }));
+    assert.equal(stale.status, 409, stale.body);
+    assert.equal(failureCode(stale), "ENTRY_STATE_CONFLICT");
+    assert.equal(digest(), afterPublish, "stale save 必須零寫入");
+    const reread = await send("GET", `${collection}/${entry.entryId}`, headers);
+    assert.deepEqual(JSON.parse(reread.body), { ...JSON.parse(saved.body) });
+
+    const oversized = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: empty.stateDigest, content: entryContent(articleTypeId, "x".repeat(1_100_000)), status: "draft" }));
+    assert.equal(oversized.status, 400, oversized.body);
+    assert.equal(failureCode(oversized), "REQUEST_BODY_TOO_LARGE");
+    const wrongMethod = await send("PUT", collection, headers);
+    assert.equal(wrongMethod.status, 405);
+    const badBody = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: 7, content: entryContent(articleTypeId, "壞 body"), status: "draft" }));
+    assert.equal(badBody.status, 400, badBody.body);
+    const unknownContract = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create/v2", expectedStateDigest: empty.stateDigest, content: entryContent(articleTypeId, "未知 contract"), status: "draft" }));
+    assert.equal(unknownContract.status, 400, unknownContract.body);
+    assert.equal(failureCode(unknownContract), "INVALID_REQUEST_BODY");
+
+    const deleted = await post(`${collection}/${entry.entryId}/delete`, headers, JSON.stringify({ contract: "cpt-entry-delete-request/v1", expectedStateDigest: published.stateDigest }));
+    assert.equal(deleted.status, 200, deleted.body);
+    assert.deepEqual(JSON.parse(deleted.body), { contract: "cpt-entry-deleted/v1", entryId: entry.entryId });
+    const gone = await send("GET", `${collection}/${entry.entryId}`, headers);
+    assert.equal(gone.status, 404);
+    const finalCatalog = await send("GET", collection, headers);
+    assert.equal(finalCatalog.status, 200);
+    assert.deepEqual((JSON.parse(finalCatalog.body) as { items: readonly unknown[] }).items, []);
+    const reuse = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: (JSON.parse(finalCatalog.body) as { stateDigest: string }).stateDigest, slug: "first-post", content: entryContent(articleTypeId, "重用 slug"), status: "draft" }));
+    assert.equal(reuse.status, 201, reuse.body);
+    assert.equal((JSON.parse(reuse.body) as { slug: string }).slug, "first-post");
+    assert.notEqual(digest(), before);
+    assert.equal(log.some((event) => String(event.routeTemplate) === "/v1/content-types/:typeId/entries/:entryId"), true);
     assert.equal(JSON.stringify(log).includes("asn_"), false);
   });
 });
