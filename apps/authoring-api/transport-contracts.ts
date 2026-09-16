@@ -72,6 +72,8 @@ const cptContentSchema = z.object({
   blocks: z.array(z.discriminatedUnion("kind", [cptArticleBlockSchema, cptInteractiveDemoBlockSchema])).min(1),
   excerpt: z.string(),
   seo: z.object({ title: z.string().optional(), description: z.string().optional(), canonicalPath: z.string().optional() }).strict(),
+  /** transport 只固定 DTO 形狀與排序容器；kind shape 與 constraints 由 Application 決定（422）。 */
+  customValues: z.array(z.object({ fieldId: z.string(), value: jsonContent }).strict()),
 }).strict();
 export const cptEntrySchema = z.object({
   contract: z.literal("cpt-entry/v1"),
@@ -316,7 +318,7 @@ const contentStatuses: Readonly<Record<ContentReadFailureCode, readonly number[]
 const themeStatuses: Readonly<Record<ThemeHostFailureCode, readonly number[]>> = Object.fromEntries(themeCodes.map((code) => [code, code === "THEME_NOT_FOUND" ? [404] : code === "THEME_IDENTITY_CONFLICT" ? [409] : code === "INVALID_THEME_HOST_INPUT" ? [422] : [500]])) as unknown as Readonly<Record<ThemeHostFailureCode, readonly number[]>>;
 const readStatuses: Readonly<Record<AuthoringReadFailureCode, readonly number[]>> = { INVALID_AUTHORING_READ_INPUT: [422], CONTENT_TYPE_NOT_FOUND: [404], ENTRY_NOT_FOUND: [404], AUTHORING_CONTENT_UNSUPPORTED: [422], AUTHORING_READ_STATE_STALE: [409], AUTHORING_READ_FAILED: [500] };
 const contentTypeAdministrationStatuses: Readonly<Record<ContentTypeAdministrationFailureCode, readonly number[]>> = { INVALID_CONTENT_TYPE_DEFINITION: [422], CONTENT_TYPE_NOT_FOUND: [404], CONTENT_TYPE_STATE_CONFLICT: [409], CONTENT_TYPE_BREAKING_CHANGE: [422], CONTENT_TYPE_ADMINISTRATION_FAILED: [500] };
-const entryAdministrationStatuses: Readonly<Record<CurrentEntryAdministrationFailureCode, readonly number[]>> = { INVALID_ENTRY_CONTENT: [422], ENTRY_NOT_FOUND: [404], CONTENT_TYPE_NOT_FOUND: [404], ENTRY_STATE_CONFLICT: [409], ENTRY_ADMINISTRATION_FAILED: [500] };
+const entryAdministrationStatuses: Readonly<Record<CurrentEntryAdministrationFailureCode, readonly number[]>> = { INVALID_ENTRY_CONTENT: [422], INVALID_ENTRY_CUSTOM_VALUES: [422], ENTRY_NOT_FOUND: [404], CONTENT_TYPE_NOT_FOUND: [404], ENTRY_STATE_CONFLICT: [409], ENTRY_ADMINISTRATION_FAILED: [500] };
 const projectionStatuses: Readonly<Record<ProjectionFailureCode, readonly number[]>> = {
   INVALID_PROJECTION_INPUT: [422], SUBJECT_NOT_FOUND: [404], SUBJECT_NOT_PUBLISHED: [404],
   PROJECTION_STORAGE_FAILURE: [500], INVALID_REVISION_EVIDENCE: [500],

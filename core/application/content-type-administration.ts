@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJsonBytes, sha256Digest, type Digest, type JsonValue, type MessageRemediation } from "../foundation/index.js";
+import { isMediaAssetId } from "../media/index.js";
 import { globalSlug, suggestGlobalSlug, type PersistenceReadSnapshot, type PersistenceStore } from "../persistence/index.js";
 import { createContentTypeAdministration as createLegacyAdministration, type ContentTypeDefinitionValidator } from "./authoring-read.js";
 
@@ -13,13 +14,59 @@ const fieldKinds = new Set(["text", "textarea", "number", "boolean", "url", "dat
 const optionKey = /^[A-Za-z0-9._~-]{1,64}$/u;
 const mimeType = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u;
 
-type FieldKind = "text" | "textarea" | "number" | "boolean" | "url" | "date" | "datetime" | "single-select" | "multi-select" | "single-media" | "multi-media";
-type FieldOption = Readonly<{ optionId: string; label: string; order: number }>;
-type FieldDefinition = Readonly<{ fieldId: string; kind: FieldKind; label: string; help: string; order: number; required: boolean; showInGenericTemplate: boolean; constraints: Record<string, JsonValue>; options?: readonly FieldOption[]; defaultValue?: JsonValue; }>;
-type FieldGroup = Readonly<{ groupId: string; label: string; help: string; order: number; fields: readonly FieldDefinition[] }>;
+export type ContentTypeFieldKind = "text" | "textarea" | "number" | "boolean" | "url" | "date" | "datetime" | "single-select" | "multi-select" | "single-media" | "multi-media";
+export type ContentTypeFieldOption = Readonly<{ optionId: string; label: string; order: number }>;
+export type ContentTypeFieldDefinition = Readonly<{ fieldId: string; kind: ContentTypeFieldKind; label: string; help: string; order: number; required: boolean; showInGenericTemplate: boolean; constraints: Record<string, JsonValue>; options?: readonly ContentTypeFieldOption[]; defaultValue?: JsonValue; }>;
+export type ContentTypeFieldGroup = Readonly<{ groupId: string; label: string; help: string; order: number; fields: readonly ContentTypeFieldDefinition[] }>;
+type FieldKind = ContentTypeFieldKind;
+type FieldOption = ContentTypeFieldOption;
+type FieldDefinition = ContentTypeFieldDefinition;
+type FieldGroup = ContentTypeFieldGroup;
 type ContentTypeRecordReader = Pick<PersistenceReadSnapshot, "listCurrentContentTypes">;
+type DefinitionRecord = Readonly<{ typeId: string; definitionBytes: Uint8Array; definitionDigest: Digest }>;
 
-export type ContentTypeDefinitionV1 = Readonly<{ contract: "content-type-definition/v1"; typeId: string; label: string; slug: string; help: string; order: number; showInMenu: boolean; systemFields: readonly string[]; fieldGroups: readonly unknown[]; taxonomyAttachments: readonly unknown[]; stateDigest: Digest }>;
+/** 每個 kind 的 value 都只有一種可表示的 JSON 形態；entry 驗證與 definition normalization 共用同一份分類。 */
+export type ContentTypeFieldValueShape = "string" | "string-list" | "number" | "boolean";
+export function contentTypeFieldValueShape(kind: ContentTypeFieldKind): ContentTypeFieldValueShape {
+  if (kind === "number") return "number";
+  if (kind === "boolean") return "boolean";
+  return kind === "multi-select" || kind === "multi-media" ? "string-list" : "string";
+}
+/** persisted value 的量測一律是 Unicode scalar count 且不 trim（definition 與 entry 兩側一致）。 */
+export function scalarLength(value: string): number { return Array.from(value).length; }
+/** date／datetime／url 的 canonical 判定只有這一份：definition default 與 entry value 不得各自實作。 */
+export function isCanonicalDate(value: unknown): value is string {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/u.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+}
+const rfc3339Datetime = /^(\d{4})-(\d{2})-(\d{2})[Tt](\d{2}):(\d{2}):(\d{2})(?:\.\d+)?(Z|z|[+-]\d{2}:\d{2})$/u;
+/** RFC 3339 的完整形狀與日曆有效性：日期／時間必須與指定 offset 表示的瞬間完全一致（`2026-02-30` 不得被 rollover 接受）。 */
+export function isCanonicalDatetime(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const match = rfc3339Datetime.exec(value);
+  if (match === null) return false;
+  const offset = match[7] as string;
+  const offsetHour = offset === "Z" || offset === "z" ? 0 : Number(offset.slice(1, 3));
+  const offsetMinute = offset === "Z" || offset === "z" ? 0 : Number(offset.slice(4, 6));
+  if (offsetHour > 23 || offsetMinute > 59) return false;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return false;
+  const signedOffset = offset === "Z" || offset === "z" ? 0 : (offset.startsWith("-") ? -1 : 1) * (offsetHour * 60 + offsetMinute);
+  const local = new Date(parsed.getTime() + signedOffset * 60_000).toISOString();
+  return local.slice(0, 19) === `${match[1]}-${match[2]}-${match[3]}T${match[4]}:${match[5]}:${match[6]}`;
+}
+export function isAbsoluteHttpUrl(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export type ContentTypeDefinitionV1 = Readonly<{ contract: "content-type-definition/v1"; typeId: string; label: string; slug: string; help: string; order: number; showInMenu: boolean; systemFields: readonly string[]; fieldGroups: readonly ContentTypeFieldGroup[]; taxonomyAttachments: readonly unknown[]; stateDigest: Digest }>;
 export type ContentTypeCatalogV1 = Readonly<{ contract: "content-type-catalog/v1"; items: readonly Readonly<{ typeId: string; label: string; slug: string; order: number; showInMenu: boolean; stateDigest: Digest }>[]; stateDigest: Digest }>;
 export type ContentTypeCreateRequestV1 = Readonly<{ contract: "content-type-create-request/v1"; expectedStateDigest: string; label: string; slug?: string | undefined; help: string; order: number; showInMenu: boolean; fieldGroups: readonly unknown[]; taxonomyAttachments: readonly unknown[] }>;
 export type ContentTypeReplaceRequestV1 = Readonly<{ contract: "content-type-replace-request/v1"; expectedStateDigest: string; label: string; slug: string; help: string; order: number; showInMenu: boolean; fieldGroups: readonly unknown[]; taxonomyAttachments: readonly unknown[] }>;
@@ -38,17 +85,78 @@ function failure<T>(code: ContentTypeAdministrationFailureCode, subjectIds: read
   return { ok: false, error: { code, owner: "ContentTypeAdministration", subjectIds, remediation: { kind: "message", message: "內容類型操作未完成。" } } };
 }
 
-function decodeDefinition(bytes: Uint8Array, digest: Digest): ContentTypeDefinitionV1 | undefined {
+/**
+ * persisted definition 的唯一 reader：解出 typed field groups，供 Content Type 讀取、entry Save 的
+ * default materialization／publishable 驗證、以及 replace 的 entry-usage gate 共用。它解的是
+ * **persisted 形狀**（select 帶已 materialize 的 `defaultValue`、沒有 `defaultOptionRef(s)`），
+ * 因此不得回用只接受 request 形狀的 `normalizedGroups`。任何不符即回 undefined（fail closed）。
+ */
+export function readContentTypeDefinition(record: DefinitionRecord): ContentTypeDefinitionV1 | undefined {
+  let value: unknown;
   try {
-    const value: unknown = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(bytes));
-    if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
-    const candidate = value as Record<string, unknown>;
-    return candidate.contract === "content-type-definition/v1" && typeof candidate.typeId === "string" && typeof candidate.label === "string" && typeof candidate.slug === "string" && typeof candidate.help === "string" && typeof candidate.order === "number" && typeof candidate.showInMenu === "boolean" && Array.isArray(candidate.systemFields) && Array.isArray(candidate.fieldGroups) && Array.isArray(candidate.taxonomyAttachments)
-      ? { contract: "content-type-definition/v1", typeId: candidate.typeId, label: candidate.label, slug: candidate.slug, help: candidate.help, order: candidate.order, showInMenu: candidate.showInMenu, systemFields: [...candidate.systemFields] as string[], fieldGroups: [...candidate.fieldGroups], taxonomyAttachments: [...candidate.taxonomyAttachments], stateDigest: digest }
-      : undefined;
+    value = JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(record.definitionBytes));
   } catch {
     return undefined;
   }
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const candidate = value as Record<string, unknown>;
+  if (candidate.contract !== "content-type-definition/v1" || typeof candidate.typeId !== "string" || typeof candidate.label !== "string" || typeof candidate.slug !== "string" || typeof candidate.help !== "string" || typeof candidate.order !== "number" || typeof candidate.showInMenu !== "boolean" || !Array.isArray(candidate.systemFields) || !Array.isArray(candidate.fieldGroups) || !Array.isArray(candidate.taxonomyAttachments)) return undefined;
+  const fieldGroups = decodedGroups(candidate.fieldGroups);
+  if (fieldGroups === undefined) return undefined;
+  return { contract: "content-type-definition/v1", typeId: candidate.typeId, label: candidate.label, slug: candidate.slug, help: candidate.help, order: candidate.order, showInMenu: candidate.showInMenu, systemFields: [...candidate.systemFields] as string[], fieldGroups, taxonomyAttachments: [...candidate.taxonomyAttachments], stateDigest: record.definitionDigest };
+}
+
+function decodedGroups(value: readonly unknown[]): readonly FieldGroup[] | undefined {
+  const groups: FieldGroup[] = [];
+  for (const groupValue of value) {
+    if (groupValue === null || typeof groupValue !== "object" || Array.isArray(groupValue)) return undefined;
+    const group = groupValue as Record<string, unknown>;
+    if (!hasOnlyKeys(group, ["groupId", "label", "help", "order", "fields"]) || typeof group.groupId !== "string" || !stableId.test(group.groupId) || typeof group.label !== "string" || typeof group.help !== "string" || !Number.isSafeInteger(group.order) || !Array.isArray(group.fields)) return undefined;
+    const fields: FieldDefinition[] = [];
+    for (const fieldValue of group.fields) {
+      const field = decodedField(fieldValue);
+      if (field === undefined) return undefined;
+      fields.push(field);
+    }
+    groups.push({ groupId: group.groupId, label: group.label, help: group.help, order: group.order as number, fields });
+  }
+  return groups;
+}
+
+function decodedField(value: unknown): FieldDefinition | undefined {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const field = value as Record<string, unknown>;
+  if (!hasOnlyKeys(field, ["fieldId", "kind", "label", "help", "order", "required", "showInGenericTemplate", "constraints", "options", "defaultValue"])) return undefined;
+  if (typeof field.fieldId !== "string" || !stableId.test(field.fieldId) || typeof field.kind !== "string" || !fieldKinds.has(field.kind) || typeof field.label !== "string" || typeof field.help !== "string" || !Number.isSafeInteger(field.order) || typeof field.required !== "boolean" || typeof field.showInGenericTemplate !== "boolean") return undefined;
+  const kind = field.kind as FieldKind;
+  const constraints = normalizeConstraints(kind, field.constraints);
+  if (constraints === undefined) return undefined;
+  const definition: { fieldId: string; kind: FieldKind; label: string; help: string; order: number; required: boolean; showInGenericTemplate: boolean; constraints: Record<string, JsonValue>; options?: readonly FieldOption[]; defaultValue?: JsonValue } = { fieldId: field.fieldId, kind, label: field.label, help: field.help, order: field.order as number, required: field.required, showInGenericTemplate: field.showInGenericTemplate, constraints };
+  if (kind === "single-select" || kind === "multi-select") {
+    if (!Array.isArray(field.options) || field.options.length === 0) return undefined;
+    const options: FieldOption[] = [];
+    for (const optionValue of field.options) {
+      if (optionValue === null || typeof optionValue !== "object" || Array.isArray(optionValue)) return undefined;
+      const option = optionValue as Record<string, unknown>;
+      if (!hasOnlyKeys(option, ["optionId", "label", "order"]) || typeof option.optionId !== "string" || !stableId.test(option.optionId) || typeof option.label !== "string" || !Number.isSafeInteger(option.order) || options.some((item) => item.optionId === option.optionId)) return undefined;
+      options.push({ optionId: option.optionId, label: option.label, order: option.order as number });
+    }
+    definition.options = options.sort((left, right) => left.order - right.order || (left.optionId < right.optionId ? -1 : left.optionId > right.optionId ? 1 : 0));
+    if (field.defaultValue !== undefined) {
+      const materialized = kind === "single-select" ? [field.defaultValue] : field.defaultValue;
+      if (!Array.isArray(materialized) || materialized.length === 0 || (kind === "single-select" && materialized.length !== 1) || new Set(materialized).size !== materialized.length || materialized.some((item) => typeof item !== "string" || !options.some((option) => option.optionId === item))) return undefined;
+      definition.defaultValue = kind === "single-select" ? materialized[0] as string : materialized as string[];
+      if (definition.required && !defaultSatisfiesRequired(kind, definition.defaultValue)) return undefined;
+    }
+    return definition;
+  }
+  if (field.options !== undefined) return undefined;
+  if (field.defaultValue !== undefined) {
+    const defaultValue = persistedDefault(kind, field.defaultValue, constraints);
+    if (defaultValue === undefined || (field.required && !defaultSatisfiesRequired(kind, defaultValue))) return undefined;
+    definition.defaultValue = defaultValue;
+  }
+  return definition;
 }
 
 function contentTypeCatalog(persistence: ContentTypeRecordReader): ContentTypeAdministrationResult<ContentTypeCatalogV1> {
@@ -56,7 +164,7 @@ function contentTypeCatalog(persistence: ContentTypeRecordReader): ContentTypeAd
   if (!records.ok) return failure("CONTENT_TYPE_ADMINISTRATION_FAILED");
   const items: Array<{ typeId: string; label: string; slug: string; order: number; showInMenu: boolean; stateDigest: Digest }> = [];
   for (const record of records.value) {
-    const parsed = decodeDefinition(record.definitionBytes, record.definitionDigest);
+    const parsed = readContentTypeDefinition(record);
     if (parsed === undefined || parsed.typeId !== record.typeId) return failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [record.typeId]);
     items.push({ typeId: parsed.typeId, label: parsed.label, slug: parsed.slug, order: parsed.order, showInMenu: parsed.showInMenu, stateDigest: parsed.stateDigest });
   }
@@ -125,15 +233,40 @@ function normalizedDefault(kind: FieldKind, value: unknown, constraints: Record<
   }
   if (kind === "number") return typeof value === "number" && Number.isFinite(value) && (typeof constraints.minimum !== "number" || value >= constraints.minimum) && (typeof constraints.maximum !== "number" || value <= constraints.maximum) ? value : undefined;
   if (kind === "boolean") return typeof value === "boolean" ? value : undefined;
-  if (kind === "url") {
-    if (typeof value !== "string") return undefined;
-    try { const url = new URL(value); return (url.protocol === "http:" || url.protocol === "https:") ? value : undefined; } catch { return undefined; }
-  }
-  if (kind === "date") return typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/u.test(value) && !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) ? value : undefined;
-  if (kind === "datetime") return typeof value === "string" && /(?:Z|[+-]\d{2}:\d{2})$/u.test(value) && !Number.isNaN(Date.parse(value)) ? value : undefined;
-  if (kind === "single-media") return typeof value === "string" && stableId.test(value) ? value : undefined;
-  if (kind === "multi-media" && Array.isArray(value) && value.every((item) => typeof item === "string" && stableId.test(item)) && new Set(value).size === value.length && (typeof constraints.maxItems !== "number" || value.length <= constraints.maxItems)) return value as JsonValue;
+  if (kind === "url") return isAbsoluteHttpUrl(value) ? value : undefined;
+  if (kind === "date") return isCanonicalDate(value) ? value : undefined;
+  if (kind === "datetime") return isCanonicalDatetime(value) ? value : undefined;
+  if (kind === "single-media") return isMediaAssetId(value) ? value : undefined;
+  if (kind === "multi-media" && Array.isArray(value) && value.every((item) => isMediaAssetId(item)) && new Set(value).size === value.length && (typeof constraints.maxItems !== "number" || value.length <= constraints.maxItems)) return [...value as readonly string[]].sort() as unknown as JsonValue;
   return undefined;
+}
+
+/** `required` 的 field 其 default 必須本身滿足 required 語意，否則 definition 自相矛盾（entry create 必然無法發布）。 */
+function defaultSatisfiesRequired(kind: FieldKind, value: JsonValue): boolean {
+  const shape = contentTypeFieldValueShape(kind);
+  if (shape === "string") return scalarLength(value as string) >= 1;
+  if (shape === "string-list") return (value as readonly string[]).length >= 1;
+  return true;
+}
+
+/**
+ * persisted default 的解碼只驗 shape 與 identity，**不做 canonical 轉換、也不排序**：讀取必須忠實反映 stored
+ * bytes，否則公開 definition 會與它的 `stateDigest` 不一致（digest 是 stored bytes 的 JCS SHA-256）。
+ * canonical 形式（排序、url／date／datetime 格式）由寫入路徑的 `normalizedDefault` 負責。
+ */
+function persistedDefault(kind: FieldKind, value: unknown, constraints: Record<string, JsonValue>): JsonValue | undefined {
+  const shape = contentTypeFieldValueShape(kind);
+  if (shape === "boolean") return typeof value === "boolean" ? value : undefined;
+  if (shape === "number") return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+  if (shape === "string") {
+    if (typeof value !== "string" || !value.isWellFormed()) return undefined;
+    return kind === "single-media" && !isMediaAssetId(value) ? undefined : value;
+  }
+  if (!Array.isArray(value) || value.some((item) => typeof item !== "string" || !(item as string).isWellFormed())) return undefined;
+  const items = value as readonly string[];
+  if (new Set(items).size !== items.length) return undefined;
+  if (kind === "multi-media" && (!items.every((item) => isMediaAssetId(item)) || (typeof constraints.maxItems === "number" && items.length > constraints.maxItems))) return undefined;
+  return items as unknown as JsonValue;
 }
 
 function hasOnlyKeys(value: Record<string, unknown>, allowed: readonly string[]): boolean {
@@ -207,6 +340,7 @@ function normalizedGroups(
         if (defaultValue === undefined) return undefined;
         definition.defaultValue = defaultValue;
       }
+      if (definition.required && definition.defaultValue !== undefined && !defaultSatisfiesRequired(kind, definition.defaultValue)) return undefined;
       fields.push(definition);
     }
     groups.push({ groupId, label, help, order, fields: fields.sort((left, right) => left.order - right.order || (left.fieldId < right.fieldId ? -1 : left.fieldId > right.fieldId ? 1 : 0)) });
@@ -256,8 +390,7 @@ function nonBreakingField(before: FieldDefinition, after: FieldDefinition): bool
   return true;
 }
 
-function nonBreakingDefinition(beforeGroups: readonly unknown[], afterGroups: readonly FieldGroup[], beforeAttachments: readonly unknown[], afterAttachments: readonly TaxonomyAttachment[]): boolean {
-  const before = beforeGroups as readonly FieldGroup[];
+function nonBreakingDefinition(before: readonly FieldGroup[], afterGroups: readonly FieldGroup[], beforeAttachments: readonly unknown[], afterAttachments: readonly TaxonomyAttachment[]): boolean {
   const afterFields = new Map(afterGroups.flatMap((group) => group.fields).map((field) => [field.fieldId, field]));
   const afterGroupIds = new Set(afterGroups.map((group) => group.groupId));
   if (before.some((group) => !afterGroupIds.has(group.groupId))) return false;
@@ -315,7 +448,7 @@ export function createContentTypeAdministration(input: Readonly<{ persistence: P
     async get(request) {
       const record = input.persistence.getCurrentContentType(request.typeId);
       if (!record.ok) return failure(record.error.code === "CURRENT_CONTENT_TYPE_NOT_FOUND" ? "CONTENT_TYPE_NOT_FOUND" : "CONTENT_TYPE_ADMINISTRATION_FAILED", [request.typeId]);
-      const parsed = decodeDefinition(record.value.definitionBytes, record.value.definitionDigest);
+      const parsed = readContentTypeDefinition(record.value);
       return parsed === undefined || parsed.typeId !== request.typeId ? failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [request.typeId]) : { ok: true, value: parsed };
     },
     async create(request) {
@@ -346,7 +479,7 @@ export function createContentTypeAdministration(input: Readonly<{ persistence: P
       const result = input.persistence.runTransaction((transaction): ContentTypeAdministrationResult<ContentTypeDefinitionV1> => {
         const current = transaction.getCurrentContentType(inputRequest.typeId);
         if (!current.ok) return failure(current.error.code === "CURRENT_CONTENT_TYPE_NOT_FOUND" ? "CONTENT_TYPE_NOT_FOUND" : "CONTENT_TYPE_ADMINISTRATION_FAILED", [inputRequest.typeId]);
-        const before = decodeDefinition(current.value.definitionBytes, current.value.definitionDigest);
+        const before = readContentTypeDefinition(current.value);
         if (before === undefined || before.typeId !== inputRequest.typeId) return failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [inputRequest.typeId]);
         const request = inputRequest.definition;
         if (request.expectedStateDigest !== before.stateDigest) return failure("CONTENT_TYPE_STATE_CONFLICT", [inputRequest.typeId]);

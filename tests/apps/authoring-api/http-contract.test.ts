@@ -1370,7 +1370,7 @@ test("actual listener reads isolated route graphs and commits only a dual-digest
 const articleTypeId = "00000000-0000-4000-8000-000000000001";
 
 function entryContent(typeId: string, title: string, text = "內文"): unknown {
-  return { contract: "cpt-content/v1", typeId, title, blocks: [{ kind: "article", text }], excerpt: "", seo: {} };
+  return { contract: "cpt-content/v1", typeId, title, blocks: [{ kind: "article", text }], excerpt: "", seo: {}, customValues: [] };
 }
 
 /** 建立一個非 Article 的 CPT，取得 canonical `/cms/post?cpt=` 需要的第二個 type ID。 */
@@ -1507,5 +1507,72 @@ test("current entry API is exact, CAS-protected, and really deletes every active
     assert.notEqual(digest(), before);
     assert.equal(log.some((event) => String(event.routeTemplate) === "/v1/content-types/:typeId/entries/:entryId"), true);
     assert.equal(JSON.stringify(log).includes("asn_"), false);
+  });
+});
+
+test("custom field values are an exact wire DTO and are fully validated by the Application", async () => {
+  await withAuthoringApi(async ({ apiKey, digest }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const read = { Authorization: `Bearer ${apiKey}`, Host: authority };
+    const catalog = await send("GET", "/v1/content-types", read);
+    const created = await post("/v1/content-types", headers, JSON.stringify({
+      contract: "content-type-create-request/v1",
+      expectedStateDigest: (JSON.parse(catalog.body) as { stateDigest: string }).stateDigest,
+      label: "自訂欄位型別",
+      help: "",
+      order: 1,
+      showInMenu: false,
+      fieldGroups: [{ label: "主要", help: "", order: 0, fields: [
+        { kind: "text", label: "標語", help: "", order: 0, required: true, showInGenericTemplate: false, constraints: { minLength: 3 } },
+        { kind: "number", label: "分數", help: "", order: 1, required: false, showInGenericTemplate: false, constraints: { minimum: 1, maximum: 10 }, defaultValue: 5 },
+      ] }],
+      taxonomyAttachments: [],
+    }));
+    assert.equal(created.status, 201, created.body);
+    const definition = JSON.parse(created.body) as { typeId: string; fieldGroups: readonly { fields: readonly { fieldId: string }[] }[] };
+    const sloganId = definition.fieldGroups[0]!.fields[0]!.fieldId;
+    const scoreId = definition.fieldGroups[0]!.fields[1]!.fieldId;
+    const collection = `/v1/content-types/${definition.typeId}/entries`;
+    const empty = await send("GET", collection, read);
+    const entryContent = (customValues: unknown): Record<string, unknown> => ({ contract: "cpt-content/v1", typeId: definition.typeId, title: "自訂欄位", blocks: [{ kind: "article", text: "內文" }], excerpt: "", seo: {}, customValues });
+
+    const createdEntry = await post(collection, headers, JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: (JSON.parse(empty.body) as { stateDigest: string }).stateDigest, content: entryContent([]), status: "draft" }));
+    assert.equal(createdEntry.status, 201, createdEntry.body);
+    const entry = JSON.parse(createdEntry.body) as { entryId: string; slug: string; stateDigest: string; content: { customValues: readonly unknown[] } };
+    // default 只在 create 初始化；response 一律帶排序後的 customValues。
+    assert.deepEqual(entry.content.customValues, [{ fieldId: scoreId, value: 5 }]);
+    assertResponseHeaders(createdEntry, "custom entry create");
+    const save = (customValues: unknown, status: string): Record<string, unknown> => ({ contract: "cpt-entry-save-request/v1", expectedStateDigest: entry.stateDigest, slug: entry.slug, content: entryContent(customValues), status });
+
+    const before = digest();
+    const missing = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify({ ...save([], "draft"), content: { ...entryContent([]), customValues: undefined } }));
+    assert.equal(missing.status, 400, missing.body);
+    assert.equal(failureCode(missing), "INVALID_REQUEST_BODY");
+    const extraProperty = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify(save([{ fieldId: sloganId, value: "有效標語", extra: true }], "draft")));
+    assert.equal(extraProperty.status, 400, extraProperty.body);
+    assert.equal(failureCode(extraProperty), "INVALID_REQUEST_BODY");
+    assert.equal(digest(), before, "transport 拒絕必須零寫入");
+
+    const unknown = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify(save([{ fieldId: "00000000-0000-4000-8000-00000000ffff", value: "x" }], "draft")));
+    assert.equal(unknown.status, 422, unknown.body);
+    assert.deepEqual({ code: failureCode(unknown), owner: failureOwner(unknown) }, { code: "INVALID_ENTRY_CUSTOM_VALUES", owner: "CurrentEntryAdministration" });
+    assert.deepEqual(authoringErrorSchema.parse(JSON.parse(unknown.body)).subjectIds, ["00000000-0000-4000-8000-00000000ffff"]);
+
+    const tooShort = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify(save([{ fieldId: sloganId, value: "ab" }], "published")));
+    assert.equal(tooShort.status, 422, tooShort.body);
+    assert.equal(failureCode(tooShort), "INVALID_ENTRY_CUSTOM_VALUES");
+    assert.deepEqual(authoringErrorSchema.parse(JSON.parse(tooShort.body)).subjectIds, [sloganId]);
+    const missingRequired = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify(save([{ fieldId: scoreId, value: 3 }], "published")));
+    assert.equal(missingRequired.status, 422, missingRequired.body);
+    assert.deepEqual(authoringErrorSchema.parse(JSON.parse(missingRequired.body)).subjectIds, [sloganId]);
+    assert.equal(digest(), before, "published 驗證失敗必須零寫入");
+
+    const published = await post(`${collection}/${entry.entryId}`, headers, JSON.stringify(save([{ fieldId: scoreId, value: 7 }, { fieldId: sloganId, value: "有效標語" }], "published")));
+    assert.equal(published.status, 200, published.body);
+    const readBack = JSON.parse(published.body) as { status: string; content: { customValues: readonly Readonly<{ fieldId: string; value: unknown }>[] } };
+    assert.equal(readBack.status, "published");
+    assert.deepEqual([...readBack.content.customValues].sort((left, right) => left.fieldId < right.fieldId ? -1 : 1), readBack.content.customValues, "customValues 必須依 fieldId 排序");
+    assert.deepEqual(Object.fromEntries(readBack.content.customValues.map((item) => [item.fieldId, item.value])), { [sloganId]: "有效標語", [scoreId]: 7 });
+    assert.notEqual(digest(), before);
   });
 });

@@ -918,7 +918,7 @@ test("真實 CMS runtime 完成 current entry 建立、發布、衝突復原與 
     // 既有 entry 的非 article body block 必須原樣保留：Save 不得靜默刪掉 interactive-demo。
     const seeded = await page.evaluate(async (typeId) => {
       const list = await fetch(`/v1/content-types/${typeId}/entries`).then((response) => response.json() as Promise<{ stateDigest: string }>);
-      const created = await fetch(`/v1/content-types/${typeId}/entries`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: list.stateDigest, slug: "block-preserving", content: { contract: "cpt-content/v1", typeId, title: "多區塊內容", blocks: [{ kind: "interactive-demo", identity: { id: "demo", version: "1.0.0" }, hook: "cms/editor-block/resolve", manifestHash: `sha256:${"a".repeat(64)}`, source: { html: "<p>demo</p>", css: "", javascript: "" }, staticFallback: "demo" }, { kind: "article", text: "原始本文" }], excerpt: "", seo: {} }, status: "draft" }) });
+      const created = await fetch(`/v1/content-types/${typeId}/entries`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: list.stateDigest, slug: "block-preserving", content: { contract: "cpt-content/v1", typeId, title: "多區塊內容", blocks: [{ kind: "interactive-demo", identity: { id: "demo", version: "1.0.0" }, hook: "cms/editor-block/resolve", manifestHash: `sha256:${"a".repeat(64)}`, source: { html: "<p>demo</p>", css: "", javascript: "" }, staticFallback: "demo" }, { kind: "article", text: "原始本文" }], excerpt: "", seo: {}, customValues: [] }, status: "draft" }) });
       return await created.json() as Promise<{ entryId: string }>;
     }, "00000000-0000-4000-8000-000000000001");
     await page.goto(`${runtime.value.origin}/cms/post`, { waitUntil: "networkidle" });
@@ -934,7 +934,7 @@ test("真實 CMS runtime 完成 current entry 建立、發布、衝突復原與 
     // 兩個 article block 的內容無法辨識唯一本文：CMS 必須 fail closed，不得自行挑一段來改。
     await page.evaluate(async (typeId) => {
       const list = await fetch(`/v1/content-types/${typeId}/entries`).then((response) => response.json() as Promise<{ stateDigest: string }>);
-      await fetch(`/v1/content-types/${typeId}/entries`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: list.stateDigest, slug: "two-articles", content: { contract: "cpt-content/v1", typeId, title: "兩段本文", blocks: [{ kind: "article", text: "第一段" }, { kind: "article", text: "第二段" }], excerpt: "", seo: {} }, status: "draft" }) });
+      await fetch(`/v1/content-types/${typeId}/entries`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "cpt-entry-create-request/v1", expectedStateDigest: list.stateDigest, slug: "two-articles", content: { contract: "cpt-content/v1", typeId, title: "兩段本文", blocks: [{ kind: "article", text: "第一段" }, { kind: "article", text: "第二段" }], excerpt: "", seo: {}, customValues: [] }, status: "draft" }) });
     }, "00000000-0000-4000-8000-000000000001");
     await page.goto(`${runtime.value.origin}/cms/post`, { waitUntil: "networkidle" });
     await page.getByRole("button", { name: "兩段本文", exact: true }).click();
@@ -1065,6 +1065,146 @@ test("真實 CMS runtime 的 release diagnostics 保留 loading、安全錯誤�
     await page.getByRole("heading", { name: "發布診斷", exact: true }).waitFor();
     await page.waitForFunction(() => document.activeElement?.id === "page-title");
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
+  } finally {
+    await browser?.close();
+    await runtime.value.close();
+  }
+});
+
+test("真實 CMS runtime 完成 ACF-like 自訂欄位閉環 journey", async (context) => {
+  const root = mkdtempSync(path.join(tmpdir(), "cms-custom-fields-browser-"));
+  context.after(() => { rmSync(root, { recursive: true, force: true }); });
+  const repositoryRoot = path.resolve(import.meta.dirname, "../../../");
+  const databasePath = path.join(root, "cms.sqlite");
+  const mediaRoot = path.join(root, "media");
+  const pluginsRoot = path.join(root, "plugins");
+  const themesRoot = path.join(root, "themes");
+  const credentialRoot = path.join(root, "credential");
+  mkdirSync(mediaRoot, { mode: 0o700 });
+  mkdirSync(pluginsRoot, { mode: 0o700 });
+  mkdirSync(themesRoot, { mode: 0o700 });
+  assert.equal(runDbMigrate(["--database", databasePath], capture().io), 0);
+  assert.equal(await runThemePackage(["--id", "study-notes", "--installed-themes-root", themesRoot], capture().io), 0);
+  assert.equal(await runThemeActivate(["--database", databasePath, "--installed-themes-root", themesRoot, "--id", "study-notes"], capture().io), 0);
+  const credential = createLocalAuthoringCredentialAuthority({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
+  assert.equal((await credential.transition("provision")).ok, true);
+  const runtime = await startCmsRuntime({ repositoryRoot, databasePath, mediaRoot, installedPluginsRoot: pluginsRoot, installedThemesRoot: themesRoot, cmsAssetsRoot: path.join(repositoryRoot, "dist", "cms"), credential: { homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") }, logger: () => undefined });
+  assert.equal(runtime.ok, true, runtime.ok ? "" : runtime.error.code);
+  if (!runtime.ok) return;
+  let browser: Browser | undefined;
+  try {
+    browser = await chromium.launch();
+    const page = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } })).newPage();
+
+    // Builder：建立 CPT 並在 create 表單定義群組與 5 種 kind 的欄位。
+    await page.goto(`${runtime.value.origin}/cms/content-types/new`, { waitUntil: "networkidle" });
+    await page.getByRole("textbox", { name: "名稱", exact: true }).fill("自訂欄位示範");
+    await page.getByRole("button", { name: "新增欄位群組", exact: true }).click();
+    await page.getByRole("textbox", { name: "群組名稱", exact: true }).fill("主要欄位");
+    const group = page.getByRole("group", { name: "主要欄位", exact: true });
+
+    await group.getByRole("button", { name: "新增欄位", exact: true }).click();
+    await group.getByRole("group", { name: "未命名", exact: true }).getByRole("textbox", { name: "欄位名稱", exact: true }).fill("標語");
+    const slogan = group.getByRole("group", { name: "標語", exact: true });
+    await slogan.getByRole("checkbox", { name: "必填", exact: true }).check();
+    await slogan.getByRole("spinbutton", { name: "最小長度", exact: true }).fill("3");
+    await slogan.getByRole("spinbutton", { name: "最大長度", exact: true }).fill("20");
+    await slogan.getByRole("checkbox", { name: "顯示於一般模板（僅意圖）", exact: true }).check();
+
+    await group.getByRole("button", { name: "新增欄位", exact: true }).click();
+    await group.getByRole("group", { name: "未命名", exact: true }).getByRole("textbox", { name: "欄位名稱", exact: true }).fill("分數");
+    const score = group.getByRole("group", { name: "分數", exact: true });
+    await score.getByRole("combobox", { name: "欄位類型", exact: true }).selectOption("number");
+    await score.getByRole("spinbutton", { name: "最小值", exact: true }).fill("1");
+    await score.getByRole("spinbutton", { name: "最大值", exact: true }).fill("10");
+    await score.getByRole("spinbutton", { name: /預設值/u }).fill("5");
+
+    await group.getByRole("button", { name: "新增欄位", exact: true }).click();
+    await group.getByRole("group", { name: "未命名", exact: true }).getByRole("textbox", { name: "欄位名稱", exact: true }).fill("精選");
+    const featured = group.getByRole("group", { name: "精選", exact: true });
+    await featured.getByRole("combobox", { name: "欄位類型", exact: true }).selectOption("boolean");
+    await featured.getByRole("combobox", { name: "預設值", exact: true }).selectOption("true");
+
+    await group.getByRole("button", { name: "新增欄位", exact: true }).click();
+    await group.getByRole("group", { name: "未命名", exact: true }).getByRole("textbox", { name: "欄位名稱", exact: true }).fill("時間");
+    const moment = group.getByRole("group", { name: "時間", exact: true });
+    await moment.getByRole("combobox", { name: "欄位類型", exact: true }).selectOption("datetime");
+
+    await group.getByRole("button", { name: "新增欄位", exact: true }).click();
+    await group.getByRole("group", { name: "未命名", exact: true }).getByRole("textbox", { name: "欄位名稱", exact: true }).fill("狀態");
+    const state = group.getByRole("group", { name: "狀態", exact: true });
+    await state.getByRole("combobox", { name: "欄位類型", exact: true }).selectOption("single-select");
+    await state.getByRole("button", { name: "新增選項", exact: true }).click();
+    await state.getByRole("textbox", { name: "選項名稱", exact: true }).fill("進行中");
+    await state.getByRole("button", { name: "新增選項", exact: true }).click();
+    await state.getByRole("textbox", { name: "選項名稱", exact: true }).nth(1).fill("已完成");
+    await state.getByRole("combobox", { name: "預設值", exact: true }).selectOption({ label: "進行中" });
+    await page.getByRole("button", { name: "建立內容類型", exact: true }).click();
+    await page.getByRole("heading", { name: "內容類型：自訂欄位示範", exact: true }).waitFor();
+    const typeId = new URL(page.url()).pathname.split("/").at(-1) ?? "";
+
+    // 排序：把最後一個欄位上移，焦點留在同一控制項並由 live region 播報新位置。
+    const moveState = page.getByRole("button", { name: "將欄位「狀態」上移", exact: true });
+    await moveState.focus();
+    await page.keyboard.press("Enter");
+    await page.getByText("欄位「狀態」已移至第 4 位。", { exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-label")), "將欄位「狀態」上移");
+    await page.getByRole("button", { name: "儲存內容類型", exact: true }).click();
+    await page.getByText("已儲存內容類型。", { exact: true }).waitFor();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "內容類型：自訂欄位示範", exact: true }).waitFor();
+    assert.deepEqual(await page.getByRole("group", { name: "主要欄位", exact: true }).locator("fieldset.field-definition > legend").allInnerTexts(), ["標語", "分數", "精選", "狀態", "時間"]);
+
+    // Entry：建立 draft（可缺 required）→ 填值 → published Save → reload 精確讀回。
+    await page.goto(`${runtime.value.origin}/cms/post?cpt=${typeId}`, { waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "自訂欄位示範內容", exact: true }).waitFor();
+    await page.getByRole("button", { name: "建立內容", exact: true }).click();
+    await page.getByRole("textbox", { name: "標題", exact: true }).fill("第一筆自訂內容");
+    await page.getByRole("textbox", { name: "本文", exact: true }).fill("自訂欄位內文");
+    // create 以 definition defaults 初始化：number 5、boolean true；datetime 未設定。
+    assert.equal(await page.getByLabel(/分數/u).inputValue(), "5");
+    assert.equal(await page.getByLabel(/精選/u).inputValue(), "true");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+
+    // draft 之後才需要滿足 required；published Save 失敗時聚焦可修正欄位且只有一個 alert。
+    await page.getByLabel(/標語/u).fill("ab");
+    await page.getByLabel(/時間/u).fill("2026-09-16T12:30");
+    await page.getByLabel(/精選/u).selectOption("false");
+    await page.getByRole("radio", { name: "已發布", exact: true }).check();
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByRole("alert").getByText("發布前請修正未通過驗證的自訂欄位。", { exact: true }).waitFor();
+    assert.equal(await page.locator("p[role=alert]").count(), 1);
+    assert.equal(await page.evaluate(() => document.activeElement?.getAttribute("aria-invalid")), "true");
+    assert.match(await page.evaluate(() => document.activeElement?.getAttribute("data-custom-field") ?? ""), /^[0-9a-f-]{36}$/u);
+
+    await page.getByLabel(/標語/u).fill("有效標語");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    const row = page.getByRole("row", { name: /第一筆自訂內容/u });
+    assert.equal((await row.getByRole("cell").allInnerTexts())[2], "已發布");
+
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "第一筆自訂內容", exact: true }).click();
+    await page.getByLabel(/標語/u).waitFor();
+    assert.equal(await page.getByLabel(/標語/u).inputValue(), "有效標語");
+    assert.equal(await page.getByLabel(/分數/u).inputValue(), "5");
+    assert.equal(await page.getByLabel(/精選/u).inputValue(), "false");
+    assert.equal(await page.getByLabel(/時間/u).inputValue(), "2026-09-16T12:30");
+    assert.equal(await page.getByLabel(/狀態/u).locator("option:checked").innerText(), "進行中");
+    assert.equal(await page.getByRole("radio", { name: "已發布", exact: true }).isChecked(), true);
+
+    // 每個 presence-sensitive 控制項都能回到「未設定」：清空後 Save 不得讓值復活。
+    await page.getByLabel(/精選/u).selectOption("unset");
+    await page.getByLabel(/狀態/u).selectOption("");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByText("已儲存。", { exact: true }).waitFor();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("button", { name: "第一筆自訂內容", exact: true }).click();
+    await page.getByLabel(/標語/u).waitFor();
+    assert.equal(await page.getByLabel(/精選/u).inputValue(), "unset");
+    assert.equal(await page.getByLabel(/狀態/u).inputValue(), "");
+    assert.equal(await page.getByLabel(/標語/u).inputValue(), "有效標語");
   } finally {
     await browser?.close();
     await runtime.value.close();

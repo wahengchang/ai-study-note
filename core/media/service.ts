@@ -27,6 +27,17 @@ import type {
   VerifiedReadyMediaObject,
 } from "./contracts.js";
 
+/**
+ * Media asset 的可定址 stable identity：單一 unreserved path segment，且不得是 `.`／`..`
+ * （Authoring API 的 canonical request target 會拒絕 dot segment，故這兩個字面無法被定址）。
+ * Content Type default 與 entry custom value 都必須通過此 predicate，否則會產生永遠無法
+ * 用 `/v1/media/:assetId` 解析的引用；本函式是這個規則在 repository 內的唯一定義點。
+ */
+const mediaAssetIdPattern = /^(?!\.{1,2}$)[A-Za-z0-9._~-]+$/u;
+export function isMediaAssetId(value: unknown): value is string {
+  return typeof value === "string" && mediaAssetIdPattern.test(value);
+}
+
 
 // 啟動收斂只處理 durable import intent 與 local storage 的落差；bytes 已遺失的 ready version 會降級為 `missing`，
 // 交由 `RestoreAsset` remediation 復原，不得讓 CMS 因為可復原的媒體狀態而完全無法啟動。

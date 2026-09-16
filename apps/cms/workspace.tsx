@@ -19,8 +19,19 @@ const mediaUsageV2Schema = z.object({ entryId: z.string().min(1), status: z.enum
  */
 const mediaAssetReferencedErrorSchema = z.object({ contract: z.literal("media-asset-referenced/v2"), requestId: z.string(), code: z.literal("MEDIA_ASSET_REFERENCED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, usage: z.array(mediaUsageV2Schema).nonempty() }).strict();
 const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: z.unknown(), stateDigest: digestSchema }).strict();
+const contentFieldKindSchema = z.enum(["text", "textarea", "number", "boolean", "url", "date", "datetime", "single-select", "multi-select", "single-media", "multi-media"]);
+const contentFieldOptionSchema = z.object({ optionId: z.string(), label: z.string(), order: z.number().int().safe() }).strict();
+/**
+ * persisted definition 的 field 形狀必須在 client 端完整解析：Builder 與 entry editor 都以同一份
+ * parser 為唯一解讀路徑，解析失敗一律 fail closed，不得退化成「沒有欄位群組」。
+ */
+const contentFieldSchema = z.object({ fieldId: z.string(), kind: contentFieldKindSchema, label: z.string(), help: z.string(), order: z.number().int().safe(), required: z.boolean(), showInGenericTemplate: z.boolean(), constraints: z.record(z.string(), jsonContent), options: z.array(contentFieldOptionSchema).optional(), defaultValue: jsonContent.optional() }).strict();
+const contentFieldGroupSchema = z.object({ groupId: z.string(), label: z.string(), help: z.string(), order: z.number().int().safe(), fields: z.array(contentFieldSchema) }).strict();
+type ContentFieldKind = Readonly<z.infer<typeof contentFieldKindSchema>>;
+type ContentField = Readonly<z.infer<typeof contentFieldSchema>>;
+type ContentFieldGroup = Readonly<z.infer<typeof contentFieldGroupSchema>>;
 const contentTypeSummarySchema = z.object({ typeId: z.string().uuid(), label: z.string(), slug: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), stateDigest: digestSchema }).strict();
-const contentTypeSchema = z.object({ contract: z.literal("content-type-definition/v1"), typeId: z.string().uuid(), label: z.string(), slug: z.string(), help: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), systemFields: z.array(z.string()), fieldGroups: z.array(jsonContent), taxonomyAttachments: z.array(z.object({ taxonomyId: z.string().min(1), cardinality: z.enum(["one", "many"]), required: z.boolean(), allowTermCreation: z.boolean() }).strict()), stateDigest: digestSchema }).strict();
+const contentTypeSchema = z.object({ contract: z.literal("content-type-definition/v1"), typeId: z.string().uuid(), label: z.string(), slug: z.string(), help: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), systemFields: z.array(z.string()), fieldGroups: z.array(contentFieldGroupSchema), taxonomyAttachments: z.array(z.object({ taxonomyId: z.string().min(1), cardinality: z.enum(["one", "many"]), required: z.boolean(), allowTermCreation: z.boolean() }).strict()), stateDigest: digestSchema }).strict();
 const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSummarySchema), stateDigest: digestSchema }).strict();
 const taxonomyBindingSchema = z.object({ taxonomyId: z.string(), termId: z.string(), evidence: z.object({ taxonomyId: z.string(), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe() }).strict(), evidenceDigest: digestSchema }).strict();
 const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()), taxonomyBindings: z.array(taxonomyBindingSchema) }).strict(), stateDigest: digestSchema }).strict();
@@ -48,7 +59,7 @@ const interactiveDemoBlockSchema = z.object({
 }).strict();
 const articleBlockSchema = z.object({ kind: z.literal("article"), text: z.string().min(1) }).strict();
 const structuredContentSchema = z.object({ contract: z.literal("site-content/v1"), title: z.string().min(1), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), seo: z.object({ title: z.string().min(1).optional(), description: z.string().min(1).optional(), canonicalPath: z.string().min(1).optional() }).strict() }).strict();
-const cptEntrySchema = z.object({ contract: z.literal("cpt-entry/v1"), entryId: z.string(), typeId: z.string(), slug: z.string(), content: z.object({ contract: z.literal("cpt-content/v1"), typeId: z.string(), title: z.string(), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), excerpt: z.string(), seo: z.object({ title: z.string().optional(), description: z.string().optional(), canonicalPath: z.string().optional() }).strict() }).strict(), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), lastPublishedDigest: digestSchema.optional(), stateDigest: digestSchema }).strict();
+const cptEntrySchema = z.object({ contract: z.literal("cpt-entry/v1"), entryId: z.string(), typeId: z.string(), slug: z.string(), content: z.object({ contract: z.literal("cpt-content/v1"), typeId: z.string(), title: z.string(), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), excerpt: z.string(), seo: z.object({ title: z.string().optional(), description: z.string().optional(), canonicalPath: z.string().optional() }).strict(), customValues: z.array(z.object({ fieldId: z.string(), value: jsonContent }).strict()) }).strict(), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), lastPublishedDigest: digestSchema.optional(), stateDigest: digestSchema }).strict();
 const cptEntryCatalogSchema = z.object({ contract: z.literal("cpt-entry-catalog/v1"), typeId: z.string(), items: z.array(z.object({ entryId: z.string(), slug: z.string(), title: z.string(), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), stateDigest: digestSchema }).strict()), stateDigest: digestSchema }).strict();
 const cptEntryDeletedSchema = z.object({ contract: z.literal("cpt-entry-deleted/v1"), entryId: z.string() }).strict();
 const cmsEditorBlockDiagnosticSchema = z.object({ code: z.enum(["PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED"]), owner: z.literal("PluginHost"), subjectIds: z.array(z.string()), remediation: z.object({ kind: z.literal("message"), message: z.string() }).strict(), detail: z.object({ pluginId: z.string(), hook: z.literal("cms/editor-block/resolve"), capability: z.literal("cms-editor-block-resolution"), entryId: z.string(), cause: z.enum(["inactive", "missing", "identity-changed"]) }).strict() }).strict();
@@ -99,7 +110,7 @@ type TaxonomyTermIdentity = Readonly<{ taxonomyId: string; termId: string }>;
 export { openAuthoringSession } from "./session.js";
 
 export class CmsApiError extends Error {
-  constructor(readonly code: string, readonly status: number, readonly remediation: string, readonly usage: readonly MediaUsageV2Dto[] = []) {
+  constructor(readonly code: string, readonly status: number, readonly remediation: string, readonly usage: readonly MediaUsageV2Dto[] = [], readonly subjectIds: readonly string[] = []) {
     super(remediation);
   }
 }
@@ -122,19 +133,226 @@ function message(reason: unknown): string {
   return reason instanceof CmsApiError ? reason.remediation : "無法完成 CMS request。";
 }
 
-function contentTypeReplaceFieldGroups(groups: readonly unknown[]): readonly unknown[] {
-  return groups.map((group) => {
-    if (group === null || typeof group !== "object" || Array.isArray(group)) return group;
-    const record = group as Record<string, unknown>;
-    if (!Array.isArray(record.fields)) return group;
-    return { ...record, fields: record.fields.map((field) => {
-      if (field === null || typeof field !== "object" || Array.isArray(field)) return field;
-      const candidate = field as Record<string, unknown>;
-      if ((candidate.kind !== "single-select" && candidate.kind !== "multi-select") || candidate.defaultValue === undefined) return field;
-      const { defaultValue, ...rest } = candidate;
-      return candidate.kind === "single-select" ? { ...rest, defaultOptionRef: { optionId: defaultValue } } : { ...rest, defaultOptionRefs: Array.isArray(defaultValue) ? defaultValue.map((optionId) => ({ optionId })) : [] };
-    }) };
-  });
+/**
+ * ACF-like 自訂欄位的 Builder draft。`order` 由陣列位置推導（不要求使用者輸入數字），
+ * 既有項目保留 server 配置的 stable ID，新項目省略 ID 並改用 request-local 的 draft key。
+ */
+type FieldOptionDraft = Readonly<{ key: string; optionId: string | undefined; label: string }>;
+type FieldDraft = Readonly<{
+  key: string;
+  fieldId: string | undefined;
+  kind: ContentFieldKind;
+  label: string;
+  help: string;
+  required: boolean;
+  showInGenericTemplate: boolean;
+  minLength: string;
+  maxLength: string;
+  minimum: string;
+  maximum: string;
+  mimeTypes: string;
+  maxItems: string;
+  options: readonly FieldOptionDraft[];
+  defaultText: string;
+  defaultBoolean: "unset" | "true" | "false";
+  defaultOptionKey: string;
+  defaultOptionKeys: readonly string[];
+}>;
+type FieldGroupDraft = Readonly<{ key: string; groupId: string | undefined; label: string; help: string; fields: readonly FieldDraft[] }>;
+
+const fieldKindLabels: Readonly<Record<ContentFieldKind, string>> = { text: "單行文字", textarea: "多行文字", number: "數字", boolean: "是／否", url: "網址", date: "日期", datetime: "日期時間", "single-select": "單選", "multi-select": "多選", "single-media": "單一媒體", "multi-media": "多媒體" };
+const MIME_PATTERN = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/u;
+
+function draftKey(): string { return crypto.randomUUID(); }
+function isTextKind(kind: ContentFieldKind): boolean { return kind === "text" || kind === "textarea"; }
+function isSelectKind(kind: ContentFieldKind): boolean { return kind === "single-select" || kind === "multi-select"; }
+function isMediaKind(kind: ContentFieldKind): boolean { return kind === "single-media" || kind === "multi-media"; }
+function scalarCount(value: string): number { return Array.from(value).length; }
+function numericText(value: unknown): string { return typeof value === "number" ? String(value) : ""; }
+
+function constraintNumber(field: ContentField, key: string): string { return numericText(field.constraints[key]); }
+function constraintMimeTypes(field: ContentField): string { return Array.isArray(field.constraints.mimeTypes) ? (field.constraints.mimeTypes as readonly string[]).join("\n") : ""; }
+function mediaLinesOf(text: string): readonly string[] { return text.split("\n").map((line) => line.trim()).filter((line) => line !== ""); }
+
+function defaultTextOf(field: ContentField): string {
+  if (isSelectKind(field.kind) || field.kind === "boolean" || field.defaultValue === undefined) return "";
+  const value = field.defaultValue;
+  if (Array.isArray(value)) return value.join("\n");
+  return typeof value === "number" || typeof value === "string" ? String(value) : "";
+}
+
+function fieldDraftOf(field: ContentField): FieldDraft {
+  return {
+    key: field.fieldId,
+    fieldId: field.fieldId,
+    kind: field.kind,
+    label: field.label,
+    help: field.help,
+    required: field.required,
+    showInGenericTemplate: field.showInGenericTemplate,
+    minLength: constraintNumber(field, "minLength"),
+    maxLength: constraintNumber(field, "maxLength"),
+    minimum: constraintNumber(field, "minimum"),
+    maximum: constraintNumber(field, "maximum"),
+    mimeTypes: constraintMimeTypes(field),
+    maxItems: constraintNumber(field, "maxItems"),
+    options: (field.options ?? []).map((option) => ({ key: option.optionId, optionId: option.optionId, label: option.label })),
+    defaultText: defaultTextOf(field),
+    defaultBoolean: typeof field.defaultValue === "boolean" ? (field.defaultValue ? "true" : "false") : "unset",
+    defaultOptionKey: field.kind === "single-select" && typeof field.defaultValue === "string" ? field.defaultValue : "",
+    defaultOptionKeys: field.kind === "multi-select" && Array.isArray(field.defaultValue) ? (field.defaultValue as readonly string[]) : [],
+  };
+}
+
+function groupDraftsOf(groups: readonly ContentFieldGroup[]): readonly FieldGroupDraft[] {
+  return groups.map((group) => ({ key: group.groupId, groupId: group.groupId, label: group.label, help: group.help, fields: group.fields.map(fieldDraftOf) }));
+}
+
+function optionReference(option: FieldOptionDraft): Record<string, unknown> {
+  return option.optionId === undefined ? { newOptionKey: option.key } : { optionId: option.optionId };
+}
+
+function fieldConstraintsRequest(field: FieldDraft): Record<string, unknown> {
+  if (isTextKind(field.kind)) return { ...(field.minLength.trim() === "" ? {} : { minLength: Number(field.minLength) }), ...(field.maxLength.trim() === "" ? {} : { maxLength: Number(field.maxLength) }) };
+  if (field.kind === "number") return { ...(field.minimum.trim() === "" ? {} : { minimum: Number(field.minimum) }), ...(field.maximum.trim() === "" ? {} : { maximum: Number(field.maximum) }) };
+  if (field.kind === "single-media") return { mimeTypes: mediaLinesOf(field.mimeTypes) };
+  if (field.kind === "multi-media") return { mimeTypes: mediaLinesOf(field.mimeTypes), ...(field.maxItems.trim() === "" ? {} : { maxItems: Number(field.maxItems) }) };
+  return {};
+}
+
+/** 空白的 default 輸入代表「未設定」；server 亦不會把未提供的 optional field 補成預設值。 */
+function defaultValueRequest(field: FieldDraft): Record<string, unknown> {
+  if (isSelectKind(field.kind)) return {};
+  if (field.kind === "boolean") return field.defaultBoolean === "unset" ? {} : { defaultValue: field.defaultBoolean === "true" };
+  if (field.kind === "number") return field.defaultText.trim() === "" ? {} : { defaultValue: Number(field.defaultText) };
+  if (field.kind === "multi-media") {
+    const ids = mediaLinesOf(field.defaultText);
+    return ids.length === 0 ? {} : { defaultValue: ids };
+  }
+  return field.defaultText.trim() === "" ? {} : { defaultValue: field.defaultText };
+}
+
+function defaultOptionRequest(field: FieldDraft): Record<string, unknown> {
+  if (field.kind === "single-select") {
+    const option = field.options.find((item) => item.key === field.defaultOptionKey);
+    return option === undefined ? {} : { defaultOptionRef: optionReference(option) };
+  }
+  if (field.kind === "multi-select") {
+    const references = field.options.filter((item) => field.defaultOptionKeys.includes(item.key)).map(optionReference);
+    return references.length === 0 ? {} : { defaultOptionRefs: references };
+  }
+  return {};
+}
+
+/** persisted 形狀（`defaultValue`）與 request 形狀（`defaultOptionRef(s)`）只有這一條轉換路徑。 */
+function fieldGroupsRequest(groups: readonly FieldGroupDraft[]): readonly unknown[] {
+  return groups.map((group, groupIndex) => ({
+    ...(group.groupId === undefined ? {} : { groupId: group.groupId }),
+    label: group.label,
+    help: group.help,
+    order: groupIndex,
+    fields: group.fields.map((field, fieldIndex) => ({
+      ...(field.fieldId === undefined ? {} : { fieldId: field.fieldId }),
+      kind: field.kind,
+      label: field.label,
+      help: field.help,
+      order: fieldIndex,
+      required: field.required,
+      showInGenericTemplate: field.showInGenericTemplate,
+      constraints: fieldConstraintsRequest(field),
+      ...(isSelectKind(field.kind)
+        ? { options: field.options.map((option, optionIndex) => ({ ...optionReference(option), label: option.label, order: optionIndex })), ...defaultOptionRequest(field) }
+        : defaultValueRequest(field)),
+    })),
+  }));
+}
+
+/**
+ * Builder 的先行檢查：只覆蓋 Builder 自己寫入的 constraints，讓常見錯誤在送出前就有欄位層級訊息。
+ * server 仍是唯一 authority，任何未被這裡攔下的失敗都以 form 層訊息呈現。
+ */
+function fieldGroupsIssues(groups: readonly FieldGroupDraft[]): ReadonlyMap<string, string> {
+  const issues = new Map<string, string>();
+  const labelIssue = (value: string, empty: string): string | undefined => value.trim() === "" ? empty : scalarCount(value.trim()) > 120 ? "名稱不得超過 120 個字元。" : undefined;
+  const helpIssue = (value: string): string | undefined => scalarCount(value.trim()) > 1_000 ? "說明不得超過 1000 個字元。" : undefined;
+  for (const group of groups) {
+    const issue = labelIssue(group.label, "請輸入欄位群組名稱。") ?? helpIssue(group.help);
+    if (issue !== undefined) issues.set(group.key, issue);
+    for (const field of group.fields) {
+      const fieldIssue = labelIssue(field.label, "請輸入欄位名稱。") ?? helpIssue(field.help)
+        ?? (isTextKind(field.kind) && field.minLength.trim() !== "" && field.maxLength.trim() !== "" && Number(field.minLength) > Number(field.maxLength) ? "最小長度不得大於最大長度。" : undefined)
+        ?? (field.kind === "number" && field.minimum.trim() !== "" && field.maximum.trim() !== "" && Number(field.minimum) > Number(field.maximum) ? "最小值不得大於最大值。" : undefined)
+        ?? (field.kind === "multi-media" && field.maxItems.trim() !== "" && !(Number.isSafeInteger(Number(field.maxItems)) && Number(field.maxItems) > 0) ? "數量上限必須是正整數。" : undefined)
+        ?? (isSelectKind(field.kind) && field.options.length === 0 ? "選項欄位至少需要一個選項。" : undefined)
+        ?? (isMediaKind(field.kind) && mediaLinesOf(field.mimeTypes).length === 0 ? "媒體欄位至少需要一個 MIME type。" : undefined)
+        ?? (isMediaKind(field.kind) && mediaLinesOf(field.mimeTypes).some((mime) => !MIME_PATTERN.test(mime)) ? "MIME type 必須是 type/subtype 格式。" : undefined)
+        ?? (isMediaKind(field.kind) && new Set(mediaLinesOf(field.mimeTypes)).size !== mediaLinesOf(field.mimeTypes).length ? "MIME type 不得重複。" : undefined);
+      if (fieldIssue !== undefined) issues.set(field.key, fieldIssue);
+      for (const option of field.options) if (option.label.trim() === "") issues.set(`${field.key}:${option.key}`, "請輸入選項名稱。");
+    }
+  }
+  return issues;
+}
+
+function moveWithin<T>(items: readonly T[], index: number, delta: number): readonly T[] {
+  const target = index + delta;
+  if (target < 0 || target >= items.length) return items;
+  const next = [...items];
+  const moved = next.splice(index, 1)[0] as T;
+  next.splice(target, 0, moved);
+  return next;
+}
+
+/** entry editor 的 wire 值轉換：未編輯的欄位原樣保留，datetime 只在實際編輯時轉成 RFC 3339 UTC。 */
+function datetimeLocalToIso(value: string): string | undefined {
+  if (value.trim() === "") return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? undefined : parsed.toISOString();
+}
+
+function isoToDatetimeLocal(value: unknown): string {
+  if (typeof value !== "string") return "";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "";
+  const pad = (part: number): string => String(part).padStart(2, "0");
+  return `${parsed.getFullYear()}-${pad(parsed.getMonth() + 1)}-${pad(parsed.getDate())}T${pad(parsed.getHours())}:${pad(parsed.getMinutes())}`;
+}
+
+function customDefaultsOf(definition: ContentTypeDto): Readonly<Record<string, unknown>> {
+  const values: Record<string, unknown> = {};
+  for (const group of definition.fieldGroups) for (const field of group.fields) if (field.defaultValue !== undefined) values[field.fieldId] = field.defaultValue;
+  return values;
+}
+
+function customValuesOf(entry: CptEntryDto): Readonly<Record<string, unknown>> {
+  const values: Record<string, unknown> = {};
+  for (const item of entry.content.customValues) values[item.fieldId] = item.value;
+  return values;
+}
+
+function customValuesRequest(values: Readonly<Record<string, unknown>>): readonly Readonly<{ fieldId: string; value: unknown }>[] {
+  return Object.keys(values).sort().map((fieldId) => ({ fieldId, value: values[fieldId] }));
+}
+
+/** 欄位層級的說明文字一律由 definition metadata 組成，client 不重算任何驗證規則。 */
+function customFieldDescription(field: ContentField): string {
+  const parts: string[] = [];
+  if (field.required) parts.push("發布前必填");
+  if (isTextKind(field.kind)) {
+    const { minLength, maxLength } = field.constraints;
+    if (typeof minLength === "number" || typeof maxLength === "number") parts.push(`長度 ${typeof minLength === "number" ? minLength : 0}–${typeof maxLength === "number" ? maxLength : "不限"}`);
+  }
+  if (field.kind === "number") {
+    const { minimum, maximum } = field.constraints;
+    if (typeof minimum === "number" || typeof maximum === "number") parts.push(`範圍 ${typeof minimum === "number" ? minimum : "不限"}–${typeof maximum === "number" ? maximum : "不限"}`);
+  }
+  if (isMediaKind(field.kind)) {
+    const mimeTypes = Array.isArray(field.constraints.mimeTypes) ? (field.constraints.mimeTypes as readonly string[]) : [];
+    if (mimeTypes.length > 0) parts.push(`允許 ${mimeTypes.join("、")}`);
+    if (typeof field.constraints.maxItems === "number") parts.push(`最多 ${field.constraints.maxItems} 個`);
+  }
+  if (field.help !== "") parts.push(field.help);
+  return parts.join("；");
 }
 
 function normalizeSeo(value: Seo): Seo {
@@ -282,7 +500,7 @@ class CmsApiClient {
     const value: unknown = await response.json().catch(() => undefined);
     if (!response.ok) {
       const error = authoringErrorSchema.safeParse(value);
-      if (error.success) throw new CmsApiError(error.data.code, response.status, error.data.remediation.message);
+      if (error.success) throw new CmsApiError(error.data.code, response.status, error.data.remediation.message, [], error.data.subjectIds);
       const referenced = mediaAssetReferencedErrorSchema.safeParse(value);
       if (referenced.success) throw new CmsApiError(referenced.data.code, response.status, referenced.data.remediation.message, referenced.data.usage);
       throw new CmsApiError("CMS_RESPONSE_INVALID", response.status, "CMS response 無法驗證。");
@@ -359,9 +577,9 @@ function postPath(typeId: string): string {
   return typeId === articleTypeId ? "/cms/post" : `/cms/post?cpt=${typeId}`;
 }
 
-type EntryForm = Readonly<{ title: string; slug: string; excerpt: string; text: string; blocks: readonly StructuredBlock[]; seoTitle: string; seoDescription: string; canonicalPath: string; status: "draft" | "published" }>;
+type EntryForm = Readonly<{ title: string; slug: string; excerpt: string; text: string; blocks: readonly StructuredBlock[]; seoTitle: string; seoDescription: string; canonicalPath: string; status: "draft" | "published"; custom: Readonly<Record<string, unknown>> }>;
 
-const emptyEntryForm: EntryForm = { title: "", slug: "", excerpt: "", text: "", blocks: [], seoTitle: "", seoDescription: "", canonicalPath: "", status: "draft" };
+const emptyEntryForm: EntryForm = { title: "", slug: "", excerpt: "", text: "", blocks: [], seoTitle: "", seoDescription: "", canonicalPath: "", status: "draft", custom: {} };
 
 function entryArticleText(entry: CptEntryDto): string {
   const article = entry.content.blocks.find((block) => block.kind === "article");
@@ -369,7 +587,14 @@ function entryArticleText(entry: CptEntryDto): string {
 }
 
 function entryFormOf(entry: CptEntryDto): EntryForm {
-  return { title: entry.content.title, slug: entry.slug, excerpt: entry.content.excerpt, text: entryArticleText(entry), blocks: entry.content.blocks, seoTitle: entry.content.seo.title ?? "", seoDescription: entry.content.seo.description ?? "", canonicalPath: entry.content.seo.canonicalPath ?? "", status: entry.status };
+  return { title: entry.content.title, slug: entry.slug, excerpt: entry.content.excerpt, text: entryArticleText(entry), blocks: entry.content.blocks, seoTitle: entry.content.seo.title ?? "", seoDescription: entry.content.seo.description ?? "", canonicalPath: entry.content.seo.canonicalPath ?? "", status: entry.status, custom: customValuesOf(entry) };
+}
+
+/** 只有實際渲染出來的 field 才能成為 focus 目標；其他 subjectIds 退回 form 層訊息。 */
+function renderedCustomFieldIds(definition: ContentTypeDto | undefined, subjectIds: readonly string[]): readonly string[] {
+  if (definition === undefined) return [];
+  const rendered = new Set(definition.fieldGroups.flatMap((group) => group.fields.map((field) => field.fieldId)));
+  return subjectIds.filter((fieldId) => rendered.has(fieldId));
 }
 
 /**
@@ -392,11 +617,56 @@ function articleBlockCount(blocks: readonly StructuredBlock[]): number {
 }
 
 function cptContentOf(typeId: string, form: EntryForm): unknown {
-  return { contract: "cpt-content/v1", typeId, title: form.title, blocks: cptBlocksOf(form), excerpt: form.excerpt, seo: { ...(form.seoTitle.trim() === "" ? {} : { title: form.seoTitle }), ...(form.seoDescription.trim() === "" ? {} : { description: form.seoDescription }), ...(form.canonicalPath.trim() === "" ? {} : { canonicalPath: form.canonicalPath }) } };
+  return { contract: "cpt-content/v1", typeId, title: form.title, blocks: cptBlocksOf(form), excerpt: form.excerpt, seo: { ...(form.seoTitle.trim() === "" ? {} : { title: form.seoTitle }), ...(form.seoDescription.trim() === "" ? {} : { description: form.seoDescription }), ...(form.canonicalPath.trim() === "" ? {} : { canonicalPath: form.canonicalPath }) }, customValues: customValuesRequest(form.custom) };
 }
 
 function cptEntryStatusText(status: CptEntryDto["status"]): string {
   return status === "draft" ? "草稿" : "已發布";
+}
+
+/**
+ * entry editor 的自訂欄位控制項：只依 definition metadata 渲染，不套任何 HTML constraint，
+ * 也不重算 server 的驗證規則（required 只以 aria-required 與文字呈現）。
+ */
+function CustomFieldControl({ field, index, value, invalid, disabled, onChange }: Readonly<{ field: ContentField; index: number; value: unknown; invalid: boolean; disabled: boolean; onChange: (value: unknown) => void }>): React.JSX.Element {
+  const description = customFieldDescription(field);
+  const descriptionId = `custom-field-description-${index}`;
+  const errorId = `custom-field-error-${index}`;
+  const describedBy = [description === "" ? undefined : descriptionId, invalid ? errorId : undefined].filter((id) => id !== undefined).join(" ");
+  const accessibility = { "aria-describedby": describedBy === "" ? undefined : describedBy, "aria-required": field.required ? true : undefined };
+  const textValue = typeof value === "string" ? value : "";
+  const hint = description === "" ? undefined : <span id={descriptionId}>（{description}）</span>;
+  const issue = invalid ? <p id={errorId} className="field-issue">此欄位未通過發布驗證。</p> : undefined;
+  if (field.kind === "boolean" || field.kind === "multi-select" || field.kind === "multi-media") {
+    const legend = `${field.label}${field.required ? "（必填）" : ""}`;
+    // presence-sensitive kinds 一律能表示「未設定」：boolean 用三態、multi 值清空即移除 key。
+    const body = field.kind === "boolean"
+      ? <select aria-label={field.label} value={value === undefined ? "unset" : value === true ? "true" : "false"} aria-invalid={invalid || undefined} onChange={(event) => onChange(event.target.value === "unset" ? undefined : event.target.value === "true")} disabled={disabled}><option value="unset">未設定</option><option value="true">是</option><option value="false">否</option></select>
+      : field.kind === "multi-select"
+        ? (field.options ?? []).map((option) => <label key={option.optionId}><input type="checkbox" aria-label={option.label} checked={Array.isArray(value) && value.includes(option.optionId)} aria-invalid={invalid || undefined} onChange={(event) => { const current = Array.isArray(value) ? (value as readonly string[]) : []; const next = event.target.checked ? [...current, option.optionId] : current.filter((item) => item !== option.optionId); onChange(next.length === 0 ? undefined : next); }} disabled={disabled} />{option.label}</label>)
+        : <textarea aria-label={field.label} value={Array.isArray(value) ? (value as readonly string[]).join("\n") : ""} aria-invalid={invalid || undefined} onChange={(event) => { const lines = [...new Set(event.target.value.split("\n").map((line) => line.trim()).filter((line) => line !== ""))]; onChange(lines.length === 0 ? undefined : lines); }} disabled={disabled} placeholder="每行一個 asset ID" />;
+    return <fieldset className="custom-field" data-custom-field={field.fieldId} tabIndex={-1} {...accessibility}>{<legend>{legend}</legend>}{hint}{body}{issue}</fieldset>;
+  }
+  if (field.kind === "single-select") return <label className="custom-field">{field.label}{field.required && "（必填）"}<select value={textValue} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.value)} disabled={disabled}><option value="">未選擇</option>{(field.options ?? []).map((option) => <option key={option.optionId} value={option.optionId}>{option.label}</option>)}</select>{hint}{issue}</label>;
+  if (field.kind === "textarea") return <label className="custom-field">{field.label}{field.required && "（必填）"}<textarea value={textValue} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value)} disabled={disabled} />{hint}{issue}</label>;
+  if (field.kind === "number") return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="number" value={typeof value === "number" ? String(value) : ""} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value.trim() === "" ? undefined : Number(event.target.value))} disabled={disabled} />{hint}{issue}</label>;
+  if (field.kind === "datetime") return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="datetime-local" value={isoToDatetimeLocal(value)} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(datetimeLocalToIso(event.target.value))} disabled={disabled} />{hint}{issue}</label>;
+  if (field.kind === "date") return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="date" value={textValue} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.value)} disabled={disabled} />{hint}{issue}</label>;
+  // text 的空字串是合法的明示空值；url／single-media 的空輸入代表移除該值。
+  const clearsOnEmpty = field.kind !== "text";
+  const placeholder = field.kind === "single-media" ? "asset stable ID" : field.kind === "url" ? "https://example.com" : undefined;
+  return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="text" value={textValue} placeholder={placeholder} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(clearsOnEmpty && event.target.value === "" ? undefined : event.target.value)} disabled={disabled} />{hint}{issue}</label>;
+}
+
+function CustomFieldsSection({ definition, values, invalidFieldIds, disabled, onChange }: Readonly<{ definition: ContentTypeDto; values: Readonly<Record<string, unknown>>; invalidFieldIds: readonly string[]; disabled: boolean; onChange: (fieldId: string, value: unknown) => void }>): React.JSX.Element | null {
+  if (definition.fieldGroups.length === 0) return null;
+  const positions = new Map<string, number>();
+  let position = -1;
+  for (const group of definition.fieldGroups) for (const field of group.fields) positions.set(field.fieldId, ++position);
+  return <section aria-labelledby="custom-fields-heading">
+    <h2 id="custom-fields-heading">自訂欄位</h2>
+    {definition.fieldGroups.map((group) => <fieldset key={group.groupId}><legend>{group.label}</legend>{group.help !== "" && <p>{group.help}</p>}{group.fields.map((field) => <CustomFieldControl key={field.fieldId} field={field} index={positions.get(field.fieldId) ?? 0} value={values[field.fieldId]} invalid={invalidFieldIds.includes(field.fieldId)} disabled={disabled} onChange={(value) => onChange(field.fieldId, value)} />)}</fieldset>)}
+  </section>;
 }
 
 function PostWorkspace({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -428,6 +698,8 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
   const [error, setError] = useState<string>();
   const [conflict, setConflict] = useState(false);
   const [notice, setNotice] = useState("");
+  // 只有實際渲染出來的 field 才會進到這裡；其他 subjectIds 留在 form 層訊息。
+  const [customErrors, setCustomErrors] = useState<readonly string[]>([]);
 
   const refreshEntry = useCallback(async (entryId: string, focusEditor: boolean): Promise<void> => {
     const entry = await api.entry(typeId, entryId);
@@ -437,7 +709,7 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
       throw new CmsApiError("CMS_ENTRY_NOT_EDITABLE", 0, "這筆內容的 article block 不是恰好一個，無法在 CMS 編輯本文；請以 API 調整 block 後再試。");
     }
     editingEntryId.current = entryId;
-    setMode("edit"); setForm(entryFormOf(entry)); setBaseline(entry.stateDigest);
+    setMode("edit"); setForm(entryFormOf(entry)); setBaseline(entry.stateDigest); setCustomErrors([]);
     if (focusEditor) setEditorToken((value) => value + 1);
   }, [api, typeId]);
   /** 重新載入一律以 server 的最新 state 重建畫面：catalog 與（若編輯器開著）目前 entry 的 baseline。 */
@@ -460,18 +732,23 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
   useEffect(() => { if (conflict) reload.current?.focus(); }, [conflict]);
   useEffect(() => { if (notice !== "") status.current?.focus(); }, [notice]);
   useEffect(() => { if (editorToken > 0) editorHeading.current?.focus(); }, [editorToken]);
+  useEffect(() => {
+    const first = customErrors[0];
+    if (first === undefined) return;
+    document.querySelector<HTMLElement>(`[data-custom-field="${first}"]`)?.focus();
+  }, [customErrors]);
 
   const startCreate = (): void => {
     editingEntryId.current = undefined;
-    setMode("create"); setForm(emptyEntryForm); setBaseline(undefined); setEditorToken((value) => value + 1);
-    setConflict(false); setError(undefined); setNotice("");
+    setMode("create"); setForm(definition === undefined ? emptyEntryForm : { ...emptyEntryForm, custom: customDefaultsOf(definition) }); setBaseline(undefined); setEditorToken((value) => value + 1);
+    setConflict(false); setError(undefined); setNotice(""); setCustomErrors([]);
   };
   const valid = form !== undefined && form.title.trim() !== "" && form.text.trim() !== "";
   const locked = busy !== undefined || conflict;
   const save = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (!valid || form === undefined || mode === undefined || catalog === undefined || locked) return;
-    setBusy("save"); setError(undefined); setNotice("");
+    setBusy("save"); setError(undefined); setNotice(""); setCustomErrors([]);
     try {
       const content = cptContentOf(typeId, form);
       const saved = mode === "create"
@@ -483,6 +760,7 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
       setNotice("已儲存。");
     } catch (reason) {
       if (reason instanceof CmsApiError && reason.status === 409) setConflict(true);
+      else if (reason instanceof CmsApiError && reason.code === "INVALID_ENTRY_CUSTOM_VALUES") { setCustomErrors(renderedCustomFieldIds(definition, reason.subjectIds)); setError(reason.remediation); }
       else setError(message(reason));
     } finally { setBusy(undefined); }
   };
@@ -531,11 +809,12 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
     {mode !== undefined && form !== undefined && <section aria-labelledby="entry-editor-heading">
       <h2 id="entry-editor-heading" ref={editorHeading} tabIndex={-1}>{mode === "create" ? "建立內容" : "編輯內容"}</h2>
       <p>{form.blocks.length === 1 ? "本文以外的區塊會原樣保留。" : `這個內容另有 ${String(form.blocks.length - 1)} 個非本文區塊；儲存時會原樣保留在原本位置。`}</p>
-      <form aria-label="內容編輯" onSubmit={(event) => void save(event)}>
-        <label>標題<input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} disabled={locked} /></label>
+      <form aria-label="內容編輯" noValidate onSubmit={(event) => void save(event)}>
+        <label>標題<input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} disabled={locked} /></label>
         <label>Slug<input value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} disabled={locked} /></label>
         <label>摘要<textarea value={form.excerpt} onChange={(event) => setForm({ ...form, excerpt: event.target.value })} disabled={locked} /></label>
-        <label>本文<textarea required value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} disabled={locked} /></label>
+        <label>本文<textarea value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} disabled={locked} /></label>
+        {definition !== undefined && <CustomFieldsSection definition={definition} values={form.custom} invalidFieldIds={customErrors} disabled={locked} onChange={(fieldId, value) => setForm({ ...form, custom: value === undefined ? Object.fromEntries(Object.entries(form.custom).filter(([key]) => key !== fieldId)) : { ...form.custom, [fieldId]: value } })} />}
         <fieldset disabled={locked}><legend>SEO</legend><label>SEO 標題<input value={form.seoTitle} onChange={(event) => setForm({ ...form, seoTitle: event.target.value })} /></label><label>Meta description<textarea value={form.seoDescription} onChange={(event) => setForm({ ...form, seoDescription: event.target.value })} /></label><label>Canonical path<input value={form.canonicalPath} onChange={(event) => setForm({ ...form, canonicalPath: event.target.value })} /></label></fieldset>
         <fieldset disabled={locked}><legend>狀態</legend><label><input type="radio" name="entry-status" checked={form.status === "draft"} onChange={() => setForm({ ...form, status: "draft" })} />草稿</label><label><input type="radio" name="entry-status" checked={form.status === "published"} onChange={() => setForm({ ...form, status: "published" })} />已發布</label></fieldset>
         <p><button type="submit" disabled={!valid || locked}>{busy === "save" ? "正在儲存…" : "儲存"}</button>{mode === "edit" && <button ref={deleteTrigger} type="button" onClick={() => { dialog.current?.showModal(); cancelDelete.current?.focus(); }} disabled={locked}>刪除內容</button>}</p>
@@ -543,6 +822,98 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
       <dialog ref={dialog} aria-labelledby="delete-dialog-title" onKeyDown={trapDeleteFocus}><h2 id="delete-dialog-title">刪除內容</h2><p>刪除後這筆內容與其 slug 會立即消失，無法復原。</p><button ref={cancelDelete} type="button" onClick={() => { dialog.current?.close(); deleteTrigger.current?.focus(); }} disabled={busy !== undefined}>取消</button><button ref={confirmDelete} type="button" onClick={() => void remove()} disabled={busy !== undefined}>{busy === "delete" ? "正在刪除…" : "確認刪除"}</button></dialog>
     </section>}
   </Layout>;
+}
+
+function newFieldDraft(): FieldDraft {
+  return { key: draftKey(), fieldId: undefined, kind: "text", label: "", help: "", required: false, showInGenericTemplate: false, minLength: "", maxLength: "", minimum: "", maximum: "", mimeTypes: "", maxItems: "", options: [], defaultText: "", defaultBoolean: "unset", defaultOptionKey: "", defaultOptionKeys: [] };
+}
+
+function newGroupDraft(): FieldGroupDraft {
+  return { key: draftKey(), groupId: undefined, label: "", help: "", fields: [] };
+}
+
+/** 切換 kind 會清掉不適用的 draft 狀態，避免把上一個 kind 的 constraints 或 default 送出。 */
+function fieldDraftWithKind(field: FieldDraft, kind: ContentFieldKind): FieldDraft {
+  const keepsOptions = isSelectKind(kind) && isSelectKind(field.kind);
+  return { ...field, kind, minLength: "", maxLength: "", minimum: "", maximum: "", mimeTypes: "", maxItems: "", options: keepsOptions ? field.options : [], defaultText: "", defaultBoolean: "unset", defaultOptionKey: "", defaultOptionKeys: [] };
+}
+
+/**
+ * Content Type Builder 的欄位群組編輯器。state 由呼叫端的 `definition`／response 導出並以 stateDigest
+ * 為 key 掛載，因此 CAS token 與 payload 永遠同源，server 配置的 stable ID 也會在儲存後立刻回到 draft。
+ */
+function ContentTypeFieldGroupsEditor({ groups, issues, disabled, onChange }: Readonly<{ groups: readonly FieldGroupDraft[]; issues: ReadonlyMap<string, string>; disabled: boolean; onChange: (next: readonly FieldGroupDraft[]) => void }>): React.JSX.Element {
+  const [announcement, setAnnouncement] = useState("");
+  const moveFocus = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const key = moveFocus.current;
+    if (key === undefined || !groups.some((group) => group.key === key.split("\u0000")[0])) return;
+    document.querySelector<HTMLElement>(`[data-move-key="${key}"]`)?.focus();
+  }, [groups]);
+  const nameOf = (value: string): string => value.trim() === "" ? "未命名" : value.trim();
+  const issueId = (key: string): string => `${key}-issue`;
+  const issueFor = (key: string): React.JSX.Element | undefined => { const text = issues.get(key); return text === undefined ? undefined : <p id={issueId(key)} className="field-issue">{text}</p>; };
+  const issueKeys = (key: string): string | undefined => issues.get(key) === undefined ? undefined : issueId(key);
+  const groupAt = (index: number): FieldGroupDraft | undefined => groups[index];
+  const replaceGroup = (index: number, next: FieldGroupDraft): void => onChange(groups.map((group, position) => position === index ? next : group));
+  const replaceField = (groupIndex: number, fieldIndex: number, next: FieldDraft): void => {
+    const group = groupAt(groupIndex);
+    if (group === undefined) return;
+    replaceGroup(groupIndex, { ...group, fields: group.fields.map((field, position) => position === fieldIndex ? next : field) });
+  };
+  const moveGroup = (index: number, delta: number): void => { const next = moveWithin(groups, index, delta); if (next === groups) return; moveFocus.current = `${groups[index]!.key}\u0000group`; onChange(next); setAnnouncement(`群組「${nameOf(groups[index]!.label)}」已移至第 ${index + delta + 1} 位。`); };
+  const moveField = (groupIndex: number, fieldIndex: number, delta: number): void => { const group = groupAt(groupIndex); if (group === undefined) return; const next = moveWithin(group.fields, fieldIndex, delta); if (next === group.fields) return; moveFocus.current = `${group.key}\u0000${group.fields[fieldIndex]!.key}`; replaceGroup(groupIndex, { ...group, fields: next }); setAnnouncement(`欄位「${nameOf(group.fields[fieldIndex]!.label)}」已移至第 ${fieldIndex + delta + 1} 位。`); };
+  const moveOption = (groupIndex: number, fieldIndex: number, optionIndex: number, delta: number): void => { const group = groupAt(groupIndex); const field = group?.fields[fieldIndex]; if (group === undefined || field === undefined) return; const next = moveWithin(field.options, optionIndex, delta); if (next === field.options) return; moveFocus.current = `${group.key}\u0000${field.key}\u0000${field.options[optionIndex]!.key}`; replaceField(groupIndex, fieldIndex, { ...field, options: next }); setAnnouncement(`選項「${nameOf(field.options[optionIndex]!.label)}」已移至第 ${optionIndex + delta + 1} 位。`); };
+  return <section aria-labelledby="field-groups-heading">
+    <h2 id="field-groups-heading">欄位群組</h2>
+    <p>群組、欄位與選項的順序就是 CMS 編輯器的呈現順序；stable ID 由 server 配置，儲存後才會顯示。</p>
+    <p role="status" aria-live="polite" aria-atomic="true">{announcement}</p>
+    {groups.map((group, groupIndex) => <fieldset key={group.key} className="field-group">
+      <legend>{nameOf(group.label)}</legend>
+      <label>群組名稱<input value={group.label} aria-invalid={issues.has(group.key)} aria-describedby={issueKeys(group.key)} onChange={(event) => replaceGroup(groupIndex, { ...group, label: event.target.value })} disabled={disabled} /></label>
+      <label>群組說明<textarea value={group.help} onChange={(event) => replaceGroup(groupIndex, { ...group, help: event.target.value })} disabled={disabled} /></label>
+      {issueFor(group.key)}
+      <p>
+        <button type="button" data-move-key={`${group.key}\u0000group`} aria-label={`將群組「${nameOf(group.label)}」上移`} onClick={() => moveGroup(groupIndex, -1)} disabled={disabled || groupIndex === 0}>上移</button>
+        <button type="button" aria-label={`將群組「${nameOf(group.label)}」下移`} onClick={() => moveGroup(groupIndex, 1)} disabled={disabled || groupIndex === groups.length - 1}>下移</button>
+        <button type="button" aria-label={`刪除群組「${nameOf(group.label)}」`} onClick={() => onChange(groups.filter((_, position) => position !== groupIndex))} disabled={disabled}>刪除群組</button>
+      </p>
+      {group.fields.map((field, fieldIndex) => <fieldset key={field.key} className="field-definition">
+        <legend>{nameOf(field.label)}</legend>
+        <label>欄位名稱<input value={field.label} aria-invalid={issues.has(field.key)} aria-describedby={issueKeys(field.key)} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, label: event.target.value })} disabled={disabled} /></label>
+        <label>欄位類型<select value={field.kind} onChange={(event) => replaceField(groupIndex, fieldIndex, fieldDraftWithKind(field, event.target.value as ContentFieldKind))} disabled={disabled}>{(Object.keys(fieldKindLabels) as ContentFieldKind[]).map((kind) => <option key={kind} value={kind}>{fieldKindLabels[kind]}</option>)}</select></label>
+        <label>欄位說明<textarea value={field.help} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, help: event.target.value })} disabled={disabled} /></label>
+        <p><label><input type="checkbox" checked={field.required} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, required: event.target.checked })} disabled={disabled} />必填</label> <label><input type="checkbox" checked={field.showInGenericTemplate} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, showInGenericTemplate: event.target.checked })} disabled={disabled} />顯示於一般模板（僅意圖）</label></p>
+        {isTextKind(field.kind) && <p><label>最小長度<input type="number" value={field.minLength} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, minLength: event.target.value })} disabled={disabled} /></label> <label>最大長度<input type="number" value={field.maxLength} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, maxLength: event.target.value })} disabled={disabled} /></label></p>}
+        {field.kind === "number" && <p><label>最小值<input type="number" value={field.minimum} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, minimum: event.target.value })} disabled={disabled} /></label> <label>最大值<input type="number" value={field.maximum} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, maximum: event.target.value })} disabled={disabled} /></label></p>}
+        {isMediaKind(field.kind) && <p><label>允許的 MIME types（每行一個）<textarea value={field.mimeTypes} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, mimeTypes: event.target.value })} disabled={disabled} /></label>{field.kind === "multi-media" && <label>數量上限<input type="number" value={field.maxItems} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, maxItems: event.target.value })} disabled={disabled} /></label>}</p>}
+        {isSelectKind(field.kind) && <fieldset>
+          <legend>選項</legend>
+          {field.options.map((option, optionIndex) => <p key={option.key}>
+            <label>選項名稱<input value={option.label} aria-invalid={issues.has(`${field.key}:${option.key}`)} aria-describedby={issueKeys(`${field.key}:${option.key}`)} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, options: field.options.map((candidate, position) => position === optionIndex ? { ...candidate, label: event.target.value } : candidate) })} disabled={disabled} /></label>
+            <button type="button" data-move-key={`${group.key}\u0000${field.key}\u0000${option.key}`} aria-label={`將選項「${nameOf(option.label)}」上移`} onClick={() => moveOption(groupIndex, fieldIndex, optionIndex, -1)} disabled={disabled || optionIndex === 0}>上移</button>
+            <button type="button" aria-label={`將選項「${nameOf(option.label)}」下移`} onClick={() => moveOption(groupIndex, fieldIndex, optionIndex, 1)} disabled={disabled || optionIndex === field.options.length - 1}>下移</button>
+            <button type="button" aria-label={`刪除選項「${nameOf(option.label)}」`} onClick={() => replaceField(groupIndex, fieldIndex, { ...field, options: field.options.filter((_, position) => position !== optionIndex), defaultOptionKey: field.defaultOptionKey === option.key ? "" : field.defaultOptionKey, defaultOptionKeys: field.defaultOptionKeys.filter((key) => key !== option.key) })} disabled={disabled}>刪除選項</button>
+          </p>)}
+          <button type="button" onClick={() => replaceField(groupIndex, fieldIndex, { ...field, options: [...field.options, { key: draftKey(), optionId: undefined, label: "" }] })} disabled={disabled}>新增選項</button>
+          {field.kind === "single-select"
+            ? <label>預設值<select value={field.defaultOptionKey} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, defaultOptionKey: event.target.value })} disabled={disabled}><option value="">未設定</option>{field.options.map((option) => <option key={option.key} value={option.key}>{nameOf(option.label)}</option>)}</select></label>
+            : <fieldset><legend>預設值</legend>{field.options.length === 0 ? <p>尚無選項。</p> : field.options.map((option) => <label key={option.key}><input type="checkbox" checked={field.defaultOptionKeys.includes(option.key)} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, defaultOptionKeys: event.target.checked ? [...field.defaultOptionKeys, option.key] : field.defaultOptionKeys.filter((key) => key !== option.key) })} disabled={disabled} />{nameOf(option.label)}</label>)}</fieldset>}
+        </fieldset>}
+        {!isSelectKind(field.kind) && (field.kind === "boolean"
+          ? <label>預設值<select value={field.defaultBoolean} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, defaultBoolean: event.target.value as FieldDraft["defaultBoolean"] })} disabled={disabled}><option value="unset">未設定</option><option value="true">是</option><option value="false">否</option></select></label>
+          : <label>{field.kind === "multi-media" ? "預設值（每行一個 asset ID）" : "預設值（留白代表未設定）"}{field.kind === "multi-media" ? <textarea value={field.defaultText} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, defaultText: event.target.value })} disabled={disabled} /> : <input type={field.kind === "number" || field.kind === "date" ? (field.kind === "number" ? "number" : "date") : "text"} value={field.defaultText} onChange={(event) => replaceField(groupIndex, fieldIndex, { ...field, defaultText: event.target.value })} disabled={disabled} />}</label>)}
+        {issueFor(field.key)}
+        <p>
+          <button type="button" data-move-key={`${group.key}\u0000${field.key}`} aria-label={`將欄位「${nameOf(field.label)}」上移`} onClick={() => moveField(groupIndex, fieldIndex, -1)} disabled={disabled || fieldIndex === 0}>上移</button>
+          <button type="button" aria-label={`將欄位「${nameOf(field.label)}」下移`} onClick={() => moveField(groupIndex, fieldIndex, 1)} disabled={disabled || fieldIndex === group.fields.length - 1}>下移</button>
+          <button type="button" aria-label={`刪除欄位「${nameOf(field.label)}」`} onClick={() => replaceGroup(groupIndex, { ...group, fields: group.fields.filter((_, position) => position !== fieldIndex) })} disabled={disabled}>刪除欄位</button>
+        </p>
+      </fieldset>)}
+      <button type="button" onClick={() => replaceGroup(groupIndex, { ...group, fields: [...group.fields, newFieldDraft()] })} disabled={disabled}>新增欄位</button>
+    </fieldset>)}
+    <button type="button" onClick={() => onChange([...groups, newGroupDraft()])} disabled={disabled}>新增欄位群組</button>
+  </section>;
 }
 
 function contentTypeDisplayOrder(items: ContentTypeCatalogDto["items"]): ContentTypeCatalogDto["items"] {
@@ -569,11 +940,15 @@ function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
   const [showInMenu, setShowInMenu] = useState(true);
   const [error, setError] = useState<string>();
   const [stale, setStale] = useState(false);
+  const [drafts, setDrafts] = useState<readonly FieldGroupDraft[]>([]);
+  const issues = useMemo(() => fieldGroupsIssues(drafts), [drafts]);
+  const blocked = issues.size > 0;
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     if (catalog === undefined || label.trim() === "") { setError("請輸入內容類型名稱。"); return; }
+    if (blocked) { setError(`欄位群組仍有 ${String(issues.size)} 個問題，請先修正後再儲存。`); return; }
     try {
-      const created = await api.createContentType({ contract: "content-type-create-request/v1", expectedStateDigest: catalog.stateDigest, label, ...(slug === "" ? {} : { slug }), help, order: Number(order), showInMenu, fieldGroups: [], taxonomyAttachments: [] });
+      const created = await api.createContentType({ contract: "content-type-create-request/v1", expectedStateDigest: catalog.stateDigest, label, ...(slug === "" ? {} : { slug }), help, order: Number(order), showInMenu, fieldGroups: fieldGroupsRequest(drafts), taxonomyAttachments: [] });
       setError(undefined); setStale(false);
       await catalogContext?.refresh();
       navigate(`/cms/content-types/${created.typeId}`);
@@ -583,7 +958,42 @@ function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
     }
   };
   const reload = (): void => { setError(undefined); setStale(false); void catalogContext?.refresh().catch((reason: unknown) => setError(message(reason))); };
-  return <Layout><PageHeading>建立內容類型</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}<form aria-label="Content Type 定義" onSubmit={(event) => void submit(event)}><label>名稱<input required value={label} onChange={(event) => setLabel(event.target.value)} /></label><label>Slug（選填）<input value={slug} onChange={(event) => setSlug(event.target.value)} /></label><label>說明<textarea value={help} onChange={(event) => setHelp(event.target.value)} /></label><label>排序<input type="number" value={order} onChange={(event) => setOrder(event.target.value)} /></label><label><input type="checkbox" checked={showInMenu} onChange={(event) => setShowInMenu(event.target.checked)} />顯示於選單</label><button disabled={catalog === undefined} type="submit">建立內容類型</button></form></Layout>;
+  return <Layout><PageHeading>建立內容類型</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}<form aria-label="Content Type 定義" onSubmit={(event) => void submit(event)}><label>名稱<input required value={label} onChange={(event) => setLabel(event.target.value)} /></label><label>Slug（選填）<input value={slug} onChange={(event) => setSlug(event.target.value)} /></label><label>說明<textarea value={help} onChange={(event) => setHelp(event.target.value)} /></label><label>排序<input type="number" value={order} onChange={(event) => setOrder(event.target.value)} /></label><label><input type="checkbox" checked={showInMenu} onChange={(event) => setShowInMenu(event.target.checked)} />顯示於選單</label><ContentTypeFieldGroupsEditor groups={drafts} issues={issues} disabled={catalog === undefined} onChange={setDrafts} /><button disabled={catalog === undefined || blocked} type="submit">建立內容類型</button></form></Layout>;
+}
+
+type ContentTypeFormSubmission = Readonly<{ label: string; slug: string; help: string; order: number; showInMenu: boolean; fieldGroups: readonly unknown[] }>;
+
+/**
+ * Builder 的定義表單。以 `definition.stateDigest` 為 key 掛載，因此 draft 一定由目前 definition 導出，
+ * 儲存成功後也一定由 response 重建；CAS token 與 payload 不會來自兩個不同來源。
+ */
+function ContentTypeDefinitionForm({ definition, busy, onSubmit }: Readonly<{ definition: ContentTypeDto; busy: boolean; onSubmit: (submission: ContentTypeFormSubmission) => Promise<void> }>): React.JSX.Element {
+  const [drafts, setDrafts] = useState<readonly FieldGroupDraft[]>(() => groupDraftsOf(definition.fieldGroups));
+  const [localError, setLocalError] = useState<string>();
+  const issues = useMemo(() => fieldGroupsIssues(drafts), [drafts]);
+  const blocked = issues.size > 0;
+  const submit = (event: React.FormEvent<HTMLFormElement>): void => {
+    event.preventDefault();
+    if (busy) return;
+    const form = new FormData(event.currentTarget);
+    const label = String(form.get("label") ?? "");
+    const slug = String(form.get("slug") ?? "");
+    const metadataIssue = label.trim() === "" ? "請輸入內容類型名稱。" : slug.trim() === "" ? "請輸入內容類型 slug。" : undefined;
+    setLocalError(metadataIssue);
+    if (metadataIssue !== undefined || blocked) return;
+    void onSubmit({ label, slug, help: String(form.get("help") ?? ""), order: Number(form.get("order")), showInMenu: form.has("showInMenu"), fieldGroups: fieldGroupsRequest(drafts) });
+  };
+  const alert = localError ?? (blocked ? `欄位群組仍有 ${String(issues.size)} 個問題，請先修正後再儲存。` : undefined);
+  return <form aria-label="Content Type 定義" aria-busy={busy} noValidate onSubmit={submit}>
+    <label>名稱<input name="label" required defaultValue={definition.label} disabled={busy} /></label>
+    <label>Slug<input name="slug" required defaultValue={definition.slug} disabled={busy} /></label>
+    <label>說明<textarea name="help" defaultValue={definition.help} disabled={busy} /></label>
+    <label>排序<input name="order" type="number" defaultValue={definition.order} disabled={busy} /></label>
+    <label><input name="showInMenu" type="checkbox" defaultChecked={definition.showInMenu} disabled={busy} />顯示於選單</label>
+    <ContentTypeFieldGroupsEditor groups={drafts} issues={issues} disabled={busy} onChange={setDrafts} />
+    {alert !== undefined && <p role="alert">{alert}</p>}
+    <p><button type="submit" disabled={busy || blocked}>{busy ? "正在儲存…" : "儲存內容類型"}</button></p>
+  </form>;
 }
 
 function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -597,12 +1007,10 @@ function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.
   const load = useCallback((): void => { if (typeId === undefined) { setError("找不到內容類型。"); return; } setDefinition(undefined); setError(undefined); setStale(false); setStatus(undefined); void api.contentType(typeId).then(setDefinition).catch((reason: unknown) => setError(message(reason))); }, [api, typeId]);
   useEffect(load, [load]);
   if (definition === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    const form = new FormData(event.currentTarget);
+  const submit = async (submission: ContentTypeFormSubmission): Promise<void> => {
     setBusy(true); setStatus(undefined);
     try {
-      const replaced = await api.replaceContentType(definition.typeId, { contract: "content-type-replace-request/v1", expectedStateDigest: definition.stateDigest, label: form.get("label"), slug: form.get("slug"), help: form.get("help"), order: Number(form.get("order")), showInMenu: form.has("showInMenu"), fieldGroups: contentTypeReplaceFieldGroups(definition.fieldGroups), taxonomyAttachments: definition.taxonomyAttachments });
+      const replaced = await api.replaceContentType(definition.typeId, { contract: "content-type-replace-request/v1", expectedStateDigest: definition.stateDigest, label: submission.label, slug: submission.slug, help: submission.help, order: submission.order, showInMenu: submission.showInMenu, fieldGroups: submission.fieldGroups, taxonomyAttachments: definition.taxonomyAttachments });
       await catalogContext?.refresh();
       setDefinition(replaced);
       setError(undefined);
@@ -610,11 +1018,13 @@ function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.
       setStatus("已儲存內容類型。");
     } catch (reason) {
       if (reason instanceof CmsApiError && reason.code === "CONTENT_TYPE_STATE_CONFLICT") { setError("內容類型已由其他操作更新；請重新載入後再試。"); setStale(true); }
+      else if (reason instanceof CmsApiError && reason.code === "CONTENT_TYPE_BREAKING_CHANGE") setError("這個內容類型已有內容，只能新增 optional 欄位、增加選項或放寬限制。");
+      else if (reason instanceof CmsApiError && reason.code === "INVALID_CONTENT_TYPE_DEFINITION") setError(`${reason.remediation}請檢查欄位名稱、說明、限制與選項設定。`);
       else setError(message(reason));
     } finally { setBusy(false); }
   };
   const reload = (): void => { load(); queueMicrotask(() => document.getElementById("page-title")?.focus()); };
-  return <Layout><PageHeading>內容類型：{definition.label}</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}{status !== undefined && <p role="status" aria-live="polite">{status}</p>}<form aria-label="Content Type metadata" aria-busy={busy} onSubmit={(event) => void submit(event)}><label>名稱<input name="label" required defaultValue={definition.label} /></label><label>Slug<input name="slug" required defaultValue={definition.slug} /></label><label>說明<textarea name="help" defaultValue={definition.help} /></label><label>排序<input name="order" type="number" defaultValue={definition.order} /></label><label><input name="showInMenu" type="checkbox" defaultChecked={definition.showInMenu} />顯示於選單</label><button disabled={busy} type="submit">儲存內容類型</button></form><dl><dt>Stable ID</dt><dd>{definition.typeId}</dd><dt>Slug</dt><dd>{definition.slug}</dd><dt>System fields</dt><dd>{definition.systemFields.join(", ")}</dd></dl><p>欄位群組：{definition.fieldGroups.length}；分類附掛：{definition.taxonomyAttachments.length}</p></Layout>;
+  return <Layout><PageHeading>內容類型：{definition.label}</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}{status !== undefined && <p role="status" aria-live="polite">{status}</p>}<ContentTypeDefinitionForm key={definition.stateDigest} definition={definition} busy={busy} onSubmit={submit} /><dl><dt>Stable ID</dt><dd>{definition.typeId}</dd><dt>Slug</dt><dd>{definition.slug}</dd><dt>System fields</dt><dd>{definition.systemFields.join(", ")}</dd></dl><p>欄位群組：{definition.fieldGroups.length}；分類附掛：{definition.taxonomyAttachments.length}</p></Layout>;
 }
 
 function TaxonomyList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
