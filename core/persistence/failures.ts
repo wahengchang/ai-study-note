@@ -26,6 +26,8 @@ const messages: Readonly<Record<PersistenceFailureCode, string>> = {
   SCHEMA_MIGRATION_TARGET_NOT_FOUND: "找不到目標 schema version。",
   CURRENT_CONTENT_TYPE_NOT_FOUND: "找不到指定的 current content type。",
   CURRENT_CONTENT_TYPE_CONFLICT: "Current content type 與既有紀錄衝突。",
+  CURRENT_ENTRY_NOT_FOUND: "找不到指定的 current entry。",
+  CURRENT_ENTRY_CONFLICT: "Current entry 與既有紀錄衝突。",
   GLOBAL_SLUG_CONFLICT: "Global slug 無法配置。",
   SCHEMA_MIGRATION_MAPPING_FAILED: "Schema migration mapping 未完成。",
   SCHEMA_MIGRATION_VALIDATION_FAILED: "Schema migration validation 未完成。",

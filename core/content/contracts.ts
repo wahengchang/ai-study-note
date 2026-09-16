@@ -19,6 +19,9 @@ export type StructuredSeo = Readonly<{
   canonicalPath?: string;
 }>;
 
+/** #315 editor body-block payload：CMS authoring content 與 revision read model 共用的兩種 block kind。 */
+export type CmsBodyBlock = StructuredArticleBlock | InteractiveDemoBlock;
+
 export type StructuredContent = Readonly<{
   contract: "site-content/v1";
   title: string;

@@ -45,6 +45,9 @@ const interactiveDemoBlockSchema = z.object({
 }).strict();
 const articleBlockSchema = z.object({ kind: z.literal("article"), text: z.string().min(1) }).strict();
 const structuredContentSchema = z.object({ contract: z.literal("site-content/v1"), title: z.string().min(1), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), seo: z.object({ title: z.string().min(1).optional(), description: z.string().min(1).optional(), canonicalPath: z.string().min(1).optional() }).strict() }).strict();
+const cptEntrySchema = z.object({ contract: z.literal("cpt-entry/v1"), entryId: z.string(), typeId: z.string(), slug: z.string(), content: z.object({ contract: z.literal("cpt-content/v1"), typeId: z.string(), title: z.string(), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), excerpt: z.string(), seo: z.object({ title: z.string().optional(), description: z.string().optional(), canonicalPath: z.string().optional() }).strict() }).strict(), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), lastPublishedDigest: digestSchema.optional(), stateDigest: digestSchema }).strict();
+const cptEntryCatalogSchema = z.object({ contract: z.literal("cpt-entry-catalog/v1"), typeId: z.string(), items: z.array(z.object({ entryId: z.string(), slug: z.string(), title: z.string(), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), stateDigest: digestSchema }).strict()), stateDigest: digestSchema }).strict();
+const cptEntryDeletedSchema = z.object({ contract: z.literal("cpt-entry-deleted/v1"), entryId: z.string() }).strict();
 const cmsEditorBlockDiagnosticSchema = z.object({ code: z.enum(["PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED"]), owner: z.literal("PluginHost"), subjectIds: z.array(z.string()), remediation: z.object({ kind: z.literal("message"), message: z.string() }).strict(), detail: z.object({ pluginId: z.string(), hook: z.literal("cms/editor-block/resolve"), capability: z.literal("cms-editor-block-resolution"), entryId: z.string(), cause: z.enum(["inactive", "missing", "identity-changed"]) }).strict() }).strict();
 const cmsEditorBlockResolutionSchema = z.object({ blockIndex: z.number().int().nonnegative(), pluginIdentity: z.object({ id: z.string(), version: z.string(), hook: z.literal("cms/editor-block/resolve"), manifestHash: digestSchema }).strict(), source: z.object({ html: z.string(), css: z.string(), javascript: z.string() }).strict(), sourceDigest: digestSchema, activeStateDigest: digestSchema, status: z.enum(["active", "inactive", "missing", "identity-changed"]), output: jsonContent.optional(), outputDigest: digestSchema.optional(), diagnostic: cmsEditorBlockDiagnosticSchema.optional() }).strict().superRefine((value, context) => {
   if (value.status === "active" && (value.output === undefined || value.outputDigest === undefined || value.diagnostic !== undefined)) context.addIssue({ code: "custom", message: "CMS_EDITOR_BLOCK_RESOLUTION_INVALID" });
@@ -65,6 +68,8 @@ type AuthoringEntryDto = Readonly<z.infer<typeof authoringEntrySchema>>;
 type CmsEditorBlockResolutionsDto = Readonly<z.infer<typeof cmsEditorBlockResolutionsSchema>>;
 type CmsSeoAnalysisResponseDto = Readonly<z.infer<typeof cmsSeoAnalysisResponseSchema>>;
 type EntryCatalogDto = Readonly<z.infer<typeof entryCatalogSchema>>;
+type CptEntryDto = Readonly<z.infer<typeof cptEntrySchema>>;
+type CptEntryCatalogDto = Readonly<z.infer<typeof cptEntryCatalogSchema>>;
 type ContentTypeCatalogDto = Readonly<z.infer<typeof contentTypeCatalogSchema>>;
 type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
 type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManagementSnapshotSchema>>;
@@ -195,6 +200,11 @@ class CmsApiClient {
   taxonomies(): Promise<TaxonomyCatalogDto> { return this.json("/v1/taxonomies", taxonomyCatalogSchema); }
   createTaxonomy(taxonomyId: string, label: string): Promise<TaxonomySnapshotDto> { return this.json("/v1/taxonomies", taxonomySnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "taxonomy-create-request/v1", taxonomyId: this.resourceId(taxonomyId), label }) }); }
   taxonomy(taxonomyId: string): Promise<TaxonomySnapshotDto> { return this.json(`/v1/taxonomies/${this.resourceId(taxonomyId)}`, taxonomySnapshotSchema); }
+  entryCatalog(typeId: string): Promise<CptEntryCatalogDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries`, cptEntryCatalogSchema); }
+  entry(typeId: string, entryId: string): Promise<CptEntryDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries/${this.resourceId(entryId)}`, cptEntrySchema); }
+  createEntry(typeId: string, request: Record<string, unknown>): Promise<CptEntryDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries`, cptEntrySchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
+  saveEntry(typeId: string, entryId: string, request: Record<string, unknown>): Promise<CptEntryDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries/${this.resourceId(entryId)}`, cptEntrySchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
+  deleteEntry(typeId: string, entryId: string, request: Record<string, unknown>): Promise<unknown> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries/${this.resourceId(entryId)}/delete`, cptEntryDeletedSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
   current(entryId: string): Promise<AuthoringEntryDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current`, authoringEntrySchema); }
   editorBlocks(entryId: string): Promise<CmsEditorBlockResolutionsDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current/editor-blocks`, cmsEditorBlockResolutionsSchema); }
   plugins(): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins", pluginManagementSnapshotSchema); }
@@ -264,8 +274,12 @@ function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): Rea
 
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
   const catalog = useContext(ContentTypeCatalogContext);
+  const location = useLocation();
   const menuItems = contentTypeDisplayOrder(catalog?.catalog?.items ?? []).filter((item) => item.showInMenu);
-  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>本機 CMS 已連線。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink>{menuItems.map((item) => <span key={item.typeId} role="link" aria-disabled="true">{item.label}（內容功能將於下一階段啟用）</span>)}<NavLink to="/cms/entries">舊版文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink><NavLink to="/cms/release">發布診斷</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
+  // 所有 CPT 的 document pathname 都是 `/cms/post`，因此 active 判定必須比較 canonical query 的 typeId，
+  // 不能用 NavLink 的 pathname 比對（否則每個動態項目會同時 active）。
+  const activeTypeId = location.pathname === "/cms/post" ? activeContentTypeId(location.search) : undefined;
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>本機 CMS 已連線。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink>{menuItems.map((item) => <Link key={item.typeId} to={postPath(item.typeId)} aria-current={item.typeId === activeTypeId ? "page" : undefined}>{item.label}</Link>)}<NavLink to="/cms/entries">舊版文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink><NavLink to="/cms/release">發布診斷</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -278,6 +292,212 @@ function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element 
   useEffect(load, [load]);
   if (entries === undefined) return <Layout><PageHeading>文章全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
   return <Layout><PageHeading>文章全覽</PageHeading>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><caption>所有文章</caption><thead><tr><th scope="col">標題</th><th scope="col">狀態</th><th scope="col">網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entryStatusText(entry.status)}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
+}
+
+
+/**
+ * `/cms/post`（Article）與 `/cms/post?cpt=<typeId>`（其他 CPT）是 current entry 的唯一 document。
+ * query canonicality 由 server admission 保證；這裡只做防禦性解析，讓非 canonical 值不會被當成 identity。
+ * Article 的 seeded stable ID 來自 migration 0012。
+ */
+const articleTypeId = "00000000-0000-4000-8000-000000000001";
+const canonicalUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
+
+function activeContentTypeId(search: string): string | undefined {
+  if (search === "") return articleTypeId;
+  const params = new URLSearchParams(search);
+  const value = params.get("cpt");
+  return params.size === 1 && value !== null && canonicalUuidPattern.test(value) && value !== articleTypeId ? value : undefined;
+}
+
+function postPath(typeId: string): string {
+  return typeId === articleTypeId ? "/cms/post" : `/cms/post?cpt=${typeId}`;
+}
+
+type EntryForm = Readonly<{ title: string; slug: string; excerpt: string; text: string; blocks: readonly StructuredBlock[]; seoTitle: string; seoDescription: string; canonicalPath: string; status: "draft" | "published" }>;
+
+const emptyEntryForm: EntryForm = { title: "", slug: "", excerpt: "", text: "", blocks: [], seoTitle: "", seoDescription: "", canonicalPath: "", status: "draft" };
+
+function entryArticleText(entry: CptEntryDto): string {
+  const article = entry.content.blocks.find((block) => block.kind === "article");
+  return article === undefined ? "" : article.text;
+}
+
+function entryFormOf(entry: CptEntryDto): EntryForm {
+  return { title: entry.content.title, slug: entry.slug, excerpt: entry.content.excerpt, text: entryArticleText(entry), blocks: entry.content.blocks, seoTitle: entry.content.seo.title ?? "", seoDescription: entry.content.seo.description ?? "", canonicalPath: entry.content.seo.canonicalPath ?? "", status: entry.status };
+}
+
+/**
+ * 本文只編輯第一個 article block；其餘 body block（含其他 article block）原樣留在原位置，
+ * 避免 Save 靜默刪除或改寫它們。無法辨識單一本文的 entry 在 refreshEntry 就被拒絕編輯。
+ */
+function cptBlocksOf(form: EntryForm): readonly StructuredBlock[] {
+  let replaced = false;
+  const blocks = form.blocks.map((block) => {
+    if (block.kind !== "article" || replaced) return block;
+    replaced = true;
+    return { kind: "article" as const, text: form.text };
+  });
+  // 新內容沒有任何既有 block，本文由 server 驗證的單一 article block 表示。
+  return replaced ? blocks : [{ kind: "article" as const, text: form.text }, ...blocks];
+}
+
+function articleBlockCount(blocks: readonly StructuredBlock[]): number {
+  return blocks.filter((block) => block.kind === "article").length;
+}
+
+function cptContentOf(typeId: string, form: EntryForm): unknown {
+  return { contract: "cpt-content/v1", typeId, title: form.title, blocks: cptBlocksOf(form), excerpt: form.excerpt, seo: { ...(form.seoTitle.trim() === "" ? {} : { title: form.seoTitle }), ...(form.seoDescription.trim() === "" ? {} : { description: form.seoDescription }), ...(form.canonicalPath.trim() === "" ? {} : { canonicalPath: form.canonicalPath }) } };
+}
+
+function cptEntryStatusText(status: CptEntryDto["status"]): string {
+  return status === "draft" ? "草稿" : "已發布";
+}
+
+function PostWorkspace({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
+  const { pathname, search } = useLocation();
+  const typeId = pathname === "/cms/post" ? activeContentTypeId(search) : undefined;
+  return typeId === undefined
+    ? <Layout><PageHeading>內容</PageHeading><p role="alert">這個網址不是 canonical 的內容位置。</p><p><Link to="/cms/post">回到文章內容</Link></p></Layout>
+    : <PostCatalog key={typeId} api={api} typeId={typeId} />;
+}
+
+function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: string }>): React.JSX.Element {
+  const reload = useRef<HTMLButtonElement>(null);
+  const editorHeading = useRef<HTMLHeadingElement>(null);
+  const status = useRef<HTMLParagraphElement>(null);
+  const dialog = useRef<HTMLDialogElement>(null);
+  const deleteTrigger = useRef<HTMLButtonElement>(null);
+  const cancelDelete = useRef<HTMLButtonElement>(null);
+  const confirmDelete = useRef<HTMLButtonElement>(null);
+  const editingEntryId = useRef<string | undefined>(undefined);
+  const [definition, setDefinition] = useState<ContentTypeDto>();
+  const [catalog, setCatalog] = useState<CptEntryCatalogDto>();
+  const [mode, setMode] = useState<"create" | "edit">();
+  // 每次開啟或切換編輯對象都遞增，讓 focus 由 render 後的 effect 執行（不用 mouse-only 的選取路徑）。
+  const [editorToken, setEditorToken] = useState(0);
+  const [form, setForm] = useState<EntryForm>();
+  const [baseline, setBaseline] = useState<string>();
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState<"save" | "delete">();
+  const [error, setError] = useState<string>();
+  const [conflict, setConflict] = useState(false);
+  const [notice, setNotice] = useState("");
+
+  const refreshEntry = useCallback(async (entryId: string, focusEditor: boolean): Promise<void> => {
+    const entry = await api.entry(typeId, entryId);
+    // 「本文」只有在恰好一個 article block 時才有唯一意義；否則 fail closed，不由 UI 猜測要改哪一段。
+    if (articleBlockCount(entry.content.blocks) !== 1) {
+      editingEntryId.current = undefined; setMode(undefined); setForm(undefined); setBaseline(undefined);
+      throw new CmsApiError("CMS_ENTRY_NOT_EDITABLE", 0, "這筆內容的 article block 不是恰好一個，無法在 CMS 編輯本文；請以 API 調整 block 後再試。");
+    }
+    editingEntryId.current = entryId;
+    setMode("edit"); setForm(entryFormOf(entry)); setBaseline(entry.stateDigest);
+    if (focusEditor) setEditorToken((value) => value + 1);
+  }, [api, typeId]);
+  /** 重新載入一律以 server 的最新 state 重建畫面：catalog 與（若編輯器開著）目前 entry 的 baseline。 */
+  const load = useCallback((): void => {
+    setLoading(true); setError(undefined); setConflict(false);
+    void (async () => {
+      try {
+        const [nextDefinition, nextCatalog] = await Promise.all([api.contentType(typeId), api.entryCatalog(typeId)]);
+        setDefinition(nextDefinition); setCatalog(nextCatalog);
+        const entryId = editingEntryId.current;
+        if (entryId !== undefined) await refreshEntry(entryId, true);
+      } catch (reason) {
+        if (reason instanceof CmsApiError && reason.status === 404 && editingEntryId.current !== undefined) {
+          editingEntryId.current = undefined; setMode(undefined); setForm(undefined); setBaseline(undefined); setNotice("這筆內容已不存在。");
+        } else setError(message(reason));
+      } finally { setLoading(false); }
+    })();
+  }, [api, refreshEntry, typeId]);
+  useEffect(load, [load]);
+  useEffect(() => { if (conflict) reload.current?.focus(); }, [conflict]);
+  useEffect(() => { if (notice !== "") status.current?.focus(); }, [notice]);
+  useEffect(() => { if (editorToken > 0) editorHeading.current?.focus(); }, [editorToken]);
+
+  const startCreate = (): void => {
+    editingEntryId.current = undefined;
+    setMode("create"); setForm(emptyEntryForm); setBaseline(undefined); setEditorToken((value) => value + 1);
+    setConflict(false); setError(undefined); setNotice("");
+  };
+  const valid = form !== undefined && form.title.trim() !== "" && form.text.trim() !== "";
+  const locked = busy !== undefined || conflict;
+  const save = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (!valid || form === undefined || mode === undefined || catalog === undefined || locked) return;
+    setBusy("save"); setError(undefined); setNotice("");
+    try {
+      const content = cptContentOf(typeId, form);
+      const saved = mode === "create"
+        ? await api.createEntry(typeId, { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.stateDigest, ...(form.slug.trim() === "" ? {} : { slug: form.slug.trim() }), content, status: form.status })
+        : await api.saveEntry(typeId, editingEntryId.current ?? "", { contract: "cpt-entry-save-request/v1", expectedStateDigest: baseline ?? "", slug: form.slug.trim(), content, status: form.status });
+      editingEntryId.current = saved.entryId;
+      setMode("edit"); setForm(entryFormOf(saved)); setBaseline(saved.stateDigest);
+      setCatalog(await api.entryCatalog(typeId));
+      setNotice("已儲存。");
+    } catch (reason) {
+      if (reason instanceof CmsApiError && reason.status === 409) setConflict(true);
+      else setError(message(reason));
+    } finally { setBusy(undefined); }
+  };
+  const remove = async (): Promise<void> => {
+    if (mode !== "edit" || editingEntryId.current === undefined || baseline === undefined || locked) return;
+    setBusy("delete"); setError(undefined); setNotice("");
+    try {
+      await api.deleteEntry(typeId, editingEntryId.current, { contract: "cpt-entry-delete-request/v1", expectedStateDigest: baseline });
+      dialog.current?.close();
+      editingEntryId.current = undefined; setMode(undefined); setForm(undefined); setBaseline(undefined);
+      setCatalog(await api.entryCatalog(typeId));
+      setNotice("已刪除。");
+    } catch (reason) {
+      dialog.current?.close();
+      if (reason instanceof CmsApiError && reason.status === 409) setConflict(true);
+      else setError(message(reason));
+    } finally { setBusy(undefined); }
+  };
+  const trapDeleteFocus = (event: React.KeyboardEvent<HTMLDialogElement>): void => {
+    if (event.key !== "Tab") return;
+    if (event.shiftKey && document.activeElement === cancelDelete.current) { event.preventDefault(); confirmDelete.current?.focus(); }
+    else if (!event.shiftKey && document.activeElement === confirmDelete.current) { event.preventDefault(); cancelDelete.current?.focus(); }
+  };
+  useEffect(() => {
+    const element = dialog.current;
+    const close = (): void => deleteTrigger.current?.focus();
+    element?.addEventListener("cancel", close);
+    return () => element?.removeEventListener("cancel", close);
+  }, []);
+
+  const operationStatus = busy === "save" ? "正在儲存內容…" : busy === "delete" ? "正在刪除內容…" : notice;
+
+  if (loading && definition === undefined) return <Layout><PageHeading key={typeId}>內容</PageHeading><p role="status" aria-live="polite" aria-busy="true">正在載入內容。</p></Layout>;
+  if (definition === undefined || catalog === undefined) return <Layout><PageHeading key={typeId}>內容</PageHeading><p role="alert">{error ?? "內容類型無法載入。"}</p><button ref={reload} onClick={load}>重試</button></Layout>;
+  return <Layout>
+    <PageHeading key={typeId}>{definition.label}內容</PageHeading>
+    <p><Link to="/cms/content-types">管理內容類型</Link>（system fields：{definition.systemFields.join("、")}）</p>
+    {error !== undefined && <p role="alert">{error}</p>}
+    {conflict && <><p role="alert">這筆內容已由另一個頁面更新，表單的 baseline 已過期。</p><button ref={reload} onClick={load}>重新載入內容</button></>}
+    <p ref={status} role="status" tabIndex={-1} aria-live="polite" aria-atomic="true">{operationStatus}</p>
+    <section aria-labelledby="entry-catalog-heading">
+      <h2 id="entry-catalog-heading">內容清單</h2>
+      <p><button type="button" onClick={startCreate} disabled={locked}>建立內容</button></p>
+      {catalog.items.length === 0 ? <p>尚無內容。</p> : <table><caption>{definition.label}的所有內容</caption><thead><tr><th scope="col">標題</th><th scope="col">Slug</th><th scope="col">狀態</th><th scope="col">最後發布</th></tr></thead><tbody>{catalog.items.map((item) => <tr key={item.entryId}><td><button type="button" aria-current={item.entryId === editingEntryId.current ? "true" : undefined} onClick={() => void refreshEntry(item.entryId, true).catch((reason: unknown) => setError(message(reason)))}>{item.title}</button></td><td>{item.slug}</td><td>{cptEntryStatusText(item.status)}</td><td>{item.publishedAt ?? "尚未發布"}</td></tr>)}</tbody></table>}
+    </section>
+    {mode !== undefined && form !== undefined && <section aria-labelledby="entry-editor-heading">
+      <h2 id="entry-editor-heading" ref={editorHeading} tabIndex={-1}>{mode === "create" ? "建立內容" : "編輯內容"}</h2>
+      <p>{form.blocks.length === 1 ? "本文以外的區塊會原樣保留。" : `這個內容另有 ${String(form.blocks.length - 1)} 個非本文區塊；儲存時會原樣保留在原本位置。`}</p>
+      <form aria-label="內容編輯" onSubmit={(event) => void save(event)}>
+        <label>標題<input required value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} disabled={locked} /></label>
+        <label>Slug<input value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} disabled={locked} /></label>
+        <label>摘要<textarea value={form.excerpt} onChange={(event) => setForm({ ...form, excerpt: event.target.value })} disabled={locked} /></label>
+        <label>本文<textarea required value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} disabled={locked} /></label>
+        <fieldset disabled={locked}><legend>SEO</legend><label>SEO 標題<input value={form.seoTitle} onChange={(event) => setForm({ ...form, seoTitle: event.target.value })} /></label><label>Meta description<textarea value={form.seoDescription} onChange={(event) => setForm({ ...form, seoDescription: event.target.value })} /></label><label>Canonical path<input value={form.canonicalPath} onChange={(event) => setForm({ ...form, canonicalPath: event.target.value })} /></label></fieldset>
+        <fieldset disabled={locked}><legend>狀態</legend><label><input type="radio" name="entry-status" checked={form.status === "draft"} onChange={() => setForm({ ...form, status: "draft" })} />草稿</label><label><input type="radio" name="entry-status" checked={form.status === "published"} onChange={() => setForm({ ...form, status: "published" })} />已發布</label></fieldset>
+        <p><button type="submit" disabled={!valid || locked}>{busy === "save" ? "正在儲存…" : "儲存"}</button>{mode === "edit" && <button ref={deleteTrigger} type="button" onClick={() => { dialog.current?.showModal(); cancelDelete.current?.focus(); }} disabled={locked}>刪除內容</button>}</p>
+      </form>
+      <dialog ref={dialog} aria-labelledby="delete-dialog-title" onKeyDown={trapDeleteFocus}><h2 id="delete-dialog-title">刪除內容</h2><p>刪除後這筆內容與其 slug 會立即消失，無法復原。</p><button ref={cancelDelete} type="button" onClick={() => { dialog.current?.close(); deleteTrigger.current?.focus(); }} disabled={busy !== undefined}>取消</button><button ref={confirmDelete} type="button" onClick={() => void remove()} disabled={busy !== undefined}>{busy === "delete" ? "正在刪除…" : "確認刪除"}</button></dialog>
+    </section>}
+  </Layout>;
 }
 
 function contentTypeDisplayOrder(items: ContentTypeCatalogDto["items"]): ContentTypeCatalogDto["items"] {
@@ -896,7 +1116,7 @@ function Release({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><ContentTypeCatalogProvider api={api}><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/site/routes" element={<SiteRouteWorkspace api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:typeId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></ContentTypeCatalogProvider></BrowserRouter>;
+  return <BrowserRouter><ContentTypeCatalogProvider api={api}><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/site/routes" element={<SiteRouteWorkspace api={api} />} /><Route path="/cms/post" element={<PostWorkspace api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:typeId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></ContentTypeCatalogProvider></BrowserRouter>;
 }
 
 export function startCms(): void {

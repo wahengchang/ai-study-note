@@ -3,6 +3,7 @@ export { createPersistencePluginActivationStatePort } from "./plugin-activation-
 export { createPersistencePluginSettingsStatePort } from "./plugin-settings-state-adapter.js";
 export { createAuthoringReadFacade } from "./authoring-read.js";
 export { createContentTypeAdministration } from "./content-type-administration.js";
+export { createCurrentEntryAdministration } from "./entry-administration.js";
 export { createContentTypeMigrationAdministration } from "./content-type-migration.js";
 export type {
   AuthoringEntryV1,
@@ -77,6 +78,21 @@ export type {
   ContentTypeDefinitionV1,
   ContentTypeReplaceRequestV1,
 } from "./content-type-administration.js";
+export type {
+  CptContentV1,
+  CptEntryCatalogV1,
+  CptEntryCreateRequestV1,
+  CptEntryDeleteRequestV1,
+  CptEntryDeletedV1,
+  CptEntrySaveRequestV1,
+  CptEntrySummaryV1,
+  CptEntryV1,
+  CptSeo,
+  CurrentEntryAdministration,
+  CurrentEntryAdministrationFailure,
+  CurrentEntryAdministrationFailureCode,
+  CurrentEntryAdministrationResult,
+} from "./entry-administration.js";
 export type {
   ContentTypeMigrationAdministration,
   ContentTypeMigrationCommand,

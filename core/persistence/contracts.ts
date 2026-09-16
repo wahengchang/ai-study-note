@@ -47,12 +47,28 @@ export type CreateCurrentContentTypeInput = CurrentContentTypeRecord;
 export type ReplaceCurrentContentTypeInput = CurrentContentTypeRecord;
 export type AllocateGlobalSlugInput = Readonly<{ requestedSlug: string; entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>;
 
+export type CurrentEntryStatus = "draft" | "published";
+/** current-only entry 的 authoring route evidence；WI-002 的值為實際 slug 的 canonical `/<slug>`。 */
+export type CurrentEntryRecord = Readonly<{
+  entryId: string;
+  typeId: string;
+  authoringRoute: string;
+  contentBytes: Uint8Array;
+  contentDigest: Digest;
+  status: CurrentEntryStatus;
+  publishedAt?: string;
+  lastPublishedDigest?: Digest;
+}>;
+export type CreateCurrentEntryInput = CurrentEntryRecord;
+export type ReplaceCurrentEntryInput = CurrentEntryRecord;
+export type GlobalSlugEntityIdentity = Readonly<{ entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>;
+
 
 export type PersistenceCanonicalState = Readonly<{
   contract: "persistence-canonical-state/v2";
   bytes: Uint8Array;
   digest: Digest;
-  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; taxonomies: number; taxonomyTermIdentities: number; taxonomyTerms: number; revisionTaxonomyBindings: number; currentContentTypes: number; globalSlugClaims: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
+  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; taxonomies: number; taxonomyTermIdentities: number; taxonomyTerms: number; revisionTaxonomyBindings: number; currentContentTypes: number; globalSlugClaims: number; currentEntries: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
 }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
@@ -154,6 +170,8 @@ export type PersistenceFailureCode =
   | "SCHEMA_MIGRATION_TARGET_NOT_FOUND"
   | "CURRENT_CONTENT_TYPE_NOT_FOUND"
   | "CURRENT_CONTENT_TYPE_CONFLICT"
+  | "CURRENT_ENTRY_NOT_FOUND"
+  | "CURRENT_ENTRY_CONFLICT"
   | "GLOBAL_SLUG_CONFLICT"
   | "SCHEMA_MIGRATION_MAPPING_FAILED"
   | "SCHEMA_MIGRATION_VALIDATION_FAILED"
@@ -192,6 +210,9 @@ export interface PersistenceReadSnapshot {
   getCurrentContentType(typeId: string): PersistenceResult<CurrentContentTypeRecord>;
   listCurrentContentTypes(): PersistenceResult<readonly CurrentContentTypeRecord[]>;
   getGlobalSlugClaim(namespaceKey: string): PersistenceResult<GlobalSlugClaimRecord>;
+  getGlobalSlugClaimByEntity(identity: GlobalSlugEntityIdentity): PersistenceResult<GlobalSlugClaimRecord>;
+  getCurrentEntry(entryId: string): PersistenceResult<CurrentEntryRecord>;
+  listCurrentEntries(typeId: string): PersistenceResult<readonly CurrentEntryRecord[]>;
 }
 
 export interface PersistenceTransaction extends PersistenceReadSnapshot {
@@ -233,6 +254,9 @@ export interface PersistenceTransaction extends PersistenceReadSnapshot {
   replaceCurrentContentType(input: ReplaceCurrentContentTypeInput): PersistenceResult<CurrentContentTypeRecord>;
   allocateGlobalSlug(input: AllocateGlobalSlugInput): PersistenceResult<GlobalSlugClaimRecord>;
   releaseGlobalSlug(input: Readonly<{ entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>): PersistenceResult<void>;
+  createCurrentEntry(input: CreateCurrentEntryInput): PersistenceResult<CurrentEntryRecord>;
+  replaceCurrentEntry(input: ReplaceCurrentEntryInput): PersistenceResult<CurrentEntryRecord>;
+  deleteCurrentEntry(entryId: string): PersistenceResult<void>;
   contentTypeHasCurrentEntries(typeId: string): PersistenceResult<boolean>;
   canonicalState(): PersistenceResult<PersistenceCanonicalState>;
 }

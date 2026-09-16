@@ -6,9 +6,12 @@ import type {
   AssetVersionIdentity,
   AssetVersionRecord,
   CreateCurrentContentTypeInput,
+  CreateCurrentEntryInput,
   CreateRevisionInput,
   CurrentContentTypeRecord,
+  CurrentEntryRecord,
   GlobalSlugClaimRecord,
+  GlobalSlugEntityIdentity,
   EntryPointerLineageRecord,
   EntryPointerRecord,
   MediaImportIntent,
@@ -80,6 +83,9 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
       getCurrentContentType(typeId: string) { return record(() => transaction.getCurrentContentType(typeId)); },
       listCurrentContentTypes() { return record(() => transaction.listCurrentContentTypes()); },
       getGlobalSlugClaim(namespaceKey: string) { return record(() => transaction.getGlobalSlugClaim(namespaceKey)); },
+      getGlobalSlugClaimByEntity(identity: GlobalSlugEntityIdentity) { return record(() => transaction.getGlobalSlugClaimByEntity(identity)); },
+      getCurrentEntry(entryId: string) { return record(() => transaction.getCurrentEntry(entryId)); },
+      listCurrentEntries(typeId: string) { return record(() => transaction.listCurrentEntries(typeId)); },
       listAssetVersionReferences(identity: AssetVersionIdentity) { return record(() => transaction.listAssetVersionReferences(identity)); },
       listRouteClaims(graph: "current" | "published") { return record(() => transaction.listRouteClaims(graph)); },
       readPluginActivationState() { return record(() => transaction.readPluginActivationState()); },
@@ -149,6 +155,9 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     replaceCurrentContentType(input) { return atomic((transaction) => transaction.replaceCurrentContentType(input)); },
     allocateGlobalSlug(input) { return atomic((transaction) => transaction.allocateGlobalSlug(input)); },
     releaseGlobalSlug(input) { return atomic((transaction) => transaction.releaseGlobalSlug(input)); },
+    createCurrentEntry(input) { return atomic((transaction) => transaction.createCurrentEntry(input)); },
+    replaceCurrentEntry(input) { return atomic((transaction) => transaction.replaceCurrentEntry(input)); },
+    deleteCurrentEntry(entryId) { return atomic((transaction) => transaction.deleteCurrentEntry(entryId)); },
     createTaxonomy(input) { return atomic((transaction) => transaction.createTaxonomy(input)); },
     createTaxonomyTerm(input) { return atomic((transaction) => transaction.createTaxonomyTerm(input)); },
     updateTaxonomyTerm(input) { return atomic((transaction) => transaction.updateTaxonomyTerm(input)); },
@@ -408,6 +417,32 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     getCurrentContentType(typeId) { return reading(() => currentContentTypeRecord(database.get("SELECT definition_bytes,definition_digest,legacy_schema_id FROM current_content_types WHERE type_id=?", typeId), typeId, refused)); },
     listCurrentContentTypes() { return reading(() => { const records: CurrentContentTypeRecord[] = []; for (const row of database.all("SELECT type_id,definition_bytes,definition_digest,legacy_schema_id FROM current_content_types")) { const typeId = text(row, "type_id"); if (typeId === null) return refused("STORAGE_FAILURE"); const record = currentContentTypeRecord(row, typeId, refused); if (!record.ok) return record; records.push(record.value); } return { ok: true, value: records.sort((left, right) => compareCodeUnits(left.typeId, right.typeId)) }; }); },
     getGlobalSlugClaim(namespaceKey) { return reading(() => globalSlugClaimRecord(database.get("SELECT slug,entity_kind,entity_id FROM global_slug_claims WHERE namespace_key=?", namespaceKey), namespaceKey, refused)); },
+    getGlobalSlugClaimByEntity(identity) { return reading(() => {
+      if (identity === null || typeof identity !== "object" || !validText(identity.entityId) || !validGlobalEntityKind(identity.entityKind)) return refused("INVALID_PERSISTENCE_INPUT");
+      const row = database.get("SELECT namespace_key,slug,entity_kind,entity_id FROM global_slug_claims WHERE entity_kind=? AND entity_id=?", identity.entityKind, identity.entityId);
+      const namespaceKey = row === undefined ? null : text(row, "namespace_key");
+      return namespaceKey === null ? refused("GLOBAL_SLUG_CONFLICT") : globalSlugClaimRecord(row, namespaceKey, refused);
+    }); },
+    getCurrentEntry(entryId) { return reading(() => validStableId(entryId) ? currentEntryRecord(database.get("SELECT entry_id,type_id,authoring_route,content_bytes,content_digest,status,published_at,last_published_digest FROM current_entries WHERE entry_id=?", entryId), entryId, refused) : refused("INVALID_PERSISTENCE_INPUT")); },
+    listCurrentEntries(typeId) { return reading(() => currentEntries(database, typeId, refused)); },
+    createCurrentEntry(input) { return guarded(() => {
+      const record = normalizeCurrentEntry(input, failed); if (!record.ok) return record;
+      if (database.get("SELECT 1 FROM current_entries WHERE entry_id=?", record.value.entryId) !== undefined) return failed("CURRENT_ENTRY_CONFLICT");
+      database.run("INSERT INTO current_entries (entry_id,type_id,authoring_route,content_bytes,content_digest,status,published_at,last_published_digest) VALUES (?,?,?,?,?,?,?,?)", record.value.entryId, record.value.typeId, record.value.authoringRoute, record.value.contentBytes, record.value.contentDigest, record.value.status, record.value.publishedAt ?? null, record.value.lastPublishedDigest ?? null);
+      return { ok: true, value: record.value };
+    }, "CURRENT_ENTRY_CONFLICT"); },
+    replaceCurrentEntry(input) { return guarded(() => {
+      const record = normalizeCurrentEntry(input, failed); if (!record.ok) return record;
+      if (database.get("SELECT 1 FROM current_entries WHERE entry_id=?", record.value.entryId) === undefined) return failed("CURRENT_ENTRY_NOT_FOUND");
+      database.run("UPDATE current_entries SET type_id=?,authoring_route=?,content_bytes=?,content_digest=?,status=?,published_at=?,last_published_digest=? WHERE entry_id=?", record.value.typeId, record.value.authoringRoute, record.value.contentBytes, record.value.contentDigest, record.value.status, record.value.publishedAt ?? null, record.value.lastPublishedDigest ?? null, record.value.entryId);
+      return { ok: true, value: record.value };
+    }); },
+    deleteCurrentEntry(entryId) { return guarded(() => {
+      if (!validStableId(entryId)) return failed("INVALID_PERSISTENCE_INPUT");
+      if (database.get("SELECT 1 FROM current_entries WHERE entry_id=?", entryId) === undefined) return failed("CURRENT_ENTRY_NOT_FOUND");
+      database.run("DELETE FROM current_entries WHERE entry_id=?", entryId);
+      return { ok: true, value: undefined };
+    }); },
     createCurrentContentType(input) { return guarded(() => {
       const record = normalizeCurrentContentType(input, failed); if (!record.ok) return record;
       if (database.get("SELECT 1 FROM current_content_types WHERE type_id=?", record.value.typeId) !== undefined) return failed("CURRENT_CONTENT_TYPE_CONFLICT");
@@ -436,7 +471,7 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       return failed("GLOBAL_SLUG_CONFLICT");
     }, "GLOBAL_SLUG_CONFLICT"); },
     releaseGlobalSlug(input) { return guarded(() => { if (input === null || typeof input !== "object" || !validText(input.entityId) || !validGlobalEntityKind(input.entityKind)) return failed("INVALID_PERSISTENCE_INPUT"); database.run("DELETE FROM global_slug_claims WHERE entity_kind=? AND entity_id=?", input.entityKind, input.entityId); return { ok: true, value: undefined }; }); },
-    contentTypeHasCurrentEntries(typeId) { return reading(() => { if (!validText(typeId)) return refused("INVALID_PERSISTENCE_INPUT"); return { ok: true, value: database.get("SELECT 1 FROM current_content_types c JOIN revisions r ON r.schema_id=c.legacy_schema_id JOIN entry_pointers p ON p.entry_id=r.entry_id AND p.current_revision_id=r.revision_id WHERE c.type_id=? LIMIT 1", typeId) !== undefined }; }); },
+    contentTypeHasCurrentEntries(typeId) { return reading(() => { if (!validText(typeId)) return refused("INVALID_PERSISTENCE_INPUT"); return { ok: true, value: database.get("SELECT 1 FROM current_content_types c JOIN revisions r ON r.schema_id=c.legacy_schema_id JOIN entry_pointers p ON p.entry_id=r.entry_id AND p.current_revision_id=r.revision_id WHERE c.type_id=? LIMIT 1", typeId) !== undefined || database.get("SELECT 1 FROM current_entries WHERE type_id=? LIMIT 1", typeId) !== undefined }; }); },
     canonicalState() { return reading(() => canonicalState(database, refused)); },
   };
 }
@@ -470,6 +505,65 @@ function globalSlugClaimRecord(row: SqliteRow | undefined, namespaceKey: string,
 
 function validGlobalEntityKind(value: unknown): value is GlobalSlugClaimRecord["entityKind"] {
   return value === "content-type" || value === "taxonomy" || value === "entry" || value === "media";
+}
+
+/**
+ * authoring route evidence 只接受 canonical `/<display-slug>`：SQLite CHECK 無法驗證 Unicode category 與 NFC，
+ * 因此 canonical 判定一律由既有的 display-slug canonicalizer負責。
+ */
+function currentEntryRoute(value: unknown): string | undefined {
+  if (typeof value !== "string" || !value.startsWith("/")) return undefined;
+  const slug = globalSlug(value.slice(1));
+  return slug === undefined || `/${slug.slug}` !== value ? undefined : value;
+}
+
+function utcInstant(value: unknown): string | undefined {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u.test(value)) return undefined;
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) || parsed.toISOString() !== value ? undefined : value;
+}
+
+function currentEntryRecord(row: SqliteRow | undefined, entryId: string, failed: Fail): PersistenceResult<CurrentEntryRecord> {
+  if (row === undefined) return failed("CURRENT_ENTRY_NOT_FOUND");
+  const typeId = text(row, "type_id");
+  const authoringRoute = currentEntryRoute(text(row, "authoring_route"));
+  const bytes = byte(row, "content_bytes");
+  const digest = digestField(row, "content_digest");
+  const status = row.status;
+  const publishedAt = nullableText(row, "published_at");
+  const lastPublished = nullableText(row, "last_published_digest");
+  if (!validStableId(entryId) || typeId === null || !validStableId(typeId) || authoringRoute === undefined || bytes === null || digest === null || (status !== "draft" && status !== "published") || publishedAt === undefined || lastPublished === undefined) return failed("STORAGE_FAILURE");
+  const canonical = validateCanonicalBytes(bytes, digest);
+  if (!canonical.ok) return failed(canonical.code);
+  const instant = publishedAt === null ? undefined : utcInstant(publishedAt);
+  const publishedDigest = lastPublished === null ? undefined : isDigest(lastPublished) ? lastPublished : undefined;
+  if ((publishedAt === null) !== (lastPublished === null) || (publishedAt !== null && instant === undefined) || (lastPublished !== null && publishedDigest === undefined) || (status === "published" && instant === undefined)) return failed("STORAGE_FAILURE");
+  return { ok: true, value: { entryId, typeId, authoringRoute, contentBytes: copyBytes(canonical.bytes), contentDigest: canonical.digest, status, ...(instant === undefined ? {} : { publishedAt: instant }), ...(publishedDigest === undefined ? {} : { lastPublishedDigest: publishedDigest }) } };
+}
+
+function normalizeCurrentEntry(input: CreateCurrentEntryInput, failed: Fail): PersistenceResult<CurrentEntryRecord> {
+  if (input === null || typeof input !== "object" || !validStableId(input.entryId) || !validStableId(input.typeId) || !(input.contentBytes instanceof Uint8Array) || !isDigest(input.contentDigest) || (input.status !== "draft" && input.status !== "published")) return failed("INVALID_PERSISTENCE_INPUT");
+  const authoringRoute = currentEntryRoute(input.authoringRoute);
+  if (authoringRoute === undefined) return failed("INVALID_PERSISTENCE_INPUT");
+  const canonical = validateCanonicalBytes(input.contentBytes, input.contentDigest);
+  if (!canonical.ok) return failed(canonical.code);
+  const publishedAt = input.publishedAt === undefined ? undefined : utcInstant(input.publishedAt);
+  const lastPublished = input.lastPublishedDigest === undefined ? undefined : isDigest(input.lastPublishedDigest) ? input.lastPublishedDigest : undefined;
+  if ((input.publishedAt === undefined) !== (input.lastPublishedDigest === undefined) || (input.publishedAt !== undefined && publishedAt === undefined) || (input.lastPublishedDigest !== undefined && lastPublished === undefined) || (input.status === "published" && publishedAt === undefined)) return failed("INVALID_PERSISTENCE_INPUT");
+  return { ok: true, value: { entryId: input.entryId, typeId: input.typeId, authoringRoute, contentBytes: copyBytes(canonical.bytes), contentDigest: canonical.digest, status: input.status, ...(publishedAt === undefined ? {} : { publishedAt }), ...(lastPublished === undefined ? {} : { lastPublishedDigest: lastPublished }) } };
+}
+
+function currentEntries(database: SqliteAdapter, typeId: string, failed: Fail): PersistenceResult<readonly CurrentEntryRecord[]> {
+  if (!validText(typeId)) return failed("INVALID_PERSISTENCE_INPUT");
+  const records: CurrentEntryRecord[] = [];
+  for (const row of database.all("SELECT entry_id,type_id,authoring_route,content_bytes,content_digest,status,published_at,last_published_digest FROM current_entries WHERE type_id=?", typeId)) {
+    const entryId = text(row, "entry_id");
+    if (entryId === null) return failed("STORAGE_FAILURE");
+    const record = currentEntryRecord(row, entryId, failed);
+    if (!record.ok) return record;
+    records.push(record.value);
+  }
+  return { ok: true, value: records.sort((left, right) => compareCodeUnits(left.entryId, right.entryId)) };
 }
 
 function validStableId(value: unknown): value is string {
@@ -688,10 +782,11 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
     const currentContentTypes = collect("SELECT type_id AS typeId,definition_digest AS definitionDigest,legacy_schema_id AS legacySchemaId FROM current_content_types", ["typeId", "definitionDigest", "legacySchemaId"]);
     const globalSlugClaims = collect("SELECT namespace_key AS namespaceKey,slug,entity_kind AS entityKind,entity_id AS entityId FROM global_slug_claims", ["namespaceKey", "slug", "entityKind", "entityId"]);
-    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, currentContentTypes, globalSlugClaims, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const currentEntries = collect("SELECT entry_id AS entryId,type_id AS typeId,authoring_route AS authoringRoute,content_digest AS contentDigest,status,published_at AS publishedAt,last_published_digest AS lastPublishedDigest FROM current_entries", ["entryId", "typeId", "authoringRoute", "contentDigest", "status", "publishedAt", "lastPublishedDigest"]);
+    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, currentContentTypes, globalSlugClaims, currentEntries, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
     const bytes = canonicalJsonBytes(payload);
     if (!bytes.ok) return failed("STORAGE_FAILURE");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, currentContentTypes: currentContentTypes.length, globalSlugClaims: globalSlugClaims.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, currentContentTypes: currentContentTypes.length, globalSlugClaims: globalSlugClaims.length, currentEntries: currentEntries.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
   } catch {
     return failed("STORAGE_FAILURE");
   }

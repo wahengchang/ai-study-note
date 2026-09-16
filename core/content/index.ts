@@ -1,9 +1,10 @@
 import { canonicalJsonBytes, copyBytes, sha256Digest, type Digest, type JsonValue } from "../foundation/index.js";
 import { SiteContentSchemaIdentity } from "./contracts.js";
 
-export { createPublishedContentReadModel, isSiteContentSchemaIdentity } from "./read-model.js";
+export { createPublishedContentReadModel, isSiteContentSchemaIdentity, parseCmsBodyBlocks } from "./read-model.js";
 export { SiteContentSchemaIdentity };
 export type {
+  CmsBodyBlock,
   ContentReadFailure,
   ContentReadFailureCode,
   ContentReadInput,
