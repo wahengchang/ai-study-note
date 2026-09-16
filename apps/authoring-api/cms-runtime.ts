@@ -2,11 +2,11 @@ import { randomUUID } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createCurrentEntryAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createCurrentEntryAdministration, createCurrentMediaLibrary, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../core/application/index.js";
 import { createPublishedContentReadModel } from "../../core/content/index.js";
 import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../core/delivery/index.js";
 import { type MessageRemediation } from "../../core/foundation/index.js";
-import { createLocalMediaObjectStore, startDataMedia } from "../../core/media/index.js";
+import { createCurrentMediaObjectStore, createLocalMediaObjectStore, startDataMedia } from "../../core/media/index.js";
 import { openPersistence, type PersistenceStore } from "../../core/persistence/index.js";
 import { createPluginHost } from "../../core/plugin-host/index.js";
 import { createProjectionPreview } from "../../core/projection/index.js";
@@ -96,6 +96,11 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     if (!objectStore.ok) return failure("CMS_MEDIA_UNAVAILABLE");
     const dataMedia = startDataMedia({ persistence, objectStore: objectStore.value });
     if (!dataMedia.ok) return failure("CMS_MEDIA_UNAVAILABLE");
+    // v2 current media library 與 v1 asset-version lifecycle 共用同一個 media root，但各自使用獨立子樹。
+    const currentObjectStore = createCurrentMediaObjectStore({ objectsRoot: input.mediaRoot });
+    if (!currentObjectStore.ok) return failure("CMS_MEDIA_UNAVAILABLE");
+    const currentMediaLibrary = createCurrentMediaLibrary({ persistence, objectStore: currentObjectStore.value, newStableId: randomUUID });
+    if (!currentMediaLibrary.ok) return failure("CMS_MEDIA_UNAVAILABLE");
     const siteDefinition = createSiteDefinition({ persistence });
     const pluginHost = await createPluginHost({ repositoryRoot, installedPluginsRoot: input.installedPluginsRoot, activationState: createPersistencePluginActivationStatePort({ persistence }), settingsState: createPersistencePluginSettingsStatePort({ persistence }) });
     if (!pluginHost.ok) return failure("CMS_PLUGIN_HOST_UNAVAILABLE");
@@ -126,7 +131,7 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const effectiveRelation = relative(effectiveRepositoryRoot, effectiveReleaseRoot);
     if (effectiveRelation === "" || (!effectiveRelation.startsWith(`..${sep}`) && effectiveRelation !== ".." && !isAbsolute(effectiveRelation))) return failure("CMS_DELIVERY_UNAVAILABLE");
     const releaseTransport = createAuthoringReleaseTransport({ projection: projectionPreview, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
-    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, currentEntryAdministration, contentTypeMigrationAdministration, projectionPreview, releaseTransport });
+    const started = await startAuthoringApi({ domainApplication, credentialAuthority: credentials, cmsAssets: assets, logger: input.logger, authoringReadFacade, contentTypeAdministration, currentEntryAdministration, contentTypeMigrationAdministration, currentMediaLibrary: currentMediaLibrary.value, projectionPreview, releaseTransport });
     if (!started.ok) return failure("CMS_LISTENER_UNAVAILABLE");
     listener = started.value;
     let closed = false;

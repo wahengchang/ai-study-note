@@ -37,8 +37,9 @@ test("0012 seeds one current Article definition and global claims exactly once",
           "0011-add-taxonomy-storage",
           "0012-add-current-content-types-and-global-slugs",
           "0013-add-current-entries",
+          "0014-add-current-media-assets",
         ],
-        currentMigrationId: "0013-add-current-entries",
+        currentMigrationId: "0014-add-current-media-assets",
       },
     });
 

@@ -111,7 +111,16 @@ export type DataMediaFailureCode =
   | "MEDIA_RESTORE_FAILURE"
   | "MEDIA_READ_STATE_STALE"
   | "MEDIA_READ_FAILED"
-  | "MEDIA_RECONCILIATION_FAILURE";
+  | "MEDIA_RECONCILIATION_FAILURE"
+  | "INVALID_MEDIA_LIBRARY_INPUT"
+  | "MEDIA_SIZE_LIMIT_EXCEEDED"
+  | "MEDIA_UNSUPPORTED_TYPE"
+  | "MEDIA_TYPE_MISMATCH"
+  | "MEDIA_THUMBNAIL_FAILURE"
+  | "MEDIA_LIBRARY_FAILURE"
+  | "MEDIA_ASSET_STATE_CONFLICT"
+  | "MEDIA_ASSET_REFERENCED";
+export type MediaReferenceUsage = Readonly<{ entryId: string; status: "draft" | "published" }>;
 export type DataMediaFailure = Readonly<{
   code: DataMediaFailureCode;
   owner: "DataMedia";
@@ -119,6 +128,8 @@ export type DataMediaFailure = Readonly<{
   remediation: MessageRemediation;
   archiveImpact?: ArchiveAssetImpact;
   restoreCommands?: readonly RestoreAssetCommandDescriptor[];
+  /** current media asset 的完整 deterministic usage；只有 referenced 阻擋會帶此 evidence。 */
+  usage?: readonly MediaReferenceUsage[];
 }>;
 export type DataMediaResult<T> = CoreResult<T> | Readonly<{ ok: false; error: DataMediaFailure }>;
 export interface DataMedia {

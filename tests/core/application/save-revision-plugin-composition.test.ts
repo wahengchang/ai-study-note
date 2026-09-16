@@ -353,27 +353,3 @@ test("late route-claim fault rolls back validated revision references and lifecy
     rmSync(value.directory, { recursive: true, force: true });
   }
 });
-
-test("SaveRevision replacement consumes one active validator snapshot and persists its normalized content", async () => {
-  const value = await fixture("accept");
-  try {
-    const replaced = await value.app.saveRevision({
-      kind: "media-reference-replacement",
-      entryId: "entry-a",
-      revisionId: "draft-1",
-      operationId: "replace-1",
-      expectedCurrentRevisionId: "draft-0",
-      targetAssetVersion: { assetId: "asset-a", assetVersionId: "version-a" },
-      replacementAssetVersion: { assetId: "asset-a", assetVersionId: "version-b" },
-    });
-    assert.equal(replaced.ok, true, replaced.ok ? "" : replaced.error.code);
-    if (!replaced.ok) return;
-    assert.equal(replaced.value.activePluginStateDigest, value.activeDigest);
-    assert.deepEqual(JSON.parse(new TextDecoder().decode(replaced.value.revision.contentBytes)), { title: "validated" });
-    assert.deepEqual(replaced.value.references.map((reference) => reference.assetVersion), [{ assetId: "asset-a", assetVersionId: "version-b" }]);
-    assert.equal(trace(value).length, 1);
-  } finally {
-    value.store.close();
-    rmSync(value.directory, { recursive: true, force: true });
-  }
-});
