@@ -72,13 +72,16 @@ function fileExtension(filename: string): string | undefined {
 /**
  * 以檔案內容決定 family／MIME：前端宣告的 Content-Type 只是 advisory，一律不參與判定。
  * 副檔名只用來否決「內容與副檔名不一致」與區分同一 magic 的 audio／video 變體。
+ *
+ * `truncated` 代表 head 只是整個檔案的前綴（呼叫端的 head window 有上限）。純文字判定必須
+ * 知道這件事：窗尾切在多位元組字元中間是取樣造成的，不是無效 UTF-8。
  */
-export function sniffMediaType(input: Readonly<{ head: Uint8Array; filename: string }>): DataMediaResult<SniffedMedia> {
+export function sniffMediaType(input: Readonly<{ head: Uint8Array; filename: string; truncated?: boolean }>): DataMediaResult<SniffedMedia> {
   const head = input.head;
   if (!(head instanceof Uint8Array) || head.byteLength === 0) return sniffFailure("MEDIA_UNSUPPORTED_TYPE");
   for (const magic of rejectedMagic) if (startsWith(head, magic.bytes, magic.offset ?? 0)) return sniffFailure("MEDIA_UNSUPPORTED_TYPE");
   const extension = fileExtension(input.filename);
-  const content = detectContent(head, extension);
+  const content = detectContent(head, extension, input.truncated === true);
   if (content === undefined) return sniffFailure("MEDIA_UNSUPPORTED_TYPE");
   const allowed = content.raster === undefined ? mimeExtensions[content.mimeType] ?? [] : rasterExtensions[content.raster.format];
   // 副檔名缺失時不否決；帶著不符的副檔名（例如把 SVG 改名成 .png、把 MP3 改名成 .wav）必須 fail closed。
@@ -86,7 +89,7 @@ export function sniffMediaType(input: Readonly<{ head: Uint8Array; filename: str
   return { ok: true, value: content };
 }
 
-function detectContent(head: Uint8Array, extension: string | undefined): SniffedMedia | undefined {
+function detectContent(head: Uint8Array, extension: string | undefined, truncated: boolean): SniffedMedia | undefined {
   if (startsWith(head, [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])) return rasterContent(head, "png", "image/png");
   if (startsWith(head, [0xff, 0xd8, 0xff])) return rasterContent(head, "jpeg", "image/jpeg");
   if (ascii(head, 0, 6) === "GIF87a" || ascii(head, 0, 6) === "GIF89a") return rasterContent(head, "gif", "image/gif");
@@ -97,7 +100,7 @@ function detectContent(head: Uint8Array, extension: string | undefined): Sniffed
   if (ascii(head, 0, 4) === "fLaC") return { family: "audio", mimeType: "audio/flac" };
   if (startsWith(head, [0x1a, 0x45, 0xdf, 0xa3])) return { family: extension === "weba" ? "audio" : "video", mimeType: extension === "weba" ? "audio/webm" : "video/webm" };
   if (ascii(head, 4, 4) === "ftyp") return isoBaseMedia(head, extension);
-  return textContent(head);
+  return textContent(head, truncated);
 }
 
 function isoBaseMedia(head: Uint8Array, extension: string | undefined): SniffedMedia | undefined {
@@ -108,9 +111,12 @@ function isoBaseMedia(head: Uint8Array, extension: string | undefined): SniffedM
 }
 
 /** 純文字只在前 1 MiB 判定；媒體庫不對外提供原始 bytes，因此錯判不會讓主動內容被執行。 */
-function textContent(head: Uint8Array): SniffedMedia | undefined {
+function textContent(head: Uint8Array, truncated: boolean): SniffedMedia | undefined {
   let text: string;
-  try { text = new TextDecoder("utf-8", { fatal: true }).decode(head); } catch { return undefined; }
+  // head 被截斷時以 stream 模式解碼：窗尾未完成的多位元組序列會被保留而不是判成錯誤，
+  // 否則單純「檔案比 head window 大」就能讓合法的 CJK 純文字被拒。真正無效的 bytes
+  // 仍然會 throw，因為 stream 只寬待「合法序列的前綴」。
+  try { text = new TextDecoder("utf-8", { fatal: true }).decode(head, { stream: truncated }); } catch { return undefined; }
   for (const character of text) {
     const code = character.codePointAt(0) ?? 0;
     if (code === 0x09 || code === 0x0a || code === 0x0d) continue;

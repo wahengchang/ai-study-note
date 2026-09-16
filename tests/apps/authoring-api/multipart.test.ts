@@ -75,14 +75,17 @@ test("multipart framing rejects trailing bytes, truncation, and malformed envelo
     assert.equal(trailing.value.framingFailure(), "INVALID_REQUEST_BODY");
   }
 
-  const truncated = await prepare([bytes.subarray(0, bytes.byteLength - 6)]);
-  assert.equal(truncated.ok, true);
-  if (truncated.ok) await assert.rejects(readUpload(truncated.value));
-
-  // 結尾 delimiter 之後只送出一個 CR 就結束（缺 LF）同樣是截斷。
-  const loneCarriageReturn = await prepare([bytes.subarray(0, bytes.byteLength - 1)]);
-  assert.equal(loneCarriageReturn.ok, true);
-  if (loneCarriageReturn.ok) await assert.rejects(readUpload(loneCarriageReturn.value));
+  // 每個截斷點都必須被記錄成 framing failure：transport 靠 `framingFailure()` 回 400，
+  // 漏記的截斷點會讓 library 的泛用 staging failure 冒充成 500 的伺服器故障。
+  for (let drop = 1; drop <= 8; drop += 1) {
+    const truncated = await prepare([bytes.subarray(0, bytes.byteLength - drop)]);
+    assert.equal(truncated.ok, true, `drop=${drop}`);
+    if (!truncated.ok) continue;
+    // 結尾 CRLF 是可選的，因此只少掉它的 body 仍然是完整的請求。
+    if (drop === 2) { assert.equal(new TextDecoder().decode(await readUpload(truncated.value)), fileBytes); continue; }
+    await assert.rejects(readUpload(truncated.value), `drop=${drop}`);
+    assert.equal(truncated.value.framingFailure(), "INVALID_REQUEST_BODY", `drop=${drop}`);
+  }
 
   const oversizedEnvelope = await prepare([uploadBytes({ contract: "media-import-metadata/v2", title: "x".repeat(MEDIA_ENVELOPE_LIMIT + 1) })]);
   assert.equal(oversizedEnvelope.ok, false);
@@ -101,4 +104,15 @@ test("multipart framing rejects trailing bytes, truncation, and malformed envelo
   const notMultipart = await prepare([bytes], "application/json");
   assert.equal(notMultipart.ok, false);
   if (!notMultipart.ok) assert.equal(notMultipart.code, "UNSUPPORTED_MEDIA_TYPE");
+});
+
+test("a sink that rejects bytes is the library's failure, never a framing failure", async () => {
+  // sink 回 failure 代表容量或儲存故障（例如超過 400 MiB ceiling）。framing 完好無損，
+  // 因此 transport 不得用 400 的 INVALID_REQUEST_BODY 蓋掉 library 已判定的原始 code。
+  const prepared = await prepare([uploadBytes()]);
+  assert.equal(prepared.ok, true);
+  if (!prepared.ok) return;
+  const rejecting: MediaUploadSink = { write: () => ({ ok: false, error: { code: "MEDIA_SIZE_LIMIT_EXCEEDED", owner: "DataMedia", subjectIds: [], remediation: { kind: "message", message: "ceiling" } } }) };
+  await assert.rejects(prepared.value.source(rejecting));
+  assert.equal(prepared.value.framingFailure(), undefined);
 });

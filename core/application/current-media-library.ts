@@ -272,7 +272,8 @@ export function createCurrentMediaLibrary(input: CurrentMediaLibraryDependencies
 
   type Ingested = Readonly<{ evidence: MediaByteEvidence; sniffed: SniffedMedia; thumbnail: ThumbnailBytes | undefined }>;
   const ingest = (filename: string, upload: StagedUpload): CurrentMediaLibraryResult<Ingested> => {
-    const sniffed = sniffMediaType({ head: upload.head, filename });
+    // head 是前 headLimit bytes 的窗；檔案更大時 sniff 必須知道它看到的只是前綴。
+    const sniffed = sniffMediaType({ head: upload.head, filename, truncated: upload.evidence.byteLength > upload.head.byteLength });
     if (!sniffed.ok) { objectStore.removeStage(upload.stageId); return { ok: false, error: asMediaFailure(sniffed.error) }; }
     const raster = sniffed.value.raster;
     if (raster === undefined) return { ok: true, value: { evidence: upload.evidence, sniffed: sniffed.value, thumbnail: undefined } };

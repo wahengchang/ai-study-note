@@ -10,8 +10,8 @@ export type PreparedMediaUpload = Readonly<{
   declaredContentType: string | null;
   metadata: unknown;
   source: MediaUploadSource;
-  /** 串流結束後才可能發現的 framing 問題（缺少結尾 delimiter 等）。 */
-  framingFailure(): "INVALID_REQUEST_BODY" | undefined;
+  /** 串流結束後才可能發現的 framing 問題（缺少結尾 delimiter、body 截斷等）。 */
+  framingFailure(): FramingFailure | undefined;
 }>;
 export type MediaUploadFailureCode = "UNSUPPORTED_MEDIA_TYPE" | "INVALID_REQUEST_BODY" | "REQUEST_BODY_TOO_LARGE";
 export type PrepareMediaUploadResult = Readonly<{ ok: true; value: PreparedMediaUpload }> | Readonly<{ ok: false; code: MediaUploadFailureCode }>;
@@ -25,6 +25,12 @@ type Headers = Readonly<{ name: string | null; filename: string | null; contentT
 type FramingFailure = "INVALID_REQUEST_BODY" | "REQUEST_BODY_TOO_LARGE";
 /** envelope 超限是 body 過大而不是 framing 錯誤，必須讓 client 看到可區分的 code。 */
 class FramingError extends Error { constructor(readonly failure: FramingFailure) { super(failure); } }
+/**
+ * sink 拒絕 bytes 是 library 的 failure（超過 400 MiB ceiling、staging I/O 故障），不是 framing
+ * 錯誤。兩者必須可分辨，否則 `finishMediaUpload` 會用 transport 的 400 蓋掉 library 已判定的
+ * `MEDIA_SIZE_LIMIT_EXCEEDED` 等原始 code。
+ */
+class SinkError extends Error {}
 
 function parseBoundary(contentType: string | null): Uint8Array | undefined {
   if (contentType === null) return undefined;
@@ -55,7 +61,7 @@ export async function prepareMediaUpload(input: Readonly<{ body: ReadableStream<
   delimiter.set(new TextEncoder().encode("\r\n"), 0);
   delimiter.set(boundary, 2);
   const scanner = new MultipartScanner(reader, delimiter);
-  let framingFailure: "INVALID_REQUEST_BODY" | undefined;
+  let framingFailure: FramingFailure | undefined;
   try {
     await scanner.expect(boundary);
     const metadataHeaders = await scanner.readHeaders();
@@ -68,8 +74,16 @@ export async function prepareMediaUpload(input: Readonly<{ body: ReadableStream<
     const filename = fileHeaders.filename;
     const declaredContentType = fileHeaders.contentType;
     const source: MediaUploadSource = async (sink) => {
-      const closed = await scanner.streamPart(sink);
-      if (!closed) { framingFailure = "INVALID_REQUEST_BODY"; throw new FramingError("INVALID_REQUEST_BODY"); }
+      try {
+        if (await scanner.streamPart(sink)) return;
+        throw new FramingError("INVALID_REQUEST_BODY");
+      } catch (error) {
+        // streamPart 可能在看完結尾 delimiter 之前就因截斷而拋出（例如 body 正好停在
+        // delimiter 後）。那同樣是 client 的 framing 錯誤，必須記錄成 400，不得讓 library
+        // 的泛用 staging failure 把它報成 500。
+        if (error instanceof FramingError) framingFailure = error.failure;
+        throw error;
+      }
     };
     return { ok: true, value: {
       filename,
@@ -187,7 +201,7 @@ class MultipartScanner {
       const index = indexOf(this.#buffer, this.#delimiter);
       if (index !== -1) {
         const body = this.#consume(index);
-        if (body.byteLength > 0 && !sink.write(body).ok) throw new FramingError("INVALID_REQUEST_BODY");
+        if (body.byteLength > 0 && !sink.write(body).ok) throw new SinkError("sink-rejected");
         this.#consume(this.#delimiter.byteLength);
         await this.#readAtLeast(2, headerBlockLimit);
         const trailer = this.#consume(2);
@@ -197,7 +211,7 @@ class MultipartScanner {
       const tail = Math.max(0, this.#buffer.byteLength - (this.#delimiter.byteLength - 1));
       if (tail > 0) {
         const emit = this.#consume(tail);
-        if (!sink.write(emit).ok) throw new FramingError("INVALID_REQUEST_BODY");
+        if (!sink.write(emit).ok) throw new SinkError("sink-rejected");
       }
       if (!(await this.#fill())) return false;
     }

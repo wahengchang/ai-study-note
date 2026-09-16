@@ -183,6 +183,29 @@ test("non-raster media import exposes safe metadata without thumbnail evidence",
   }
 });
 
+test("a plain-text file larger than the sniff window is not rejected for splitting a character", async () => {
+  const fixture = openFixture();
+  try {
+    // head window 是前 1 MiB。純 CJK 文字每字 3 bytes，1048576 不是 3 的倍數，因此窗尾
+    // 必定切在字元中間；那是取樣造成的，不得讓合法檔案被判成 MEDIA_UNSUPPORTED_TYPE。
+    const bytes = textBytes("繁體中文筆記內容。\n".repeat(120_000));
+    assert.ok(bytes.byteLength > 1024 * 1024);
+    const imported = await fixture.library.importAsset({ filename: "長篇筆記.txt", metadata: metadata("長篇筆記"), source: upload(bytes) });
+    assert.equal(imported.ok, true, JSON.stringify(imported));
+    if (imported.ok) {
+      assert.equal(imported.value.mimeType, "text/plain");
+      assert.equal(imported.value.byteLength, bytes.byteLength);
+    }
+    // 窗內就已經無效的 UTF-8 仍然必須 fail closed，截斷不是放行任何 bytes 的理由。
+    const invalid = await fixture.library.importAsset({ filename: "壞掉.txt", metadata: metadata("壞掉"), source: upload(new Uint8Array([0x68, 0x69, 0xff, 0xfe, ...bytes])) });
+    assert.equal(invalid.ok, false);
+    if (!invalid.ok) assert.equal(invalid.error.code, "MEDIA_UNSUPPORTED_TYPE");
+    assert.deepEqual(stagingFiles(fixture.directory), []);
+  } finally {
+    closeFixture(fixture);
+  }
+});
+
 test("unsafe or spoofed uploads fail closed before any record or staging remains", async () => {
   const fixture = openFixture();
   try {
