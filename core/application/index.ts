@@ -66,10 +66,16 @@ export type {
   ContentTypeCatalogV1,
   ContentTypeCreateRequestV1,
   ContentTypeDefinitionV1,
+  ContentTypeFieldDefinition,
+  ContentTypeFieldGroup,
+  ContentTypeFieldKind,
+  ContentTypeFieldOption,
+  ContentTypeFieldValueShape,
   ContentTypeReplaceRequestV1,
 } from "./content-type-administration.js";
 export type {
   CptContentV1,
+  CptCustomValue,
   CptEntryCatalogV1,
   CptEntryCreateRequestV1,
   CptEntryDeleteRequestV1,

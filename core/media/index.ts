@@ -1,4 +1,4 @@
-export { startDataMedia } from "./service.js";
+export { isMediaAssetId, startDataMedia } from "./service.js";
 export { createLocalMediaObjectStore } from "./object-storage.js";
 export type {
   ArchiveAssetImpact,
