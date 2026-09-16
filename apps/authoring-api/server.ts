@@ -17,6 +17,7 @@ import { authoringEntrySchema, authoringErrorSchema, authoringErrorStatuses, med
 import type { BrowserSessionDto, BrowserTicketDto, MediaArchiveBlockedErrorDto, MediaRestoreRequiredErrorDto, PublishRevisionSuccessDto, RestoreRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
 import type { ChangeRouteRequest, RouteChangeProposalRequest, SiteRouteGraphReadRequest } from "../../core/application/index.js";
 import { changeRouteCommandSchema, changeRouteSuccessSchema, routeChangeProposalRequestSchema, routeChangeProposalSchema, siteRouteGraphSchema } from "./transport-contracts.js";
+import { replaceContentTypeRequestSchema } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
 const SECURITY_HEADERS = {
@@ -61,7 +62,7 @@ const MEDIA_ENCODED_BYTES_LIMIT = 4_128_768;
 const MEDIA_ENVELOPE_LIMIT = 65_536;
 const MEDIA_ENVELOPE_REMEDIATION = "Media request 的非 bytes envelope 不得超過 64 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/site/routes" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:schemaId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/site/routes" | "/v1/site/routes/change" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/versions" | "/v1/media/:assetId/archive" | "/v1/media/:assetId/restore" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/content-types" | "/v1/content-types/:schemaId" | "/v1/content-types/:schemaId/migrations" | "/v1/content-types/:schemaId/migrations/preview" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/preview" | "/v1/release/diagnose" | "/v1/release/build" | "/v1/release" | "/v1/redeliver" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/site/routes" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:typeId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/site/routes" | "/v1/site/routes/change" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/versions" | "/v1/media/:assetId/archive" | "/v1/media/:assetId/restore" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/content-types" | "/v1/content-types/:typeId" | "/v1/content-types/:schemaId/migrations" | "/v1/content-types/:schemaId/migrations/preview" | "/v1/preview" | "/v1/release/diagnose" | "/v1/release/build" | "/v1/release" | "/v1/redeliver" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched"; status: number }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
 export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; contentTypeMigrationAdministration: ContentTypeMigrationAdministration; projectionPreview: ProjectionPreview; releaseTransport: AuthoringReleaseTransport }>;
@@ -70,7 +71,7 @@ type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
 type RouteClass = "cms-document" | "cms-asset" | "plugins" | "plugin-activate" | "plugin-settings" | "site-routes" | "site-route-change" | "media" | "media-import" | "media-version" | "media-detail" | "media-archive" | "media-restore" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "content-type-migrations" | "entries" | "entry" | "entry-revisions" | "publish" | "restore" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "preview" | "release-diagnose" | "release-build" | "release" | "redeliver" | "proof" | "browser-ticket" | "browser-session" | "unknown";
 const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "site-routes", "media", "media-detail", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions", "taxonomies", "taxonomy"]);
-const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "entry-revisions", "taxonomies"]);
+const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "entry-revisions", "taxonomies"]);
 const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "site-routes", "site-route-change", "media", "media-import", "media-version", "media-detail", "media-archive", "media-restore", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "content-type-migrations", "entries", "entry", "entry-revisions", "publish", "restore", "taxonomies", "taxonomy", "taxonomy-commands", "preview", "release-diagnose", "release-build", "release", "redeliver"]);
 
 
@@ -137,7 +138,7 @@ function templateFor(route: RouteClass, pathname: string): RouteTemplate {
     if (pathname === "/cms/content-types/new") return "/cms/content-types/new";
     if (pathname === "/cms/taxonomies") return "/cms/taxonomies";
     if (pathname === "/cms/taxonomies/new") return "/cms/taxonomies/new";
-    if (pathname.startsWith("/cms/content-types/")) return "/cms/content-types/:schemaId";
+    if (pathname.startsWith("/cms/content-types/")) return "/cms/content-types/:typeId";
     if (pathname.startsWith("/cms/taxonomies/")) return "/cms/taxonomies/:taxonomyId";
     if (pathname.startsWith("/cms/media/")) return "/cms/media/:assetId";
     return "/cms/entries/:entryId";
@@ -158,7 +159,7 @@ function templateFor(route: RouteClass, pathname: string): RouteTemplate {
   if (route === "editor-blocks") return "/v1/entries/:entryId/current/editor-blocks";
   if (route === "seo-analysis") return "/v1/entries/:entryId/seo-analysis";
   if (route === "content-types") return "/v1/content-types";
-  if (route === "content-type") return "/v1/content-types/:schemaId";
+  if (route === "content-type") return "/v1/content-types/:typeId";
   if (route === "content-type-migrations") return pathname.endsWith("/preview") ? "/v1/content-types/:schemaId/migrations/preview" : "/v1/content-types/:schemaId/migrations";
   if (route === "entries") return "/v1/entries";
   if (route === "entry") return "/v1/entries/:entryId";
@@ -197,6 +198,20 @@ function framingOk(headers: HeaderMap, incoming: IncomingMessage): boolean {
   if (contentLength.length === 1 && !Number.isSafeInteger(Number(contentLength[0]))) return false;
   return transferEncoding.length === 0 || transferEncoding[0] === "chunked";
 }
+
+function canonicalRequestTarget(incoming: IncomingMessage): boolean {
+  const target = incoming.url;
+  if (target === undefined) return false;
+  const query = target.indexOf("?");
+  const rawPath = query === -1 ? target : target.slice(0, query);
+  if (/(?:^|\/)(?:\.|%2e)(?:\.|%2e)?(?:\/|$)/iu.test(rawPath)) return false;
+  try {
+    return new URL(target, ORIGIN).pathname === rawPath;
+  } catch {
+    return false;
+  }
+}
+
 function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
 function originOk(headers: HeaderMap, route: RouteClass, assetDestination: CmsAsset["destination"] | undefined, method: string): boolean {
   const origin = values(headers, "origin"); const fetchSite = values(headers, "sec-fetch-site"); const fetchMode = values(headers, "sec-fetch-mode"); const fetchDestination = values(headers, "sec-fetch-dest");
@@ -598,11 +613,11 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     return result.ok && taxonomyCommandResultSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
   }));
   app.get("/v1/content-types", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.authoringReadFacade.listContentTypes();
+    const result = await input.contentTypeAdministration.list();
     return result.ok && contentTypeCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
-  app.get("/v1/content-types/:schemaId", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.authoringReadFacade.getContentType({ schemaId: context.req.param("schemaId") ?? "" });
+  app.get("/v1/content-types/:typeId", async (context) => authenticatedRead(context, input, async (requestId) => {
+    const result = await input.contentTypeAdministration.get({ typeId: context.req.param("typeId") ?? "" });
     return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
   app.post("/v1/content-types/:schemaId/migrations/preview", async (context) => authenticatedJson(context, input, 1_048_576, "Content type migration request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
@@ -621,6 +636,16 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     if (result.value.kind === "blocked") return migrationBlockedError(requestId, result.value);
     return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   }));
+  app.post("/v1/content-types", async (context) => authenticatedJson(context, input, 1_048_576, "Content type request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
+    const parsed = createContentTypeRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.contentTypeAdministration.create(parsed.data);
+    return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 201) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
+  }));
+  app.post("/v1/content-types/:typeId", async (context) => authenticatedJson(context, input, 1_048_576, "Content type request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
+    const parsed = replaceContentTypeRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.contentTypeAdministration.replace({ typeId: context.req.param("typeId") ?? "", definition: parsed.data });
+    return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
+  }));
   app.get("/v1/entries", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.authoringReadFacade.listEntries();
     return result.ok && entryCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
@@ -632,11 +657,6 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
   app.get("/v1/entries/:entryId/revisions", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.authoringReadFacade.listEntryRevisions({ entryId: context.req.param("entryId") ?? "" });
     return result.ok && entryRevisionCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
-  }));
-  app.post("/v1/content-types", async (context) => authenticatedJson(context, input, 1_048_576, "Content type request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
-    const parsed = createContentTypeRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.contentTypeAdministration.createInitial({ schemaId: parsed.data.schemaId, schema: parsed.data.schema as JsonValue });
-    return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 201) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
   app.post("/v1/release/diagnose", async (context) => authenticatedJson(context, input, 4_096, "Release diagnose request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
     if (!releaseDiagnoseRequestSchema.safeParse(body).success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
@@ -690,6 +710,7 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     let result: Response;
     if (!framingOk(headers, incoming)) { result = errorResponse(requestId, "INVALID_REQUEST_FRAMING", 400, "AuthoringApi"); result.headers.set("Connection", "close"); }
     else if (!hostOk(headers)) result = errorResponse(requestId, "MISDIRECTED_REQUEST", 421);
+    else if (!canonicalRequestTarget(incoming)) result = errorResponse(requestId, "INVALID_REQUEST_FRAMING", 400, "AuthoringApi");
     else if ((route === "cms-document" || route === "cms-asset") && (parsed?.search.length !== 0 || values(headers, "cookie").length !== 0 || values(headers, "authorization").length !== 0)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);
     else if (route === "cms-asset" && asset === undefined) result = errorResponse(requestId, "ROUTE_NOT_FOUND", 404);
     else if (!originOk(headers, route, asset?.destination, request.method)) result = errorResponse(requestId, "ORIGIN_FORBIDDEN", 403);

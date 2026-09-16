@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { createHmac } from "node:crypto";
+import { createHmac, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { request as nodeRequest } from "node:http";
@@ -161,7 +161,7 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
     let releaseProjections = 0;
     const releaseProjection = { ...projectionPreview, async produceRendererInput(request: Record<string, never>) { releaseProjections += 1; return projectionPreview.produceRendererInput(request); } };
     const authoringReadFacade = createAuthoringReadFacade({ persistence: persistence.value, siteDefinition, dataMedia: media.value, contentReadModel: contentReadModel.value });
-    const contentTypeAdministration = createContentTypeAdministration({ persistence: persistence.value, validator: createAjvSchemaValidator() });
+    const contentTypeAdministration = createContentTypeAdministration({ persistence: persistence.value, newStableId: randomUUID, validator: createAjvSchemaValidator() });
     const delivery = createPublicDelivery({ artifactsRoot: path.join(directory, "artifacts") }); if (!delivery.ok) throw new Error(delivery.error.code);
     const releaseDelivery = createFixedRootReleaseDelivery({ artifactsRoot: path.join(directory, "artifacts"), releaseRoot: path.join(directory, "release") }); if (!releaseDelivery.ok) throw new Error(releaseDelivery.error.code);
     const releaseTransport = createAuthoringReleaseTransport({ projection: releaseProjection, delivery: delivery.value, releaseDelivery: releaseDelivery.value });
@@ -965,6 +965,21 @@ test("actual listener emits strict nonempty Content Type migration preview and e
   });
 });
 
+test("raw dot-segment Content Type migration targets are rejected before dispatch", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, migrationCalls }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const before = digest();
+    for (const pathname of ["/v1/content-types/note/../note/migrations/preview", "/v1/content-types/note/%2e%2e/note/migrations/preview"]) {
+      const rejected = await post(pathname, headers, JSON.stringify({}));
+      assert.equal(rejected.status, 400, pathname);
+      assert.equal(failureCode(rejected), "INVALID_REQUEST_FRAMING", pathname);
+      assertResponseHeaders(rejected, pathname);
+    }
+    assert.equal(migrationCalls(), 0);
+    assert.equal(digest(), before);
+  });
+});
+
 test("migration listener fails closed, returns a rich blocked envelope, and admits no rejected request", async () => {
   await withAuthoringApi(async ({ apiKey, digest, migrationCalls }) => {
     const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
@@ -1034,17 +1049,48 @@ test("migration listener maps a target schema collision to a strict 409 stale en
   });
 });
 
-// Migration route 自成 route class：`/v1/content-types/:schemaId` 不得因為 migrations 需要 POST
-// 而被放寬成可 POST，否則會落到 Hono 預設 404（text/plain、無 security header）。
-test("content-type detail route still rejects POST with the contract 405 envelope", async () => {
+test("content-type detail POST replaces a current definition", async () => {
   await withAuthoringApi(async ({ apiKey }) => {
-    const response = await post("/v1/content-types/note", { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority }, JSON.stringify({}));
-    assert.equal(response.status, 405, response.body);
-    const body = JSON.parse(response.body) as { contract: string; code: string; owner: string };
-    assert.equal(body.contract, "authoring-error/v1");
-    assert.equal(body.code, "METHOD_NOT_ALLOWED");
-    assert.equal(body.owner, "AuthoringApi");
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const typeId = "00000000-0000-4000-8000-000000000001";
+    const current = await send("GET", `/v1/content-types/${typeId}`, { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(current.status, 200, current.body);
+    const definition = JSON.parse(current.body) as { stateDigest: string; fieldGroups: unknown[]; taxonomyAttachments: unknown[] };
+    const response = await post(`/v1/content-types/${typeId}`, headers, JSON.stringify({
+      contract: "content-type-replace-request/v1",
+      expectedStateDigest: definition.stateDigest,
+      label: "文章 API 更新",
+      slug: "articles-api",
+      help: "",
+      order: 0,
+      showInMenu: true,
+      fieldGroups: definition.fieldGroups,
+      taxonomyAttachments: definition.taxonomyAttachments,
+    }));
+    assert.equal(response.status, 200, response.body);
+    const body = JSON.parse(response.body) as { contract: string; typeId: string; slug: string };
+    assert.deepEqual({ contract: body.contract, typeId: body.typeId, slug: body.slug }, { contract: "content-type-definition/v1", typeId, slug: "articles-api" });
     assertResponseHeaders(response, "content-type detail POST");
+  });
+});
+
+test("content-type catalog Create and detail GET use the current-only contract", async () => {
+  await withAuthoringApi(async ({ apiKey }) => {
+    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
+    const catalog = await send("GET", "/v1/content-types", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(catalog.status, 200, catalog.body);
+    const baseline = JSON.parse(catalog.body) as { contract: string; stateDigest: string };
+    assert.equal(baseline.contract, "content-type-catalog/v1");
+    const created = await post("/v1/content-types", headers, JSON.stringify({ contract: "content-type-create-request/v1", expectedStateDigest: baseline.stateDigest, label: "API 類型", help: "", order: 1, showInMenu: false, fieldGroups: [], taxonomyAttachments: [] }));
+    assert.equal(created.status, 201, created.body);
+    const definition = JSON.parse(created.body) as { typeId: string; slug: string };
+    assert.equal(definition.slug, "api-類型");
+    const readBack = await send("GET", `/v1/content-types/${definition.typeId}`, { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.equal(readBack.status, 200, readBack.body);
+    assert.deepEqual(JSON.parse(readBack.body), JSON.parse(created.body));
+    const malformed = await post("/v1/content-types", headers, JSON.stringify({ contract: "content-type-create-request/v1", expectedStateDigest: baseline.stateDigest, label: "錯誤", help: "", order: 1, showInMenu: false, fieldGroups: [], taxonomyAttachments: [], extra: true }));
+    assert.equal(malformed.status, 400, malformed.body);
+    assert.equal(failureCode(malformed), "INVALID_REQUEST_BODY");
   });
 });
 

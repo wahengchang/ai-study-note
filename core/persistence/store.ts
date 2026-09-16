@@ -5,7 +5,10 @@ import type {
   AssetVersionReferenceGroups,
   AssetVersionIdentity,
   AssetVersionRecord,
+  CreateCurrentContentTypeInput,
   CreateRevisionInput,
+  CurrentContentTypeRecord,
+  GlobalSlugClaimRecord,
   EntryPointerLineageRecord,
   EntryPointerRecord,
   MediaImportIntent,
@@ -37,6 +40,7 @@ import type {
   RevisionTaxonomyBindingUsage,
   TransactionDecision,
 } from "./contracts.js";
+import { globalSlug } from "./global-slug.js";
 import { validateCanonicalBytes } from "./canonical-bytes.js";
 import { persistenceFailure, persistenceResultFailure } from "./failures.js";
 import { createSchemaMigrationImpactAnalyzer } from "./schema-migration-impact.js";
@@ -73,6 +77,9 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
       getRevisionReferences(identity: RevisionIdentity) { return record(() => transaction.getRevisionReferences(identity)); },
       getReadyAssetVersion(identity: AssetVersionIdentity) { return record(() => transaction.getReadyAssetVersion(identity)); },
       listAssetVersions() { return record(() => transaction.listAssetVersions()); },
+      getCurrentContentType(typeId: string) { return record(() => transaction.getCurrentContentType(typeId)); },
+      listCurrentContentTypes() { return record(() => transaction.listCurrentContentTypes()); },
+      getGlobalSlugClaim(namespaceKey: string) { return record(() => transaction.getGlobalSlugClaim(namespaceKey)); },
       listAssetVersionReferences(identity: AssetVersionIdentity) { return record(() => transaction.listAssetVersionReferences(identity)); },
       listRouteClaims(graph: "current" | "published") { return record(() => transaction.listRouteClaims(graph)); },
       readPluginActivationState() { return record(() => transaction.readPluginActivationState()); },
@@ -138,6 +145,10 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     deleteMediaImportIntentExact(input) { return atomic((transaction) => transaction.deleteMediaImportIntentExact(input)); },
     createRevisionReferences(revision, assetVersions) { return atomic((transaction) => transaction.createRevisionReferences(revision, assetVersions)); },
     createRevisionWithReferences(input) { return atomic((transaction) => transaction.createRevisionWithReferences(input)); },
+    createCurrentContentType(input) { return atomic((transaction) => transaction.createCurrentContentType(input)); },
+    replaceCurrentContentType(input) { return atomic((transaction) => transaction.replaceCurrentContentType(input)); },
+    allocateGlobalSlug(input) { return atomic((transaction) => transaction.allocateGlobalSlug(input)); },
+    releaseGlobalSlug(input) { return atomic((transaction) => transaction.releaseGlobalSlug(input)); },
     createTaxonomy(input) { return atomic((transaction) => transaction.createTaxonomy(input)); },
     createTaxonomyTerm(input) { return atomic((transaction) => transaction.createTaxonomyTerm(input)); },
     updateTaxonomyTerm(input) { return atomic((transaction) => transaction.updateTaxonomyTerm(input)); },
@@ -394,8 +405,75 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     readPluginActivationState() { return reading(() => readOpaqueState(database, "plugin_activation_state")); },
     readThemeActivationState() { return reading(() => readOpaqueState(database, "theme_activation_state")); },
     readPluginSettingsState() { return reading(() => readOpaqueState(database, "plugin_settings_state")); },
+    getCurrentContentType(typeId) { return reading(() => currentContentTypeRecord(database.get("SELECT definition_bytes,definition_digest,legacy_schema_id FROM current_content_types WHERE type_id=?", typeId), typeId, refused)); },
+    listCurrentContentTypes() { return reading(() => { const records: CurrentContentTypeRecord[] = []; for (const row of database.all("SELECT type_id,definition_bytes,definition_digest,legacy_schema_id FROM current_content_types")) { const typeId = text(row, "type_id"); if (typeId === null) return refused("STORAGE_FAILURE"); const record = currentContentTypeRecord(row, typeId, refused); if (!record.ok) return record; records.push(record.value); } return { ok: true, value: records.sort((left, right) => compareCodeUnits(left.typeId, right.typeId)) }; }); },
+    getGlobalSlugClaim(namespaceKey) { return reading(() => globalSlugClaimRecord(database.get("SELECT slug,entity_kind,entity_id FROM global_slug_claims WHERE namespace_key=?", namespaceKey), namespaceKey, refused)); },
+    createCurrentContentType(input) { return guarded(() => {
+      const record = normalizeCurrentContentType(input, failed); if (!record.ok) return record;
+      if (database.get("SELECT 1 FROM current_content_types WHERE type_id=?", record.value.typeId) !== undefined) return failed("CURRENT_CONTENT_TYPE_CONFLICT");
+      database.run("INSERT INTO current_content_types (type_id,definition_bytes,definition_digest,legacy_schema_id) VALUES (?,?,?,?)", record.value.typeId, record.value.definitionBytes, record.value.definitionDigest, record.value.legacySchemaId ?? null);
+      return { ok: true, value: record.value };
+    }, "CURRENT_CONTENT_TYPE_CONFLICT"); },
+    replaceCurrentContentType(input) { return guarded(() => {
+      const record = normalizeCurrentContentType(input, failed); if (!record.ok) return record;
+      if (database.get("SELECT 1 FROM current_content_types WHERE type_id=?", record.value.typeId) === undefined) return failed("CURRENT_CONTENT_TYPE_NOT_FOUND");
+      database.run("UPDATE current_content_types SET definition_bytes=?,definition_digest=?,legacy_schema_id=? WHERE type_id=?", record.value.definitionBytes, record.value.definitionDigest, record.value.legacySchemaId ?? null, record.value.typeId);
+      return { ok: true, value: record.value };
+    }); },
+    allocateGlobalSlug(input) { return guarded(() => {
+      if (input === null || typeof input !== "object" || !validText(input.entityId) || !validGlobalEntityKind(input.entityKind)) return failed("INVALID_PERSISTENCE_INPUT");
+      const base = globalSlug(input.requestedSlug); if (base === undefined) return failed("INVALID_PERSISTENCE_INPUT");
+      for (let suffix = 1; suffix < Number.MAX_SAFE_INTEGER; suffix += 1) {
+        const candidate = suffix === 1 ? base : globalSlug(`${base.slug}-${suffix}`);
+        if (candidate === undefined) return failed("INVALID_PERSISTENCE_INPUT");
+        const existing = database.get("SELECT slug,entity_kind,entity_id FROM global_slug_claims WHERE namespace_key=?", candidate.namespaceKey);
+        if (existing === undefined || (existing.entity_kind === input.entityKind && existing.entity_id === input.entityId)) {
+          database.run("DELETE FROM global_slug_claims WHERE entity_kind=? AND entity_id=?", input.entityKind, input.entityId);
+          database.run("INSERT INTO global_slug_claims (namespace_key,slug,entity_kind,entity_id) VALUES (?,?,?,?)", candidate.namespaceKey, candidate.slug, input.entityKind, input.entityId);
+          return { ok: true, value: { namespaceKey: candidate.namespaceKey, slug: candidate.slug, entityKind: input.entityKind, entityId: input.entityId } };
+        }
+      }
+      return failed("GLOBAL_SLUG_CONFLICT");
+    }, "GLOBAL_SLUG_CONFLICT"); },
+    releaseGlobalSlug(input) { return guarded(() => { if (input === null || typeof input !== "object" || !validText(input.entityId) || !validGlobalEntityKind(input.entityKind)) return failed("INVALID_PERSISTENCE_INPUT"); database.run("DELETE FROM global_slug_claims WHERE entity_kind=? AND entity_id=?", input.entityKind, input.entityId); return { ok: true, value: undefined }; }); },
+    contentTypeHasCurrentEntries(typeId) { return reading(() => { if (!validText(typeId)) return refused("INVALID_PERSISTENCE_INPUT"); return { ok: true, value: database.get("SELECT 1 FROM current_content_types c JOIN revisions r ON r.schema_id=c.legacy_schema_id JOIN entry_pointers p ON p.entry_id=r.entry_id AND p.current_revision_id=r.revision_id WHERE c.type_id=? LIMIT 1", typeId) !== undefined }; }); },
     canonicalState() { return reading(() => canonicalState(database, refused)); },
   };
+}
+
+function currentContentTypeRecord(row: SqliteRow | undefined, typeId: string, failed: Fail): PersistenceResult<CurrentContentTypeRecord> {
+  if (row === undefined) return failed("CURRENT_CONTENT_TYPE_NOT_FOUND");
+  const bytes = byte(row, "definition_bytes");
+  const digest = digestField(row, "definition_digest");
+  const legacySchemaId = nullableText(row, "legacy_schema_id");
+  if (!validStableId(typeId) || bytes === null || digest === null || legacySchemaId === undefined) return failed("STORAGE_FAILURE");
+  const canonical = validateCanonicalBytes(bytes, digest);
+  if (!canonical.ok) return failed(canonical.code);
+  return { ok: true, value: { typeId, definitionBytes: copyBytes(canonical.bytes), definitionDigest: canonical.digest, ...(legacySchemaId === null ? {} : { legacySchemaId }) } };
+}
+
+function normalizeCurrentContentType(input: CreateCurrentContentTypeInput, failed: Fail): PersistenceResult<CurrentContentTypeRecord> {
+  if (input === null || typeof input !== "object" || !validStableId(input.typeId) || !(input.definitionBytes instanceof Uint8Array) || !isDigest(input.definitionDigest) || (input.legacySchemaId !== undefined && !validText(input.legacySchemaId))) return failed("INVALID_PERSISTENCE_INPUT");
+  const canonical = validateCanonicalBytes(input.definitionBytes, input.definitionDigest);
+  if (!canonical.ok) return failed(canonical.code);
+  return { ok: true, value: { typeId: input.typeId, definitionBytes: copyBytes(canonical.bytes), definitionDigest: canonical.digest, ...(input.legacySchemaId === undefined ? {} : { legacySchemaId: input.legacySchemaId }) } };
+}
+
+function globalSlugClaimRecord(row: SqliteRow | undefined, namespaceKey: string, failed: Fail): PersistenceResult<GlobalSlugClaimRecord> {
+  if (row === undefined) return failed("GLOBAL_SLUG_CONFLICT");
+  const slug = text(row, "slug");
+  const entityKind = row.entity_kind;
+  const entityId = text(row, "entity_id");
+  if (!validText(namespaceKey) || slug === null || entityId === null || !validGlobalEntityKind(entityKind)) return failed("STORAGE_FAILURE");
+  return { ok: true, value: { namespaceKey, slug, entityKind, entityId } };
+}
+
+function validGlobalEntityKind(value: unknown): value is GlobalSlugClaimRecord["entityKind"] {
+  return value === "content-type" || value === "taxonomy" || value === "entry" || value === "media";
+}
+
+function validStableId(value: unknown): value is string {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u.test(value);
 }
 
 type OpaqueStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
@@ -608,10 +686,12 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     const schemaMigrationExecutions = collect("SELECT operation_id AS operationId,source_schema_id AS sourceSchemaId,source_schema_version AS sourceSchemaVersion,target_schema_id AS targetSchemaId,target_schema_version AS targetSchemaVersion,mapping_identity AS mappingIdentity FROM schema_migration_executions", ["operationId", "sourceSchemaId", "sourceSchemaVersion", "targetSchemaId", "targetSchemaVersion", "mappingIdentity"]);
     const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);
     const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
-    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const currentContentTypes = collect("SELECT type_id AS typeId,definition_digest AS definitionDigest,legacy_schema_id AS legacySchemaId FROM current_content_types", ["typeId", "definitionDigest", "legacySchemaId"]);
+    const globalSlugClaims = collect("SELECT namespace_key AS namespaceKey,slug,entity_kind AS entityKind,entity_id AS entityId FROM global_slug_claims", ["namespaceKey", "slug", "entityKind", "entityId"]);
+    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, currentContentTypes, globalSlugClaims, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
     const bytes = canonicalJsonBytes(payload);
     if (!bytes.ok) return failed("STORAGE_FAILURE");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, currentContentTypes: currentContentTypes.length, globalSlugClaims: globalSlugClaims.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
   } catch {
     return failed("STORAGE_FAILURE");
   }

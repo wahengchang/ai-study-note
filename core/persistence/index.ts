@@ -2,6 +2,7 @@ import type { MigrationSummary, PersistenceResult, PersistenceStore } from "./co
 import { persistenceResultFailure } from "./failures.js";
 import { migrateDatabaseWithSources, openCurrentDatabase, shippedMigrationSources, type SchemaEvidenceReconciliation } from "./migrations.js";
 import { createPersistenceStore } from "./store.js";
+export { globalSlug, globalSlugNamespaceKey, normalizeDisplaySlug, suggestGlobalSlug, type GlobalSlug } from "./global-slug.js";
 
 export type {
   AssetVersionAvailability,
@@ -10,6 +11,10 @@ export type {
   CompareAndReplacePluginActivationStateInput,
   CompareAndReplaceThemeActivationStateInput,
   CompareAndReplacePluginSettingsStateInput,
+  AllocateGlobalSlugInput,
+  CreateCurrentContentTypeInput,
+  CurrentContentTypeRecord,
+  GlobalSlugClaimRecord,
   CreateRevisionInput,
   CreateRevisionWithReferencesInput,
   CreateTaxonomyInput,

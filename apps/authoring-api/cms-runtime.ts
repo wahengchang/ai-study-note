@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { lstatSync, realpathSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 
@@ -104,7 +105,7 @@ export async function startCmsRuntime(input: StartCmsRuntimeInput): Promise<CmsR
     const taxonomy = createTaxonomy({ persistence });
     const domainApplication = createDomainApplication({ persistence, siteDefinition, dataMedia: dataMedia.value, schemaValidator, pluginHost: pluginHost.value, taxonomy });
     const authoringReadFacade = createAuthoringReadFacade({ persistence, siteDefinition, dataMedia: dataMedia.value, contentReadModel: contentReadModel.value });
-    const contentTypeAdministration = createContentTypeAdministration({ persistence, validator: schemaValidator });
+    const contentTypeAdministration = createContentTypeAdministration({ persistence, newStableId: randomUUID, validator: schemaValidator });
     const contentTypeMigrationAdministration = createContentTypeMigrationAdministration({ persistence, validator: schemaValidator });
     const themeHost = await createThemeHost({
       repositoryRoot,

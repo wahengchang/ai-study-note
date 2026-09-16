@@ -47,15 +47,16 @@ test("empty database migrates once and rerun preserves current storage", () => {
           "0009-add-theme-activation-state",
           "0010-add-plugin-settings-state",
           "0011-add-taxonomy-storage",
+          "0012-add-current-content-types-and-global-slugs",
         ],
-        currentMigrationId: "0011-add-taxonomy-storage",
+        currentMigrationId: "0012-add-current-content-types-and-global-slugs",
       },
     });
     const database = openSqliteAdapter(fixture.databasePath);
     assert.equal(database.get("PRAGMA application_id")?.application_id, 1095324500);
-    assert.equal(database.get("PRAGMA user_version")?.user_version, 11);
-    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 11);
-    assert.equal(database.get("SELECT count(*) AS count FROM taxonomies")?.count, 0);
+    assert.equal(database.get("PRAGMA user_version")?.user_version, 12);
+    assert.equal(database.get("SELECT count(*) AS count FROM storage_migrations")?.count, 12);
+    assert.equal(database.get("SELECT count(*) AS count FROM taxonomies")?.count, 2);
     assert.equal(database.get("SELECT count(*) AS count FROM taxonomy_term_identities")?.count, 0);
     assert.equal(database.get("SELECT count(*) AS count FROM taxonomy_terms")?.count, 0);
     assert.equal(database.get("SELECT count(*) AS count FROM revision_taxonomy_bindings")?.count, 0);
@@ -76,7 +77,7 @@ test("empty database migrates once and rerun preserves current storage", () => {
     const before = digestFile(fixture.databasePath);
     assert.deepEqual(migrateDatabaseWithSchemaEvidence({ databasePath: fixture.databasePath }, siteContent), {
       ok: true,
-      value: { appliedMigrationIds: [], currentMigrationId: "0011-add-taxonomy-storage" },
+      value: { appliedMigrationIds: [], currentMigrationId: "0012-add-current-content-types-and-global-slugs" },
     });
     assert.equal(digestFile(fixture.databasePath), before);
   } finally {

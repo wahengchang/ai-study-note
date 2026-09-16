@@ -41,12 +41,18 @@ export type CompareAndReplaceThemeActivationStateInput = Readonly<{ expectedDige
 export type PluginSettingsStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
 export type CompareAndReplacePluginSettingsStateInput = Readonly<{ expectedDigest: Digest; next: PluginSettingsStateRecord }>;
 
+export type CurrentContentTypeRecord = Readonly<{ typeId: string; definitionBytes: Uint8Array; definitionDigest: Digest; legacySchemaId?: string }>;
+export type GlobalSlugClaimRecord = Readonly<{ namespaceKey: string; slug: string; entityKind: "content-type" | "taxonomy" | "entry" | "media"; entityId: string }>;
+export type CreateCurrentContentTypeInput = CurrentContentTypeRecord;
+export type ReplaceCurrentContentTypeInput = CurrentContentTypeRecord;
+export type AllocateGlobalSlugInput = Readonly<{ requestedSlug: string; entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>;
+
 
 export type PersistenceCanonicalState = Readonly<{
   contract: "persistence-canonical-state/v2";
   bytes: Uint8Array;
   digest: Digest;
-  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; taxonomies: number; taxonomyTermIdentities: number; taxonomyTerms: number; revisionTaxonomyBindings: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
+  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; taxonomies: number; taxonomyTermIdentities: number; taxonomyTerms: number; revisionTaxonomyBindings: number; currentContentTypes: number; globalSlugClaims: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
 }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
@@ -146,6 +152,9 @@ export type PersistenceFailureCode =
   | "INVALID_SCHEMA_MIGRATION_REQUEST"
   | "SCHEMA_MIGRATION_SOURCE_NOT_FOUND"
   | "SCHEMA_MIGRATION_TARGET_NOT_FOUND"
+  | "CURRENT_CONTENT_TYPE_NOT_FOUND"
+  | "CURRENT_CONTENT_TYPE_CONFLICT"
+  | "GLOBAL_SLUG_CONFLICT"
   | "SCHEMA_MIGRATION_MAPPING_FAILED"
   | "SCHEMA_MIGRATION_VALIDATION_FAILED"
   | "INVALID_SCHEMA_MIGRATION_EVIDENCE"
@@ -180,6 +189,9 @@ export interface PersistenceReadSnapshot {
   readThemeActivationState(): PersistenceResult<ThemeActivationStateRecord>;
   readPluginSettingsState(): PersistenceResult<PluginSettingsStateRecord>;
   getRevisionTaxonomyBindings(revision: RevisionIdentity): PersistenceResult<readonly RevisionTaxonomyTermBinding[]>;
+  getCurrentContentType(typeId: string): PersistenceResult<CurrentContentTypeRecord>;
+  listCurrentContentTypes(): PersistenceResult<readonly CurrentContentTypeRecord[]>;
+  getGlobalSlugClaim(namespaceKey: string): PersistenceResult<GlobalSlugClaimRecord>;
 }
 
 export interface PersistenceTransaction extends PersistenceReadSnapshot {
@@ -217,6 +229,11 @@ export interface PersistenceTransaction extends PersistenceReadSnapshot {
   createRevisionTaxonomyBindings(revision: RevisionIdentity, terms: readonly TaxonomyTermIdentity[]): PersistenceResult<readonly RevisionTaxonomyTermBinding[]>;
   getRevisionTaxonomyBindings(revision: RevisionIdentity): PersistenceResult<readonly RevisionTaxonomyTermBinding[]>;
   listTaxonomyTermUsages(identity: TaxonomyTermIdentity): PersistenceResult<readonly RevisionTaxonomyBindingUsage[]>;
+  createCurrentContentType(input: CreateCurrentContentTypeInput): PersistenceResult<CurrentContentTypeRecord>;
+  replaceCurrentContentType(input: ReplaceCurrentContentTypeInput): PersistenceResult<CurrentContentTypeRecord>;
+  allocateGlobalSlug(input: AllocateGlobalSlugInput): PersistenceResult<GlobalSlugClaimRecord>;
+  releaseGlobalSlug(input: Readonly<{ entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>): PersistenceResult<void>;
+  contentTypeHasCurrentEntries(typeId: string): PersistenceResult<boolean>;
   canonicalState(): PersistenceResult<PersistenceCanonicalState>;
 }
 

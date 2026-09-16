@@ -12,7 +12,7 @@ depends_on: [WI-001]
 
 ## Acceptance
 
-- [ ] `/cms/content/:typeId`、`/cms/content/:typeId/new` 與 `/cms/content/:typeId/:entryId` 可完成 default Article catalog、create、read與edit；route 使用 CPT stable ID，不存在 Article 特例。
+- [ ] Article entry catalog/document 唯一使用 `/cms/post`；其他 CPT 唯一使用 `/cms/post?cpt=<typeId>`，query 僅接受無引號 canonical UUID。Article `cpt` query、缺值、重複/額外 query、encoded separator與non-canonical value皆 fail closed，沒有 alias。
 - [ ] Create/Save 回傳 `cpt-entry/v1`，包含 stable entry ID、type ID、實際 slug、沿用 #315 body-block payload的 `cpt-content/v1`、`draft|published` status、state digest與適用時的 `publishedAt`。
 - [ ] 每次 Save 都要求 title、slug與非空 body；draft可保存尚未完成的後續custom/taxonomy/media必填值，published Save則在缺少任何目前已知publishable requirement時零寫入失敗。
 - [ ] status=`published` 且publishable content digest改變時更新UTC `publishedAt`與last-published digest；相同bytes重複Save不改時間；改回draft保留時間但readback status仍為draft。
