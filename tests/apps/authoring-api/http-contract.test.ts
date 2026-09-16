@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
+import { crc32, deflateSync } from "node:zlib";
 import { createHmac, randomUUID } from "node:crypto";
 import { createServer } from "node:http";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -8,11 +9,11 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createCurrentEntryAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
+import { createAuthoringReadFacade, createContentTypeAdministration, createContentTypeMigrationAdministration, createCurrentMediaLibrary, createCurrentEntryAdministration, createDomainApplication, createPersistencePluginActivationStatePort, createPersistencePluginSettingsStatePort } from "../../../core/application/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { createPublishedContentReadModel, getSiteContentSchemaEvidence } from "../../../core/content/index.js";
 import { createFixedRootReleaseDelivery, createPublicDelivery } from "../../../core/delivery/index.js";
-import { createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
+import { createCurrentMediaObjectStore, createLocalMediaObjectStore, startDataMedia } from "../../../core/media/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import type { PersistenceStore } from "../../../core/persistence/index.js";
 import { createPluginHost } from "../../../core/plugin-host/index.js";
@@ -20,7 +21,7 @@ import { createProjectionPreview } from "../../../core/projection/index.js";
 import { createSiteDefinition, type SiteDefinition } from "../../../core/site-definition/index.js";
 import { createThemeHost, type ThemeIdentity } from "../../../core/theme-host/index.js";
 import { createTaxonomy } from "../../../core/taxonomy/index.js";
-import { authoringErrorSchema, authoringErrorStatuses, contentTypeMigrationBlockedErrorSchema, contentTypeMigrationOutcomeSchema, createAjvSchemaValidator, createAuthoringReleaseTransport, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaArchiveBlockedErrorSchema, mediaRestoreRequiredErrorSchema, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
+import { authoringErrorSchema, authoringErrorStatuses, contentTypeMigrationBlockedErrorSchema, contentTypeMigrationOutcomeSchema, createAjvSchemaValidator, createAuthoringReleaseTransport, createLocalAuthoringClient, createLocalAuthoringCredentialAuthority, mediaAssetDetailV2Schema, mediaAssetReferencedErrorSchema, mediaAssetV2Schema, publishRevisionSuccessSchema, restoreRevisionSuccessSchema, startAuthoringApi, taxonomyCommandResultSchema, taxonomySnapshotSchema } from "../../../apps/authoring-api/index.js";
 import type { AuthoringApiLogEvent, AuthoringCredentialAuthority, CmsAssets } from "../../../apps/authoring-api/index.js";
 
 const origin = "http://127.0.0.1:43127";
@@ -45,7 +46,7 @@ function installTheme(themesRoot: string): ThemeIdentity {
 }
 
 
-function send(method: string, pathname: string, headers: Headers, body?: string): Promise<RawResponse> {
+function send(method: string, pathname: string, headers: Headers, body?: string | Uint8Array): Promise<RawResponse> {
   const deferred = Promise.withResolvers<RawResponse>();
   const request = nodeRequest({ host: "127.0.0.1", port: 43127, path: pathname, method, headers: headers as Record<string, string | string[]> }, (response) => {
     const chunks: Buffer[] = [];
@@ -56,7 +57,7 @@ function send(method: string, pathname: string, headers: Headers, body?: string)
   request.end(body);
   return deferred.promise;
 }
-function post(pathname: string, headers: Headers, body: string): Promise<RawResponse> { return send("POST", pathname, headers, body); }
+function post(pathname: string, headers: Headers, body: string | Uint8Array): Promise<RawResponse> { return send("POST", pathname, headers, body); }
 function saveBody(revisionId: string, route: string, expectedCurrentRevisionId: string | null = null): string {
   return JSON.stringify({ contract: "save-revision-request/v1", revisionId, operationId: `operation-${revisionId}`, expectedCurrentRevisionId, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: revisionId }, route, assetVersions: [], taxonomyTerms: [] });
 }
@@ -172,7 +173,10 @@ async function withAuthoringApi(run: (harness: Harness) => Promise<void>): Promi
       async preview(...args: Parameters<typeof migrationAdministration.preview>) { migrationCalls += 1; return migrationAdministration.preview(...args); },
       async execute(...args: Parameters<typeof migrationAdministration.execute>) { migrationCalls += 1; return migrationAdministration.execute(...args); },
     };
-    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, currentEntryAdministration, contentTypeMigrationAdministration, projectionPreview, releaseTransport });
+    const currentObjects = createCurrentMediaObjectStore({ objectsRoot: path.join(directory, "objects") }); if (!currentObjects.ok) throw new Error(currentObjects.error.code);
+    const currentMediaLibrary = createCurrentMediaLibrary({ persistence: persistence.value, objectStore: currentObjects.value, newStableId: randomUUID });
+    if (!currentMediaLibrary.ok) throw new Error(currentMediaLibrary.error.code);
+    const started = await startAuthoringApi({ domainApplication: instrumentedApplication, credentialAuthority: credentials, cmsAssets, logger: (event) => log.push(event), authoringReadFacade, contentTypeAdministration, currentEntryAdministration, contentTypeMigrationAdministration, currentMediaLibrary: currentMediaLibrary.value, projectionPreview, releaseTransport });
     if (!started.ok) throw new Error(`${started.error.code}（127.0.0.1:43127 是否已被佔用？）`);
     close = started.value.close;
     const digest = (): string => { const state = persistence.value.canonicalState(); if (!state.ok) throw new Error(state.error.code); return state.value.digest; };
@@ -230,123 +234,233 @@ test("actual listener release transport is fixed-root, receipt-only, and never p
   });
 });
 
-test("actual listener imports and lists a strictly redacted media asset", async () => {
-  await withAuthoringApi(async ({ apiKey }) => {
-    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority };
-    const imported = await post("/v1/media/import", headers, JSON.stringify({ contract: "media-import-request/v1", importId: "import-media-1", assetId: "asset-1", assetVersionId: "version-1", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: { mime: "text/plain", secret: "must-not-return" } }));
-    assert.equal(imported.status, 200, imported.body);
-    assert.equal(imported.body.includes("must-not-return"), false);
-    const listed = await send("GET", "/v1/media", { Authorization: `Bearer ${apiKey}`, Host: authority });
-    assert.equal(listed.status, 200, listed.body);
-    const catalog = JSON.parse(listed.body) as { contract: string; items: readonly { contract: string; assetId: string; versions: readonly { contract: string; identity: { assetId: string; assetVersionId: string }; evidence: { byteLength: number }; availability: string }[] }[] };
-    assert.equal(catalog.contract, "media-catalog/v1");
-    assert.deepEqual(catalog.items.map((asset) => ({ contract: asset.contract, assetId: asset.assetId, versions: asset.versions.map((version) => ({ contract: version.contract, assetId: version.identity.assetId, assetVersionId: version.identity.assetVersionId, byteLength: version.evidence.byteLength, availability: version.availability })) })), [{ contract: "media-asset/v1", assetId: "asset-1", versions: [{ contract: "media-asset-version/v1", assetId: "asset-1", assetVersionId: "version-1", byteLength: 11, availability: "ready" }] }]);
-    assert.equal(listed.body.includes("must-not-return"), false);
-    const saved = await post("/v1/entries/media-entry/revisions", headers, JSON.stringify({ contract: "save-revision-request/v1", revisionId: "media-draft-1", operationId: "save-media-draft-1", expectedCurrentRevisionId: null, schemaIdentity: { schemaId: "note", version: 1 }, content: { title: "media" }, route: "/media", assetVersions: [{ assetId: "asset-1", assetVersionId: "version-1" }], taxonomyTerms: [] }));
-    assert.equal(saved.status, 200, saved.body);
-    const published = await post("/v1/entries/media-entry/publish", headers, publishBody("media-draft-1", "publish-media-draft-1"));
-    assert.equal(published.status, 200, published.body);
-    const versioned = await post("/v1/media/asset-1/versions", headers, JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: "import-media-2", assetVersionId: "version-2", bytesBase64url: "bmV3IG1lZGlh", metadata: { mime: "text/plain", secret: "must-not-return" } }, replacement: { entryId: "media-entry", revisionId: "media-draft-2", operationId: "replace-media-draft-1", expectedCurrentRevisionId: "media-draft-1", targetAssetVersion: { assetId: "asset-1", assetVersionId: "version-1" } } }));
-    assert.equal(versioned.status, 200, versioned.body);
-    assert.equal(versioned.body.includes("must-not-return"), false);
-    assert.equal(JSON.parse(versioned.body).save.pointer.currentRevisionId, "media-draft-2");
-    const detail = await send("GET", "/v1/media/asset-1", { Authorization: `Bearer ${apiKey}`, Host: authority });
+type MultipartPart = Readonly<{ name: string; filename?: string; contentType?: string; bytes: Uint8Array }>;
+/** 以真實 multipart bytes 發送：file part 直接內嵌，不經 Base64 或任何整檔 buffer 包裝。 */
+function multipartBody(boundary: string, parts: readonly MultipartPart[]): Uint8Array {
+  const chunks: Uint8Array[] = [];
+  for (const part of parts) {
+    const disposition = part.filename === undefined ? `form-data; name="${part.name}"` : `form-data; name="${part.name}"; filename="${part.filename}"`;
+    const headers = [`--${boundary}`, `Content-Disposition: ${disposition}`, ...(part.contentType === undefined ? [] : [`Content-Type: ${part.contentType}`]), "", ""].join("\r\n");
+    chunks.push(new TextEncoder().encode(headers), part.bytes, new TextEncoder().encode("\r\n"));
+  }
+  chunks.push(new TextEncoder().encode(`--${boundary}--\r\n`));
+  const total = chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0);
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) { body.set(chunk, offset); offset += chunk.byteLength; }
+  return body;
+}
+function importUpload(file: { name: string; contentType: string; bytes: Uint8Array }, metadata: unknown, boundary = "----cmsMediaBoundary"): Readonly<{ boundary: string; body: Uint8Array }> {
+  return { boundary, body: multipartBody(boundary, [
+    { name: "metadata", contentType: "application/json", bytes: new TextEncoder().encode(JSON.stringify(metadata)) },
+    { name: "file", filename: file.name, contentType: file.contentType, bytes: file.bytes },
+  ]) };
+}
+function multipartHeaders(apiKey: string | undefined, boundary: string): Headers {
+  return { ...(apiKey === undefined ? {} : { Authorization: `Bearer ${apiKey}` }), "Content-Type": `multipart/form-data; boundary=${boundary}`, Host: authority };
+}
+/** 最小合法 PNG（1×1 紅點），讓 raster pipeline 在 HTTP 層有真實可解碼輸入。 */
+function httpPng(): Uint8Array {
+  const raw = Buffer.from([0, 255, 0, 0]);
+  const stored = deflateSync(raw);
+  const chunk = (type: string, data: Uint8Array): Buffer => {
+    const length = Buffer.alloc(4); length.writeUInt32BE(data.byteLength, 0);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), Buffer.from(data)]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(crc32(body), 0);
+    return Buffer.concat([length, body, crc]);
+  };
+  const ihdr = Buffer.alloc(13); ihdr.writeUInt32BE(1, 0); ihdr.writeUInt32BE(1, 4); ihdr[8] = 8; ihdr[9] = 2;
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", ihdr), chunk("IDAT", stored), chunk("IEND", Buffer.alloc(0))]);
+}
+function mediaAssetId(response: RawResponse): string {
+  const value: unknown = JSON.parse(response.body);
+  if (value === null || typeof value !== "object" || !("assetId" in value) || typeof value.assetId !== "string") throw new Error("media response lacks assetId");
+  return value.assetId;
+}
+
+test("actual listener imports, replaces, saves metadata, and deletes a current media asset", async () => {
+  await withAuthoringApi(async ({ apiKey, persistence, directory }) => {
+    const json = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+    const read = { Authorization: `Bearer ${apiKey}`, Host: authority } as const;
+    const png = httpPng();
+    const upload = importUpload({ name: "photo.png", contentType: "image/png", bytes: png }, { contract: "media-import-metadata/v2", title: "夏日照片", altText: "山景", caption: "說明", description: "描述" });
+    const imported = await send("POST", "/v1/media/import", multipartHeaders(apiKey, upload.boundary), upload.body);
+    assert.equal(imported.status, 201, imported.body);
+    assertResponseHeaders(imported, "media import");
+    const assetId = mediaAssetId(imported);
+    const parsedImport = mediaAssetV2Schema.safeParse(JSON.parse(imported.body));
+    assert.equal(parsedImport.success, true, imported.body);
+    if (!parsedImport.success) return;
+    assert.equal(parsedImport.data.contract, "media-asset/v2");
+    assert.equal(parsedImport.data.originalFilename, "photo.png");
+    assert.equal(parsedImport.data.mimeType, "image/png");
+    assert.equal(parsedImport.data.byteLength, png.byteLength);
+    assert.equal(parsedImport.data.checksum, sha256Digest(png));
+    assert.deepEqual(parsedImport.data.image, { width: 1, height: 1 });
+    assert.notEqual(parsedImport.data.thumbnail, null);
+    assert.equal(imported.body.includes(directory), false, "response 不得洩漏 host path");
+    assert.equal(imported.body.includes("current/staging"), false, "response 不得洩漏 staging 路徑");
+
+    const catalog = JSON.parse((await send("GET", "/v1/media", read)).body) as { contract: string; items: readonly { assetId: string; thumbnail: unknown }[]; stateDigest: string };
+    assert.equal(catalog.contract, "media-catalog/v2");
+    assert.deepEqual(catalog.items.map((item) => item.assetId), [assetId]);
+    const detail = await send("GET", `/v1/media/${assetId}`, read);
     assert.equal(detail.status, 200, detail.body);
-    assert.equal(detail.body.includes("must-not-return"), false);
-    const missing = await send("GET", "/v1/media/absent-asset", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    const parsedDetail = mediaAssetDetailV2Schema.safeParse(JSON.parse(detail.body));
+    assert.equal(parsedDetail.success, true, detail.body);
+    if (parsedDetail.success) assert.deepEqual(parsedDetail.data.usage, []);
+    const missing = await send("GET", "/v1/media/absent-asset", read);
     assert.equal(missing.status, 404, missing.body);
     assert.equal(failureCode(missing), "MEDIA_ASSET_NOT_FOUND");
-    const blocked = await post("/v1/media/asset-1/archive", headers, JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: "version-1" }));
+
+    const thumbnail = await send("GET", `/cms/media/${assetId}/thumbnail`, { Host: authority });
+    assert.equal(thumbnail.status, 200, thumbnail.body);
+    assert.equal(thumbnail.headers["content-type"], "image/png");
+
+    const saved = await post(`/v1/media/${assetId}/metadata`, json, JSON.stringify({ contract: "media-metadata-save-request/v2", assetId, expectedStateDigest: parsedImport.data.stateDigest, title: "新標題", slug: parsedImport.data.slug, altText: null, caption: "新說明", description: "新描述" }));
+    assert.equal(saved.status, 200, saved.body);
+    assert.equal(JSON.parse(saved.body).title, "新標題");
+    assert.equal(JSON.parse(saved.body).checksum, parsedImport.data.checksum);
+    const stale = await post(`/v1/media/${assetId}/metadata`, json, JSON.stringify({ contract: "media-metadata-save-request/v2", assetId, expectedStateDigest: parsedImport.data.stateDigest, title: "過期", slug: parsedImport.data.slug, altText: null, caption: "", description: "" }));
+    assert.equal(stale.status, 409, stale.body);
+    assert.equal(failureCode(stale), "MEDIA_ASSET_STATE_CONFLICT");
+    assert.equal(JSON.parse((await send("GET", `/v1/media/${assetId}`, read)).body).asset.title, "新標題");
+
+    const replacement = httpPng();
+    const replaceUpload = importUpload({ name: "photo.png", contentType: "image/png", bytes: replacement }, { contract: "media-replace-request/v2", assetId, expectedStateDigest: JSON.parse(saved.body).stateDigest, metadata: { contract: "media-import-metadata/v2", title: "新標題", slug: parsedImport.data.slug, caption: "新說明", description: "新描述" } }, "----cmsMediaReplaceBoundary");
+    const replaced = await post(`/v1/media/${assetId}/replace`, multipartHeaders(apiKey, replaceUpload.boundary), replaceUpload.body);
+    assert.equal(replaced.status, 200, replaced.body);
+    assert.equal(mediaAssetId(replaced), assetId, "Replace 必須保留 stable asset ID");
+    assert.equal(JSON.parse(replaced.body).slug, parsedImport.data.slug);
+    assert.equal(replaced.body.includes(directory), false);
+
+    const staleReplace = importUpload({ name: "photo.png", contentType: "image/png", bytes: httpPng() }, { contract: "media-replace-request/v2", assetId, expectedStateDigest: JSON.parse(saved.body).stateDigest, metadata: { contract: "media-import-metadata/v2", title: "新標題" } }, "----cmsMediaStaleBoundary");
+    const staleReplaced = await post(`/v1/media/${assetId}/replace`, multipartHeaders(apiKey, staleReplace.boundary), staleReplace.body);
+    assert.equal(staleReplaced.status, 409, staleReplaced.body);
+    assert.equal(failureCode(staleReplaced), "MEDIA_ASSET_STATE_CONFLICT");
+    assert.equal(JSON.parse((await send("GET", `/v1/media/${assetId}`, read)).body).asset.checksum, sha256Digest(replacement), "stale replace 不得改寫 bytes");
+
+    // 任一 entry 引用時不得 Replace／Delete，且必須回完整 deterministic usage。
+    assert.equal(persistence.replaceEntryMediaReferences({ entryId: "media-entry", status: "draft", assetIds: [assetId] }).ok, true);
+    const blocked = await post(`/v1/media/${assetId}/delete`, json, JSON.stringify({ contract: "media-delete-request/v2", assetId, expectedStateDigest: JSON.parse(replaced.body).stateDigest }));
     assert.equal(blocked.status, 409, blocked.body);
-    assert.equal(failureCode(blocked), "MEDIA_ARCHIVE_BLOCKED_PUBLISHED");
-    const blockedError = mediaArchiveBlockedErrorSchema.safeParse(JSON.parse(blocked.body));
+    const blockedError = mediaAssetReferencedErrorSchema.safeParse(JSON.parse(blocked.body));
     assert.equal(blockedError.success, true, blocked.body);
     if (blockedError.success) {
-      assert.deepEqual(blockedError.data.archiveImpact.assetVersion, { assetId: "asset-1", assetVersionId: "version-1" });
-      assert.deepEqual(blockedError.data.archiveImpact.publishedReferences, [{ entryId: "media-entry", revisionId: "media-draft-1", assetVersion: { assetId: "asset-1", assetVersionId: "version-1" } }]);
+      assert.equal(blockedError.data.code, "MEDIA_ASSET_REFERENCED");
+      assert.deepEqual(blockedError.data.usage, [{ entryId: "media-entry", status: "draft" }]);
+      assert.deepEqual(blockedError.data.subjectIds, [assetId]);
     }
-    const archived = await post("/v1/media/asset-1/archive", headers, JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: "version-2" }));
-    assert.equal(archived.status, 200, archived.body);
-    assert.equal(JSON.parse(archived.body).asset.versions[1].availability, "archived");
-    const restored = await post("/v1/media/asset-1/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-2" }));
-    assert.equal(restored.status, 200, restored.body);
-    assert.equal(JSON.parse(restored.body).asset.versions[1].availability, "ready");
+    assert.equal(JSON.parse((await send("GET", `/v1/media/${assetId}`, read)).body).asset.checksum, sha256Digest(replacement));
+
+    assert.equal(persistence.replaceEntryMediaReferences({ entryId: "media-entry", status: "draft", assetIds: [] }).ok, true);
+    const deleted = await post(`/v1/media/${assetId}/delete`, json, JSON.stringify({ contract: "media-delete-request/v2", assetId, expectedStateDigest: JSON.parse(replaced.body).stateDigest }));
+    assert.equal(deleted.status, 200, deleted.body);
+    assert.deepEqual(JSON.parse(deleted.body), { contract: "media-delete-receipt/v2", assetId, releasedSlug: parsedImport.data.slug });
+    assert.equal((await send("GET", `/v1/media/${assetId}`, read)).status, 404);
+    assert.deepEqual(JSON.parse((await send("GET", "/v1/media", read)).body).items, []);
   });
 });
 
-test("lost media bytes project as missing and only a matching recovery restores them", async () => {
-  await withAuthoringApi(async ({ apiKey, directory }) => {
-    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
-    const read = { Authorization: `Bearer ${apiKey}`, Host: authority } as const;
-    const bytes = "bWVkaWEgYnl0ZXM";
-    assert.equal((await post("/v1/media/import", headers, JSON.stringify({ contract: "media-import-request/v1", importId: "import-lost-1", assetId: "asset-lost", assetVersionId: "version-1", bytesBase64url: bytes, metadata: { mime: "text/plain" } }))).status, 200);
-    for (const name of readdirSync(path.join(directory, "objects", "objects"))) rmSync(path.join(directory, "objects", "objects", name), { force: true });
-
-    const detail = await send("GET", "/v1/media/asset-lost", read);
-    assert.equal(detail.status, 200, detail.body);
-    const projected = JSON.parse(detail.body) as { asset: { versions: readonly Readonly<{ availability: string; restoreCommand?: Readonly<{ recovery: string }> }>[] } };
-    assert.equal(projected.asset.versions[0]?.availability, "missing");
-    assert.equal(projected.asset.versions[0]?.restoreCommand?.recovery, "local-bytes-and-metadata");
-
-    const required = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1" }));
-    assert.equal(required.status, 422, required.body);
-    const requiredError = mediaRestoreRequiredErrorSchema.safeParse(JSON.parse(required.body));
-    assert.equal(requiredError.success, true, required.body);
-    if (requiredError.success) assert.deepEqual(requiredError.data.restoreCommands, [{ contract: "restore-asset-command/v1", command: "RestoreAsset", assetVersion: { assetId: "asset-lost", assetVersionId: "version-1" }, recovery: "local-bytes-and-metadata" }]);
-
-    const mismatched = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: "b3RoZXIgYnl0ZXM", metadata: { mime: "text/plain" } } }));
-    assert.equal(mismatched.status, 422, mismatched.body);
-    assert.equal(failureCode(mismatched), "MEDIA_RESTORE_MISMATCH");
-
-    const restored = await post("/v1/media/asset-lost/restore", headers, JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: bytes, metadata: { mime: "text/plain" } } }));
-    assert.equal(restored.status, 200, restored.body);
-    assert.equal(JSON.parse(restored.body).asset.versions[0].availability, "ready");
-  });
-});
-
-test("Media bytes routes reject an oversized non-bytes envelope before any command", async () => {
-  await withAuthoringApi(async ({ apiKey, digest }) => {
-    const headers = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+test("multipart framing, envelope, and media type failures never reach canonical state", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, directory }) => {
     const before = digest();
-    const oversizedMetadata = { mime: "text/plain", note: "n".repeat(70_000) };
-    const envelopes: readonly Readonly<{ path: string; body: string }>[] = [
-      { path: "/v1/media/import", body: JSON.stringify({ contract: "media-import-request/v1", importId: "import-envelope", assetId: "asset-1", assetVersionId: "version-1", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata }) },
-      { path: "/v1/media/asset-1/versions", body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: "import-envelope", assetVersionId: "version-2", bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata }, replacement: { entryId: "entry", revisionId: "revision-2", operationId: "op-2", expectedCurrentRevisionId: "revision-1", targetAssetVersion: { assetId: "asset-1", assetVersionId: "version-1" } } }) },
-      { path: "/v1/media/asset-1/restore", body: JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: "version-1", recovery: { bytesBase64url: "bWVkaWEgYnl0ZXM", metadata: oversizedMetadata } }) },
-    ];
-    for (const item of envelopes) {
-      const response = await post(item.path, headers, item.body);
-      assert.equal(response.status, 400, `${item.path} envelope bound`);
-      assert.equal(failureCode(response), "REQUEST_BODY_TOO_LARGE", `${item.path} envelope bound code`);
-      assertResponseHeaders(response, `${item.path} envelope rejection`);
-    }
-    assert.equal(digest(), before, "envelope rejection performs zero canonical mutation");
+    const json = { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Host: authority } as const;
+    const png = importUpload({ name: "photo.png", contentType: "image/png", bytes: httpPng() }, { contract: "media-import-metadata/v2", title: "照片" });
+
+    const notMultipart = await post("/v1/media/import", json, JSON.stringify({ contract: "media-import-request/v1" }));
+    assert.equal(notMultipart.status, 415, notMultipart.body);
+    assert.equal(failureCode(notMultipart), "UNSUPPORTED_MEDIA_TYPE");
+
+    const unknownMetadataKey = await send("POST", "/v1/media/import", multipartHeaders(apiKey, png.boundary), multipartBody(png.boundary, [
+      { name: "metadata", contentType: "application/json", bytes: new TextEncoder().encode(JSON.stringify({ contract: "media-import-metadata/v2", title: "照片", secret: "must-not-return" })) },
+      { name: "file", filename: "photo.png", contentType: "image/png", bytes: httpPng() },
+    ]));
+    assert.equal(unknownMetadataKey.status, 400, unknownMetadataKey.body);
+    assert.equal(failureCode(unknownMetadataKey), "INVALID_REQUEST_BODY");
+    assert.equal(unknownMetadataKey.body.includes("must-not-return"), false);
+
+    const oversizedEnvelope = await send("POST", "/v1/media/import", multipartHeaders(apiKey, png.boundary), multipartBody(png.boundary, [
+      { name: "metadata", contentType: "application/json", bytes: new TextEncoder().encode(JSON.stringify({ contract: "media-import-metadata/v2", title: "照片", description: "n".repeat(70_000) })) },
+      { name: "file", filename: "photo.png", contentType: "image/png", bytes: httpPng() },
+    ]));
+    assert.equal(oversizedEnvelope.status, 400, oversizedEnvelope.body);
+    assert.equal(failureCode(oversizedEnvelope), "REQUEST_BODY_TOO_LARGE");
+
+    const wrongOrder = await send("POST", "/v1/media/import", multipartHeaders(apiKey, png.boundary), multipartBody(png.boundary, [
+      { name: "file", filename: "photo.png", contentType: "image/png", bytes: httpPng() },
+      { name: "metadata", contentType: "application/json", bytes: new TextEncoder().encode(JSON.stringify({ contract: "media-import-metadata/v2", title: "照片" })) },
+    ]));
+    assert.equal(wrongOrder.status, 400, wrongOrder.body);
+
+    const truncated = await send("POST", "/v1/media/import", multipartHeaders(apiKey, png.boundary), png.body.subarray(0, png.body.byteLength - 20));
+    assert.equal(truncated.status, 400, truncated.body);
+
+    // 結尾 delimiter 之後不得有任何額外 bytes：framing 必須讀到真正的 EOF 才承認完成。
+    const trailing = await send("POST", "/v1/media/import", multipartHeaders(apiKey, png.boundary), new Uint8Array([...png.body, ...new TextEncoder().encode("trailing")]));
+    assert.equal(trailing.status, 400, trailing.body);
+
+    const unsupportedContent = await send("POST", "/v1/media/import", multipartHeaders(apiKey, png.boundary), importUpload({ name: "vector.svg", contentType: "image/svg+xml", bytes: new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>') }, { contract: "media-import-metadata/v2", title: "向量" }).body);
+    assert.equal(unsupportedContent.status, 422, unsupportedContent.body);
+    assert.equal(failureCode(unsupportedContent), "MEDIA_UNSUPPORTED_TYPE");
+
+    const spoofedExtension = await send("POST", "/v1/media/import", multipartHeaders(apiKey, png.boundary), importUpload({ name: "renamed.svg", contentType: "image/png", bytes: httpPng() }, { contract: "media-import-metadata/v2", title: "偽裝" }).body);
+    assert.equal(spoofedExtension.status, 422, spoofedExtension.body);
+    assert.equal(failureCode(spoofedExtension), "MEDIA_TYPE_MISMATCH");
+
+    for (const response of [unknownMetadataKey, oversizedEnvelope, wrongOrder, truncated, unsupportedContent, spoofedExtension]) assertResponseHeaders(response, "multipart rejection");
+    assert.equal(digest(), before, "所有 multipart failure 都必須零 canonical mutation");
+    assert.deepEqual(readdirSync(path.join(directory, "objects", "current", "staging")), []);
+    assert.deepEqual(readdirSync(path.join(directory, "objects", "current", "objects")), []);
   });
 });
 
-test("every Media route rejects hostile transport before Media or canonical mutation", async () => {
-  await withAuthoringApi(async ({ apiKey, credentials, digest, log }) => {
+test("an aborted media upload leaves no staging and no record", async () => {
+  await withAuthoringApi(async ({ apiKey, digest, directory }) => {
+    const before = digest();
+    const upload = importUpload({ name: "photo.png", contentType: "image/png", bytes: httpPng() }, { contract: "media-import-metadata/v2", title: "中斷" });
+    const aborted = Promise.withResolvers<void>();
+    const request = nodeRequest({ host: "127.0.0.1", port: 43127, path: "/v1/media/import", method: "POST", headers: multipartHeaders(apiKey, upload.boundary) as Record<string, string> }, (response) => { response.resume(); });
+    request.on("error", () => aborted.resolve());
+    request.write(upload.body.subarray(0, Math.floor(upload.body.byteLength / 2)));
+    setTimeout(() => { request.destroy(); aborted.resolve(); }, 30);
+    await aborted.promise;
+
+    // 伺服器端清理是非同步的：輪詢到 staging 清空為止，避免測試與 reader fault 競速。
+    const staging = path.join(directory, "objects", "current", "staging");
+    for (let attempt = 0; attempt < 200 && readdirSync(staging).length > 0; attempt += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.deepEqual(readdirSync(staging), [], "abort 後不得留下 staging");
+    assert.deepEqual(readdirSync(path.join(directory, "objects", "current", "objects")), []);
+    const catalog = await send("GET", "/v1/media", { Authorization: `Bearer ${apiKey}`, Host: authority });
+    assert.deepEqual(JSON.parse(catalog.body).items, []);
+    assert.equal(digest(), before, "abort 不得造成任何 canonical mutation");
+  });
+});
+
+test("every current media route rejects hostile transport before canonical mutation", async () => {
+  await withAuthoringApi(async ({ apiKey, credentials, digest, log, directory }) => {
     const json = { "Content-Type": "application/json" } as const;
     const bearer = { ...json, Authorization: `Bearer ${apiKey}`, Host: authority } as const;
-    const routes: readonly Readonly<{ method: "GET" | "POST"; path: string; body?: string }>[] = [
-      { method: "GET", path: "/v1/media" },
-      { method: "POST", path: "/v1/media/import", body: "{}" },
-      { method: "GET", path: "/v1/media/asset-1" },
-      { method: "POST", path: "/v1/media/asset-1/versions", body: "{}" },
-      { method: "POST", path: "/v1/media/asset-1/archive", body: "{}" },
-      { method: "POST", path: "/v1/media/asset-1/restore", body: "{}" },
+    const upload = importUpload({ name: "photo.png", contentType: "image/png", bytes: httpPng() }, { contract: "media-import-metadata/v2", title: "照片" });
+    const authenticated: readonly Readonly<{ method: "GET" | "POST"; path: string; headers: Headers; body?: string | Uint8Array }>[] = [
+      { method: "GET", path: "/v1/media", headers: bearer },
+      { method: "POST", path: "/v1/media/import", headers: multipartHeaders(apiKey, upload.boundary), body: upload.body },
+      { method: "GET", path: "/v1/media/asset-1", headers: bearer },
+      { method: "POST", path: "/v1/media/asset-1/replace", headers: multipartHeaders(apiKey, upload.boundary), body: upload.body },
+      { method: "POST", path: "/v1/media/asset-1/metadata", headers: bearer, body: "{}" },
+      { method: "POST", path: "/v1/media/asset-1/delete", headers: bearer, body: "{}" },
     ];
     const before = digest();
-    for (const route of routes) {
+    for (const route of authenticated) {
       const hostile: readonly Readonly<{ headers: Headers; path?: string; method?: string; status: number; code: string }>[] = [
         { headers: { ...json, Authorization: "Basic abc" }, status: 401, code: "AUTHORIZATION_MALFORMED" },
         { headers: { ...json, Authorization: [`Bearer ${apiKey}`, `Bearer ${apiKey}`] }, status: 401, code: "AUTHORIZATION_DUPLICATE" },
         { headers: { ...json, Authorization: `Bearer asn_v1_${"C".repeat(43)}` }, status: 401, code: "AUTHORIZATION_INVALID" },
-        { headers: { ...bearer, Cookie: "session=1" }, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
-        { headers: { ...bearer, Host: "localhost:43127" }, status: 421, code: "MISDIRECTED_REQUEST" },
-        { headers: { ...bearer, Origin: "https://evil.test", "Sec-Fetch-Site": "cross-site" }, status: 403, code: "ORIGIN_FORBIDDEN" },
-        { headers: bearer, path: `${route.path}?key=1`, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
-        { headers: bearer, method: route.method === "GET" ? "POST" : "GET", status: 405, code: "METHOD_NOT_ALLOWED" },
+        { headers: { ...route.headers, Cookie: "session=1" }, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+        { headers: { ...route.headers, Host: "localhost:43127" }, status: 421, code: "MISDIRECTED_REQUEST" },
+        { headers: { ...route.headers, Origin: "https://evil.test", "Sec-Fetch-Site": "cross-site" }, status: 403, code: "ORIGIN_FORBIDDEN" },
+        { headers: route.headers, path: `${route.path}?key=1`, status: 401, code: "AUTHORIZATION_ALTERNATE_TRANSPORT" },
+        { headers: route.headers, method: route.method === "GET" ? "POST" : "GET", status: 405, code: "METHOD_NOT_ALLOWED" },
       ];
       for (const attempt of hostile) {
         const method = attempt.method ?? route.method;
@@ -357,36 +471,47 @@ test("every Media route rejects hostile transport before Media or canonical muta
         assertResponseHeaders(response, `${route.path} hostile response`);
       }
     }
-    for (const route of routes.filter((route) => route.path.includes("asset-1"))) {
-      const encoded = await send(route.method, route.path.replace("asset-1", "asset%2D1"), bearer, route.body);
+    for (const route of authenticated.filter((route) => route.path.includes("asset-1"))) {
+      const encoded = await send(route.method, route.path.replace("asset-1", "asset%2D1"), route.headers, route.body);
       assert.equal(encoded.status, 404, `${route.path} encoded identity`);
       assert.equal(failureCode(encoded), "ROUTE_NOT_FOUND");
     }
-    const mediaOversized: readonly Readonly<{ path: string; body: string }>[] = [
-      { path: "/v1/media/import", body: JSON.stringify({ contract: "media-import-request/v1", bytesBase64url: "A".repeat(4_194_304) }) },
-      { path: "/v1/media/asset-1/versions", body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { bytesBase64url: "A".repeat(4_194_304) } }) },
-      { path: "/v1/media/asset-1/restore", body: JSON.stringify({ contract: "media-restore-request/v1", recovery: { bytesBase64url: "A".repeat(4_194_304) } }) },
-      { path: "/v1/media/asset-1/archive", body: "x".repeat(4_097) },
+
+    // thumbnail 是 document-adjacent 的唯讀影像路徑：無 Bearer、需 exact Host、拒絕 Cookie／query／跨站。
+    const thumbnailPath = "/cms/media/asset-1/thumbnail";
+    const thumbnailHostile: readonly Readonly<{ headers: Headers; path?: string; method?: string; status: number; code: string }>[] = [
+      { headers: { Host: authority }, method: "POST", status: 405, code: "METHOD_NOT_ALLOWED" },
+      { headers: { Host: authority, Cookie: "session=1" }, status: 403, code: "ORIGIN_FORBIDDEN" },
+      { headers: { Host: authority, Authorization: `Bearer ${apiKey}` }, status: 403, code: "ORIGIN_FORBIDDEN" },
+      { headers: { Host: authority, Origin: "https://evil.test" }, status: 403, code: "ORIGIN_FORBIDDEN" },
+      { headers: { Host: "localhost:43127" }, status: 421, code: "MISDIRECTED_REQUEST" },
+      { headers: { Host: authority }, path: `${thumbnailPath}?v=1`, status: 403, code: "ORIGIN_FORBIDDEN" },
     ];
-    for (const item of mediaOversized) {
-      const response = await post(item.path, bearer, item.body);
-      assert.equal(response.status, 400, `${item.path} body bound`);
-      assert.equal(failureCode(response), "REQUEST_BODY_TOO_LARGE", `${item.path} body bound code`);
+    for (const attempt of thumbnailHostile) {
+      const response = await send(attempt.method ?? "GET", attempt.path ?? thumbnailPath, attempt.headers);
+      assert.equal(response.status, attempt.status, `thumbnail hostile status`);
+      assert.equal(failureCode(response), attempt.code, `thumbnail hostile code`);
     }
+    const encodedThumbnail = await send("GET", "/cms/media/asset%2D1/thumbnail", { Host: authority });
+    assert.equal(encodedThumbnail.status, 404, encodedThumbnail.body);
+    assert.equal(failureCode(encodedThumbnail), "ROUTE_NOT_FOUND");
+
     assert.deepEqual(await credentials.transition("rotate"), { ok: true, value: { generation: 2, status: "active" } });
-    for (const route of routes) {
-      const response = await send(route.method, route.path, bearer, route.body);
+    for (const route of authenticated) {
+      const response = await send(route.method, route.path, route.headers, route.body);
       assert.equal(response.status, 401, `${route.path} old credential`);
       assert.equal(failureCode(response), "AUTHORIZATION_INVALID");
     }
     assert.equal((await credentials.transition("revoke")).ok, true);
-    for (const route of routes) {
-      const response = await send(route.method, route.path, bearer, route.body);
+    for (const route of authenticated) {
+      const response = await send(route.method, route.path, route.headers, route.body);
       assert.equal(response.status, 401, `${route.path} revoked credential`);
       assert.equal(failureCode(response), "AUTHORIZATION_REVOKED");
     }
     assert.equal(digest(), before, "all rejected Media transport requests leave canonical state unchanged");
     assert.equal(JSON.stringify(log).includes("asn_"), false, "Media route logs must not contain credential-shaped input");
+    assert.equal(JSON.stringify(log).includes(directory), false, "Media route logs must not contain host paths");
+    assert.equal(JSON.stringify(log).includes("staging"), false, "Media route logs must not contain staging keys");
   });
 });
 

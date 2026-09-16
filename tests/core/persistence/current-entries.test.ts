@@ -64,7 +64,7 @@ test("0013 is a shipped migration and current entries survive create, replace an
   try {
     assert.deepEqual(migrateDatabase({ databasePath: fixture.databasePath }), {
       ok: true,
-      value: { appliedMigrationIds: ["0001-create-persistence-storage", "0002-add-persistence-query-indexes", "0003-add-entry-pointers", "0004-add-route-claims", "0005-add-media-storage", "0006-add-revision-references", "0007-add-plugin-activation-state", "0008-add-schema-migration-lineage", "0009-add-theme-activation-state", "0010-add-plugin-settings-state", "0011-add-taxonomy-storage", "0012-add-current-content-types-and-global-slugs", "0013-add-current-entries"], currentMigrationId: "0013-add-current-entries" },
+      value: { appliedMigrationIds: ["0001-create-persistence-storage", "0002-add-persistence-query-indexes", "0003-add-entry-pointers", "0004-add-route-claims", "0005-add-media-storage", "0006-add-revision-references", "0007-add-plugin-activation-state", "0008-add-schema-migration-lineage", "0009-add-theme-activation-state", "0010-add-plugin-settings-state", "0011-add-taxonomy-storage", "0012-add-current-content-types-and-global-slugs", "0013-add-current-entries", "0014-add-current-media-assets"], currentMigrationId: "0014-add-current-media-assets" },
     });
     const store = openStore(fixture.databasePath);
     try {

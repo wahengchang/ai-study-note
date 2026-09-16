@@ -8,8 +8,13 @@ import type {
   CreateCurrentContentTypeInput,
   CreateCurrentEntryInput,
   CreateRevisionInput,
+  CreateCurrentMediaAssetInput,
   CurrentContentTypeRecord,
   CurrentEntryRecord,
+  CurrentMediaAssetRecord,
+  CurrentMediaImage,
+  CurrentMediaReferenceRecord,
+  CurrentMediaThumbnail,
   GlobalSlugClaimRecord,
   GlobalSlugEntityIdentity,
   EntryPointerLineageRecord,
@@ -26,6 +31,7 @@ import type {
   PersistenceTransaction,
   PublishedAssetReference,
   ReadyAssetVersionRecord,
+  ReplaceCurrentMediaAssetInput,
   RevisionIdentity,
   RevisionRecord,
   RevisionReferenceRecord,
@@ -82,6 +88,9 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
       listAssetVersions() { return record(() => transaction.listAssetVersions()); },
       getCurrentContentType(typeId: string) { return record(() => transaction.getCurrentContentType(typeId)); },
       listCurrentContentTypes() { return record(() => transaction.listCurrentContentTypes()); },
+      getCurrentMediaAsset(assetId: string) { return record(() => transaction.getCurrentMediaAsset(assetId)); },
+      listCurrentMediaAssets() { return record(() => transaction.listCurrentMediaAssets()); },
+      listCurrentMediaReferences(assetId: string) { return record(() => transaction.listCurrentMediaReferences(assetId)); },
       getGlobalSlugClaim(namespaceKey: string) { return record(() => transaction.getGlobalSlugClaim(namespaceKey)); },
       getGlobalSlugClaimByEntity(identity: GlobalSlugEntityIdentity) { return record(() => transaction.getGlobalSlugClaimByEntity(identity)); },
       getCurrentEntry(entryId: string) { return record(() => transaction.getCurrentEntry(entryId)); },
@@ -158,6 +167,10 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     createCurrentEntry(input) { return atomic((transaction) => transaction.createCurrentEntry(input)); },
     replaceCurrentEntry(input) { return atomic((transaction) => transaction.replaceCurrentEntry(input)); },
     deleteCurrentEntry(entryId) { return atomic((transaction) => transaction.deleteCurrentEntry(entryId)); },
+    createCurrentMediaAsset(input) { return atomic((transaction) => transaction.createCurrentMediaAsset(input)); },
+    replaceCurrentMediaAsset(input) { return atomic((transaction) => transaction.replaceCurrentMediaAsset(input)); },
+    deleteCurrentMediaAsset(assetId) { return atomic((transaction) => transaction.deleteCurrentMediaAsset(assetId)); },
+    replaceEntryMediaReferences(input) { return atomic((transaction) => transaction.replaceEntryMediaReferences(input)); },
     createTaxonomy(input) { return atomic((transaction) => transaction.createTaxonomy(input)); },
     createTaxonomyTerm(input) { return atomic((transaction) => transaction.createTaxonomyTerm(input)); },
     updateTaxonomyTerm(input) { return atomic((transaction) => transaction.updateTaxonomyTerm(input)); },
@@ -443,6 +456,39 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       database.run("DELETE FROM current_entries WHERE entry_id=?", entryId);
       return { ok: true, value: undefined };
     }); },
+    getCurrentMediaAsset(assetId) { return reading(() => currentMediaAssetRecord(database.get(MEDIA_ASSET_SQL, assetId), assetId, refused)); },
+    listCurrentMediaAssets() { return reading(() => { const records: CurrentMediaAssetRecord[] = []; for (const row of database.all(MEDIA_ASSET_SQL_ALL)) { const assetId = text(row, "asset_id"); if (assetId === null) return refused("STORAGE_FAILURE"); const record = currentMediaAssetRecord(row, assetId, refused); if (!record.ok) return record; records.push(record.value); } return { ok: true, value: records.sort((left, right) => compareCodeUnits(left.assetId, right.assetId)) }; }); },
+    listCurrentMediaReferences(assetId) { return reading(() => { if (!validText(assetId)) return refused("INVALID_PERSISTENCE_INPUT"); const records: CurrentMediaReferenceRecord[] = []; for (const row of database.all("SELECT entry_id,entry_status FROM current_media_references WHERE asset_id=?", assetId)) { const entryId = text(row, "entry_id"), status = row.entry_status; if (entryId === null || (status !== "draft" && status !== "published")) return refused("STORAGE_FAILURE"); records.push({ entryId, status }); } return { ok: true, value: records.sort((left, right) => compareCodeUnits(left.entryId, right.entryId)) }; }); },
+    createCurrentMediaAsset(input) { return guarded(() => {
+      const record = normalizeCurrentMediaAsset(input, failed); if (!record.ok) return record;
+      if (database.get("SELECT 1 FROM current_media_assets WHERE asset_id=?", record.value.assetId) !== undefined) return failed("CURRENT_MEDIA_ASSET_CONFLICT");
+      insertCurrentMediaAsset(database, record.value);
+      return { ok: true, value: record.value };
+    }, "CURRENT_MEDIA_ASSET_CONFLICT"); },
+    replaceCurrentMediaAsset(input) { return guarded(() => {
+      const record = normalizeCurrentMediaAsset(input, failed); if (!record.ok) return record;
+      if (database.get("SELECT 1 FROM current_media_assets WHERE asset_id=?", record.value.assetId) === undefined) return failed("CURRENT_MEDIA_ASSET_NOT_FOUND");
+      insertCurrentMediaAsset(database, record.value, true);
+      return { ok: true, value: record.value };
+    }); },
+    deleteCurrentMediaAsset(assetId) { return guarded(() => {
+      if (!validText(assetId)) return failed("INVALID_PERSISTENCE_INPUT");
+      if (database.get("SELECT 1 FROM current_media_assets WHERE asset_id=?", assetId) === undefined) return failed("CURRENT_MEDIA_ASSET_NOT_FOUND");
+      // 有 reference 的 asset 不得被刪除或悄悄串聯刪除；呼叫端必須先解掉 usage。
+      if (database.get("SELECT 1 FROM current_media_references WHERE asset_id=? LIMIT 1", assetId) !== undefined) return failed("CURRENT_MEDIA_REFERENCE_CONFLICT");
+      database.run("DELETE FROM current_media_assets WHERE asset_id=?", assetId);
+      return { ok: true, value: undefined };
+    }); },
+    replaceEntryMediaReferences(input) { return guarded(() => {
+      if (input === null || typeof input !== "object" || !validText(input.entryId) || (input.status !== "draft" && input.status !== "published") || !Array.isArray(input.assetIds) || input.assetIds.some((assetId) => !validText(assetId))) return failed("INVALID_PERSISTENCE_INPUT");
+      const ordered = [...input.assetIds].sort(compareCodeUnits);
+      if (ordered.some((assetId, index) => index > 0 && assetId === ordered[index - 1])) return failed("CURRENT_MEDIA_REFERENCE_CONFLICT");
+      for (const assetId of ordered) if (database.get("SELECT 1 FROM current_media_assets WHERE asset_id=?", assetId) === undefined) return failed("CURRENT_MEDIA_ASSET_NOT_FOUND");
+      database.run("DELETE FROM current_media_references WHERE entry_id=?", input.entryId);
+      const reference: CurrentMediaReferenceRecord = { entryId: input.entryId, status: input.status };
+      for (const assetId of ordered) database.run("INSERT INTO current_media_references (asset_id,entry_id,entry_status) VALUES (?,?,?)", assetId, input.entryId, input.status);
+      return { ok: true, value: ordered.map(() => ({ ...reference })) };
+    }); },
     createCurrentContentType(input) { return guarded(() => {
       const record = normalizeCurrentContentType(input, failed); if (!record.ok) return record;
       if (database.get("SELECT 1 FROM current_content_types WHERE type_id=?", record.value.typeId) !== undefined) return failed("CURRENT_CONTENT_TYPE_CONFLICT");
@@ -501,6 +547,85 @@ function globalSlugClaimRecord(row: SqliteRow | undefined, namespaceKey: string,
   const entityId = text(row, "entity_id");
   if (!validText(namespaceKey) || slug === null || entityId === null || !validGlobalEntityKind(entityKind)) return failed("STORAGE_FAILURE");
   return { ok: true, value: { namespaceKey, slug, entityKind, entityId } };
+}
+
+const CURRENT_MEDIA_COLUMNS = "asset_id,slug,title,alt_text,caption,description,original_filename,mime_type,byte_length,checksum,image_width,image_height,thumbnail_digest,thumbnail_byte_length,thumbnail_width,thumbnail_height,uploaded_at";
+const MEDIA_ASSET_SQL = `SELECT ${CURRENT_MEDIA_COLUMNS} FROM current_media_assets WHERE asset_id=?`;
+const MEDIA_ASSET_SQL_ALL = `SELECT ${CURRENT_MEDIA_COLUMNS} FROM current_media_assets`;
+
+/** `checksum` 是 content-addressed object 的位址，因此必須是 sha256 digest 而不是任意字串。 */
+function validCurrentMediaMoment(value: unknown): value is string { return typeof value === "string" && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/u.test(value); }
+
+function validCurrentMediaAsset(value: CurrentMediaAssetRecord): boolean {
+  if (value === null || typeof value !== "object") return false;
+  const required = [value.assetId, value.slug, value.title, value.originalFilename, value.mimeType];
+  // caption／description 可為空字串，因此不能沿用「非空」檢查。
+  if (required.some((entry) => !validText(entry)) || typeof value.caption !== "string" || typeof value.description !== "string" || (value.altText !== null && typeof value.altText !== "string") || !Number.isSafeInteger(value.byteLength) || value.byteLength < 0 || !isDigest(value.checksum) || !validCurrentMediaMoment(value.uploadedAt)) return false;
+  if (value.image !== undefined && (!Number.isSafeInteger(value.image.width) || !Number.isSafeInteger(value.image.height) || value.image.width <= 0 || value.image.height <= 0)) return false;
+  const thumbnail = value.thumbnail;
+  if (thumbnail === undefined) return true;
+  if (value.image === undefined) return false;
+  return isDigest(thumbnail.digest) && Number.isSafeInteger(thumbnail.byteLength) && thumbnail.byteLength >= 0 && Number.isSafeInteger(thumbnail.width) && thumbnail.width > 0 && Number.isSafeInteger(thumbnail.height) && thumbnail.height > 0;
+}
+
+function copyCurrentMediaAsset(value: CurrentMediaAssetRecord): CurrentMediaAssetRecord {
+  return {
+    assetId: value.assetId,
+    slug: value.slug,
+    title: value.title,
+    altText: value.altText,
+    caption: value.caption,
+    description: value.description,
+    originalFilename: value.originalFilename,
+    mimeType: value.mimeType,
+    byteLength: value.byteLength,
+    checksum: value.checksum,
+    uploadedAt: value.uploadedAt,
+    ...(value.image === undefined ? {} : { image: { width: value.image.width, height: value.image.height } }),
+    ...(value.thumbnail === undefined ? {} : { thumbnail: { digest: value.thumbnail.digest, byteLength: value.thumbnail.byteLength, width: value.thumbnail.width, height: value.thumbnail.height } }),
+  };
+}
+
+function normalizeCurrentMediaAsset(input: CreateCurrentMediaAssetInput | ReplaceCurrentMediaAssetInput, failed: Fail): PersistenceResult<CurrentMediaAssetRecord> {
+  if (input === null || typeof input !== "object" || !validCurrentMediaAsset(input)) return failed("INVALID_PERSISTENCE_INPUT");
+  return { ok: true, value: copyCurrentMediaAsset(input) };
+}
+
+function currentMediaAssetRecord(row: SqliteRow | undefined, assetId: string, failed: Fail): PersistenceResult<CurrentMediaAssetRecord> {
+  if (row === undefined) return failed("CURRENT_MEDIA_ASSET_NOT_FOUND");
+  const slug = text(row, "slug"), title = text(row, "title"), altText = nullableText(row, "alt_text"), caption = text(row, "caption"), description = text(row, "description"), originalFilename = text(row, "original_filename"), mimeType = text(row, "mime_type"), byteLength = row.byte_length, checksum = digestField(row, "checksum"), uploadedAt = text(row, "uploaded_at");
+  if (slug === null || title === null || altText === undefined || caption === null || description === null || originalFilename === null || mimeType === null || !nonnegative(byteLength) || checksum === null || uploadedAt === null || !validCurrentMediaMoment(uploadedAt)) return failed("STORAGE_FAILURE");
+  const image = currentMediaImage(row);
+  const thumbnail = currentMediaThumbnail(row);
+  if (image === undefined || thumbnail === undefined) return failed("STORAGE_FAILURE");
+  const candidate: CurrentMediaAssetRecord = {
+    assetId, slug, title, altText, caption, description, originalFilename, mimeType, byteLength, checksum, uploadedAt,
+    ...(image === null ? {} : { image }),
+    ...(thumbnail === null ? {} : { thumbnail }),
+  };
+  return validCurrentMediaAsset(candidate) ? { ok: true, value: candidate } : failed("STORAGE_FAILURE");
+}
+
+function insertCurrentMediaAsset(database: SqliteAdapter, record: CurrentMediaAssetRecord, replace = false): void {
+  const columns = ["asset_id", "slug", "title", "alt_text", "caption", "description", "original_filename", "mime_type", "byte_length", "checksum", "image_width", "image_height", "thumbnail_digest", "thumbnail_byte_length", "thumbnail_width", "thumbnail_height", "uploaded_at"];
+  const parameters = [record.assetId, record.slug, record.title, record.altText, record.caption, record.description, record.originalFilename, record.mimeType, record.byteLength, record.checksum, record.image?.width ?? null, record.image?.height ?? null, record.thumbnail?.digest ?? null, record.thumbnail?.byteLength ?? null, record.thumbnail?.width ?? null, record.thumbnail?.height ?? null, record.uploadedAt];
+  if (!replace) { database.run(`INSERT INTO current_media_assets (${columns.join(",")}) VALUES (${columns.map(() => "?").join(",")})`, ...parameters); return; }
+  database.run(`UPDATE current_media_assets SET ${columns.slice(1).map((column) => `${column}=?`).join(",")} WHERE asset_id=?`, ...parameters.slice(1), record.assetId);
+}
+
+/** 回傳 null 代表該群組未設定，undefined 代表 row 損壞；兩者都不可與合法值混用。 */
+function currentMediaImage(row: SqliteRow): CurrentMediaImage | null | undefined {
+  const width = row.image_width, height = row.image_height;
+  if (width === null && height === null) return null;
+  const parsedWidth = positive(width), parsedHeight = positive(height);
+  return parsedWidth === null || parsedHeight === null ? undefined : { width: parsedWidth, height: parsedHeight };
+}
+function currentMediaThumbnail(row: SqliteRow): CurrentMediaThumbnail | null | undefined {
+  const digest = row.thumbnail_digest, byteLength = row.thumbnail_byte_length, width = row.thumbnail_width, height = row.thumbnail_height;
+  if (digest === null && byteLength === null && width === null && height === null) return null;
+  if (typeof digest !== "string" || !isDigest(digest) || !nonnegative(byteLength)) return undefined;
+  const parsedWidth = positive(width), parsedHeight = positive(height);
+  return parsedWidth === null || parsedHeight === null ? undefined : { digest, byteLength, width: parsedWidth, height: parsedHeight };
 }
 
 function validGlobalEntityKind(value: unknown): value is GlobalSlugClaimRecord["entityKind"] {
@@ -781,12 +906,14 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);
     const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
     const currentContentTypes = collect("SELECT type_id AS typeId,definition_digest AS definitionDigest,legacy_schema_id AS legacySchemaId FROM current_content_types", ["typeId", "definitionDigest", "legacySchemaId"]);
+    const currentMediaAssets = collect("SELECT asset_id AS assetId,slug,title,alt_text AS altText,caption,description,original_filename AS originalFilename,mime_type AS mimeType,byte_length AS byteLength,checksum,image_width AS imageWidth,image_height AS imageHeight,thumbnail_digest AS thumbnailDigest,thumbnail_byte_length AS thumbnailByteLength,thumbnail_width AS thumbnailWidth,thumbnail_height AS thumbnailHeight,uploaded_at AS uploadedAt FROM current_media_assets", ["assetId", "slug", "title", "altText", "caption", "description", "originalFilename", "mimeType", "byteLength", "checksum", "imageWidth", "imageHeight", "thumbnailDigest", "thumbnailByteLength", "thumbnailWidth", "thumbnailHeight", "uploadedAt"]);
+    const currentMediaReferences = collect("SELECT asset_id AS assetId,entry_id AS entryId,entry_status AS entryStatus FROM current_media_references", ["assetId", "entryId", "entryStatus"]);
     const globalSlugClaims = collect("SELECT namespace_key AS namespaceKey,slug,entity_kind AS entityKind,entity_id AS entityId FROM global_slug_claims", ["namespaceKey", "slug", "entityKind", "entityId"]);
     const currentEntries = collect("SELECT entry_id AS entryId,type_id AS typeId,authoring_route AS authoringRoute,content_digest AS contentDigest,status,published_at AS publishedAt,last_published_digest AS lastPublishedDigest FROM current_entries", ["entryId", "typeId", "authoringRoute", "contentDigest", "status", "publishedAt", "lastPublishedDigest"]);
-    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, currentContentTypes, globalSlugClaims, currentEntries, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, currentContentTypes, globalSlugClaims, currentEntries, currentMediaAssets, currentMediaReferences, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
     const bytes = canonicalJsonBytes(payload);
     if (!bytes.ok) return failed("STORAGE_FAILURE");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, currentContentTypes: currentContentTypes.length, globalSlugClaims: globalSlugClaims.length, currentEntries: currentEntries.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
+    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, currentContentTypes: currentContentTypes.length, globalSlugClaims: globalSlugClaims.length, currentEntries: currentEntries.length, currentMediaAssets: currentMediaAssets.length, currentMediaReferences: currentMediaReferences.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
   } catch {
     return failed("STORAGE_FAILURE");
   }

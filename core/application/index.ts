@@ -5,6 +5,7 @@ export { createAuthoringReadFacade } from "./authoring-read.js";
 export { createContentTypeAdministration } from "./content-type-administration.js";
 export { createCurrentEntryAdministration } from "./entry-administration.js";
 export { createContentTypeMigrationAdministration } from "./content-type-migration.js";
+export { createCurrentMediaLibrary, MEDIA_FILE_CEILING, MEDIA_THUMBNAIL_MAX_EDGE } from "./current-media-library.js";
 export type {
   AuthoringEntryV1,
   ChangeRouteRequest,
@@ -26,15 +27,6 @@ export type {
   DomainApplicationFailureCode,
   DomainApplicationResult,
   PluginActivationRequest,
-  ImportMediaRequest,
-  MediaAssetDetailV1,
-  MediaAssetV1,
-  MediaAssetVersionV1,
-  MediaCatalogV1,
-  ArchiveMediaVersionRequest,
-  CreateMediaVersionRequest,
-  GetMediaRequest,
-  RestoreMediaVersionRequest,
   PluginManagementSnapshotV1,
   PluginSettingsReplaceRequest,
   PublishRevisionRequest,
@@ -42,8 +34,6 @@ export type {
   RestoreRevisionRequest,
   RestoreRevisionSuccess,
   RevisionSchemaValidator,
-  SaveRevisionCommandRequest,
-  SaveRevisionMediaReferenceReplacementRequest,
   SaveRevisionRequest,
   SaveRevisionSuccess,
 } from "./contracts.js";
@@ -93,6 +83,24 @@ export type {
   CurrentEntryAdministrationFailureCode,
   CurrentEntryAdministrationResult,
 } from "./entry-administration.js";
+export type {
+  CurrentMediaLibrary,
+  CurrentMediaLibraryDependencies,
+  CurrentMediaLibraryResult,
+  MediaAssetDetailV2,
+  MediaAssetV2,
+  MediaCatalogV2,
+  MediaDeleteReceiptV2,
+  MediaDeleteRequestV2,
+  MediaImageV2,
+  MediaImportMetadataV2,
+  MediaMetadataSaveRequestV2,
+  MediaReplaceRequestV2,
+  MediaThumbnailV2,
+  MediaUploadSink,
+  MediaUploadSource,
+  MediaUsageV2,
+} from "./current-media-library.js";
 export type {
   ContentTypeMigrationAdministration,
   ContentTypeMigrationCommand,

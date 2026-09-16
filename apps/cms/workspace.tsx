@@ -12,10 +12,12 @@ const jsonContent = z.unknown().refine((value) => value !== undefined);
 const schemaIdentitySchema = z.object({ schemaId: z.string(), version: z.number().int().safe().positive() }).strict();
 const remediationSchema = z.object({ kind: z.literal("message"), message: z.string() }).strict();
 const authoringErrorSchema = z.object({ contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string(), owner: z.string(), subjectIds: z.array(z.string()), remediation: remediationSchema }).strict();
-const mediaReferenceSchema = z.object({ entryId: z.string(), revisionId: z.string(), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict();
-const restoreAssetCommandSchema = z.object({ contract: z.literal("restore-asset-command/v1"), command: z.literal("RestoreAsset"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), recovery: z.enum(["none", "local-bytes-and-metadata"]) }).strict();
-const mediaArchiveBlockedErrorSchema = z.object({ contract: z.literal("media-archive-blocked/v1"), requestId: z.string(), code: z.literal("MEDIA_ARCHIVE_BLOCKED_PUBLISHED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, archiveImpact: z.object({ contract: z.literal("archive-asset-impact/v1"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), publishedReferences: z.array(mediaReferenceSchema) }).strict() }).strict();
-const mediaRestoreRequiredErrorSchema = z.object({ contract: z.literal("media-restore-required/v1"), requestId: z.string(), code: z.literal("MEDIA_RESTORE_REQUIRED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, restoreCommands: z.array(restoreAssetCommandSchema) }).strict();
+const mediaUsageV2Schema = z.object({ entryId: z.string().min(1), status: z.enum(["draft", "published"]) }).strict();
+/**
+ * 被 entry 引用的 current media asset 不得 Replace／Delete。這個 failure 帶完整 usage evidence，
+ * generic `authoring-error/v1` 無法承載，因此以 exact contract 單獨驗證並保留給 UI 顯示。
+ */
+const mediaAssetReferencedErrorSchema = z.object({ contract: z.literal("media-asset-referenced/v2"), requestId: z.string(), code: z.literal("MEDIA_ASSET_REFERENCED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, usage: z.array(mediaUsageV2Schema).nonempty() }).strict();
 const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: z.unknown(), stateDigest: digestSchema }).strict();
 const contentTypeSummarySchema = z.object({ typeId: z.string().uuid(), label: z.string(), slug: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), stateDigest: digestSchema }).strict();
 const contentTypeSchema = z.object({ contract: z.literal("content-type-definition/v1"), typeId: z.string().uuid(), label: z.string(), slug: z.string(), help: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), systemFields: z.array(z.string()), fieldGroups: z.array(jsonContent), taxonomyAttachments: z.array(z.object({ taxonomyId: z.string().min(1), cardinality: z.enum(["one", "many"]), required: z.boolean(), allowTermCreation: z.boolean() }).strict()), stateDigest: digestSchema }).strict();
@@ -28,11 +30,12 @@ const taxonomyCatalogSchema = z.object({ contract: z.literal("taxonomy-catalog/v
 const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string().url(), indexing: z.enum(["allow", "disallow"]) }).strict();
 const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: digestSchema, capabilities: z.array(z.string()) }).strict();
 const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: digestSchema, settingsStateDigest: digestSchema, plugins: z.array(z.object({ identity: pluginIdentitySchema, status: z.enum(["inactive", "active", "reactivation-required"]), settings: z.object({ settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema, settingsDigest: digestSchema }).strict().optional() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
-const mediaAssetVersionSchema = z.object({ contract: z.literal("media-asset-version/v1"), identity: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), evidence: z.object({ objectDigest: digestSchema, byteLength: z.number().int().nonnegative(), metadataDigest: digestSchema }).strict(), availability: z.enum(["ready", "archived", "missing"]), restoreCommand: z.object({ contract: z.literal("restore-asset-command/v1"), command: z.literal("RestoreAsset"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), recovery: z.enum(["none", "local-bytes-and-metadata"]) }).strict().optional() }).strict();
-const mediaAssetSchema = z.object({ contract: z.literal("media-asset/v1"), assetId: z.string(), versions: z.array(mediaAssetVersionSchema) }).strict();
-const mediaCatalogSchema = z.object({ contract: z.literal("media-catalog/v1"), items: z.array(mediaAssetSchema), stateDigest: digestSchema }).strict();
-const mediaAssetDetailSchema = z.object({ contract: z.literal("media-asset-detail/v1"), asset: mediaAssetSchema, references: z.object({ current: z.array(z.object({ entryId: z.string(), revisionId: z.string(), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict()), published: z.array(z.object({ entryId: z.string(), revisionId: z.string(), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict() }).strict()) }).strict(), stateDigest: digestSchema }).strict();
-const mediaVersionReplacementReceiptSchema = z.object({ contract: z.literal("media-version-replacement-receipt/v1"), version: mediaAssetVersionSchema, save: z.object({ contract: z.literal("save-revision-success/v1"), entryId: z.string(), pointer: z.object({ currentRevisionId: z.string(), publishedRevisionId: z.string().optional() }).strict() }).passthrough(), asset: mediaAssetDetailSchema }).strict();
+const mediaImageV2Schema = z.object({ width: z.number().int().safe().positive(), height: z.number().int().safe().positive() }).strict();
+const mediaThumbnailV2Schema = z.object({ digest: digestSchema, byteLength: z.number().int().nonnegative(), width: z.number().int().safe().positive(), height: z.number().int().safe().positive() }).strict();
+const mediaAssetV2Schema = z.object({ contract: z.literal("media-asset/v2"), assetId: z.string().min(1), slug: z.string().min(1), title: z.string().min(1), altText: z.string().nullable(), caption: z.string(), description: z.string(), originalFilename: z.string().min(1), mimeType: z.string().min(1), byteLength: z.number().int().nonnegative(), checksum: digestSchema, uploadedAt: z.string().min(1), image: mediaImageV2Schema.nullable(), thumbnail: mediaThumbnailV2Schema.nullable(), stateDigest: digestSchema }).strict();
+const mediaCatalogV2Schema = z.object({ contract: z.literal("media-catalog/v2"), items: z.array(mediaAssetV2Schema), stateDigest: digestSchema }).strict();
+const mediaAssetDetailV2Schema = z.object({ contract: z.literal("media-asset-detail/v2"), asset: mediaAssetV2Schema, usage: z.array(mediaUsageV2Schema) }).strict();
+const mediaDeleteReceiptV2Schema = z.object({ contract: z.literal("media-delete-receipt/v2"), assetId: z.string().min(1), releasedSlug: z.string().min(1) }).strict();
 const cmsSeoAnalysisResponseSchema = z.object({ contract: z.literal("cms-seo-analysis-response/v1"), documentDigest: digestSchema, status: z.enum(["available", "unavailable"]), preview: z.object({ title: z.string(), description: z.string().optional(), canonicalUrl: z.string().url().optional() }).strict().optional(), suggestions: z.array(z.object({ code: z.string() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
 const previewDocumentSchema = z.object({ contract: z.literal("preview-document/v1"), selection: z.enum(["current", "published"]), subject: z.object({ entryId: z.string() }).strict(), revisionId: z.string(), contentDigest: digestSchema, document: z.string() }).strict();
 const interactiveDemoBlockSchema = z.object({
@@ -80,9 +83,10 @@ type ReleaseReceiptDto = Readonly<z.infer<typeof releaseReceiptSchema>>;
 type TaxonomySnapshotDto = Readonly<z.infer<typeof taxonomySnapshotSchema>>;
 type TaxonomyCatalogDto = Readonly<z.infer<typeof taxonomyCatalogSchema>>;
 type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
-type MediaCatalogDto = Readonly<z.infer<typeof mediaCatalogSchema>>;
-type MediaVersionReplacementReceiptDto = Readonly<z.infer<typeof mediaVersionReplacementReceiptSchema>>;
-type MediaAssetDetailDto = Readonly<z.infer<typeof mediaAssetDetailSchema>>;
+type MediaAssetV2Dto = Readonly<z.infer<typeof mediaAssetV2Schema>>;
+type MediaCatalogV2Dto = Readonly<z.infer<typeof mediaCatalogV2Schema>>;
+type MediaAssetDetailV2Dto = Readonly<z.infer<typeof mediaAssetDetailV2Schema>>;
+type MediaUsageV2Dto = Readonly<z.infer<typeof mediaUsageV2Schema>>;
 type SiteRouteGraphDto = Readonly<z.infer<typeof siteRouteGraphSchema>>;
 type RouteChangeProposalDto = Readonly<z.infer<typeof routeChangeProposalSchema>>;
 type StructuredBlock = StructuredContent["blocks"][number];
@@ -95,7 +99,7 @@ type TaxonomyTermIdentity = Readonly<{ taxonomyId: string; termId: string }>;
 export { openAuthoringSession } from "./session.js";
 
 export class CmsApiError extends Error {
-  constructor(readonly code: string, readonly status: number, readonly remediation: string) {
+  constructor(readonly code: string, readonly status: number, readonly remediation: string, readonly usage: readonly MediaUsageV2Dto[] = []) {
     super(remediation);
   }
 }
@@ -160,10 +164,20 @@ function isValidDocument(document: NormalizedDocument): boolean {
   return article !== undefined && document.content.title.trim() !== "" && document.route !== "/" && document.route.startsWith("/") && article.text.trim() !== "";
 }
 
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/gu, "-").replace(/\//gu, "_").replace(/=+$/u, "");
+type MediaMetadataFields = Readonly<{ title: string; slug: string; altText: string; caption: string; description: string }>;
+type MediaImportMetadata = Readonly<{ contract: "media-import-metadata/v2"; title: string; slug?: string; altText: string | null; caption: string; description: string }>;
+
+function mediaFields(asset: MediaAssetV2Dto): MediaMetadataFields {
+  return { title: asset.title, slug: asset.slug, altText: asset.altText ?? "", caption: asset.caption, description: asset.description };
+}
+
+/**
+ * `media-import-metadata/v2` 要求 title 非空，表單留白時以檔名墊上；slug 留白則由 server 依 title 推導。
+ * Replace 必須明確帶回目前 slug，否則同一 asset 會被要求重新配置一次 slug。
+ */
+function mediaImportMetadata(fields: MediaMetadataFields, filename: string, slug: string | undefined = undefined): MediaImportMetadata {
+  const title = fields.title.trim() === "" ? filename : fields.title.trim();
+  return { contract: "media-import-metadata/v2", title, ...(slug === undefined ? {} : { slug }), altText: fields.altText === "" ? null : fields.altText, caption: fields.caption, description: fields.description };
 }
 
 function slugify(title: string): string {
@@ -178,25 +192,58 @@ class CmsApiClient {
   routeGraph(selection: "current" | "published"): Promise<SiteRouteGraphDto> { return this.json(`/v1/site/routes?selection=${selection}` as `/v1/${string}`, siteRouteGraphSchema); }
   proposeRouteChange(body: Record<string, unknown>): Promise<RouteChangeProposalDto> { return this.json("/v1/site/routes/change", routeChangeProposalSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   changeRoute(proposal: RouteChangeProposalDto): Promise<unknown> { return this.json("/v1/site/routes/change", undefined, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "change-route-command/v1", operationId: crypto.randomUUID(), proposal }) }); }
-  media(): Promise<MediaCatalogDto> { return this.json("/v1/media", mediaCatalogSchema); }
-  mediaDetail(assetId: string): Promise<MediaAssetDetailDto> { return this.json(`/v1/media/${this.resourceId(assetId)}`, mediaAssetDetailSchema); }
-  async importMedia(assetId: string, assetVersionId: string, file: File, metadata: unknown): Promise<MediaAssetDetailDto> {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    return this.json("/v1/media/import", mediaAssetDetailSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-import-request/v1", importId: crypto.randomUUID(), assetId: this.resourceId(assetId), assetVersionId: this.resourceId(assetVersionId), bytesBase64url: base64url(bytes), metadata }) });
+  listMedia(): Promise<MediaCatalogV2Dto> { return this.json("/v1/media", mediaCatalogV2Schema); }
+  getMedia(assetId: string): Promise<MediaAssetDetailV2Dto> { return this.json(`/v1/media/${this.resourceId(assetId)}`, mediaAssetDetailV2Schema); }
+  saveMediaMetadata(request: Readonly<{ assetId: string; expectedStateDigest: string; title: string; slug: string; altText: string | null; caption: string; description: string }>): Promise<MediaAssetV2Dto> {
+    return this.json(`/v1/media/${this.resourceId(request.assetId)}/metadata`, mediaAssetV2Schema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-metadata-save-request/v2", ...request }) });
   }
-  async replaceMedia(assetId: string, targetAssetVersionId: string, reference: Readonly<{ entryId: string; revisionId: string }>, file: File, metadata: unknown): Promise<MediaVersionReplacementReceiptDto> {
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    return this.json(`/v1/media/${this.resourceId(assetId)}/versions`, mediaVersionReplacementReceiptSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: crypto.randomUUID(), assetVersionId: crypto.randomUUID(), bytesBase64url: base64url(bytes), metadata }, replacement: { entryId: this.resourceId(reference.entryId), revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: this.resourceId(reference.revisionId), targetAssetVersion: { assetId: this.resourceId(assetId), assetVersionId: this.resourceId(targetAssetVersionId) } } }) });
+  deleteMedia(request: Readonly<{ assetId: string; expectedStateDigest: string }>): Promise<Readonly<z.infer<typeof mediaDeleteReceiptV2Schema>>> {
+    return this.json(`/v1/media/${this.resourceId(request.assetId)}/delete`, mediaDeleteReceiptV2Schema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-delete-request/v2", ...request }) });
+  }
+  /**
+   * multipart 上傳只能走 XHR：`Content-Type` 必須由瀏覽器帶 boundary（手動設定會讓 framing 失敗），
+   * 且只有 XHR 能在 file part 尚未送完前回報 upload progress。`assetId` 為 null 代表 import，否則為 replace。
+   */
+  uploadMedia(assetId: string | null, expectedStateDigest: string | null, file: File, metadata: MediaImportMetadata, options: Readonly<{ onProgress?: (sent: number, progressTotal: number) => void; signal?: AbortSignal }> = {}): Promise<MediaAssetV2Dto> {
+    const path = assetId === null ? "/v1/media/import" : `/v1/media/${this.resourceId(assetId)}/replace`;
+    const envelope: unknown = assetId === null || expectedStateDigest === null ? metadata : { contract: "media-replace-request/v2", assetId, expectedStateDigest, metadata };
+    const form = new FormData();
+    // metadata part 不得帶 filename：server 的 multipart framing 只接受單一無檔名 metadata part。
+    form.append("metadata", JSON.stringify(envelope));
+    form.append("file", file, file.name);
+    return new Promise<MediaAssetV2Dto>((resolve, reject) => {
+      const request = new XMLHttpRequest();
+      const signal = options.signal;
+      if (signal?.aborted === true) { reject(new CmsApiError("CMS_REQUEST_ABORTED", 0, "上傳已取消。")); return; }
+      request.open("POST", path);
+      request.withCredentials = false;
+      request.responseType = "text";
+      request.upload.onprogress = (event) => options.onProgress?.(event.loaded, event.lengthComputable ? event.total : file.size);
+      const abort = (): void => { request.abort(); };
+      signal?.addEventListener("abort", abort, { once: true });
+      request.onabort = () => reject(new CmsApiError("CMS_REQUEST_ABORTED", 0, "上傳已取消。"));
+      request.onerror = () => reject(new CmsApiError("CMS_NETWORK_FAILURE", 0, "無法連線本機 CMS。"));
+      request.onload = () => {
+        signal?.removeEventListener("abort", abort);
+        const value: unknown = ((): unknown => { try { return JSON.parse(request.responseText) as unknown; } catch { return undefined; } })();
+        if (request.status < 200 || request.status >= 300) {
+          const referenced = mediaAssetReferencedErrorSchema.safeParse(value);
+          if (referenced.success) { reject(new CmsApiError(referenced.data.code, request.status, referenced.data.remediation.message, referenced.data.usage)); return; }
+          const error = authoringErrorSchema.safeParse(value);
+          if (error.success) { reject(new CmsApiError(error.data.code, request.status, error.data.remediation.message)); return; }
+          reject(new CmsApiError("CMS_RESPONSE_INVALID", request.status, "CMS response 無法驗證。")); return;
+        }
+        const parsed = mediaAssetV2Schema.safeParse(value);
+        if (!parsed.success) { reject(new CmsApiError("CMS_RESPONSE_INVALID", request.status, "CMS response 無法驗證。")); return; }
+        resolve(parsed.data);
+      };
+      request.send(form);
+    });
   }
   contentTypes(): Promise<ContentTypeCatalogDto> { return this.json("/v1/content-types", contentTypeCatalogSchema); }
   contentType(typeId: string): Promise<ContentTypeDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}`, contentTypeSchema); }
   createContentType(request: Record<string, unknown>): Promise<ContentTypeDto> { return this.json("/v1/content-types", contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
   replaceContentType(typeId: string, request: Record<string, unknown>): Promise<ContentTypeDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}`, contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
-  archiveMedia(assetId: string, assetVersionId: string): Promise<MediaAssetDetailDto> { return this.json(`/v1/media/${this.resourceId(assetId)}/archive`, mediaAssetDetailSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: this.resourceId(assetVersionId) }) }); }
-  async restoreMedia(assetId: string, assetVersionId: string, recovery?: Readonly<{ file: File; metadata: unknown }>): Promise<MediaAssetDetailDto> {
-    const bytes = recovery === undefined ? undefined : new Uint8Array(await recovery.file.arrayBuffer());
-    return this.json(`/v1/media/${this.resourceId(assetId)}/restore`, mediaAssetDetailSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-restore-request/v1", assetVersionId: this.resourceId(assetVersionId), ...(recovery === undefined ? {} : { recovery: { bytesBase64url: base64url(bytes as Uint8Array), metadata: recovery.metadata } }) }) });
-  }
   taxonomies(): Promise<TaxonomyCatalogDto> { return this.json("/v1/taxonomies", taxonomyCatalogSchema); }
   createTaxonomy(taxonomyId: string, label: string): Promise<TaxonomySnapshotDto> { return this.json("/v1/taxonomies", taxonomySnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "taxonomy-create-request/v1", taxonomyId: this.resourceId(taxonomyId), label }) }); }
   taxonomy(taxonomyId: string): Promise<TaxonomySnapshotDto> { return this.json(`/v1/taxonomies/${this.resourceId(taxonomyId)}`, taxonomySnapshotSchema); }
@@ -236,10 +283,8 @@ class CmsApiClient {
     if (!response.ok) {
       const error = authoringErrorSchema.safeParse(value);
       if (error.success) throw new CmsApiError(error.data.code, response.status, error.data.remediation.message);
-      const blocked = mediaArchiveBlockedErrorSchema.safeParse(value);
-      if (blocked.success) throw new CmsApiError(blocked.data.code, response.status, `${blocked.data.remediation.message}目前引用：${blocked.data.archiveImpact.publishedReferences.map((reference) => `${reference.entryId} / ${reference.revisionId}`).join("、")}`);
-      const required = mediaRestoreRequiredErrorSchema.safeParse(value);
-      if (required.success) throw new CmsApiError(required.data.code, response.status, required.data.restoreCommands.some((command) => command.recovery === "local-bytes-and-metadata") ? `${required.data.remediation.message}請使用下方的「以本機 bytes 復原」表單。` : required.data.remediation.message);
+      const referenced = mediaAssetReferencedErrorSchema.safeParse(value);
+      if (referenced.success) throw new CmsApiError(referenced.data.code, response.status, referenced.data.remediation.message, referenced.data.usage);
       throw new CmsApiError("CMS_RESPONSE_INVALID", response.status, "CMS response 無法驗證。");
     }
     if (schema === undefined) return value as T;
@@ -638,89 +683,232 @@ function TaxonomyDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
   return <Layout><PageHeading>分類：{snapshot.taxonomy.label}</PageHeading>{createdTaxonomyId === snapshot.taxonomy.taxonomyId && <p role="status" aria-live="polite" aria-atomic="true">已建立分類。</p>}<dl><dt>Taxonomy ID</dt><dd>{snapshot.taxonomy.taxonomyId}</dd></dl><section aria-labelledby="taxonomy-terms"><h2 id="taxonomy-terms">Terms</h2>{snapshot.terms.length === 0 ? <p>尚無 term。</p> : <table><caption>所有 terms</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">順序</th><th scope="col">狀態</th></tr></thead><tbody>{snapshot.terms.map((term) => <tr key={term.termId}><td>{term.label}</td><td>{term.slug}</td><td>{term.order}</td><td>{term.state === "live" ? "使用中" : "已停用"}</td></tr>)}</tbody></table>}</section></Layout>;
 }
 
+function MediaUsageList({ usage }: Readonly<{ usage: readonly MediaUsageV2Dto[] }>): React.JSX.Element {
+  return <ul aria-label="媒體引用">{usage.map((item) => <li key={item.entryId}>{`${item.entryId}（${item.status === "published" ? "已發布" : "草稿"}）`}</li>)}</ul>;
+}
+
+function MediaAssetEvidence({ asset }: Readonly<{ asset: MediaAssetV2Dto }>): React.JSX.Element {
+  return <dl>
+    <dt>Asset ID</dt><dd className="breakable">{asset.assetId}</dd>
+    <dt>Slug</dt><dd>{asset.slug}</dd>
+    <dt>Alt 文字</dt><dd>{asset.altText ?? "未設定"}</dd>
+    <dt>Caption</dt><dd>{asset.caption === "" ? "未設定" : asset.caption}</dd>
+    <dt>Description</dt><dd>{asset.description === "" ? "未設定" : asset.description}</dd>
+    <dt>原始檔名</dt><dd>{asset.originalFilename}</dd>
+    <dt>MIME type</dt><dd>{asset.mimeType}</dd>
+    <dt>檔案大小</dt><dd>{asset.byteLength}</dd>
+    <dt>Checksum</dt><dd className="breakable">{asset.checksum}</dd>
+    <dt>影像尺寸</dt><dd>{asset.image === null ? "非影像" : `${asset.image.width} × ${asset.image.height}`}</dd>
+    <dt>上傳時間</dt><dd>{asset.uploadedAt}</dd>
+    <dt>縮圖</dt><dd className="breakable">{asset.thumbnail === null ? "僅提供 metadata" : <><img src={`/cms/media/${asset.assetId}/thumbnail`} alt="" width={asset.thumbnail.width} height={asset.thumbnail.height} />{`${asset.thumbnail.width} × ${asset.thumbnail.height}／${asset.thumbnail.byteLength} bytes／${asset.thumbnail.digest}`}</>}</dd>
+  </dl>;
+}
+
+function MediaAssetList({ assets }: Readonly<{ assets: readonly MediaAssetV2Dto[] }>): React.JSX.Element {
+  return <ul aria-label="媒體 asset">{assets.map((asset) => <li key={asset.assetId}><article aria-labelledby={`media-asset-${asset.assetId}`}><h3 id={`media-asset-${asset.assetId}`}><Link to={`/cms/media/${asset.assetId}`}>{asset.title}</Link></h3><MediaAssetEvidence asset={asset} /></article></li>)}</ul>;
+}
+
 function MediaList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const [catalog, setCatalog] = useState<MediaCatalogDto>();
+  const { state } = useLocation();
+  const [catalog, setCatalog] = useState<MediaCatalogV2Dto>();
   const [error, setError] = useState<string>();
-  const load = useCallback(() => { setCatalog(undefined); setError(undefined); void api.media().then(setCatalog).catch((reason: unknown) => setError(message(reason))); }, [api]);
+  const load = useCallback(() => { setCatalog(undefined); setError(undefined); void api.listMedia().then(setCatalog).catch((reason: unknown) => setError(message(reason))); }, [api]);
   useEffect(load, [load]);
+  const deletedSlug = typeof state === "object" && state !== null && "deletedSlug" in state && typeof state.deletedSlug === "string" ? state.deletedSlug : undefined;
   if (catalog === undefined) return <Layout><PageHeading>媒體庫</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入媒體庫。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  return <Layout><PageHeading>媒體庫</PageHeading><p><Link className="action-link" to="/cms/media/import">匯入媒體</Link></p>{catalog.items.length === 0 ? <p>尚無媒體。<Link to="/cms/media/import">匯入第一個媒體檔案</Link></p> : <table><caption>所有媒體 asset</caption><thead><tr><th scope="col">Asset ID</th><th scope="col">版本</th><th scope="col">可用性</th></tr></thead><tbody>{catalog.items.map((asset) => <tr key={asset.assetId}><td><Link to={`/cms/media/${asset.assetId}`}>{asset.assetId}</Link></td><td>{asset.versions.length}</td><td>{asset.versions.map((version) => version.availability).join("、")}</td></tr>)}</tbody></table>}</Layout>;
+  return <Layout><PageHeading>媒體庫</PageHeading><p><Link className="action-link" to="/cms/media/import">匯入媒體</Link></p>{deletedSlug !== undefined && <p role="status" aria-live="polite" aria-atomic="true">{`已刪除 asset 並釋放 slug：${deletedSlug}。`}</p>}{catalog.items.length === 0 ? <p>尚無媒體。<Link to="/cms/media/import">匯入第一個媒體檔案</Link></p> : <><p role="status" aria-live="polite" aria-atomic="true">{`共 ${catalog.items.length} 個 asset。`}</p><MediaAssetList assets={catalog.items} /></>}</Layout>;
+}
+
+type MediaImportStatus = "waiting" | "uploading" | "done" | "cancelled" | "failed";
+type MediaImportItem = Readonly<{ id: string; file: File; status: MediaImportStatus; sent: number; progressTotal: number; failure: string | undefined; assetId: string | undefined }>;
+
+/** 契約允許任意多檔案，但同時 in-flight 的上傳固定為兩個；其餘留在 waiting 由 render 迴圈補位。 */
+const MEDIA_IMPORT_CONCURRENCY = 2;
+
+function mediaImportStatusText(item: MediaImportItem): string {
+  switch (item.status) {
+    case "waiting": return "等待中";
+    case "uploading": return `上傳中 ${item.progressTotal === 0 ? 100 : Math.min(100, Math.floor((item.sent / item.progressTotal) * 100))}%`;
+    case "done": return "已完成";
+    case "cancelled": return "已取消";
+    case "failed": return "失敗";
+  }
 }
 
 function MediaImport({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const navigate = useNavigate();
-  const [assetId, setAssetId] = useState("");
-  const [assetVersionId, setAssetVersionId] = useState("");
-  const [metadata, setMetadata] = useState("{\n  \"mime\": \"application/octet-stream\"\n}");
-  const [file, setFile] = useState<File>();
-  const [error, setError] = useState<string>();
-  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<"assetId" | "assetVersionId" | "file" | "metadata", string | undefined>>>({ assetId: undefined, assetVersionId: undefined, file: undefined, metadata: undefined });
-  const [busy, setBusy] = useState(false);
-  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault(); setError(undefined);
-    const next: Record<"assetId" | "assetVersionId" | "file" | "metadata", string | undefined> = { assetId: undefined, assetVersionId: undefined, file: undefined, metadata: undefined };
-    if (!AUTHORING_RESOURCE_ID_PATTERN.test(assetId)) next.assetId = "Asset ID 只能使用英數字、句點、底線、連字號或波浪號。";
-    if (!AUTHORING_RESOURCE_ID_PATTERN.test(assetVersionId)) next.assetVersionId = "Version ID 只能使用英數字、句點、底線、連字號或波浪號。";
-    if (file === undefined) next.file = "請選擇媒體檔案。";
-    let parsedMetadata: unknown = undefined;
-    try { parsedMetadata = JSON.parse(metadata); } catch { next.metadata = "請輸入有效 JSON metadata。"; }
-    setFieldErrors(next);
-    if (Object.values(next).some((value) => value !== undefined) || file === undefined) return;
-    setBusy(true);
-    try { const detail = await api.importMedia(assetId, assetVersionId, file, parsedMetadata); navigate(`/cms/media/${detail.asset.assetId}`, { state: { imported: assetVersionId } }); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+  const [fields, setFields] = useState<MediaMetadataFields>({ title: "", slug: "", altText: "", caption: "", description: "" });
+  const [items, setItems] = useState<readonly MediaImportItem[]>([]);
+  const [catalog, setCatalog] = useState<MediaCatalogV2Dto>();
+  const aborts = useRef(new Map<string, AbortController>());
+  const patch = useCallback((id: string, next: Partial<MediaImportItem>): void => { setItems((current) => current.map((item) => item.id === id ? { ...item, ...next } : item)); }, []);
+  const refreshCatalog = useCallback((): void => { void api.listMedia().then(setCatalog).catch(() => setCatalog(undefined)); }, [api]);
+  const upload = useCallback(async (item: MediaImportItem): Promise<void> => {
+    const controller = new AbortController();
+    aborts.current.set(item.id, controller);
+    try {
+      const asset = await api.uploadMedia(null, null, item.file, mediaImportMetadata(fields, item.file.name), { onProgress: (sent, progressTotal) => patch(item.id, { sent, progressTotal }), signal: controller.signal });
+      patch(item.id, { status: "done", assetId: asset.assetId });
+      refreshCatalog();
+    } catch (reason) {
+      if (reason instanceof CmsApiError && reason.code === "CMS_REQUEST_ABORTED") patch(item.id, { status: "cancelled" });
+      else patch(item.id, { status: "failed", failure: message(reason) });
+    } finally { aborts.current.delete(item.id); }
+  }, [api, fields, patch, refreshCatalog]);
+  // 佇列推進：每次 render 只補一個 waiting 項目，讓同時 in-flight 數穩定收斂在上限內。
+  useEffect(() => {
+    if (items.filter((item) => item.status === "uploading").length >= MEDIA_IMPORT_CONCURRENCY) return;
+    const next = items.find((item) => item.status === "waiting");
+    if (next === undefined) return;
+    patch(next.id, { status: "uploading", sent: 0, progressTotal: next.file.size, failure: undefined });
+    void upload(next);
+  }, [items, patch, upload]);
+  const select = (files: FileList | null): void => {
+    if (files === null || files.length === 0) return;
+    // FileList 是 live view：先取出 File snapshot，之後清空 input value 才不會讓佇列變成空的。
+    const selected = Array.from(files);
+    setItems((current) => [...current, ...selected.map((file) => ({ id: crypto.randomUUID(), file, status: "waiting" as MediaImportStatus, sent: 0, progressTotal: file.size, failure: undefined, assetId: undefined }))]);
   };
-  return <Layout><PageHeading>匯入媒體</PageHeading><form noValidate aria-label="媒體匯入" aria-busy={busy} onSubmit={(event) => void submit(event)}><label htmlFor="media-asset-id">Asset ID<input id="media-asset-id" required aria-invalid={fieldErrors.assetId !== undefined} aria-describedby={fieldErrors.assetId === undefined ? undefined : "media-asset-id-error"} value={assetId} onChange={(event) => setAssetId(event.target.value)} disabled={busy} /></label>{fieldErrors.assetId !== undefined && <p id="media-asset-id-error" role="alert">{fieldErrors.assetId}</p>}<label htmlFor="media-version-id">Version ID<input id="media-version-id" required aria-invalid={fieldErrors.assetVersionId !== undefined} aria-describedby={fieldErrors.assetVersionId === undefined ? undefined : "media-version-id-error"} value={assetVersionId} onChange={(event) => setAssetVersionId(event.target.value)} disabled={busy} /></label>{fieldErrors.assetVersionId !== undefined && <p id="media-version-id-error" role="alert">{fieldErrors.assetVersionId}</p>}<label htmlFor="media-file">媒體檔案<input id="media-file" type="file" required aria-invalid={fieldErrors.file !== undefined} aria-describedby={fieldErrors.file === undefined ? undefined : "media-file-error"} onChange={(event) => setFile(event.currentTarget.files?.[0])} disabled={busy} /></label>{fieldErrors.file !== undefined && <p id="media-file-error" role="alert">{fieldErrors.file}</p>}<label htmlFor="media-metadata">Metadata JSON<textarea id="media-metadata" required aria-invalid={fieldErrors.metadata !== undefined} aria-describedby={fieldErrors.metadata === undefined ? undefined : "media-metadata-error"} value={metadata} onChange={(event) => setMetadata(event.target.value)} disabled={busy} /></label>{fieldErrors.metadata !== undefined && <p id="media-metadata-error" role="alert">{fieldErrors.metadata}</p>}<p role="status" aria-live="polite" aria-atomic="true">{busy ? "正在匯入。" : ""}</p>{error !== undefined && <p role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? "正在匯入…" : "匯入媒體"}</button></form></Layout>;
-}
-function MediaReplacement({ api, assetId, detail, onResult }: Readonly<{ api: CmsApiClient; assetId: string; detail: MediaAssetDetailDto; onResult: (detail: MediaAssetDetailDto) => void }>): React.JSX.Element | null {
-  const candidates = detail.references.current.filter((reference) => reference.assetVersion.assetId === assetId);
-  const [target, setTarget] = useState(candidates[0]?.assetVersion.assetVersionId ?? "");
-  const [file, setFile] = useState<File>();
-  const [metadata, setMetadata] = useState("{\"mime\":\"application/octet-stream\"}");
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  if (candidates.length === 0) return null;
-  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault(); setError(undefined);
-    if (file === undefined || !window.confirm("這會建立新的 current revision；已發布 revision 不會變更。是否繼續？")) return;
-    let parsed: unknown; try { parsed = JSON.parse(metadata); } catch { setError("請輸入有效 JSON metadata。"); return; }
-    const reference = candidates.find((item) => item.assetVersion.assetVersionId === target);
-    if (reference === undefined) { setError("找不到 current media reference。"); return; }
-    setBusy(true);
-    try { onResult((await api.replaceMedia(assetId, target, { entryId: reference.entryId, revisionId: reference.revisionId }, file, parsed)).asset); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+  const cancel = (item: MediaImportItem): void => {
+    if (item.status === "waiting") patch(item.id, { status: "cancelled" });
+    else aborts.current.get(item.id)?.abort();
   };
-  return <section aria-labelledby="media-replacement-heading"><h2 id="media-replacement-heading">替換目前引用</h2><p>此操作會建立新 current revision；published revision 保持不變。</p><form aria-label="媒體版本替換" onSubmit={(event) => void submit(event)}><label htmlFor="media-replacement-target">目標版本<select id="media-replacement-target" value={target} onChange={(event) => setTarget(event.target.value)} disabled={busy}>{candidates.map((reference) => <option key={`${reference.entryId}:${reference.revisionId}:${reference.assetVersion.assetVersionId}`} value={reference.assetVersion.assetVersionId}>{reference.entryId} / {reference.assetVersion.assetVersionId}</option>)}</select></label><label htmlFor="media-replacement-file">替換檔案<input id="media-replacement-file" type="file" required onChange={(event) => setFile(event.currentTarget.files?.[0])} disabled={busy} /></label><label htmlFor="media-replacement-metadata">替換 metadata JSON<textarea id="media-replacement-metadata" value={metadata} onChange={(event) => setMetadata(event.target.value)} disabled={busy} /></label>{error !== undefined && <p role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? "正在替換…" : "建立 replacement version"}</button></form></section>;
-}
-
-function MediaRecovery({ api, assetId, detail, onResult }: Readonly<{ api: CmsApiClient; assetId: string; detail: MediaAssetDetailDto; onResult: (detail: MediaAssetDetailDto) => void }>): React.JSX.Element | null {
-  const candidates = detail.asset.versions.filter((version) => version.restoreCommand?.recovery === "local-bytes-and-metadata");
-  const [versionId, setVersionId] = useState(candidates[0]?.identity.assetVersionId ?? "");
-  const [file, setFile] = useState<File>();
-  const [metadata, setMetadata] = useState("{\"mime\":\"application/octet-stream\"}");
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  if (candidates.length === 0) return null;
-  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault(); setError(undefined);
-    if (file === undefined) { setError("請選擇原始媒體 bytes。"); return; }
-    let parsed: unknown; try { parsed = JSON.parse(metadata); } catch { setError("請輸入有效 JSON metadata。"); return; }
-    setBusy(true);
-    try { onResult(await api.restoreMedia(assetId, versionId, { file, metadata: parsed })); } catch (reason) { setError(message(reason)); } finally { setBusy(false); }
-  };
-  return <section aria-labelledby="media-recovery-heading"><h2 id="media-recovery-heading">以本機 bytes 復原</h2><form aria-label="媒體復原 bytes" onSubmit={(event) => void submit(event)}><label htmlFor="media-recovery-target">封存版本<select id="media-recovery-target" value={versionId} onChange={(event) => setVersionId(event.target.value)} disabled={busy}>{candidates.map((version) => <option key={version.identity.assetVersionId} value={version.identity.assetVersionId}>{version.identity.assetVersionId}</option>)}</select></label><label htmlFor="media-recovery-file">復原檔案<input id="media-recovery-file" type="file" required onChange={(event) => setFile(event.currentTarget.files?.[0])} disabled={busy} /></label><label htmlFor="media-recovery-metadata">復原 metadata JSON<textarea id="media-recovery-metadata" value={metadata} onChange={(event) => setMetadata(event.target.value)} disabled={busy} /></label>{error !== undefined && <p role="alert">{error}</p>}<button type="submit" disabled={busy}>{busy ? "正在復原…" : "使用本機 bytes 復原"}</button></form></section>;
+  // 重試一律回到 waiting：新的 AbortController、新的 XHR、byte 0 起算，沒有 Range 或 resume。
+  const retry = (item: MediaImportItem): void => { patch(item.id, { status: "waiting", sent: 0, progressTotal: item.file.size, failure: undefined }); };
+  const importedIds = new Set(items.flatMap((item) => item.assetId === undefined ? [] : [item.assetId]));
+  const imported = (catalog?.items ?? []).filter((asset) => importedIds.has(asset.assetId));
+  return <Layout>
+    <PageHeading>匯入媒體</PageHeading>
+    <form aria-label="媒體上傳設定" onSubmit={(event) => event.preventDefault()}>
+      <fieldset><legend>上傳 metadata</legend><p>留白時以檔名作為標題，server 會依標題推導 slug；alt 留白代表未設定。</p>
+        <label htmlFor="media-import-title">標題<input id="media-import-title" value={fields.title} onChange={(event) => setFields((current) => ({ ...current, title: event.target.value }))} /></label>
+        <label htmlFor="media-import-alt">Alt 文字<input id="media-import-alt" value={fields.altText} onChange={(event) => setFields((current) => ({ ...current, altText: event.target.value }))} /></label>
+        <label htmlFor="media-import-caption">Caption<input id="media-import-caption" value={fields.caption} onChange={(event) => setFields((current) => ({ ...current, caption: event.target.value }))} /></label>
+        <label htmlFor="media-import-description">Description<textarea id="media-import-description" value={fields.description} onChange={(event) => setFields((current) => ({ ...current, description: event.target.value }))} /></label>
+      </fieldset>
+      <label htmlFor="media-import-files">媒體檔案<input id="media-import-files" type="file" multiple onChange={(event) => { select(event.currentTarget.files); event.currentTarget.value = ""; }} /></label>
+    </form>
+    <section aria-labelledby="media-import-queue-heading">
+      <h2 id="media-import-queue-heading">上傳佇列</h2>
+      <p>{`同時最多 ${MEDIA_IMPORT_CONCURRENCY} 個上傳；其餘項目等待中。`}</p>
+      {items.length === 0 ? <p>尚未選擇檔案。</p> : <ul aria-label="上傳項目">{items.map((item) => <li key={item.id}><article aria-labelledby={`media-import-${item.id}-name`}><h3 id={`media-import-${item.id}-name`}>{item.file.name}</h3><p role="status" aria-live="polite" aria-atomic="true">{mediaImportStatusText(item)}</p><button type="button" onClick={() => cancel(item)} disabled={item.status === "done" || item.status === "cancelled" || item.status === "failed"}>取消</button><button type="button" onClick={() => retry(item)} disabled={item.status !== "cancelled" && item.status !== "failed"}>重試</button>{item.failure !== undefined && <p role="alert">{item.failure}</p>}</article></li>)}</ul>}
+    </section>
+    {imported.length > 0 && <section aria-labelledby="media-import-library-heading"><h2 id="media-import-library-heading">已匯入的 asset（重新載入的媒體庫）</h2><MediaAssetList assets={imported} /></section>}
+  </Layout>;
 }
 
 function MediaDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
   const { assetId } = useParams();
-  const { state } = useLocation();
-  const [detail, setDetail] = useState<MediaAssetDetailDto>();
+  const navigate = useNavigate();
+  const [detail, setDetail] = useState<MediaAssetDetailV2Dto>();
+  const [fields, setFields] = useState<MediaMetadataFields>();
+  const [fieldErrors, setFieldErrors] = useState<Readonly<Record<"title" | "slug", string | undefined>>>({ title: undefined, slug: undefined });
   const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState<string>();
-  const load = useCallback(() => { if (assetId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(assetId)) { setError("找不到媒體 asset。"); return; } setDetail(undefined); setError(undefined); void api.mediaDetail(assetId).then(setDetail).catch((reason: unknown) => setError(reason instanceof CmsApiError && reason.status === 404 ? "找不到媒體 asset。" : message(reason))); }, [api, assetId]);
+  const [failure, setFailure] = useState<Readonly<{ message: string; usage: readonly MediaUsageV2Dto[] }>>();
+  const [notice, setNotice] = useState("");
+  const [conflict, setConflict] = useState(false);
+  const [busy, setBusy] = useState<"save" | "replace" | "delete">();
+  const [replaceFile, setReplaceFile] = useState<File>();
+  const dialog = useRef<HTMLDialogElement>(null);
+  const cancelDelete = useRef<HTMLButtonElement>(null);
+  const confirmDelete = useRef<HTMLButtonElement>(null);
+  const deleteTrigger = useRef<HTMLButtonElement>(null);
+  const load = useCallback((): void => {
+    if (assetId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(assetId)) { setError("找不到媒體 asset。"); return; }
+    setDetail(undefined); setFields(undefined); setError(undefined); setConflict(false); setNotice(""); setFailure(undefined);
+    void api.getMedia(assetId).then((value) => { setDetail(value); setFields(mediaFields(value.asset)); }).catch((reason: unknown) => setError(reason instanceof CmsApiError && reason.status === 404 ? "找不到媒體 asset。" : message(reason)));
+  }, [api, assetId]);
   useEffect(load, [load]);
-  const command = async (versionId: string, kind: "archive" | "restore"): Promise<void> => { if (assetId === undefined) return; if (!window.confirm(kind === "archive" ? "封存後可能需要 recovery bytes 才能復原。是否繼續？" : "是否復原此媒體版本？")) return; setBusy(`${kind}:${versionId}`); setError(undefined); try { setDetail(kind === "archive" ? await api.archiveMedia(assetId, versionId) : await api.restoreMedia(assetId, versionId)); } catch (reason) { setError(message(reason)); } finally { setBusy(undefined); } };
-  if (detail === undefined) return <Layout><PageHeading>媒體詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入媒體。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  const imported = typeof state === "object" && state !== null && "imported" in state && typeof state.imported === "string" ? state.imported : undefined;
-  return <Layout><PageHeading>媒體：{detail.asset.assetId}</PageHeading>{imported !== undefined && <p role="status" aria-live="polite">已匯入 version：{imported}</p>}{error !== undefined && <p role="alert">{error}</p>}<table><caption>Asset versions</caption><thead><tr><th scope="col">Version</th><th scope="col">可用性</th><th scope="col">大小</th><th scope="col">動作</th></tr></thead><tbody>{detail.asset.versions.map((version) => <tr key={version.identity.assetVersionId}><td>{version.identity.assetVersionId}</td><td>{version.availability}</td><td>{version.evidence.byteLength}</td><td>{version.availability === "ready" ? <button type="button" disabled={busy !== undefined} onClick={() => void command(version.identity.assetVersionId, "archive")}>封存</button> : version.restoreCommand?.recovery === "none" ? <button type="button" disabled={busy !== undefined} onClick={() => void command(version.identity.assetVersionId, "restore")}>復原</button> : <span>需要本機 recovery bytes。</span>}</td></tr>)}</tbody></table><MediaReplacement api={api} assetId={detail.asset.assetId} detail={detail} onResult={setDetail} /><MediaRecovery api={api} assetId={detail.asset.assetId} detail={detail} onResult={setDetail} /><h2>引用狀態</h2><p>Current：{detail.references.current.length}；Published：{detail.references.published.length}</p><p><Link to="/cms/media">返回媒體庫</Link></p></Layout>;
+  const applyFailure = (reason: unknown): void => {
+    const usage = reason instanceof CmsApiError ? reason.usage : [];
+    // 409 的 usage evidence 比初次讀取更完整：引用是後來的操作建立的，畫面必須立刻改為鎖定破壞性操作。
+    if (usage.length > 0) setDetail((current) => current === undefined ? current : { ...current, usage: [...usage] });
+    setFailure({ message: message(reason), usage });
+  };
+  const save = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (detail === undefined || fields === undefined) return;
+    const next = { title: fields.title.trim() === "" ? "請輸入標題。" : undefined, slug: fields.slug.trim() === "" ? "請輸入 slug。" : undefined };
+    setFieldErrors(next);
+    if (next.title !== undefined || next.slug !== undefined) return;
+    setBusy("save"); setFailure(undefined); setNotice("");
+    try {
+      const asset = await api.saveMediaMetadata({ assetId: detail.asset.assetId, expectedStateDigest: detail.asset.stateDigest, title: fields.title.trim(), slug: fields.slug.trim(), altText: fields.altText === "" ? null : fields.altText, caption: fields.caption, description: fields.description });
+      setDetail({ contract: "media-asset-detail/v2", asset, usage: detail.usage });
+      setFields(mediaFields(asset));
+      setNotice("已儲存。");
+    } catch (reason) {
+      if (reason instanceof CmsApiError && reason.status === 409) setConflict(true);
+      else applyFailure(reason);
+    } finally { setBusy(undefined); }
+  };
+  const replace = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    if (detail === undefined || fields === undefined) return;
+    if (replaceFile === undefined) { setFailure({ message: "請選擇替換檔案。", usage: [] }); return; }
+    setBusy("replace"); setFailure(undefined); setNotice("");
+    try {
+      const asset = await api.uploadMedia(detail.asset.assetId, detail.asset.stateDigest, replaceFile, mediaImportMetadata(fields, replaceFile.name, detail.asset.slug));
+      setDetail({ contract: "media-asset-detail/v2", asset, usage: detail.usage });
+      setFields(mediaFields(asset));
+      setReplaceFile(undefined);
+      setNotice("已替換媒體 bytes。");
+    } catch (reason) { applyFailure(reason); } finally { setBusy(undefined); }
+  };
+  const remove = async (): Promise<void> => {
+    if (detail === undefined) return;
+    setBusy("delete"); setFailure(undefined); setNotice("");
+    try {
+      const receipt = await api.deleteMedia({ assetId: detail.asset.assetId, expectedStateDigest: detail.asset.stateDigest });
+      dialog.current?.close();
+      void navigate("/cms/media", { state: { deletedSlug: receipt.releasedSlug } });
+    } catch (reason) { dialog.current?.close(); applyFailure(reason); } finally { setBusy(undefined); }
+  };
+  const openDelete = (): void => { setFailure(undefined); dialog.current?.showModal(); cancelDelete.current?.focus(); };
+  const closeDelete = (): void => { dialog.current?.close(); deleteTrigger.current?.focus(); };
+  const trapDeleteFocus = (event: React.KeyboardEvent<HTMLDialogElement>): void => {
+    if (event.key !== "Tab") return;
+    if (event.shiftKey && document.activeElement === cancelDelete.current) { event.preventDefault(); confirmDelete.current?.focus(); }
+    else if (!event.shiftKey && document.activeElement === confirmDelete.current) { event.preventDefault(); cancelDelete.current?.focus(); }
+  };
+  if (detail === undefined || fields === undefined) return <Layout><PageHeading>媒體詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入媒體。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  const referenced = detail.usage.length > 0;
+  const locked = busy !== undefined;
+  return <Layout>
+    <PageHeading>媒體：{detail.asset.title}</PageHeading>
+    {notice !== "" && <p role="status" aria-live="polite" aria-atomic="true">{notice}</p>}
+    {conflict && <><p role="alert">媒體 metadata 已由另一個頁面更新。</p><button type="button" onClick={load}>重新載入</button></>}
+    {failure !== undefined && <div role="alert"><p>{failure.message}</p>{failure.usage.length > 0 && <><p>目前引用：</p><MediaUsageList usage={failure.usage} /></>}</div>}
+    <section aria-labelledby="media-metadata-heading">
+      <h2 id="media-metadata-heading">Metadata</h2>
+      <form aria-label="媒體 metadata" noValidate aria-busy={busy === "save"} onSubmit={(event) => void save(event)}>
+        <label htmlFor="media-metadata-title">標題<input id="media-metadata-title" required aria-invalid={fieldErrors.title !== undefined} aria-describedby={fieldErrors.title === undefined ? undefined : "media-metadata-title-error"} value={fields.title} onChange={(event) => setFields((current) => current === undefined ? current : { ...current, title: event.target.value })} disabled={locked || conflict} /></label>
+        {fieldErrors.title !== undefined && <p id="media-metadata-title-error" role="alert">{fieldErrors.title}</p>}
+        <label htmlFor="media-metadata-slug">Slug<input id="media-metadata-slug" required aria-invalid={fieldErrors.slug !== undefined} aria-describedby={fieldErrors.slug === undefined ? undefined : "media-metadata-slug-error"} value={fields.slug} onChange={(event) => setFields((current) => current === undefined ? current : { ...current, slug: event.target.value })} disabled={locked || conflict} /></label>
+        {fieldErrors.slug !== undefined && <p id="media-metadata-slug-error" role="alert">{fieldErrors.slug}</p>}
+        <label htmlFor="media-metadata-alt">Alt 文字<input id="media-metadata-alt" value={fields.altText} onChange={(event) => setFields((current) => current === undefined ? current : { ...current, altText: event.target.value })} disabled={locked || conflict} /></label>
+        <label htmlFor="media-metadata-caption">Caption<input id="media-metadata-caption" value={fields.caption} onChange={(event) => setFields((current) => current === undefined ? current : { ...current, caption: event.target.value })} disabled={locked || conflict} /></label>
+        <label htmlFor="media-metadata-description">Description<textarea id="media-metadata-description" value={fields.description} onChange={(event) => setFields((current) => current === undefined ? current : { ...current, description: event.target.value })} disabled={locked || conflict} /></label>
+        <button type="submit" disabled={locked || conflict}>{busy === "save" ? "正在儲存…" : "儲存"}</button>
+      </form>
+    </section>
+    <section aria-labelledby="media-evidence-heading"><h2 id="media-evidence-heading">Evidence</h2><MediaAssetEvidence asset={detail.asset} /></section>
+    <section aria-labelledby="media-usage-heading"><h2 id="media-usage-heading">引用狀態</h2>{referenced ? <><p>此 asset 仍被下列 entry 引用，Replace 與 Delete 已停用。</p><MediaUsageList usage={detail.usage} /></> : <p>目前沒有 entry 引用此 asset。</p>}</section>
+    <section aria-labelledby="media-replace-heading">
+      <h2 id="media-replace-heading">替換 bytes</h2>
+      <p>替換會保留 stable asset ID 與 slug，只更新 bytes、尺寸與 checksum。</p>
+      <form aria-label="媒體替換" onSubmit={(event) => void replace(event)}>
+        <label htmlFor="media-replace-file">替換檔案<input id="media-replace-file" type="file" onChange={(event) => setReplaceFile(event.currentTarget.files?.[0])} disabled={locked || referenced} /></label>
+        <button type="submit" disabled={locked || referenced}>{busy === "replace" ? "正在替換…" : "替換 bytes"}</button>
+      </form>
+    </section>
+    <section aria-labelledby="media-delete-heading">
+      <h2 id="media-delete-heading">刪除 asset</h2>
+      <p>刪除會釋出 bytes、縮圖與 slug，且無法復原。</p>
+      <button ref={deleteTrigger} type="button" onClick={openDelete} disabled={locked || referenced}>刪除 asset</button>
+    </section>
+    <p><Link to="/cms/media">返回媒體庫</Link></p>
+    <dialog ref={dialog} aria-labelledby="media-delete-dialog-title" aria-describedby="media-delete-dialog-description" onKeyDown={trapDeleteFocus}><h2 id="media-delete-dialog-title">刪除媒體 asset</h2><p id="media-delete-dialog-description">{`將刪除「${detail.asset.title}」並釋放 slug ${detail.asset.slug}。`}</p><button ref={cancelDelete} type="button" onClick={closeDelete} disabled={locked}>取消</button><button ref={confirmDelete} type="button" onClick={() => void remove()} disabled={locked}>{busy === "delete" ? "正在刪除…" : "確認刪除"}</button></dialog>
+  </Layout>;
 }
 
 function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {

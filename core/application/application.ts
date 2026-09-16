@@ -1,7 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 
 import { canonicalJsonBytes, copyBytes, isDigest, sha256Digest, type CoreFailure, type Digest, type JsonValue } from "../foundation/index.js";
-import type { ArchiveAssetImpact, AssetVersionIdentity, MediaAssetDetailView, MediaAssetView, RestoreAssetCommandDescriptor } from "../media/index.js";
+import type { AssetVersionIdentity, RestoreAssetCommandDescriptor } from "../media/index.js";
 import type { CmsEditorBlockSource, PluginActivationIdentity, PluginHostFailure } from "../plugin-host/index.js";
 import { normalizeRoute, type PublishedRouteClaimProposal, type RouteClaim, type RouteClaimReplacementProposal } from "../site-definition/index.js";
 
@@ -24,24 +24,13 @@ import type {
   DomainApplicationFailure,
   DomainApplicationFailureCode,
   DomainApplicationResult,
-  ArchiveMediaVersionRequest,
-  GetMediaRequest,
-  CreateMediaVersionRequest,
-  ImportMediaRequest,
-  MediaAssetDetailV1,
-  MediaAssetV1,
-  MediaVersionReplacementReceiptV1,
-  MediaCatalogV1,
   PluginActivationRequest,
   PluginManagementSnapshotV1,
   PluginSettingsReplaceRequest,
   PublishRevisionRequest,
   PublishRevisionSuccess,
   RestoreRevisionRequest,
-  RestoreMediaVersionRequest,
   RestoreRevisionSuccess,
-  SaveRevisionCommandRequest,
-  SaveRevisionMediaReferenceReplacementRequest,
   SaveRevisionRequest,
   SaveRevisionSuccess,
 } from "./contracts.js";
@@ -59,19 +48,6 @@ const messages: Readonly<Record<DomainApplicationFailureCode, string>> = {
   CMS_EDITOR_BLOCK_RESOLUTIONS_FAILED: "CMS editor block 目前無法解析；原始內容未變更。",
   ENTRY_NOT_FOUND: "找不到指定文章。",
   CURRENT_REVISION_MISMATCH: "目前 revision 已變更，請重新確認後再執行命令。",
-  MEDIA_REFERENCE_NOT_FOUND: "找不到 current revision 的指定媒體引用。",
-  MEDIA_REFERENCE_CONFLICT: "current revision 已引用該 asset version；請先移除重複引用再替換。",
-  MEDIA_VERSION_CREATED_REPLACEMENT_FAILED: "Replacement media version 已建立；請以同一 replacement identity 重新執行 revision replacement。",
-  MEDIA_IMPORT_CONFLICT: "Media import identity 與既有紀錄衝突。",
-  MEDIA_IMPORT_FAILED: "Media import 尚未完成。",
-  MEDIA_ASSET_NOT_FOUND: "找不到指定的 media asset。",
-  MEDIA_ARCHIVE_BLOCKED_PUBLISHED: "仍被已發布內容引用，無法封存此媒體版本。",
-  MEDIA_ARCHIVE_FAILED: "Media asset version 尚未完成封存。",
-  MEDIA_RESTORE_REQUIRED: "請提供符合既有 evidence 的 recovery bytes 與 metadata。",
-  MEDIA_RESTORE_MISMATCH: "Recovery bytes 或 metadata 與既有 asset version 不一致。",
-  MEDIA_RESTORE_FAILED: "Media asset version 尚未完成復原。",
-  MEDIA_READ_STATE_STALE: "Media 讀取期間狀態已變更，請重試。",
-  MEDIA_READ_FAILED: "Media 讀取無法驗證。",
   SCHEMA_INVALID: "草稿不符合選定的 schema version。",
   MEDIA_UNAVAILABLE: "請先完成所有引用媒體的匯入或復原。",
   BLOCKED_ARCHIVED_MEDIA_RESTORE: "請先復原所有不可用的 media asset version。",
@@ -89,10 +65,6 @@ type PreparedPublishedClaim =
   | Readonly<{ kind: "claim"; proposal: PublishedRouteClaimProposal }>
   | Readonly<{ kind: "replacement"; proposal: RouteClaimReplacementProposal }>;
 
-type NormalizedSaveRevisionCommand =
-  | Readonly<{ kind: "save"; request: SaveRevisionRequest }>
-  | Readonly<{ kind: "media-reference-replacement"; request: SaveRevisionMediaReferenceReplacementRequest }>;
-
 type CanonicalContent = Readonly<{ value: JsonValue; bytes: Uint8Array; digest: Digest }>;
 type SelectedCurrentClaim = Readonly<{ claim: RouteClaim; snapshotDigest: Digest }>;
 type CommandOperation = "SaveRevision" | "PublishRevision" | "RestoreRevision" | "ChangeRoute";
@@ -102,9 +74,8 @@ function fail<T>(
   owner: DomainApplicationCommandFailure["owner"] = "DomainApplication",
   subjectIds: readonly string[] = [],
   restoreCommands?: readonly RestoreAssetCommandDescriptor[],
-  archiveImpact?: ArchiveAssetImpact,
 ): DomainApplicationResult<T> {
-  return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] }, ...(restoreCommands === undefined ? {} : { restoreCommands }), ...(archiveImpact === undefined ? {} : { archiveImpact }) } };
+  return { ok: false, error: { code, owner, subjectIds, remediation: { kind: "message", message: messages[code] }, ...(restoreCommands === undefined ? {} : { restoreCommands }) } };
 }
 
 function plugin<T>(error: PluginHostFailure | CoreFailure): DomainApplicationResult<T> {
@@ -309,138 +280,7 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
           : { ok: false, error: result.error };
   };
 
-  const executeMediaReferenceReplacement = async (request: SaveRevisionMediaReferenceReplacementRequest): Promise<DomainApplicationResult<SaveRevisionSuccess>> => {
-    const pointers = persistence.getEntryPointers(request.entryId);
-    if (!pointers.ok) {
-      return pointers.error.code === "ENTRY_POINTER_NOT_FOUND"
-        ? fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId])
-        : fail("SAVE_REVISION_FAILED");
-    }
-    if (pointers.value.currentRevisionId !== request.expectedCurrentRevisionId) {
-      return fail("CURRENT_REVISION_MISMATCH", "Content", [request.entryId]);
-    }
-
-    const source = persistence.getRevision({ entryId: request.entryId, revisionId: request.expectedCurrentRevisionId });
-    if (!source.ok) return fail("SAVE_REVISION_FAILED");
-    const sourceContent = verifiedSourceContent(source.value.contentBytes, source.value.contentDigest);
-    if (sourceContent === null) return fail("SAVE_REVISION_FAILED");
-    const references = persistence.getRevisionReferences(source.value.identity);
-    const taxonomyBindings = persistence.getRevisionTaxonomyBindings(source.value.identity);
-    if (!references.ok || !taxonomyBindings.ok) return fail("SAVE_REVISION_FAILED");
-
-    const target = identityKey(request.targetAssetVersion);
-    const replacement = identityKey(request.replacementAssetVersion);
-    let found = false;
-    const assetVersions = references.value.map((reference) => {
-      if (identityKey(reference.assetVersion) !== target) return reference.assetVersion;
-      found = true;
-      return request.replacementAssetVersion;
-    });
-    if (!found) {
-      return fail("MEDIA_REFERENCE_NOT_FOUND", "DataMedia", [request.targetAssetVersion.assetId, request.targetAssetVersion.assetVersionId]);
-    }
-    if (references.value.some((reference) => identityKey(reference.assetVersion) === replacement)) {
-      return fail("MEDIA_REFERENCE_CONFLICT", "DataMedia", [request.replacementAssetVersion.assetId, request.replacementAssetVersion.assetVersionId]);
-    }
-    if (!dataMedia.requireReadyAssetVersions(assetVersions).ok) return mediaUnavailable(assetVersions);
-
-    const selected = selectCurrentClaim(request.entryId, request.expectedCurrentRevisionId, "SaveRevision");
-    if (!selected.ok) return selected;
-
-    return executeSaveRevision(
-      {
-        entryId: request.entryId,
-        revisionId: request.revisionId,
-        operationId: request.operationId,
-        expectedCurrentRevisionId: request.expectedCurrentRevisionId,
-        schemaIdentity: source.value.schemaIdentity,
-        content: sourceContent.value,
-        route: selected.value.claim.normalizedRoute,
-        assetVersions,
-        taxonomyTerms: taxonomyBindings.value.map(({ taxonomyId, termId }) => ({ taxonomyId, termId })),
-      },
-      request.expectedCurrentRevisionId,
-    );
-  };
-  // Media failure 的 archive impact 與 RestoreAsset descriptor 是 transport 必須投影的安全 remediation evidence，
-  // 不得在 Application 邊界被丟棄；否則 CMS 只會看到一句無法行動的訊息。
-  const mediaFailure = <T>(error: Readonly<{ code: string; subjectIds: readonly string[]; restoreCommands?: readonly RestoreAssetCommandDescriptor[]; archiveImpact?: ArchiveAssetImpact }>): DomainApplicationResult<T> => {
-    const code = error.code === "MEDIA_IMPORT_CONFLICT" ? "MEDIA_IMPORT_CONFLICT" : error.code === "MEDIA_ASSET_NOT_FOUND" ? "MEDIA_ASSET_NOT_FOUND" : error.code === "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" ? "MEDIA_ARCHIVE_BLOCKED_PUBLISHED" : error.code === "MEDIA_ARCHIVE_FAILURE" ? "MEDIA_ARCHIVE_FAILED" : error.code === "MEDIA_RESTORE_REQUIRED" ? "MEDIA_RESTORE_REQUIRED" : error.code === "MEDIA_RESTORE_MISMATCH" ? "MEDIA_RESTORE_MISMATCH" : error.code === "MEDIA_RESTORE_FAILURE" ? "MEDIA_RESTORE_FAILED" : error.code === "MEDIA_READ_STATE_STALE" ? "MEDIA_READ_STATE_STALE" : error.code === "MEDIA_READ_FAILED" ? "MEDIA_READ_FAILED" : "MEDIA_IMPORT_FAILED";
-    return fail(code, "DataMedia", error.subjectIds, error.restoreCommands, error.archiveImpact);
-  };
-  const mediaAsset = (asset: MediaAssetView): MediaAssetV1 => ({
-    contract: "media-asset/v1",
-    assetId: asset.assetId,
-    versions: asset.versions.map((version) => ({
-      ...version,
-      identity: { ...version.identity },
-      evidence: { ...version.evidence },
-      ...(version.restoreCommand === undefined ? {} : { restoreCommand: { ...version.restoreCommand, assetVersion: { ...version.restoreCommand.assetVersion } } }),
-    })),
-  });
-  const mediaCatalog = (assets: readonly MediaAssetView[]): MediaCatalogV1 | undefined => {
-    const items = assets.map(mediaAsset);
-    const bytes = canonicalJsonBytes({ contract: "media-catalog/v1", items });
-    return bytes.ok ? { contract: "media-catalog/v1", items, stateDigest: sha256Digest(bytes.value) } : undefined;
-  };
-  const mediaDetail = (detail: MediaAssetDetailView): MediaAssetDetailV1 | undefined => {
-    const asset = mediaAsset(detail.asset);
-    const references = { current: detail.references.current.map((reference) => ({ entryId: reference.entryId, revisionId: reference.revisionId, assetVersion: { ...reference.assetVersion } })), published: detail.references.published.map((reference) => ({ entryId: reference.entryId, revisionId: reference.revisionId, assetVersion: { ...reference.assetVersion } })) };
-    const bytes = canonicalJsonBytes({ contract: "media-asset-detail/v1", asset, references });
-    return bytes.ok ? { contract: "media-asset-detail/v1", asset, references, stateDigest: sha256Digest(bytes.value) } : undefined;
-  };
-
-
   return {
-    async listMedia(): Promise<DomainApplicationResult<MediaCatalogV1>> {
-      const assets = dataMedia.listAssets();
-      if (!assets.ok) return mediaFailure(assets.error);
-      const catalog = mediaCatalog(assets.value);
-      return catalog === undefined ? fail("MEDIA_READ_FAILED", "DataMedia") : { ok: true, value: catalog };
-    },
-    async importMedia(request: ImportMediaRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
-      const imported = dataMedia.importLocal(request);
-      if (!imported.ok) return mediaFailure(imported.error);
-      const detail = dataMedia.getAssetDetail(request.assetId);
-      if (!detail.ok) return mediaFailure(detail.error);
-      const projected = mediaDetail(detail.value);
-      return projected === undefined ? fail("MEDIA_READ_FAILED", "DataMedia", [request.assetId]) : { ok: true, value: projected };
-    },
-    async getMedia(request: GetMediaRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
-      const detail = dataMedia.getAssetDetail(request.assetId);
-      if (!detail.ok) return mediaFailure(detail.error);
-      const projected = mediaDetail(detail.value);
-      return projected === undefined ? fail("MEDIA_READ_FAILED", "DataMedia", [request.assetId]) : { ok: true, value: projected };
-    },
-    async archiveMediaVersion(request: ArchiveMediaVersionRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
-      const archived = dataMedia.archiveAsset(request);
-      if (!archived.ok) return mediaFailure(archived.error);
-      return this.getMedia({ assetId: request.assetId });
-    },
-    async createMediaVersion(request: CreateMediaVersionRequest): Promise<DomainApplicationResult<MediaVersionReplacementReceiptV1>> {
-      const { replacement } = request;
-      if (request.assetVersionId === replacement.targetAssetVersionId) return fail("MEDIA_REFERENCE_CONFLICT", "DataMedia", [request.assetId, request.assetVersionId]);
-      const pointers = persistence.getEntryPointers(replacement.entryId);
-      if (!pointers.ok || pointers.value.currentRevisionId !== replacement.expectedCurrentRevisionId) return fail("CURRENT_REVISION_MISMATCH", "Content", [replacement.entryId]);
-      const references = persistence.getRevisionReferences({ entryId: replacement.entryId, revisionId: replacement.expectedCurrentRevisionId });
-      if (!references.ok) return fail("SAVE_REVISION_FAILED");
-      if (!references.value.some((reference) => reference.assetVersion.assetId === request.assetId && reference.assetVersion.assetVersionId === replacement.targetAssetVersionId)) return fail("MEDIA_REFERENCE_NOT_FOUND", "DataMedia", [request.assetId, replacement.targetAssetVersionId]);
-      if (references.value.some((reference) => reference.assetVersion.assetId === request.assetId && reference.assetVersion.assetVersionId === request.assetVersionId)) return fail("MEDIA_REFERENCE_CONFLICT", "DataMedia", [request.assetId, request.assetVersionId]);
-      const imported = dataMedia.importLocal({ importId: request.importId, assetId: request.assetId, assetVersionId: request.assetVersionId, bytes: request.bytes, metadata: request.metadata });
-      if (!imported.ok) return mediaFailure(imported.error);
-      const saved = await this.saveRevision({ kind: "media-reference-replacement", entryId: replacement.entryId, revisionId: replacement.revisionId, operationId: replacement.operationId, expectedCurrentRevisionId: replacement.expectedCurrentRevisionId, targetAssetVersion: { assetId: request.assetId, assetVersionId: replacement.targetAssetVersionId }, replacementAssetVersion: { assetId: request.assetId, assetVersionId: request.assetVersionId } });
-      if (!saved.ok) return fail("MEDIA_VERSION_CREATED_REPLACEMENT_FAILED", "DomainApplication", [request.assetId, request.assetVersionId, replacement.entryId, replacement.revisionId]);
-      const detail = dataMedia.getAssetDetail(request.assetId);
-      if (!detail.ok) return mediaFailure(detail.error);
-      const asset = mediaDetail(detail.value);
-      const version = asset?.asset.versions.find((item) => item.identity.assetVersionId === request.assetVersionId);
-      return asset === undefined || version === undefined ? fail("MEDIA_READ_FAILED", "DataMedia", [request.assetId, request.assetVersionId]) : { ok: true, value: { contract: "media-version-replacement-receipt/v1", version, save: saved.value, asset } };
-    },
-    async restoreMediaVersion(request: RestoreMediaVersionRequest): Promise<DomainApplicationResult<MediaAssetDetailV1>> {
-      const restored = dataMedia.restoreAsset(request);
-      if (!restored.ok) return mediaFailure(restored.error);
-      return this.getMedia({ assetId: request.assetId });
-    },
     async listPlugins(): Promise<DomainApplicationResult<PluginManagementSnapshotV1>> {
       const [discovery, activation, settings] = await Promise.all([pluginHost.discover(), pluginHost.getActivationSnapshot(), pluginHost.getSettingsSnapshot()]);
       if (!discovery.ok) return plugin<PluginManagementSnapshotV1>(discovery.error);
@@ -574,12 +414,9 @@ export function createDomainApplication({ persistence, siteDefinition, dataMedia
       if (canonical !== undefined && !canonical.ok) return fail("CMS_SEO_ANALYSIS_FAILED");
       return { ok: true, value: { contract: "cms-seo-analysis-response/v1", documentDigest: request.documentDigest, status: result.value.status, ...(preview === undefined ? {} : { preview: { title: preview.title, ...(preview.description === undefined ? {} : { description: preview.description }), ...(canonical === undefined ? {} : { canonicalUrl: canonical.value }) } }), suggestions: result.value.suggestions, diagnostics: result.value.diagnostics } };
     },
-    async saveRevision(request: SaveRevisionCommandRequest) {
+    async saveRevision(request: SaveRevisionRequest) {
       const command = normalizeSaveRevisionCommand(request);
-      if (command === null) return fail("INVALID_SAVE_REVISION_REQUEST");
-      return command.kind === "save"
-        ? executeSaveRevision(command.request, command.request.expectedCurrentRevisionId)
-        : executeMediaReferenceReplacement(command.request);
+      return command === null ? fail("INVALID_SAVE_REVISION_REQUEST") : executeSaveRevision(command, command.expectedCurrentRevisionId);
     },
 
     async readSiteRouteGraph(request: SiteRouteGraphReadRequest): Promise<DomainApplicationResult<SiteRouteGraphV1>> {
@@ -1080,51 +917,12 @@ function routeChangePreparationFailure<T>(code: string): DomainApplicationResult
   return fail("CHANGE_ROUTE_FAILED");
 }
 
-function normalizeSaveRevisionCommand(value: unknown): NormalizedSaveRevisionCommand | null {
+/** `kind` 是舊 media replacement command 的標記；已移除的 command 形狀必須 fail closed 而不是被當成 Save。 */
+function normalizeSaveRevisionCommand(value: unknown): SaveRevisionRequest | null {
   try {
     if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-    const kind = Object.getOwnPropertyDescriptor(value, "kind");
-    if (kind === undefined) return { kind: "save", request: value as SaveRevisionRequest };
-    if (!("value" in kind)) return null;
-    if (kind.value !== "media-reference-replacement") return { kind: "save", request: value as SaveRevisionRequest };
-
-    const request = ownEnumerableFields(value, [
-      "kind",
-      "entryId",
-      "revisionId",
-      "operationId",
-      "expectedCurrentRevisionId",
-      "targetAssetVersion",
-      "replacementAssetVersion",
-    ]);
-    if (request === null || request.kind !== "media-reference-replacement") return null;
-    const targetAssetVersion = identity(request.targetAssetVersion);
-    const replacementAssetVersion = identity(request.replacementAssetVersion);
-    if (
-      !text(request.entryId)
-      || !text(request.revisionId)
-      || !text(request.operationId)
-      || !text(request.expectedCurrentRevisionId)
-      || request.revisionId === request.expectedCurrentRevisionId
-      || targetAssetVersion === null
-      || replacementAssetVersion === null
-      || targetAssetVersion.assetId !== replacementAssetVersion.assetId
-      || targetAssetVersion.assetVersionId === replacementAssetVersion.assetVersionId
-    ) {
-      return null;
-    }
-    return {
-      kind: "media-reference-replacement",
-      request: {
-        kind: "media-reference-replacement",
-        entryId: request.entryId,
-        revisionId: request.revisionId,
-        operationId: request.operationId,
-        expectedCurrentRevisionId: request.expectedCurrentRevisionId,
-        targetAssetVersion,
-        replacementAssetVersion,
-      },
-    };
+    if (Object.getOwnPropertyDescriptor(value, "kind") !== undefined) return null;
+    return value as SaveRevisionRequest;
   } catch {
     return null;
   }
@@ -1160,14 +958,6 @@ function ownEnumerableFields(value: object, expected: readonly string[]): Record
     copied[key] = descriptor.value;
   }
   return copied;
-}
-
-function identity(value: unknown): Readonly<{ assetId: string; assetVersionId: string }> | null {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return null;
-  const copied = ownEnumerableFields(value, ["assetId", "assetVersionId"]);
-  return copied !== null && text(copied.assetId) && text(copied.assetVersionId)
-    ? { assetId: copied.assetId, assetVersionId: copied.assetVersionId }
-    : null;
 }
 
 function text(value: unknown): value is string {

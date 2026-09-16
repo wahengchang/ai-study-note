@@ -62,13 +62,36 @@ export type CurrentEntryRecord = Readonly<{
 export type CreateCurrentEntryInput = CurrentEntryRecord;
 export type ReplaceCurrentEntryInput = CurrentEntryRecord;
 export type GlobalSlugEntityIdentity = Readonly<{ entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>;
+export type CurrentMediaImage = Readonly<{ width: number; height: number }>;
+export type CurrentMediaThumbnail = Readonly<{ digest: Digest; byteLength: number; width: number; height: number }>;
+/** `checksum` 同時是 content-addressed object 的位址，因此不必再存一份 object digest。 */
+export type CurrentMediaAssetRecord = Readonly<{
+  assetId: string;
+  slug: string;
+  title: string;
+  altText: string | null;
+  caption: string;
+  description: string;
+  originalFilename: string;
+  mimeType: string;
+  byteLength: number;
+  checksum: Digest;
+  uploadedAt: string;
+  image?: CurrentMediaImage;
+  thumbnail?: CurrentMediaThumbnail;
+}>;
+export type CreateCurrentMediaAssetInput = CurrentMediaAssetRecord;
+export type ReplaceCurrentMediaAssetInput = CurrentMediaAssetRecord;
+export type CurrentMediaEntryStatus = "draft" | "published";
+export type CurrentMediaReferenceRecord = Readonly<{ entryId: string; status: CurrentMediaEntryStatus }>;
+export type ReplaceEntryMediaReferencesInput = Readonly<{ entryId: string; status: CurrentMediaEntryStatus; assetIds: readonly string[] }>;
 
 
 export type PersistenceCanonicalState = Readonly<{
   contract: "persistence-canonical-state/v2";
   bytes: Uint8Array;
   digest: Digest;
-  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; taxonomies: number; taxonomyTermIdentities: number; taxonomyTerms: number; revisionTaxonomyBindings: number; currentContentTypes: number; globalSlugClaims: number; currentEntries: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
+  counts: Readonly<{ schemaVersions: number; revisions: number; operationLineage: number; entryPointers: number; entryPointerLineage: number; routeClaims: number; mediaImportIntents: number; mediaObjects: number; mediaAssets: number; assetVersions: number; revisionReferences: number; taxonomies: number; taxonomyTermIdentities: number; taxonomyTerms: number; revisionTaxonomyBindings: number; currentContentTypes: number; globalSlugClaims: number; currentEntries: number; currentMediaAssets: number; currentMediaReferences: number; pluginActivationStates: number; themeActivationStates: number; pluginSettingsStates: number; schemaMigrationExecutions: number; schemaMigrationRevisionLineage: number; schemaMigrationPointerLineage: number }>;
 }>;
 export type TransactionDecision<T, E> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: E }>;
 export type MigrationSummary = Readonly<{ appliedMigrationIds: readonly string[]; currentMigrationId: string }>;
@@ -172,6 +195,9 @@ export type PersistenceFailureCode =
   | "CURRENT_CONTENT_TYPE_CONFLICT"
   | "CURRENT_ENTRY_NOT_FOUND"
   | "CURRENT_ENTRY_CONFLICT"
+  | "CURRENT_MEDIA_ASSET_NOT_FOUND"
+  | "CURRENT_MEDIA_ASSET_CONFLICT"
+  | "CURRENT_MEDIA_REFERENCE_CONFLICT"
   | "GLOBAL_SLUG_CONFLICT"
   | "SCHEMA_MIGRATION_MAPPING_FAILED"
   | "SCHEMA_MIGRATION_VALIDATION_FAILED"
@@ -209,6 +235,9 @@ export interface PersistenceReadSnapshot {
   getRevisionTaxonomyBindings(revision: RevisionIdentity): PersistenceResult<readonly RevisionTaxonomyTermBinding[]>;
   getCurrentContentType(typeId: string): PersistenceResult<CurrentContentTypeRecord>;
   listCurrentContentTypes(): PersistenceResult<readonly CurrentContentTypeRecord[]>;
+  getCurrentMediaAsset(assetId: string): PersistenceResult<CurrentMediaAssetRecord>;
+  listCurrentMediaAssets(): PersistenceResult<readonly CurrentMediaAssetRecord[]>;
+  listCurrentMediaReferences(assetId: string): PersistenceResult<readonly CurrentMediaReferenceRecord[]>;
   getGlobalSlugClaim(namespaceKey: string): PersistenceResult<GlobalSlugClaimRecord>;
   getGlobalSlugClaimByEntity(identity: GlobalSlugEntityIdentity): PersistenceResult<GlobalSlugClaimRecord>;
   getCurrentEntry(entryId: string): PersistenceResult<CurrentEntryRecord>;
@@ -257,6 +286,10 @@ export interface PersistenceTransaction extends PersistenceReadSnapshot {
   createCurrentEntry(input: CreateCurrentEntryInput): PersistenceResult<CurrentEntryRecord>;
   replaceCurrentEntry(input: ReplaceCurrentEntryInput): PersistenceResult<CurrentEntryRecord>;
   deleteCurrentEntry(entryId: string): PersistenceResult<void>;
+  createCurrentMediaAsset(input: CreateCurrentMediaAssetInput): PersistenceResult<CurrentMediaAssetRecord>;
+  replaceCurrentMediaAsset(input: ReplaceCurrentMediaAssetInput): PersistenceResult<CurrentMediaAssetRecord>;
+  deleteCurrentMediaAsset(assetId: string): PersistenceResult<void>;
+  replaceEntryMediaReferences(input: ReplaceEntryMediaReferencesInput): PersistenceResult<readonly CurrentMediaReferenceRecord[]>;
   contentTypeHasCurrentEntries(typeId: string): PersistenceResult<boolean>;
   canonicalState(): PersistenceResult<PersistenceCanonicalState>;
 }

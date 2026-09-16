@@ -3,6 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
+import { deflateSync } from "node:zlib";
 
 import { chromium, type Browser } from "playwright";
 
@@ -17,6 +18,51 @@ import { runThemeActivate } from "../../../apps/cli/theme-activate.js";
 function capture(): Readonly<{ output: string[]; io: Readonly<{ stdout(text: string): void; stderr(text: string): void }> }> {
   const output: string[] = [];
   return { output, io: { stdout: (text) => { output.push(text); }, stderr: (text) => { output.push(text); } } };
+}
+
+const CRC32_TABLE = (() => {
+  const table = new Uint32Array(256);
+  for (let index = 0; index < 256; index += 1) {
+    let value = index;
+    for (let bit = 0; bit < 8; bit += 1) value = (value & 1) === 1 ? 0xedb88320 ^ (value >>> 1) : value >>> 1;
+    table[index] = value >>> 0;
+  }
+  return table;
+})();
+
+/** Thumbnail pipeline 只接受真的能解碼的 raster，因此縮圖 evidence 需要一個最小可解碼 PNG。 */
+function pngFixture(width: number, height: number): Buffer {
+  const crc = (bytes: Buffer): Buffer => {
+    let value = 0xffffffff;
+    for (const byte of bytes) value = (CRC32_TABLE[(value ^ byte) & 0xff] ?? 0) ^ (value >>> 8);
+    const output = Buffer.alloc(4);
+    output.writeUInt32BE((value ^ 0xffffffff) >>> 0);
+    return output;
+  };
+  const chunk = (type: string, data: Buffer): Buffer => {
+    const length = Buffer.alloc(4);
+    length.writeUInt32BE(data.byteLength);
+    const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+    return Buffer.concat([length, body, crc(body)]);
+  };
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(width, 0);
+  header.writeUInt32BE(height, 4);
+  header[8] = 8;
+  header[9] = 6;
+  const rows: Buffer[] = [];
+  for (let y = 0; y < height; y += 1) {
+    const row = Buffer.alloc(1 + width * 4);
+    for (let x = 0; x < width; x += 1) {
+      const offset = 1 + x * 4;
+      row[offset] = (x * 32) % 256;
+      row[offset + 1] = (y * 32) % 256;
+      row[offset + 2] = 128;
+      row[offset + 3] = 255;
+    }
+    rows.push(row);
+  }
+  return Buffer.concat([Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]), chunk("IHDR", header), chunk("IDAT", deflateSync(Buffer.concat(rows))), chunk("IEND", Buffer.alloc(0))]);
 }
 
 test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/a11y journey", async (context) => {
@@ -183,118 +229,218 @@ test("真實 CMS runtime 完成四條 canonical route 的 authenticated browser/
     await page.keyboard.press("Enter");
     await page.getByRole("heading", { name: "匯入媒體", exact: true }).waitFor();
     await page.waitForFunction(() => document.activeElement?.id === "page-title");
-    await page.getByRole("textbox", { name: "Metadata JSON", exact: true }).fill("{");
-    await page.getByRole("button", { name: "匯入媒體", exact: true }).focus();
-    await page.keyboard.press("Enter");
-    await page.locator("#media-asset-id-error").waitFor();
-    assert.equal(await page.locator("#media-asset-id").getAttribute("aria-describedby"), "media-asset-id-error");
-    assert.equal(await page.locator("#media-version-id").getAttribute("aria-describedby"), "media-version-id-error");
-    assert.equal(await page.locator("#media-file").getAttribute("aria-describedby"), "media-file-error");
-    assert.equal(await page.locator("#media-metadata").getAttribute("aria-describedby"), "media-metadata-error");
-    await page.getByRole("textbox", { name: "Asset ID", exact: true }).fill("runtime-media");
-    await page.getByRole("textbox", { name: "Version ID", exact: true }).fill("v1");
-    await page.getByLabel("媒體檔案", { exact: true }).setInputFiles({ name: "runtime.txt", mimeType: "text/plain", buffer: Buffer.from("runtime media") });
-    await page.getByRole("textbox", { name: "Metadata JSON", exact: true }).fill("{\"mime\":\"text/plain\"}");
-    const importStarted = Promise.withResolvers<void>();
-    const releaseImport = Promise.withResolvers<void>();
+    // 每個 asset 的 evidence 只能來自 server：以 same-origin session 讀回權威 media-asset/v2。
+    const readAsset = async (assetId: string): Promise<Readonly<{ assetId: string; slug: string; title: string; checksum: string; byteLength: number }>> => await page.evaluate(async (id) => {
+      const response = await fetch(`/v1/media/${id}`, { credentials: "omit", cache: "no-store" });
+      if (response.status !== 200) throw new Error(`readAsset ${response.status}`);
+      const body = await response.json() as { asset: { assetId: string; slug: string; title: string; checksum: string; byteLength: number } };
+      return body.asset;
+    }, assetId);
+    const queue = page.getByRole("list", { name: "上傳項目", exact: true });
+    const importInput = page.getByLabel("媒體檔案", { exact: true });
+    const queueItem = (filename: string) => queue.locator("li").filter({ hasText: filename });
+    // 佇列上限：前兩個 request 被扣住時，第三個必須停在「等待中」，而且尚未送出 request。
+    const importRangeHeaders: (string | undefined)[] = [];
+    const twoImportsStarted = Promise.withResolvers<void>();
+    const releaseImports = Promise.withResolvers<void>();
     await page.route("**/v1/media/import", async (route) => {
-      if (route.request().method() === "POST") { importStarted.resolve(); await releaseImport.promise; }
+      importRangeHeaders.push(route.request().headers()["range"]);
+      if (importRangeHeaders.length === 2) twoImportsStarted.resolve();
+      if (importRangeHeaders.length <= 2) await releaseImports.promise;
       await route.continue();
     });
-    await page.getByRole("button", { name: "匯入媒體", exact: true }).focus();
-    await page.keyboard.press("Enter");
-    await importStarted.promise;
-    const importForm = page.getByRole("form", { name: "媒體匯入", exact: true });
-    assert.equal(await importForm.getAttribute("aria-busy"), "true");
-    const importStatus = importForm.getByRole("status");
-    assert.equal(await importStatus.getAttribute("aria-live"), "polite");
-    await importStatus.getByText("正在匯入。", { exact: true }).waitFor();
-    releaseImport.resolve();
-    await page.getByRole("heading", { name: "媒體：runtime-media", exact: true }).waitFor();
+    await page.getByRole("textbox", { name: "Caption", exact: true }).fill("runtime caption");
+    await importInput.setInputFiles([
+      { name: "runtime-note.txt", mimeType: "text/plain", buffer: Buffer.from("runtime note bytes") },
+      { name: "runtime-guide.txt", mimeType: "text/plain", buffer: Buffer.from("runtime guide bytes") },
+      { name: "runtime-pixel.png", mimeType: "image/png", buffer: pngFixture(8, 4) },
+    ]);
+    await twoImportsStarted.promise;
+    const pixelQueueItem = queueItem("runtime-pixel.png");
+    await pixelQueueItem.getByText("等待中", { exact: true }).waitFor();
+    assert.equal(await pixelQueueItem.getByText("上傳中", { exact: false }).count(), 0);
+    assert.equal(importRangeHeaders.length, 2);
+    releaseImports.resolve();
+    for (const filename of ["runtime-note.txt", "runtime-guide.txt", "runtime-pixel.png"]) await queueItem(filename).getByText("已完成", { exact: true }).waitFor();
+    assert.equal(importRangeHeaders.length, 3);
     await page.unroute("**/v1/media/import");
-    await page.waitForFunction(() => document.activeElement?.id === "page-title");
-    const importedStatus = page.getByText("已匯入 version：v1", { exact: true });
-    await importedStatus.waitFor();
-    assert.equal(await importedStatus.getAttribute("aria-live"), "polite");
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "封存", exact: true }).focus();
-    await page.keyboard.press("Enter");
-    await page.getByText("archived", { exact: true }).waitFor();
-    page.once("dialog", (dialog) => dialog.accept());
-    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-    await page.getByRole("button", { name: "復原", exact: true }).focus();
-    await page.keyboard.press("Enter");
-    await page.getByText("ready", { exact: true }).waitFor();
-    const client = createLocalAuthoringClient({ homeDirectory: credentialRoot, xdgConfigHome: path.join(credentialRoot, "config") });
-    const verified = openPersistence({ databasePath });
-    assert.equal(verified.ok, true, verified.ok ? "" : verified.error.code);
-    if (!verified.ok) return;
-    const pointers = verified.value.getEntryPointers(entryId);
-    verified.value.close();
-    assert.equal(pointers.ok, true, pointers.ok ? "" : pointers.error.code);
-    if (!pointers.ok) return;
-    const pinned = await client.saveRevision({ entryId, request: { contract: "save-revision-request/v1", revisionId: "runtime-media-published", operationId: "runtime-media-published-save", expectedCurrentRevisionId: pointers.value.currentRevisionId, schemaIdentity: { schemaId: "site-content", version: 1 }, content: { contract: "site-content/v1", title: "Runtime Article v1", blocks: [{ kind: "article", text: "第一版真實 runtime 內容" }], seo: {} }, route: "/runtime-article", assetVersions: [{ assetId: "runtime-media", assetVersionId: "v1" }], taxonomyTerms: [] } });
-    assert.equal(pinned.ok, true, pinned.ok ? "" : pinned.error.code);
-    if (!pinned.ok) return;
-    const pinnedPublished = await client.publishRevision({ entryId, request: { contract: "publish-revision-request/v1", expectedCurrentRevisionId: pinned.value.pointer.currentRevisionId, operationId: "runtime-media-published-publish" } });
-    assert.equal(pinnedPublished.ok, true, pinnedPublished.ok ? "" : pinnedPublished.error.code);
-    if (!pinnedPublished.ok) return;
-    const publishedRevisionId = pinnedPublished.value.publishedPointer.publishedRevisionId;
-    assert.equal(publishedRevisionId, pinned.value.pointer.currentRevisionId);
-    const pinnedStore = openPersistence({ databasePath });
-    assert.equal(pinnedStore.ok, true, pinnedStore.ok ? "" : pinnedStore.error.code);
-    if (!pinnedStore.ok) return;
-    try {
-      assert.deepEqual(pinnedStore.value.getRevisionReferences({ entryId, revisionId: publishedRevisionId }), { ok: true, value: [{ revision: { entryId, revisionId: publishedRevisionId }, assetVersion: { assetId: "runtime-media", assetVersionId: "v1" } }] });
-    } finally { pinnedStore.value.close(); }
-    const referenced = await client.saveRevision({ entryId, request: { contract: "save-revision-request/v1", revisionId: "runtime-media-reference", operationId: "runtime-media-reference-save", expectedCurrentRevisionId: publishedRevisionId, schemaIdentity: { schemaId: "site-content", version: 1 }, content: { contract: "site-content/v1", title: "Runtime Article v2", blocks: [{ kind: "article", text: "第一版真實 runtime 內容" }], seo: {} }, route: "/runtime-article", assetVersions: [{ assetId: "runtime-media", assetVersionId: "v1" }], taxonomyTerms: [] } });
-    assert.equal(referenced.ok, true, referenced.ok ? "" : referenced.error.code);
-    if (!referenced.ok) return;
-    assert.notEqual(referenced.value.pointer.currentRevisionId, publishedRevisionId);
-    assert.equal(referenced.value.pointer.publishedRevisionId, publishedRevisionId);
-    await page.getByRole("link", { name: "返回媒體庫", exact: true }).focus();
+    // 取消只中止該項目：另一個項目照常完成。
+    const cancelGate = Promise.withResolvers<void>();
+    const twoCancelsStarted = Promise.withResolvers<void>();
+    let cancelAttempts = 0;
+    await page.route("**/v1/media/import", async (route) => {
+      cancelAttempts += 1;
+      const index = cancelAttempts;
+      if (index === 2) twoCancelsStarted.resolve();
+      await cancelGate.promise;
+      // 取消的是第一個項目：被中止的 request 不得再送給 server，否則取消就只是 UI 假象。
+      if (index === 1) { await route.abort().catch(() => undefined); return; }
+      await route.continue().catch(() => undefined);
+    });
+    await importInput.setInputFiles([
+      { name: "runtime-cancelled.txt", mimeType: "text/plain", buffer: Buffer.from("runtime cancelled bytes") },
+      { name: "runtime-kept.txt", mimeType: "text/plain", buffer: Buffer.from("runtime kept bytes") },
+    ]);
+    await twoCancelsStarted.promise;
+    await queueItem("runtime-cancelled.txt").getByRole("button", { name: "取消", exact: true }).click();
+    await queueItem("runtime-cancelled.txt").getByText("已取消", { exact: true }).waitFor();
+    cancelGate.resolve();
+    await queueItem("runtime-kept.txt").getByText("已完成", { exact: true }).waitFor();
+    assert.equal(await queueItem("runtime-cancelled.txt").getByText("已完成", { exact: true }).count(), 0);
+    await page.unroute("**/v1/media/import");
+    // 失敗後重試：必須是全新的 request（沒有 Range header），並最終成功。
+    const retryRangeHeaders: (string | undefined)[] = [];
+    let retryAttempts = 0;
+    await page.route("**/v1/media/import", async (route) => {
+      retryAttempts += 1;
+      retryRangeHeaders.push(route.request().headers()["range"]);
+      if (retryAttempts === 1) {
+        await route.fulfill({ status: 422, contentType: "application/json", body: JSON.stringify({ contract: "authoring-error/v1", requestId: "runtime-media-retry", code: "MEDIA_UNSUPPORTED_TYPE", owner: "DataMedia", subjectIds: [], remediation: { kind: "message", message: "此檔案類型不在媒體庫允許的清單內。" } }) });
+        return;
+      }
+      await route.continue();
+    });
+    await importInput.setInputFiles([{ name: "runtime-retry.txt", mimeType: "text/plain", buffer: Buffer.from("runtime retry bytes") }]);
+    const retryItem = queueItem("runtime-retry.txt");
+    await retryItem.getByText("失敗", { exact: true }).waitFor();
+    await retryItem.getByRole("alert").getByText("此檔案類型不在媒體庫允許的清單內。", { exact: true }).waitFor();
+    assert.equal(await retryItem.getByText("已完成", { exact: true }).count(), 0);
+    await retryItem.getByRole("button", { name: "重試", exact: true }).click();
+    await retryItem.getByText("已完成", { exact: true }).waitFor();
+    assert.equal(retryAttempts, 2);
+    assert.deepEqual(retryRangeHeaders, [undefined, undefined]);
+    await page.unroute("**/v1/media/import");
+    // 匯入成功後 catalog 重新載入，已匯入的 asset 直接顯示 server evidence 與縮圖。
+    const importLibrary = page.getByRole("region", { name: "已匯入的 asset（重新載入的媒體庫）", exact: true });
+    const importedPixel = importLibrary.locator("li").filter({ hasText: "runtime-pixel.png" });
+    const importedThumbnail = importedPixel.locator("img");
+    await importedThumbnail.waitFor();
+    const pixelAssetId = (await importedPixel.getByRole("link").getAttribute("href") ?? "").split("/").at(-1) ?? "";
+    assert.equal(await importedThumbnail.getAttribute("src"), `/cms/media/${pixelAssetId}/thumbnail`);
+    assert.equal(await importedThumbnail.getAttribute("alt"), "");
+    await importLibrary.locator("li").filter({ hasText: "runtime-note.txt" }).getByText("runtime caption", { exact: true }).waitFor();
+    await page.getByRole("link", { name: "媒體庫", exact: true }).focus();
     await page.keyboard.press("Enter");
     await page.getByRole("heading", { name: "媒體庫", exact: true }).waitFor();
     await page.waitForFunction(() => document.activeElement?.id === "page-title");
-    await page.getByRole("link", { name: "runtime-media", exact: true }).focus();
+    await page.getByText("共 5 個 asset。", { exact: true }).waitFor();
+    const catalog = page.getByRole("list", { name: "媒體 asset", exact: true });
+    const catalogPixel = catalog.locator("li").filter({ hasText: "runtime-pixel.png" });
+    const catalogThumbnail = catalogPixel.locator("img");
+    await catalogThumbnail.waitFor();
+    assert.equal(await catalogThumbnail.getAttribute("src"), `/cms/media/${pixelAssetId}/thumbnail`);
+    // 縮圖是可直接放進 <img> 的 same-origin 資源：瀏覽器必須真的解出 PNG。
+    await page.waitForFunction((selector) => { const image = document.querySelector(selector); return image instanceof HTMLImageElement && image.complete && image.naturalWidth > 0; }, `img[src="/cms/media/${pixelAssetId}/thumbnail"]`);
+    assert.deepEqual(await catalogThumbnail.evaluate((element) => element instanceof HTMLImageElement ? [element.naturalWidth, element.naturalHeight] : []), [8, 4]);
+    assert.equal(await catalogPixel.getByText("image/png", { exact: true }).count(), 1);
+    assert.equal(await catalogPixel.getByText("8 × 4", { exact: true }).count(), 1);
+    const catalogNote = catalog.locator("li").filter({ hasText: "runtime-note.txt" });
+    await catalogNote.getByText("僅提供 metadata", { exact: true }).waitFor();
+    await catalogNote.getByText("runtime caption", { exact: true }).waitFor();
+    await catalogNote.getByText("未設定", { exact: true }).first().waitFor();
+    assert.equal(await catalog.locator("li").filter({ hasText: "runtime-cancelled.txt" }).count(), 0);
+    const retryAssetId = (await catalog.locator("li").filter({ hasText: "runtime-retry.txt" }).getByRole("link").getAttribute("href") ?? "").split("/").at(-1) ?? "";
+    const noteLink = catalogNote.getByRole("link");
+    const noteAssetId = (await noteLink.getAttribute("href") ?? "").split("/").at(-1) ?? "";
+    await noteLink.focus();
     await page.keyboard.press("Enter");
-    await page.getByRole("heading", { name: "媒體：runtime-media", exact: true }).waitFor();
+    await page.getByRole("heading", { name: "媒體：runtime-note.txt", exact: true }).waitFor();
     await page.waitForFunction(() => document.activeElement?.id === "page-title");
-    await page.getByRole("heading", { name: "替換目前引用", exact: true }).waitFor();
-    await page.locator("#media-replacement-file").setInputFiles({ name: "runtime-replacement.txt", mimeType: "text/plain", buffer: Buffer.from("replacement bytes") });
-    page.once("dialog", (dialog) => dialog.accept());
-    await page.getByRole("button", { name: "建立 replacement version", exact: true }).focus();
+    const evidence = page.getByRole("region", { name: "Evidence", exact: true });
+    await evidence.getByText("僅提供 metadata", { exact: true }).waitFor();
+    await page.getByRole("region", { name: "引用狀態", exact: true }).getByText("目前沒有 entry 引用此 asset。", { exact: true }).waitFor();
+    // 第二個分頁先載入同一份 detail，之後才由第一個分頁儲存：第二個分頁的 digest 必然過期。
+    const staleContext = await browser.newContext({ serviceWorkers: "block", acceptDownloads: false, viewport: { width: 1440, height: 900 } });
+    const stalePage = await staleContext.newPage();
+    await stalePage.goto(`${runtime.value.origin}/cms/media/${noteAssetId}`, { waitUntil: "networkidle" });
+    await stalePage.getByRole("heading", { name: "媒體：runtime-note.txt", exact: true }).waitFor();
+    const staleSlug = await stalePage.getByLabel("Slug", { exact: true }).inputValue();
+    await page.getByLabel("標題", { exact: true }).fill("Runtime 媒體標題");
+    await page.getByLabel("Slug", { exact: true }).fill("runtime-media-title");
+    await page.getByLabel("Alt 文字", { exact: true }).fill("替代文字");
+    await page.getByRole("button", { name: "儲存", exact: true }).click();
+    await page.getByRole("status").getByText("已儲存。", { exact: true }).waitFor();
+    assert.equal(await page.getByLabel("標題", { exact: true }).inputValue(), "Runtime 媒體標題");
+    await page.getByRole("heading", { name: "媒體：Runtime 媒體標題", exact: true }).waitFor();
+    await stalePage.getByLabel("標題", { exact: true }).fill("過期分頁標題");
+    await stalePage.getByRole("button", { name: "儲存", exact: true }).click();
+    await stalePage.getByRole("alert").getByText("媒體 metadata 已由另一個頁面更新。", { exact: true }).waitFor();
+    assert.equal(await stalePage.getByLabel("標題", { exact: true }).inputValue(), "過期分頁標題");
+    assert.equal(await stalePage.getByLabel("Slug", { exact: true }).inputValue(), staleSlug);
+    await stalePage.getByRole("button", { name: "重新載入", exact: true }).click();
+    await stalePage.getByRole("heading", { name: "媒體：Runtime 媒體標題", exact: true }).waitFor();
+    assert.equal(await stalePage.getByLabel("標題", { exact: true }).inputValue(), "Runtime 媒體標題");
+    // 空標題必須是欄位層級的 a11y 錯誤（aria-invalid + aria-describedby + role=alert），且不得送出請求。
+    await stalePage.getByLabel("標題", { exact: true }).fill("");
+    await stalePage.getByRole("button", { name: "儲存", exact: true }).click();
+    const titleInput = stalePage.getByLabel("標題", { exact: true });
+    assert.equal(await titleInput.getAttribute("aria-invalid"), "true");
+    assert.equal(await titleInput.getAttribute("aria-describedby"), "media-metadata-title-error");
+    await stalePage.getByRole("alert").getByText("請輸入標題。", { exact: true }).waitFor();
+    await stalePage.getByLabel("標題", { exact: true }).fill("Runtime 媒體標題");
+    await staleContext.close();
+    // Replace 保留 stable asset ID 與 slug，只更新 bytes、checksum 與 byteLength。
+    const beforeReplace = await readAsset(noteAssetId);
+    await page.locator("#media-replace-file").setInputFiles({ name: "runtime-replacement.txt", mimeType: "text/plain", buffer: Buffer.from("runtime replacement bytes") });
+    await page.getByRole("button", { name: "替換 bytes", exact: true }).click();
+    await page.getByRole("status").getByText("已替換媒體 bytes。", { exact: true }).waitFor();
+    const afterReplace = await readAsset(noteAssetId);
+    assert.equal(afterReplace.assetId, noteAssetId);
+    assert.equal(afterReplace.slug, "runtime-media-title");
+    assert.notEqual(afterReplace.checksum, beforeReplace.checksum);
+    assert.notEqual(afterReplace.byteLength, beforeReplace.byteLength);
+    await evidence.getByText(afterReplace.checksum, { exact: true }).waitFor();
+    // 未被引用的 asset 可以刪除：detail 消失，catalog 也不再列出。
+    await page.evaluate((id) => { history.pushState(null, "", `/cms/media/${id}`); dispatchEvent(new PopStateEvent("popstate")); }, retryAssetId);
+    await page.getByRole("heading", { name: "媒體：runtime-retry.txt", exact: true }).waitFor();
+    await page.getByRole("button", { name: "刪除 asset", exact: true }).focus();
     await page.keyboard.press("Enter");
-    await page.waitForFunction(() => document.querySelectorAll("table tbody tr").length === 2);
-    const replacedStore = openPersistence({ databasePath });
-    assert.equal(replacedStore.ok, true, replacedStore.ok ? "" : replacedStore.error.code);
-    if (!replacedStore.ok) return;
-    try {
-      const after = replacedStore.value.getEntryPointers(entryId);
-      assert.equal(after.ok, true);
-      if (!after.ok) return;
-      assert.notEqual(after.value.currentRevisionId, referenced.value.pointer.currentRevisionId);
-      assert.equal(after.value.publishedRevisionId, publishedRevisionId);
-      const currentReferences = replacedStore.value.getRevisionReferences({ entryId, revisionId: after.value.currentRevisionId });
-      const publishedReferences = replacedStore.value.getRevisionReferences({ entryId, revisionId: publishedRevisionId });
-      assert.equal(currentReferences.ok && publishedReferences.ok, true);
-      if (!currentReferences.ok || !publishedReferences.ok) return;
-      assert.deepEqual(currentReferences.value.map((item) => item.assetVersion.assetId), ["runtime-media"]);
-      assert.notEqual(currentReferences.value[0]?.assetVersion.assetVersionId, "v1");
-      assert.deepEqual(publishedReferences.value.map((item) => item.assetVersion), [{ assetId: "runtime-media", assetVersionId: "v1" }]);
-    } finally { replacedStore.value.close(); }
-    // 封存仍被 published pointer 引用的版本必須被拒絕，且 CMS 要顯示契約要求的完整 published 引用。
-    const publishedRow = page.locator("tbody tr").filter({ has: page.locator("td", { hasText: /^v1$/u }) });
-    page.once("dialog", (dialog) => dialog.accept());
-    await publishedRow.getByRole("button", { name: "封存", exact: true }).focus();
-    await page.keyboard.press("Enter");
-    await page.getByRole("alert").getByText(`仍被已發布內容引用，無法封存此媒體版本。目前引用：${entryId} / ${publishedRevisionId}`, { exact: true }).waitFor();
-    await publishedRow.getByText("ready", { exact: true }).waitFor();
+    await page.getByRole("button", { name: "確認刪除", exact: true }).click();
+    await page.getByRole("heading", { name: "媒體庫", exact: true }).waitFor();
+    await page.getByText(/^已刪除 asset 並釋放 slug：.+。$/u).waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === "page-title");
+    await page.getByText("共 4 個 asset。", { exact: true }).waitFor();
+    assert.equal(await catalog.locator("li").filter({ hasText: "runtime-retry.txt" }).count(), 0);
     const missingPage = await (await browser.newContext({ serviceWorkers: "block", acceptDownloads: false })).newPage();
-    await missingPage.goto(`${runtime.value.origin}/cms/media/missing-media`, { waitUntil: "networkidle" });
+    await missingPage.goto(`${runtime.value.origin}/cms/media/${retryAssetId}`, { waitUntil: "networkidle" });
     await missingPage.getByRole("heading", { name: "媒體詳情", exact: true }).waitFor();
     await missingPage.getByText("找不到媒體 asset。", { exact: true }).waitFor();
     await missingPage.waitForFunction(() => document.activeElement?.id === "page-title");
+    // 破壞性操作的權威是 ledger：有 usage 之後 Delete 必須被 409 阻擋，且 UI 立刻顯示 usage 並停用破壞性操作。
+    await page.evaluate((id) => { history.pushState(null, "", `/cms/media/${id}`); dispatchEvent(new PopStateEvent("popstate")); }, noteAssetId);
+    await page.getByRole("heading", { name: "媒體：Runtime 媒體標題", exact: true }).waitFor();
+    const usageStore = openPersistence({ databasePath });
+    assert.equal(usageStore.ok, true, usageStore.ok ? "" : usageStore.error.code);
+    if (!usageStore.ok) return;
+    try {
+      const referenced = usageStore.value.replaceEntryMediaReferences({ entryId, status: "published", assetIds: [noteAssetId] });
+      assert.equal(referenced.ok, true, referenced.ok ? "" : referenced.error.code);
+    } finally { usageStore.value.close(); }
+    await page.getByRole("button", { name: "刪除 asset", exact: true }).focus();
+    await page.keyboard.press("Enter");
+    const deleteDialog = page.getByRole("dialog", { name: "刪除媒體 asset", exact: true });
+    await deleteDialog.waitFor();
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "取消");
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "確認刪除");
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "取消");
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector("dialog")?.open);
+    assert.equal(await page.evaluate(() => document.activeElement?.textContent), "刪除 asset");
+    await page.getByRole("button", { name: "刪除 asset", exact: true }).click();
+    await page.getByRole("button", { name: "確認刪除", exact: true }).click();
+    const referenceAlert = page.getByRole("alert").filter({ hasText: "仍有 entry 引用此 media asset，無法取代或刪除。" });
+    await referenceAlert.waitFor();
+    await referenceAlert.getByText(`${entryId}（已發布）`, { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "替換 bytes", exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "刪除 asset", exact: true }).isDisabled(), true);
+    await page.getByRole("region", { name: "引用狀態", exact: true }).getByText("此 asset 仍被下列 entry 引用，Replace 與 Delete 已停用。", { exact: true }).waitFor();
+    await page.reload({ waitUntil: "networkidle" });
+    await page.getByRole("heading", { name: "媒體：Runtime 媒體標題", exact: true }).waitFor();
+    await page.getByRole("region", { name: "引用狀態", exact: true }).getByText(`${entryId}（已發布）`, { exact: true }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "刪除 asset", exact: true }).isDisabled(), true);
+    assert.equal(await page.getByRole("button", { name: "替換 bytes", exact: true }).isDisabled(), true);
   } finally {
     await browser?.close();
     await runtime.value.close();

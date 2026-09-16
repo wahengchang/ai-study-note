@@ -1,4 +1,5 @@
 import { canonicalJsonBytes, copyBytes, sha256Digest, type JsonValue } from "../foundation/index.js";
+import { mediaFailureMessages as messages } from "./failures.js";
 import type {
   ArchiveAssetImpact,
   AssetVersion,
@@ -26,26 +27,6 @@ import type {
   VerifiedReadyMediaObject,
 } from "./contracts.js";
 
-const messages: Readonly<Record<DataMediaFailureCode, string>> = {
-  INVALID_MEDIA_INPUT: "請提供有效的 media import 輸入。",
-  MEDIA_ROOT_FAILURE: "Media storage root 無法安全使用。",
-  MEDIA_IMPORT_CONFLICT: "Media import identity 與既有紀錄衝突。",
-  MEDIA_STAGING_FAILURE: "Media bytes 尚未完成 staging。",
-  MEDIA_PENDING_COMMIT_FAILURE: "Media import intent 尚未提交為 pending。",
-  MEDIA_PROMOTION_FAILURE: "Media object 尚未完成 promotion。",
-  MEDIA_FINAL_VERIFICATION_FAILURE: "Host 最終 media object 驗證失敗。",
-  MEDIA_READY_COMMIT_FAILURE: "Media asset version 尚未提交為 ready。",
-  MEDIA_VERSION_UNAVAILABLE: "指定的 media asset version 尚不可用。",
-  MEDIA_ASSET_NOT_FOUND: "找不到指定的 media asset。",
-  MEDIA_ARCHIVE_BLOCKED_PUBLISHED: "仍被已發布內容引用，無法封存此媒體版本。",
-  MEDIA_ARCHIVE_FAILURE: "Media asset version 尚未完成封存。",
-  MEDIA_READ_STATE_STALE: "Media 讀取期間狀態已變更，請重試。",
-  MEDIA_READ_FAILED: "Media 讀取無法驗證，請修復儲存狀態後重試。",
-  MEDIA_RESTORE_REQUIRED: "請提供符合既有 evidence 的本機 recovery bytes 與 metadata。",
-  MEDIA_RESTORE_MISMATCH: "Recovery bytes 或 metadata 與既有 asset version 不一致。",
-  MEDIA_RESTORE_FAILURE: "Media asset version 尚未完成復原。",
-  MEDIA_RECONCILIATION_FAILURE: "DataMedia 啟動收斂失敗；請保留現有 evidence，修復列出的媒體或匯入狀態後重試。",
-};
 
 // 啟動收斂只處理 durable import intent 與 local storage 的落差；bytes 已遺失的 ready version 會降級為 `missing`，
 // 交由 `RestoreAsset` remediation 復原，不得讓 CMS 因為可復原的媒體狀態而完全無法啟動。
