@@ -69,11 +69,11 @@ test("CLI reports exact fresh and rerun migration output", () => {
     const databasePath = path.join(directory, "cms.sqlite");
     const first = invoke(["--database", databasePath]);
     assert.equal(first.status, 0);
-    assert.equal(first.stdout, "DB_MIGRATE_OK applied=11 current=0011-add-taxonomy-storage\n");
+    assert.equal(first.stdout, "DB_MIGRATE_OK applied=12 current=0012-add-current-content-types-and-global-slugs\n");
     assert.equal(first.stderr, "");
     const rerun = invoke(["--database", databasePath]);
     assert.equal(rerun.status, 0);
-    assert.equal(rerun.stdout, "DB_MIGRATE_OK applied=0 current=0011-add-taxonomy-storage\n");
+    assert.equal(rerun.stdout, "DB_MIGRATE_OK applied=0 current=0012-add-current-content-types-and-global-slugs\n");
     assert.equal(rerun.stderr, "");
   } finally {
     rmSync(directory, { recursive: true, force: true });

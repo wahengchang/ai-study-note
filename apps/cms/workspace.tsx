@@ -1,5 +1,5 @@
 import { createRoot } from "react-dom/client";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { BrowserRouter, Link, NavLink, Route, Routes, useLocation, useNavigate, useParams } from "react-router-dom";
 import { z, type ZodType } from "zod";
 
@@ -17,8 +17,9 @@ const restoreAssetCommandSchema = z.object({ contract: z.literal("restore-asset-
 const mediaArchiveBlockedErrorSchema = z.object({ contract: z.literal("media-archive-blocked/v1"), requestId: z.string(), code: z.literal("MEDIA_ARCHIVE_BLOCKED_PUBLISHED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, archiveImpact: z.object({ contract: z.literal("archive-asset-impact/v1"), assetVersion: z.object({ assetId: z.string(), assetVersionId: z.string() }).strict(), publishedReferences: z.array(mediaReferenceSchema) }).strict() }).strict();
 const mediaRestoreRequiredErrorSchema = z.object({ contract: z.literal("media-restore-required/v1"), requestId: z.string(), code: z.literal("MEDIA_RESTORE_REQUIRED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, restoreCommands: z.array(restoreAssetCommandSchema) }).strict();
 const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: z.unknown(), stateDigest: digestSchema }).strict();
-const contentTypeSchema = z.object({ contract: z.literal("content-type/v1"), schemaIdentity: schemaIdentitySchema, schema: jsonContent, schemaDigest: digestSchema }).strict();
-const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSchema), stateDigest: digestSchema }).strict();
+const contentTypeSummarySchema = z.object({ typeId: z.string().uuid(), label: z.string(), slug: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), stateDigest: digestSchema }).strict();
+const contentTypeSchema = z.object({ contract: z.literal("content-type-definition/v1"), typeId: z.string().uuid(), label: z.string(), slug: z.string(), help: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), systemFields: z.array(z.string()), fieldGroups: z.array(jsonContent), taxonomyAttachments: z.array(z.object({ taxonomyId: z.string().min(1), cardinality: z.enum(["one", "many"]), required: z.boolean(), allowTermCreation: z.boolean() }).strict()), stateDigest: digestSchema }).strict();
+const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSummarySchema), stateDigest: digestSchema }).strict();
 const taxonomyBindingSchema = z.object({ taxonomyId: z.string(), termId: z.string(), evidence: z.object({ taxonomyId: z.string(), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe() }).strict(), evidenceDigest: digestSchema }).strict();
 const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()), taxonomyBindings: z.array(taxonomyBindingSchema) }).strict(), stateDigest: digestSchema }).strict();
 const taxonomyTermSchema = z.object({ taxonomyId: z.string(), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe(), state: z.enum(["live", "retired"]) }).strict();
@@ -112,6 +113,21 @@ function message(reason: unknown): string {
   return reason instanceof CmsApiError ? reason.remediation : "無法完成 CMS request。";
 }
 
+function contentTypeReplaceFieldGroups(groups: readonly unknown[]): readonly unknown[] {
+  return groups.map((group) => {
+    if (group === null || typeof group !== "object" || Array.isArray(group)) return group;
+    const record = group as Record<string, unknown>;
+    if (!Array.isArray(record.fields)) return group;
+    return { ...record, fields: record.fields.map((field) => {
+      if (field === null || typeof field !== "object" || Array.isArray(field)) return field;
+      const candidate = field as Record<string, unknown>;
+      if ((candidate.kind !== "single-select" && candidate.kind !== "multi-select") || candidate.defaultValue === undefined) return field;
+      const { defaultValue, ...rest } = candidate;
+      return candidate.kind === "single-select" ? { ...rest, defaultOptionRef: { optionId: defaultValue } } : { ...rest, defaultOptionRefs: Array.isArray(defaultValue) ? defaultValue.map((optionId) => ({ optionId })) : [] };
+    }) };
+  });
+}
+
 function normalizeSeo(value: Seo): Seo {
   const result: Record<string, string> = {};
   for (const key of seoKeys) {
@@ -168,7 +184,9 @@ class CmsApiClient {
     return this.json(`/v1/media/${this.resourceId(assetId)}/versions`, mediaVersionReplacementReceiptSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-version-replacement-request/v1", import: { importId: crypto.randomUUID(), assetVersionId: crypto.randomUUID(), bytesBase64url: base64url(bytes), metadata }, replacement: { entryId: this.resourceId(reference.entryId), revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: this.resourceId(reference.revisionId), targetAssetVersion: { assetId: this.resourceId(assetId), assetVersionId: this.resourceId(targetAssetVersionId) } } }) });
   }
   contentTypes(): Promise<ContentTypeCatalogDto> { return this.json("/v1/content-types", contentTypeCatalogSchema); }
-  createContentType(schemaId: string, schema: unknown): Promise<ContentTypeDto> { return this.json("/v1/content-types", contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "create-content-type-request/v1", schemaId: this.resourceId(schemaId), schema }) }); }
+  contentType(typeId: string): Promise<ContentTypeDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}`, contentTypeSchema); }
+  createContentType(request: Record<string, unknown>): Promise<ContentTypeDto> { return this.json("/v1/content-types", contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
+  replaceContentType(typeId: string, request: Record<string, unknown>): Promise<ContentTypeDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}`, contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
   archiveMedia(assetId: string, assetVersionId: string): Promise<MediaAssetDetailDto> { return this.json(`/v1/media/${this.resourceId(assetId)}/archive`, mediaAssetDetailSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "media-archive-request/v1", assetVersionId: this.resourceId(assetVersionId) }) }); }
   async restoreMedia(assetId: string, assetVersionId: string, recovery?: Readonly<{ file: File; metadata: unknown }>): Promise<MediaAssetDetailDto> {
     const bytes = recovery === undefined ? undefined : new Uint8Array(await recovery.file.arrayBuffer());
@@ -221,14 +239,17 @@ class CmsApiClient {
   }
 }
 
-function currentContentTypes(items: ContentTypeCatalogDto["items"]): readonly ContentTypeDto[] {
-  const current = new Map<string, ContentTypeDto>();
-  for (const item of items) {
-    const previous = current.get(item.schemaIdentity.schemaId);
-    if (previous === undefined || previous.schemaIdentity.version < item.schemaIdentity.version) current.set(item.schemaIdentity.schemaId, item);
-  }
-  return [...current.values()].toSorted((left, right) => left.schemaIdentity.schemaId < right.schemaIdentity.schemaId ? -1 : left.schemaIdentity.schemaId > right.schemaIdentity.schemaId ? 1 : 0);
+type ContentTypeCatalogContextValue = Readonly<{ catalog: ContentTypeCatalogDto | undefined; refresh: () => Promise<void> }>;
+const ContentTypeCatalogContext = createContext<ContentTypeCatalogContextValue | undefined>(undefined);
+
+function ContentTypeCatalogProvider({ api, children }: Readonly<{ api: CmsApiClient; children: React.ReactNode }>): React.JSX.Element {
+  const [catalog, setCatalog] = useState<ContentTypeCatalogDto>();
+  const refresh = useCallback(async (): Promise<void> => { setCatalog(await api.contentTypes()); }, [api]);
+  useEffect(() => { void refresh().catch(() => setCatalog(undefined)); }, [refresh]);
+  const value = useMemo(() => ({ catalog, refresh }), [catalog, refresh]);
+  return <ContentTypeCatalogContext.Provider value={value}>{children}</ContentTypeCatalogContext.Provider>;
 }
+
 
 function entryStatusText(status: EntryCatalogDto["items"][number]["status"]): string {
   return status === "draft" ? "草稿" : status === "published" ? "已發布" : "已發布，有未發布變更";
@@ -242,7 +263,9 @@ function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): Rea
 }
 
 function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
-  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>本機 CMS 已連線。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink><NavLink to="/cms/entries">文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink><NavLink to="/cms/release">發布診斷</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
+  const catalog = useContext(ContentTypeCatalogContext);
+  const menuItems = contentTypeDisplayOrder(catalog?.catalog?.items ?? []).filter((item) => item.showInMenu);
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>本機 CMS 已連線。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink>{menuItems.map((item) => <span key={item.typeId} role="link" aria-disabled="true">{item.label}（內容功能將於下一階段啟用）</span>)}<NavLink to="/cms/entries">舊版文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink><NavLink to="/cms/release">發布診斷</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -257,63 +280,76 @@ function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element 
   return <Layout><PageHeading>文章全覽</PageHeading>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><caption>所有文章</caption><thead><tr><th scope="col">標題</th><th scope="col">狀態</th><th scope="col">網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entryStatusText(entry.status)}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
 }
 
+function contentTypeDisplayOrder(items: ContentTypeCatalogDto["items"]): ContentTypeCatalogDto["items"] {
+  return items.toSorted((left, right) => left.order === right.order ? left.typeId < right.typeId ? -1 : left.typeId > right.typeId ? 1 : 0 : left.order - right.order);
+}
+
 function ContentTypeList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const [items, setItems] = useState<ContentTypeCatalogDto["items"]>();
+  const [catalog, setCatalog] = useState<ContentTypeCatalogDto>();
   const [error, setError] = useState<string>();
-  const load = useCallback((): void => {
-    setItems(undefined); setError(undefined);
-    void api.contentTypes().then((catalog) => setItems(catalog.items)).catch((reason: unknown) => setError(message(reason)));
-  }, [api]);
+  const load = useCallback((): void => { setCatalog(undefined); setError(undefined); void api.contentTypes().then(setCatalog).catch((reason: unknown) => setError(message(reason))); }, [api]);
   useEffect(load, [load]);
-  if (items === undefined) return <Layout><PageHeading>內容類型全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  const current = currentContentTypes(items);
-  return <Layout><PageHeading>內容類型全覽</PageHeading><p><Link className="action-link" to="/cms/content-types/new">建立內容類型</Link></p>{current.length === 0 ? <p>尚無內容類型。<Link to="/cms/content-types/new">建立第一個內容類型</Link></p> : <table><caption>所有內容類型</caption><thead><tr><th scope="col">Schema ID</th><th scope="col">目前版本</th></tr></thead><tbody>{current.map((item) => <tr key={item.schemaIdentity.schemaId}><td><Link to={`/cms/content-types/${item.schemaIdentity.schemaId}`}>{item.schemaIdentity.schemaId}</Link></td><td>{item.schemaIdentity.version}</td></tr>)}</tbody></table>}</Layout>;
+  if (catalog === undefined) return <Layout><PageHeading>內容類型全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  return <Layout><PageHeading>內容類型全覽</PageHeading><p><Link className="action-link" to="/cms/content-types/new">建立內容類型</Link></p><table><caption>所有內容類型</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">Stable ID</th><th scope="col">排序</th><th scope="col">選單</th></tr></thead><tbody>{contentTypeDisplayOrder(catalog.items).map((item) => <tr key={item.typeId}><td><Link to={`/cms/content-types/${item.typeId}`}>{item.label}</Link></td><td>{item.slug}</td><td>{item.typeId}</td><td>{item.order}</td><td>{item.showInMenu ? "顯示" : "隱藏"}</td></tr>)}</tbody></table></Layout>;
 }
 
 function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
   const navigate = useNavigate();
-  const [schemaId, setSchemaId] = useState("");
-  const [schemaText, setSchemaText] = useState("{\n  \"$schema\": \"https://json-schema.org/draft/2020-12/schema\",\n  \"type\": \"object\"\n}");
-  const [schemaIdError, setSchemaIdError] = useState<string>();
-  const [schemaError, setSchemaError] = useState<string>();
-  const [formError, setFormError] = useState<string>();
-  const [busy, setBusy] = useState(false);
+  const catalogContext = useContext(ContentTypeCatalogContext);
+  const catalog = catalogContext?.catalog;
+  const [label, setLabel] = useState("");
+  const [slug, setSlug] = useState("");
+  const [help, setHelp] = useState("");
+  const [order, setOrder] = useState("0");
+  const [showInMenu, setShowInMenu] = useState(true);
+  const [error, setError] = useState<string>();
+  const [stale, setStale] = useState(false);
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault(); setSchemaIdError(undefined); setSchemaError(undefined); setFormError(undefined);
-    if (!AUTHORING_RESOURCE_ID_PATTERN.test(schemaId)) { setSchemaIdError("Schema ID 只能使用英數字、句點、底線、連字號或波浪號。"); return; }
-    let schema: unknown;
-    try { schema = JSON.parse(schemaText); } catch { setSchemaError("請輸入有效 JSON Schema。"); return; }
-    setBusy(true);
+    event.preventDefault();
+    if (catalog === undefined || label.trim() === "") { setError("請輸入內容類型名稱。"); return; }
     try {
-      const created = await api.createContentType(schemaId, schema);
-      navigate(`/cms/content-types/${created.schemaIdentity.schemaId}`);
+      const created = await api.createContentType({ contract: "content-type-create-request/v1", expectedStateDigest: catalog.stateDigest, label, ...(slug === "" ? {} : { slug }), help, order: Number(order), showInMenu, fieldGroups: [], taxonomyAttachments: [] });
+      setError(undefined); setStale(false);
+      await catalogContext?.refresh();
+      navigate(`/cms/content-types/${created.typeId}`);
     } catch (reason) {
-      setFormError(message(reason));
-    } finally {
-      setBusy(false);
+      if (reason instanceof CmsApiError && reason.code === "CONTENT_TYPE_STATE_CONFLICT") { setError("內容類型清單已由其他操作更新；請重新載入後再試。"); setStale(true); }
+      else { setError(message(reason)); setStale(false); }
     }
   };
-  return <Layout><PageHeading>建立內容類型</PageHeading><p>建立 immutable initial schema version；後續版本不會覆寫此定義。</p><form aria-label="Content Type 定義" onSubmit={(event) => void submit(event)}><label htmlFor="content-type-schema-id">Schema ID<input id="content-type-schema-id" required value={schemaId} onChange={(event) => { setSchemaId(event.target.value); setSchemaIdError(undefined); }} aria-invalid={schemaIdError !== undefined} aria-describedby={schemaIdError === undefined ? undefined : "content-type-schema-id-error"} disabled={busy} /></label>{schemaIdError !== undefined && <p id="content-type-schema-id-error" role="alert">{schemaIdError}</p>}<label htmlFor="content-type-schema">JSON Schema<textarea id="content-type-schema" required value={schemaText} onChange={(event) => { setSchemaText(event.target.value); setSchemaError(undefined); }} aria-invalid={schemaError !== undefined} aria-describedby={schemaError === undefined ? undefined : "content-type-schema-error"} disabled={busy} /></label>{schemaError !== undefined && <p id="content-type-schema-error" role="alert">{schemaError}</p>}{formError !== undefined && <p role="alert">{formError}</p>}<p role="status" aria-live="polite">{busy ? "正在建立內容類型。" : ""}</p><button type="submit" disabled={busy}>{busy ? "正在建立…" : "建立內容類型"}</button></form></Layout>;
+  const reload = (): void => { setError(undefined); setStale(false); void catalogContext?.refresh().catch((reason: unknown) => setError(message(reason))); };
+  return <Layout><PageHeading>建立內容類型</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}<form aria-label="Content Type 定義" onSubmit={(event) => void submit(event)}><label>名稱<input required value={label} onChange={(event) => setLabel(event.target.value)} /></label><label>Slug（選填）<input value={slug} onChange={(event) => setSlug(event.target.value)} /></label><label>說明<textarea value={help} onChange={(event) => setHelp(event.target.value)} /></label><label>排序<input type="number" value={order} onChange={(event) => setOrder(event.target.value)} /></label><label><input type="checkbox" checked={showInMenu} onChange={(event) => setShowInMenu(event.target.checked)} />顯示於選單</label><button disabled={catalog === undefined} type="submit">建立內容類型</button></form></Layout>;
 }
 
 function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const { schemaId } = useParams();
-  const [items, setItems] = useState<ContentTypeCatalogDto["items"]>();
+  const { typeId } = useParams();
+  const catalogContext = useContext(ContentTypeCatalogContext);
+  const [definition, setDefinition] = useState<ContentTypeDto>();
   const [error, setError] = useState<string>();
-  const load = useCallback((): void => {
-    if (schemaId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(schemaId)) { setItems([]); setError("找不到內容類型。"); return; }
-    setItems(undefined); setError(undefined);
-    void api.contentTypes().then((catalog) => {
-      const history = catalog.items.filter((item) => item.schemaIdentity.schemaId === schemaId).toSorted((left, right) => right.schemaIdentity.version - left.schemaIdentity.version);
-      setItems(history);
-      if (history.length === 0) setError("找不到內容類型。");
-    }).catch((reason: unknown) => setError(message(reason)));
-  }, [api, schemaId]);
+  const [stale, setStale] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState<string>();
+  const load = useCallback((): void => { if (typeId === undefined) { setError("找不到內容類型。"); return; } setDefinition(undefined); setError(undefined); setStale(false); setStatus(undefined); void api.contentType(typeId).then(setDefinition).catch((reason: unknown) => setError(message(reason))); }, [api, typeId]);
   useEffect(load, [load]);
-  if (items === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  const document = currentContentTypes(items)[0];
-  if (document === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading><p role="alert">{error ?? "找不到內容類型。"}</p><button onClick={load}>重試</button></Layout>;
-  return <Layout><PageHeading>內容類型：{document.schemaIdentity.schemaId}</PageHeading><p>目前版本：{document.schemaIdentity.version}</p><dl><dt>Schema digest</dt><dd className="breakable">{document.schemaDigest}</dd></dl><section aria-labelledby="content-type-history"><h2 id="content-type-history">版本歷程</h2><ol>{items.map((item) => <li key={item.schemaIdentity.version} aria-current={item.schemaIdentity.version === document.schemaIdentity.version ? "true" : undefined}>版本 {item.schemaIdentity.version}{item.schemaIdentity.version === document.schemaIdentity.version ? "（目前）" : ""}</li>)}</ol></section><section aria-labelledby="content-type-schema"><h2 id="content-type-schema">目前 JSON Schema</h2><pre className="schema"><code>{JSON.stringify(document.schema, null, 2)}</code></pre></section></Layout>;
+  if (definition === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
+  const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true); setStatus(undefined);
+    try {
+      const replaced = await api.replaceContentType(definition.typeId, { contract: "content-type-replace-request/v1", expectedStateDigest: definition.stateDigest, label: form.get("label"), slug: form.get("slug"), help: form.get("help"), order: Number(form.get("order")), showInMenu: form.has("showInMenu"), fieldGroups: contentTypeReplaceFieldGroups(definition.fieldGroups), taxonomyAttachments: definition.taxonomyAttachments });
+      await catalogContext?.refresh();
+      setDefinition(replaced);
+      setError(undefined);
+      setStale(false);
+      setStatus("已儲存內容類型。");
+    } catch (reason) {
+      if (reason instanceof CmsApiError && reason.code === "CONTENT_TYPE_STATE_CONFLICT") { setError("內容類型已由其他操作更新；請重新載入後再試。"); setStale(true); }
+      else setError(message(reason));
+    } finally { setBusy(false); }
+  };
+  const reload = (): void => { load(); queueMicrotask(() => document.getElementById("page-title")?.focus()); };
+  return <Layout><PageHeading>內容類型：{definition.label}</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}{status !== undefined && <p role="status" aria-live="polite">{status}</p>}<form aria-label="Content Type metadata" aria-busy={busy} onSubmit={(event) => void submit(event)}><label>名稱<input name="label" required defaultValue={definition.label} /></label><label>Slug<input name="slug" required defaultValue={definition.slug} /></label><label>說明<textarea name="help" defaultValue={definition.help} /></label><label>排序<input name="order" type="number" defaultValue={definition.order} /></label><label><input name="showInMenu" type="checkbox" defaultChecked={definition.showInMenu} />顯示於選單</label><button disabled={busy} type="submit">儲存內容類型</button></form><dl><dt>Stable ID</dt><dd>{definition.typeId}</dd><dt>Slug</dt><dd>{definition.slug}</dd><dt>System fields</dt><dd>{definition.systemFields.join(", ")}</dd></dl><p>欄位群組：{definition.fieldGroups.length}；分類附掛：{definition.taxonomyAttachments.length}</p></Layout>;
 }
 
 function TaxonomyList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -860,7 +896,7 @@ function Release({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/site/routes" element={<SiteRouteWorkspace api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:schemaId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></BrowserRouter>;
+  return <BrowserRouter><ContentTypeCatalogProvider api={api}><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/site/routes" element={<SiteRouteWorkspace api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:typeId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></ContentTypeCatalogProvider></BrowserRouter>;
 }
 
 export function startCms(): void {

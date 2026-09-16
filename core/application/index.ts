@@ -1,7 +1,8 @@
 export { createDomainApplication } from "./application.js";
 export { createPersistencePluginActivationStatePort } from "./plugin-activation-state-adapter.js";
 export { createPersistencePluginSettingsStatePort } from "./plugin-settings-state-adapter.js";
-export { createAuthoringReadFacade, createContentTypeAdministration } from "./authoring-read.js";
+export { createAuthoringReadFacade } from "./authoring-read.js";
+export { createContentTypeAdministration } from "./content-type-administration.js";
 export { createContentTypeMigrationAdministration } from "./content-type-migration.js";
 export type {
   AuthoringEntryV1,
@@ -58,10 +59,6 @@ export type {
   AuthoringReadFailure,
   AuthoringReadFailureCode,
   AuthoringReadResult,
-  ContentTypeAdministration,
-  ContentTypeAdministrationFailure,
-  ContentTypeAdministrationFailureCode,
-  ContentTypeAdministrationResult,
   ContentTypeDefinitionValidator,
   ContentTypeCatalog,
   ContentTypeDocument,
@@ -70,6 +67,16 @@ export type {
   EntryDetail,
   EntryRevisionCatalog,
 } from "./authoring-read.js";
+export type {
+  ContentTypeAdministration,
+  ContentTypeAdministrationFailure,
+  ContentTypeAdministrationFailureCode,
+  ContentTypeAdministrationResult,
+  ContentTypeCatalogV1,
+  ContentTypeCreateRequestV1,
+  ContentTypeDefinitionV1,
+  ContentTypeReplaceRequestV1,
+} from "./content-type-administration.js";
 export type {
   ContentTypeMigrationAdministration,
   ContentTypeMigrationCommand,

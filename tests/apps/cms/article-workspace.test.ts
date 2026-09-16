@@ -108,7 +108,7 @@ test("local CMS 完成 article-first history、save、preview 與 published-with
     await page.getByRole("link", { name: "跳到主標題", exact: true }).focus();
     await page.keyboard.press("Enter");
     assert.equal(await page.evaluate(() => document.activeElement?.id), "page-title");
-    await page.getByRole("link", { name: "文章", exact: true }).click();
+    await page.getByRole("link", { name: "舊版文章", exact: true }).click();
     await page.getByRole("heading", { name: "文章全覽", exact: true }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/cms/entries");
     await page.getByRole("link", { name: "建立第一篇文章", exact: true }).click();
@@ -157,7 +157,7 @@ test("local CMS 完成 article-first history、save、preview 與 published-with
     await page.getByRole("button", { name: "儲存", exact: true }).scrollIntoViewIfNeeded();
     assert.notEqual(await page.getByRole("button", { name: "儲存", exact: true }).boundingBox(), null);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
-    await page.getByRole("link", { name: "文章", exact: true }).click();
+    await page.getByRole("link", { name: "舊版文章", exact: true }).click();
     await page.getByText("已發布，有未發布變更", { exact: true }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/cms/entries");
     assert.equal(publishRequests, 1);

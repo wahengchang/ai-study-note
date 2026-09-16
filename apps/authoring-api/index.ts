@@ -62,6 +62,7 @@ export {
   contentTypeCatalogSchema,
   contentTypeSchema,
   createContentTypeRequestSchema,
+  replaceContentTypeRequestSchema,
   contentTypeMigrationCommandSchema,
   contentTypeMigrationBlockedErrorSchema,
   contentTypeMigrationOutcomeSchema,
