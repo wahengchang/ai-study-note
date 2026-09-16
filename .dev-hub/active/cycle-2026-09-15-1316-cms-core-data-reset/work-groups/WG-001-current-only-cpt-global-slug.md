@@ -6,7 +6,7 @@ work_items: [WI-001]
 owner: domain_application_engineer
 branch: wg-001-current-only-cpt-global-slug
 worktree: .dev-hub/worktrees/current-only-cpt-global-slug
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/386
 ---
 
 ## Delivery
