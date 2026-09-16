@@ -6,7 +6,7 @@ work_items: [WI-003]
 owner: domain_application_engineer
 branch: wg-003-acf-like-custom-fields
 worktree: .dev-hub/worktrees/acf-like-custom-fields
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/391
 ---
 
 > WG ID 為 `WG-004`：本 Work Group 原本以 `WG-003` 建立，但同時進行的另一個 Work Group（WI-005）先合併進 `site-reset` 並佔用 `WG-003`，同一 Cycle 不得有兩個 `WG-003`。Branch 名稱維持建立時的 `wg-003-acf-like-custom-fields`，以保留 PR 與審查紀錄的連續性。
