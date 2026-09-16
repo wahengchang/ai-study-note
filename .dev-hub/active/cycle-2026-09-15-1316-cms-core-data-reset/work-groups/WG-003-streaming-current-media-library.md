@@ -6,7 +6,7 @@ work_items: [WI-005]
 owner: data_media_engineer
 branch: wg-002-streaming-current-media-library
 worktree: .dev-hub/worktrees/streaming-current-media-library
-pr: null
+pr: https://github.com/wahengchang/ai-study-note/pull/389
 ---
 
 ## Delivery
