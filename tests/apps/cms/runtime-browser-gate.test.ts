@@ -644,6 +644,17 @@ test("真實 CMS runtime 建立 current Content Type 並呈現 server slug", asy
     await page.getByText("Categories 更新（內容功能將於下一階段啟用）", { exact: true }).waitFor({ state: "detached" });
     await page.goto(`${runtime.value.origin}${direct}`, { waitUntil: "networkidle" });
     await page.getByRole("heading", { name: "內容類型：Categories 更新", exact: true }).waitFor();
+    await page.goto(`${runtime.value.origin}/cms/content-types/new`, { waitUntil: "networkidle" });
+    await page.getByRole("textbox", { name: "名稱", exact: true }).fill("Zebra");
+    await page.getByRole("spinbutton", { name: "排序", exact: true }).fill("-1");
+    await page.getByRole("button", { name: "建立內容類型", exact: true }).click();
+    await page.getByRole("heading", { name: "內容類型：Zebra", exact: true }).waitFor();
+    await page.goto(`${runtime.value.origin}/cms/content-types`, { waitUntil: "networkidle" });
+    const catalogTable = page.getByRole("table", { name: "所有內容類型", exact: true });
+    await catalogTable.waitFor();
+    assert.deepEqual(await catalogTable.locator("tbody tr td:nth-child(1)").allInnerTexts(), ["Zebra", "文章", "Categories 更新"]);
+    assert.deepEqual(await catalogTable.locator("tbody tr td:nth-child(4)").allInnerTexts(), ["-1", "0", "0"]);
+    assert.deepEqual(await page.locator('nav[aria-label="CMS 導覽"] [role="link"][aria-disabled="true"]').allInnerTexts(), ["Zebra（內容功能將於下一階段啟用）", "文章（內容功能將於下一階段啟用）"]);
     await page.setViewportSize({ width: 375, height: 844 });
     await page.getByText("文章（內容功能將於下一階段啟用）", { exact: true }).waitFor();
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true);
