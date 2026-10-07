@@ -2,24 +2,25 @@
 
 - **Contract ID**: `CMS-BASIC-CONTRACTS-V1`
 - **核准日期**：2026-08-26
-- **SEO target**：#307 的 SEO clauses 已核准；#308 已在 `site-reset` 實作。本檔記錄其核准 contract，程式碼與對應測試是現行 runtime 行為的 SSOT。
+- **現行範圍**：2026-10-07 的 fresh-only CMS/Core data reset 取代舊 authoring lifecycle；下方 current-only 章節是 CMS／Application／Persistence／Authoring API 的現行 contract。舊公開產線暫停，Renderer／Delivery 獨立能力保留。
 
 ## Scope and authority
 
 程式與對應測試是已實作可觀察行為的 SSOT。本檔只記錄 owner、跨 owner public seam、exact DTO/literal 與 observable matrix；private shape 由 public TypeScript、exact parser 與 tests 固定。
 
-- 單一內容管理者；本機 SQL 是 canonical state、媒體在本機；公開端只讀 published projection 的 immutable static artifact。Publish 不 build、deploy 或 Git。
+- 單一內容管理者；本機 current-only SQL 是 CMS canonical state、媒體在本機。新內容尚未接到公開站；`site:build` 與 Release 入口暫停。
 - semantic roots 是 `core/`、`apps/`、`extensions/`；各 owner/app/extension unit 僅有 root `index.ts` public entry。cross-owner import 僅至該 entry；core/extensions 不得 import apps。
 - Content、Persistence、Taxonomy、Application、SiteDefinition、Media、PluginHost、ThemeHost、Projection、Renderer、Delivery 與 CLI 各有 owner。Taxonomy 只可依賴 Persistence 與 Foundation；Application、Projection 可透過其 public entry 讀取 Taxonomy。Plugin/Theme repository source 不是 trusted/installed/active root；installed runtime 是 repository-external、realpath-validated、self-contained ESM。
-- #308 是 pre-launch clean cutover：遷移所有 caller、fixture、test 與 wire；不留 `v2`、舊 parser branch、alias 或 deprecated path。它不增加 marketplace、catalog/history/delete、auto-save、deploy、off-origin canonical、social image、raw JSON-LD 或 custom robots text。
+- #308 的舊 authoring contract 已由本次 fresh-only cutover 取代；其歷史條款不再授權 Revision／Version API、CMS 操作或舊資料升級。
 
-## Approved target — current-only CMS/Core data reset（尚未實作）
+## Current-only CMS/Core data reset（已實作；公開站接線待後續）
 
 ### Status, authority and clean cutover
 
-- Owner 於 2026-09-15 核准 CMS、Core/Application、Persistence 與 Authoring API 改採 current-only mutable data model。本節是待實作 target；下方 `Implemented baseline` 與程式碼／測試仍描述現行行為，直到 clean-cutover Work Item 完成。
-- 新模型落地時會完整取代 authoring-side `Revision` history、`RestoreRevision`、current/published 雙 snapshot、獨立 Publish command、schema-version migration、raw JSON Schema Content Type administration、media asset versions、media archive/restore，以及 #315 的 two-step Publish 與 current/published preview。所有 caller、fixture、test、文件與 route 必須同批遷移，再移除 obsolete contract；不得保留 alias、shim 或 deprecated path。
-- Content-hashed public artifact 的 immutable/atomic delivery 性質不因本節改變；Projection、Renderer、archive page、canonical public URL、Release、Public UI 與視覺重設不在本 target。
+- Owner 於 2026-09-15 核准 CMS、Core/Application、Persistence 與 Authoring API 改採 current-only mutable data model。本節是 2026-10-07 fresh-only cutover 的現行契約；程式碼與對應測試證明已實作行為。
+- Owner 於 2026-10-07 決定只支援全新安裝及新內容。舊 SQLite、媒體與 Astro 文章不遷移；舊 runtime 資料目錄在任何寫入前以明確錯誤拒絕，程式不得自動刪除或覆寫。新安裝的 `cms:init` 必須可重複執行。WI-008 legacy cutover 取消，所有依賴它的驗收改為 fresh-runtime 驗證。
+- 新模型已取代 authoring-side `Revision` history、`RestoreRevision`、current/published 雙 snapshot、獨立 Publish command、schema-version migration、raw JSON Schema Content Type administration、media asset versions、media archive/restore，以及 #315 的 two-step Publish 與 current/published preview。舊 CMS／Application／Authoring API caller、wire 與 route 已移除；不得重新引入 alias、shim 或 deprecated path。
+- 這個 Work Group 暫停依賴舊 Revision 的 Preview、`site:build` 與 Release 入口，並從 CMS navigation 移除相關操作；不得假稱 current-only entry 可進入舊公開流程。Renderer／Delivery 的獨立 immutable artifact 能力保留；新 current-only Projection、公開站接線、archive page、canonical public URL、Public UI 與視覺重設另案交付。
 
 ### Shared identity, slug and concurrency
 
@@ -36,7 +37,7 @@
 - Custom field 只支援 text、textarea、number、boolean、URL、date、datetime、single-select、multi-select、single-media 與 multi-media。Group／field 有 immutable stable ID 與明確排序；validation 只含 required、文字長度、數值範圍、URL／date／datetime canonical 格式、stable option IDs、media identity 與最大數量。不支援 relationship、repeater、nested group 或 conditional logic。
 - Custom required field 可在 draft 缺少，但 status=`published` 的 Save 必須完整驗證。Default 只初始化新 entry，不回填既有資料。`showInGenericTemplate` 預設 false，只保存未來 public rendering intent。
 - `cpt-content/v1` 是新 content payload：Content Type stable ID、固定 system fields、#315 已核准／已實作的現有 body-block payload、按 field ID 排序的 custom values 與 SEO。Taxonomy binding 與 media reference 是同一 entry state 的受驗證關聯 evidence，不再依附 Revision ID。Body editor 技術不重開選型；#315 只保留可操作 CMS 與 browser／a11y precedent。
-- Content Type Builder 永遠出現在 CMS navigation。每個 `showInMenu=true` 的 Content Type 另產生動態內容選單；false 只隱藏該選單，catalog 與 direct content URL 仍可管理。新安裝與既有 runtime 都必須 seed active Article Content Type（slug `articles`）及 Categories／Tags。
+- Content Type Builder 永遠出現在 CMS navigation。每個 `showInMenu=true` 的 Content Type 另產生動態內容選單；false 只隱藏該選單，catalog 與 direct content URL 仍可管理。全新安裝必須 seed active Article Content Type（slug `articles`）及 Categories／Tags；舊 runtime 不支援升級。
 
 ### WI-001 Content Type public contract
 
@@ -55,7 +56,7 @@
 
 ### WI-003 Custom field contract
 
-- `CptContentV1={contract:"cpt-content/v1",typeId,title,blocks,excerpt,seo,customValues}`；`customValues` 是 `{fieldId,value}` 陣列，依 `fieldId` code-unit 升冪排序且 `fieldId` 唯一。request 與 response 都必填，response 一律回完整陣列（可為 `[]`）。
+- `CptContentV1={contract:"cpt-content/v1",typeId,title,blocks,excerpt,seo,featuredMedia?,customValues}`；`featuredMedia` 是可省略的 current asset stable ID，存在時 draft／published Save 都要求 asset 實際存在。`customValues` 是 `{fieldId,value}` 陣列，依 `fieldId` code-unit 升冪排序且 `fieldId` 唯一。request 與 response 都必填，response 一律回完整陣列（可為 `[]`）。
 - value 形狀依 kind：`text|textarea|url|date|datetime|single-select|single-media` 為 string、`number` 為 finite JSON number、`boolean` 為 boolean、`multi-select|multi-media` 為 string 陣列（元素升冪 code-unit 排序且唯一）。未提供值的 field 不出現在陣列。
 - persisted bytes 讀取：WI-003 之前寫入的 payload 沒有 `customValues`，讀取一律視為 `[]`（不重寫 storage）；Save 一律寫入完整 payload。
 - readback 只做 definition-independent 正規化：只有無法表示的形態（非陣列、非物件、缺 key、非 string fieldId、非 string 元素、非 well-formed string、非 finite number、非 boolean）才 fail。排序是輸出保證；重複 fieldId 與重複 multi 元素是輸入錯誤，不是 tolerant 讀取的一部分。multi 元素只要求是 string（空字串仍滿足形狀），其 option／media identity 由 published 驗證負責。
@@ -69,10 +70,10 @@
 
 ### Entry lifecycle, catalog and deletion
 
-- `cpt-entry/v1` 是單一 mutable entry record，status 僅有 `draft|published`。Save request 攜帶 complete replacement、status 與 `expectedStateDigest`，同時覆寫 content 與 status；沒有 `published-with-draft`、獨立 Publish、Revision history 或 Restore。
-- status=`published` 且 publishable content digest 實質改變時，transaction 以 UTC 現在時間覆寫 `publishedAt` 與 last-published digest；相同 publishable bytes 的重複 Save 不改時間。改回 draft 保留最後一次 `publishedAt`；目前是否發布只由 status 決定。從未發布者可沒有 `publishedAt`。
+- `cpt-entry/v1` 是單一 mutable entry record，status 僅有 `draft|published`。Create／Save request 均須明確攜帶 `taxonomyTerms` 陣列（可為 `[]`）；Save 攜帶 complete replacement、status 與 `expectedStateDigest`，同時覆寫 content、taxonomy binding 與 status。省略 binding 不得被解讀為清空；沒有 `published-with-draft`、獨立 Publish、Revision history 或 Restore。
+- status=`published` 且 publishable state（content、slug、taxonomy binding）digest 實質改變時，transaction 以 UTC 現在時間覆寫 `publishedAt` 與 last-published digest；相同 publishable state 的重複 Save 不改時間。改回 draft 保留最後一次 `publishedAt`；目前是否發布只由 status 決定。從未發布者可沒有 `publishedAt`。
 - Entry Delete request 必須帶 `expectedStateDigest`，並以一個 transaction real delete entry、slug claim、taxonomy/media binding 與 authoring route evidence。Published entry 可直接 Delete。Command 只刪 active CMS state，不承諾清除舊 immutable artifacts。
-- `legacy-entry/v1` 可讀、可 real Delete，但不可 Save。Legacy cutover 沒有 published selection 時保留 current 為 draft；current 等於 published 時保留為 published；`published-with-draft` 必須逐 entry 選 `keep-published-as-published`、`keep-current-as-draft` 或 `keep-current-as-published`。所有 divergent choice 齊備後才可原子 cutover；舊 Revision history 不遷移。
+- 不提供 `legacy-entry/v1`、preflight、舊資料轉換或舊資料 Delete；舊資料目錄在新 runtime 啟動前拒絕且保持原狀。
 - Entry catalog 提供 title／slug search、status filter、taxonomy filter 與 server-side pagination。Exact read-only `POST /v1/content-types/:typeId/entries/search` 接受 `entry-search-request/v1` 的 type ID、search、statuses、taxonomy filters 與 page；response 固定 page size 20，包含 page、total items、total pages、items 與 state digest。
 
 ### Taxonomy current registry
@@ -100,12 +101,12 @@
 - Server 流程固定為 staging → sniff／size／checksum／image dimensions／thumbnail → atomic promote → record transaction。Abort、invalid type、checksum／thumbnail／promote fault 清除 staging 且零 record；stage release 失敗（非 ENOENT）會讓該次操作失敗且不 commit record。startup 會 sweep `.partial` 與沒有 record 指向的 object bytes，且 sweep 失敗時 runtime 必須 fail closed。
 - 所有會出現在 response 的 media metadata 都不得含有 transport redaction canary 形狀（`asn_v1_…`／`asn_bt_v1_…`）的字串：否則 wire 上的 asset 會與其 `stateDigest` 的 JCS 輸入不一致。這類輸入一律在 Application 邊界以 `INVALID_MEDIA_LIBRARY_INPUT` 拒絕。失敗一律回 stable code：`INVALID_MEDIA_LIBRARY_INPUT`／`MEDIA_UNSUPPORTED_TYPE`／`MEDIA_TYPE_MISMATCH` 422、`MEDIA_SIZE_LIMIT_EXCEEDED` 400、`MEDIA_ASSET_NOT_FOUND` 404、`MEDIA_ASSET_STATE_CONFLICT`／`MEDIA_ASSET_REFERENCED` 409、`MEDIA_ROOT_FAILURE`／`MEDIA_STAGING_FAILURE`／`MEDIA_PROMOTION_FAILURE`／`MEDIA_FINAL_VERIFICATION_FAILURE`／`MEDIA_THUMBNAIL_FAILURE`／`MEDIA_LIBRARY_FAILURE` 500。
 - `MEDIA_ASSET_REFERENCED` 回 exact `media-asset-referenced/v2 {contract,requestId,code,owner:"DataMedia",subjectIds,remediation,usage}`；`usage` 非空且排序固定，Replace／Delete 都零寫入。
-- usage ledger 由 `current_media_references(asset_id,entry_id,entry_status)` 持有，寫入者只有 entry Save／Delete（WI-006）與 legacy cutover（WI-008），兩者都必須在寫 entry 的同一個 transaction 內整批覆寫該 entry 的 reference set。WI-005 只交付讀取與破壞性操作阻擋。
+- usage ledger 由 `current_media_references(asset_id,entry_id,entry_status)` 持有，寫入者只有 entry Save／Delete（WI-006），必須在寫 entry 的同一個 transaction 內整批覆寫該 entry 的 reference set。WI-005 只交付讀取與破壞性操作阻擋。
 - CMS 媒體庫同時最多兩個 active upload：每個項目獨立 progress／cancel／retry，cancel 只中止該項，retry 從 byte 0 建新 request，UI 不宣稱 resume。
 
 ### CMS and Authoring API boundary
 
-- Content Type Builder document routes 固定為 `/cms/content-types*`。WI-001 只顯示 `showInMenu=true` 的不可點擊 content item；不 admit `/cms/post`。WI-002 與 current entry catalog 同批啟用 canonical Article `/cms/post` 與其他 CPT `/cms/post?cpt=<typeId>`；query value 是無引號 canonical UUID。`/cms/post?cpt=<Article typeId>`、缺值、重複或額外 query、引號、encoded separator、non-canonical UUID 都不是 alias。legacy `/cms/entries*` 在 WI-009 才 clean-cut 移除，不 redirect。
+- Content Type Builder document routes 固定為 `/cms/content-types*`。每個 Content Type 的內容工作台使用 `/cms/content/:typeId`，其中 `typeId` 必須為 canonical UUID。Article 與 custom CPT 使用同一模式；`showInMenu=false` 只隱藏導覽選單，direct URL 仍可管理。`/cms/post` 與 `/cms/entries*` 已移除且不 redirect。
 - `apps/authoring-api` 仍是唯一 authoring transport composition root，保留 finite exact route、loopback-only、same-origin、no-cache、sanitized error/log 與 Application-only dependency boundary。新的 JSON mutation 只接受 exact POST command DTO；streaming media bytes route 是唯一 multipart 例外。
 - Application contract test 是 atomic/CAS/data invariant 的最高可觀察 seam；Authoring API contract test 驗 exact JSON／multipart／limit；真實 `cms:start` Chromium journey 驗 CMS 功能操作及既有 keyboard、focus、a11y precedent。不得以 component props、field forwarding、source text 或純 DOM 存在作為行為證據。
 
@@ -113,6 +114,10 @@
 
 - `.dev-hub/overview/config.json` is exact `{contract:"dev-hub-overview-config/v2",github_repository:"owner/repository"}` and the sole repository identity. `issues.json` is exact `{contract:"dev-hub-overview-issues/v2",captured_at,issues,cycles,work_items,work_groups}`; Issue has verified same-repository URL and recursive `dependencies`; Cycle has exact `.dev-hub/active/<cycle_id>` path; Work Group owns `owner` and optional verified same-repository PR URL. `links.json` is exact `{contract:"dev-hub-overview-links/v2",captured_at,items}` and each item is exact `{issue_number,cycle_id,work_item_id,work_group_id}`. Links are one-to-one and must resolve within one Cycle.
 - Every ID, timestamp equality, local path and Issue/PR URL is validated before any output write. Active linked Issues require a complete recursive dependency closure; dependency cycles, invalid schema/version and cross-repository URLs fail closed. `npm run dev-hub:overview` renders deterministic escaped `.dev-hub/overview/index.html` from local JSON only; it never reads network and refuses overwrite. `npm run dev-hub:overview:check` performs identical validation without a write; README is the sole setup/reuse entry.
+
+## 歷史契約記錄（不再授權舊 authoring 入口）
+
+以下 #308／#291 條款保留為已交付歷史與獨立 Renderer／Delivery 模組背景；凡涉及 Revision、Version、舊 Publish／Preview、舊 CMS 路由、schema migration 或 Release transport 的敘述，均已由上方 current-only 章節取代，不是目前可用能力。後續工作應以 current-only 章節、現行 source 與測試為準。
 
 ## 1. Domain, Content, route and media
 

@@ -1,153 +1,20 @@
 export { createLocalAuthoringCredentialAuthority } from "./credential-store.js";
-export type {
-  AuthoringCredentialAuthority,
-  AuthoringCredentialFailureCode,
-  AuthoringCredentialResult,
-  CredentialAction,
-  CredentialAdmission,
-  CredentialSummary,
-} from "./credential-store.js";
-export { createLocalAuthoringClient } from "./authoring-client.js";
-export type {
-  AuthoringClientFailureCode,
-  AuthoringClientResult,
-  LocalAuthoringClient,
-} from "./authoring-client.js";
+export type { AuthoringCredentialAuthority, AuthoringCredentialFailureCode, AuthoringCredentialResult, CredentialAction, CredentialAdmission, CredentialSummary } from "./credential-store.js";
 export { main, runCredentialCli } from "./credential-cli.js";
 export type { CredentialCliIo } from "./credential-cli.js";
-export { runSaveRevisionCli, saveRevisionMain } from "./save-revision-cli.js";
-export type { SaveRevisionCliEnvironment, SaveRevisionCliIo } from "./save-revision-cli.js";
 export { cmsServeMain, runCmsServe } from "./cms-serve-cli.js";
 export type { CmsServeCliIo } from "./cms-serve-cli.js";
 export { runCmsLocalCli } from "./cms-local-cli.js";
 export { cmsKillMain, runCmsKillCli } from "./cms-kill-cli.js";
 export type { CmsKillCliIo } from "./cms-kill-cli.js";
 export type { CmsLocalCliEnvironment, CmsLocalCliIo } from "./cms-local-cli.js";
-export {
-  API_KEY_PATTERN,
-  AUTHORING_AUTHORITY,
-  AUTHORING_HOST,
-  AUTHORING_ORIGIN,
-  AUTHORING_PORT,
-  AUTHORING_RESOURCE_ID_PATTERN,
-  BROWSER_TICKET_PATTERN,
-  redactSecrets,
-} from "./origin.js";
+export { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, BROWSER_TICKET_PATTERN, redactSecrets } from "./origin.js";
 export { createBrowserBootstrapState } from "./browser-bootstrap.js";
 export { loadCmsAssets } from "./cms-assets.js";
 export type { CmsAsset, CmsAssets } from "./cms-assets.js";
 export type { BrowserBootstrapFailure, BrowserBootstrapState, BrowserTicketMint } from "./browser-bootstrap.js";
-export { createAjvSchemaValidator } from "./schema-validator.js";
-export { createAuthoringReleaseTransport } from "./release-transport.js";
-export type { AuthoringReleaseTransport, CreateAuthoringReleaseTransportInput, ReleaseBuild, ReleaseDiagnosis, ReleaseDiagnostic, ReleaseTransportFailureCode, ReleaseTransportResult } from "./release-transport.js";
 export { startAuthoringApi } from "./server.js";
 export { startCmsRuntime } from "./cms-runtime.js";
 export type { CmsRuntimeFailure, CmsRuntimeFailureCode, CmsRuntimeResult, RunningCmsRuntime, StartCmsRuntimeInput } from "./cms-runtime.js";
-export type {
-  AuthoringApiLogEvent,
-  AuthoringApiResult,
-  RunningAuthoringApi,
-  StartAuthoringApiInput,
-  TransportCode,
-} from "./server.js";
-export {
-  authoringErrorSchema,
-  authoringErrorStatuses,
-  browserSessionExchangeSchema,
-  browserSessionSchema,
-  browserTicketMintRequestSchema,
-  browserTicketSchema,
-  cmsEditorBlockResolutionsSchema,
-  cmsSeoAnalysisResponseSchema,
-  contentTypeCatalogSchema,
-  contentTypeSchema,
-  createContentTypeRequestSchema,
-  replaceContentTypeRequestSchema,
-  contentTypeMigrationCommandSchema,
-  contentTypeMigrationBlockedErrorSchema,
-  contentTypeMigrationOutcomeSchema,
-  contentTypeMigrationProposalSchema,
-  createTaxonomyRequestSchema,
-  taxonomyCatalogSchema,
-  taxonomyCommandResultSchema,
-  taxonomyCommandSchema,
-  taxonomySnapshotSchema,
-  entryCatalogSchema,
-  entryDetailSchema,
-  entryRevisionCatalogSchema,
-  mediaAssetReferencedErrorSchema,
-  mediaAssetV2Schema,
-  mediaAssetDetailV2Schema,
-  mediaCatalogV2Schema,
-  mediaDeleteRequestSchema,
-  mediaDeleteReceiptSchema,
-  mediaMetadataSaveRequestSchema,
-  mediaReplaceRequestSchema,
-  pluginManagementSnapshotSchema,
-  previewDocumentSchema,
-  previewRequestSchema,
-  publishRevisionRequestSchema,
-  publishRevisionSuccessSchema,
-  restoreRevisionRequestSchema,
-  restoreRevisionSuccessSchema,
-  saveRevisionRequestSchema,
-  saveRevisionSuccessSchema,
-  serverProofChallengeSchema,
-  authoringEntrySchema,
-  serverProofSchema,
-  releaseBuildSchema,
-  releaseBuildRequestSchema,
-  releaseDiagnosisSchema,
-  releaseDiagnoseRequestSchema,
-  releaseReceiptSchema,
-  releaseRequestSchema,
-  redeliverRequestSchema,
-} from "./transport-contracts.js";
-export type {
-  AuthoringErrorDto,
-  AuthoringRemoteErrorCode,
-  BrowserSessionDto,
-  BrowserSessionExchangeDto,
-  BrowserTicketDto,
-  BrowserTicketMintRequestDto,
-  AuthoringEntryDto,
-  CmsEditorBlockResolutionsDto,
-  ContentTypeCatalogDto,
-  ContentTypeDto,
-  CreateContentTypeRequestDto,
-  EntryCatalogDto,
-  EntryDetailDto,
-  EntryRevisionCatalogDto,
-  MediaAssetReferencedErrorDto,
-  MediaAssetV2Dto,
-  MediaAssetDetailV2Dto,
-  MediaCatalogV2Dto,
-  MediaDeleteReceiptDto,
-  MediaDeleteRequestDto,
-  MediaMetadataSaveRequestDto,
-  MediaReplaceRequestDto,
-  PreviewDocumentDto,
-  CmsSeoAnalysisResponseDto,
-  PreviewRequestDto,
-  PublishRevisionRequestDto,
-  PublishRevisionSuccessDto,
-  RestoreRevisionRequestDto,
-  RestoreRevisionSuccessDto,
-  SaveRevisionRequestDto,
-  SaveRevisionSuccessDto,
-  CreateTaxonomyRequestDto,
-  TaxonomyCatalogDto,
-  TaxonomyCommandDto,
-  TaxonomyCommandResultDto,
-  TaxonomySnapshotDto,
-  PluginManagementSnapshotDto,
-  ServerProofChallengeDto,
-  ServerProofDto,
-  RedeliverRequestDto,
-  ReleaseBuildDto,
-  ReleaseBuildRequestDto,
-  ReleaseDiagnosisDto,
-  ReleaseDiagnoseRequestDto,
-  ReleaseReceiptDto,
-  ReleaseRequestDto,
-} from "./transport-contracts.js";
+export type { AuthoringApiLogEvent, AuthoringApiResult, RunningAuthoringApi, StartAuthoringApiInput, TransportCode } from "./server.js";
+export { authoringErrorSchema, authoringErrorStatuses, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, replaceContentTypeRequestSchema, cptEntrySchema, cptEntryCatalogSchema, cptEntryCreateRequestSchema, cptEntrySaveRequestSchema, cptEntryDeleteRequestSchema, cptEntrySearchRequestSchema, cptEntrySearchResultSchema, currentTaxonomySnapshotSchema, currentTaxonomyCatalogSchema, currentTaxonomyCreateSchema, currentTaxonomyCommandSchema, mediaAssetV2Schema, mediaAssetDetailV2Schema, mediaCatalogV2Schema, mediaDeleteRequestSchema, mediaDeleteReceiptSchema, mediaMetadataSaveRequestSchema, mediaReplaceRequestSchema } from "./transport-contracts.js";

@@ -17,36 +17,20 @@ function temporaryDatabase(): Readonly<{ directory: string; databasePath: string
   return { directory, databasePath: path.join(directory, "cms.sqlite") };
 }
 
-test("0012 seeds one current Article definition and global claims exactly once", () => {
+test("fresh schema seeds current Article, taxonomy definitions and global claims exactly once", () => {
   const fixture = temporaryDatabase();
   try {
     assert.deepEqual(migrateDatabase({ databasePath: fixture.databasePath }), {
       ok: true,
       value: {
-        appliedMigrationIds: [
-          "0001-create-persistence-storage",
-          "0002-add-persistence-query-indexes",
-          "0003-add-entry-pointers",
-          "0004-add-route-claims",
-          "0005-add-media-storage",
-          "0006-add-revision-references",
-          "0007-add-plugin-activation-state",
-          "0008-add-schema-migration-lineage",
-          "0009-add-theme-activation-state",
-          "0010-add-plugin-settings-state",
-          "0011-add-taxonomy-storage",
-          "0012-add-current-content-types-and-global-slugs",
-          "0013-add-current-entries",
-          "0014-add-current-media-assets",
-        ],
-        currentMigrationId: "0014-add-current-media-assets",
+        appliedMigrationIds: ["0001-create-current-only-storage"],
+        currentMigrationId: "0001-create-current-only-storage",
       },
     });
 
     const database = openSqliteAdapter(fixture.databasePath);
-    const article = database.get("SELECT definition_bytes, definition_digest, legacy_schema_id FROM current_content_types WHERE type_id = ?", articleTypeId);
+    const article = database.get("SELECT definition_bytes, definition_digest FROM current_content_types WHERE type_id = ?", articleTypeId);
     assert.notEqual(article, undefined);
-    assert.equal(article?.legacy_schema_id, "site-content");
     assert.deepEqual(JSON.parse(new TextDecoder("utf-8", { fatal: true }).decode(article?.definition_bytes as Uint8Array)), {
       contract: "content-type-definition/v1",
       typeId: articleTypeId,

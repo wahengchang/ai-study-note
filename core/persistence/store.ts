@@ -15,6 +15,9 @@ import type {
   CurrentMediaImage,
   CurrentMediaReferenceRecord,
   CurrentMediaThumbnail,
+  CurrentTaxonomyRecord,
+  CurrentTaxonomyTermRecord,
+  CurrentEntryTermBinding,
   GlobalSlugClaimRecord,
   GlobalSlugEntityIdentity,
   EntryPointerLineageRecord,
@@ -95,6 +98,12 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
       getGlobalSlugClaimByEntity(identity: GlobalSlugEntityIdentity) { return record(() => transaction.getGlobalSlugClaimByEntity(identity)); },
       getCurrentEntry(entryId: string) { return record(() => transaction.getCurrentEntry(entryId)); },
       listCurrentEntries(typeId: string) { return record(() => transaction.listCurrentEntries(typeId)); },
+      getCurrentTaxonomy(taxonomyId: string) { return record(() => transaction.getCurrentTaxonomy(taxonomyId)); },
+      listCurrentTaxonomies() { return record(() => transaction.listCurrentTaxonomies()); },
+      getCurrentTaxonomyTerm(identity: TaxonomyTermIdentity) { return record(() => transaction.getCurrentTaxonomyTerm(identity)); },
+      listCurrentTaxonomyTerms(taxonomyId: string) { return record(() => transaction.listCurrentTaxonomyTerms(taxonomyId)); },
+      listCurrentEntryTermBindings(entryId: string) { return record(() => transaction.listCurrentEntryTermBindings(entryId)); },
+      listCurrentTermUsage(identity: TaxonomyTermIdentity) { return record(() => transaction.listCurrentTermUsage(identity)); },
       listAssetVersionReferences(identity: AssetVersionIdentity) { return record(() => transaction.listAssetVersionReferences(identity)); },
       listRouteClaims(graph: "current" | "published") { return record(() => transaction.listRouteClaims(graph)); },
       readPluginActivationState() { return record(() => transaction.readPluginActivationState()); },
@@ -161,6 +170,12 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     createRevisionReferences(revision, assetVersions) { return atomic((transaction) => transaction.createRevisionReferences(revision, assetVersions)); },
     createRevisionWithReferences(input) { return atomic((transaction) => transaction.createRevisionWithReferences(input)); },
     createCurrentContentType(input) { return atomic((transaction) => transaction.createCurrentContentType(input)); },
+    createCurrentTaxonomy(input) { return atomic((transaction) => transaction.createCurrentTaxonomy(input)); },
+    replaceCurrentTaxonomy(input) { return atomic((transaction) => transaction.replaceCurrentTaxonomy(input)); },
+    createCurrentTaxonomyTerm(input) { return atomic((transaction) => transaction.createCurrentTaxonomyTerm(input)); },
+    replaceCurrentTaxonomyTerm(input) { return atomic((transaction) => transaction.replaceCurrentTaxonomyTerm(input)); },
+    deleteCurrentTaxonomyTerm(identity) { return atomic((transaction) => transaction.deleteCurrentTaxonomyTerm(identity)); },
+    replaceCurrentEntryTermBindings(entryId, bindings) { return atomic((transaction) => transaction.replaceCurrentEntryTermBindings(entryId, bindings)); },
     replaceCurrentContentType(input) { return atomic((transaction) => transaction.replaceCurrentContentType(input)); },
     allocateGlobalSlug(input) { return atomic((transaction) => transaction.allocateGlobalSlug(input)); },
     releaseGlobalSlug(input) { return atomic((transaction) => transaction.releaseGlobalSlug(input)); },
@@ -260,6 +275,89 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     return { ok: true, value: ordered.map((assetVersion) => ({ revision: { ...identity }, assetVersion: { ...assetVersion } })) };
   });
   return {
+    getCurrentTaxonomy(taxonomyId) { return reading(() => {
+      if (!validStableId(taxonomyId)) return refused("INVALID_PERSISTENCE_INPUT");
+      const row = database.get("SELECT taxonomy_id,label,slug,hierarchical FROM current_taxonomies WHERE taxonomy_id=?", taxonomyId);
+      return currentTaxonomyRow(row, refused);
+    }); },
+    listCurrentTaxonomies() { return reading(() => {
+      const records: CurrentTaxonomyRecord[] = [];
+      for (const row of database.all("SELECT taxonomy_id,label,slug,hierarchical FROM current_taxonomies ORDER BY taxonomy_id")) {
+        const decoded = currentTaxonomyRow(row, refused); if (!decoded.ok) return decoded; records.push(decoded.value);
+      }
+      return { ok: true, value: records };
+    }); },
+    getCurrentTaxonomyTerm(identity) { return reading(() => {
+      if (!validTaxonomyIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT");
+      return currentTermRow(database.get("SELECT taxonomy_id,term_id,label,slug,parent_term_id,term_order,state FROM current_taxonomy_terms WHERE taxonomy_id=? AND term_id=?", identity.taxonomyId, identity.termId), refused);
+    }); },
+    listCurrentTaxonomyTerms(taxonomyId) { return reading(() => {
+      if (!validStableId(taxonomyId)) return refused("INVALID_PERSISTENCE_INPUT");
+      const records: CurrentTaxonomyTermRecord[] = [];
+      for (const row of database.all("SELECT taxonomy_id,term_id,label,slug,parent_term_id,term_order,state FROM current_taxonomy_terms WHERE taxonomy_id=? ORDER BY term_order,term_id", taxonomyId)) {
+        const decoded = currentTermRow(row, refused); if (!decoded.ok) return decoded; records.push(decoded.value);
+      }
+      return { ok: true, value: records };
+    }); },
+    listCurrentEntryTermBindings(entryId) { return reading(() => {
+      if (!validStableId(entryId)) return refused("INVALID_PERSISTENCE_INPUT");
+      const records: CurrentEntryTermBinding[] = [];
+      for (const row of database.all("SELECT taxonomy_id,term_id FROM current_entry_taxonomy_bindings WHERE entry_id=? ORDER BY taxonomy_id,term_id", entryId)) {
+        const taxonomyId = text(row, "taxonomy_id"), termId = text(row, "term_id");
+        if (taxonomyId === null || termId === null) return refused("STORAGE_FAILURE"); records.push({ taxonomyId, termId });
+      }
+      return { ok: true, value: records };
+    }); },
+    listCurrentTermUsage(identity) { return reading(() => {
+      if (!validTaxonomyIdentity(identity)) return refused("INVALID_PERSISTENCE_INPUT");
+      const entries: string[] = [];
+      for (const row of database.all("SELECT entry_id FROM current_entry_taxonomy_bindings WHERE taxonomy_id=? AND term_id=? ORDER BY entry_id", identity.taxonomyId, identity.termId)) {
+        const entryId = text(row, "entry_id"); if (entryId === null) return refused("STORAGE_FAILURE"); entries.push(entryId);
+      }
+      return { ok: true, value: entries };
+    }); },
+    createCurrentTaxonomy(input) { return guarded(() => {
+      if (!validCurrentTaxonomy(input)) return failed("INVALID_PERSISTENCE_INPUT");
+      database.run("INSERT INTO current_taxonomies (taxonomy_id,label,slug,hierarchical) VALUES (?,?,?,?)", input.taxonomyId, input.label, input.slug, input.hierarchical ? 1 : 0);
+      return { ok: true, value: input };
+    }, "CONSTRAINT_VIOLATION"); },
+    replaceCurrentTaxonomy(input) { return guarded(() => {
+      if (!validCurrentTaxonomy(input)) return failed("INVALID_PERSISTENCE_INPUT");
+      if (database.get("SELECT 1 FROM current_taxonomies WHERE taxonomy_id=?", input.taxonomyId) === undefined) return failed("CONSTRAINT_VIOLATION");
+      database.run("UPDATE current_taxonomies SET label=?,slug=?,hierarchical=? WHERE taxonomy_id=?", input.label, input.slug, input.hierarchical ? 1 : 0, input.taxonomyId);
+      return { ok: true, value: input };
+    }); },
+    createCurrentTaxonomyTerm(input) { return guarded(() => {
+      if (!validCurrentTerm(input)) return failed("INVALID_PERSISTENCE_INPUT");
+      database.run("INSERT INTO current_taxonomy_terms (taxonomy_id,term_id,label,slug,parent_term_id,term_order,state) VALUES (?,?,?,?,?,?,?)", input.taxonomyId, input.termId, input.label, input.slug, input.parentTermId ?? null, input.order, input.state);
+      return { ok: true, value: input };
+    }, "CONSTRAINT_VIOLATION"); },
+    replaceCurrentTaxonomyTerm(input) { return guarded(() => {
+      if (!validCurrentTerm(input)) return failed("INVALID_PERSISTENCE_INPUT");
+      if (database.get("SELECT 1 FROM current_taxonomy_terms WHERE taxonomy_id=? AND term_id=?", input.taxonomyId, input.termId) === undefined) return failed("CONSTRAINT_VIOLATION");
+      database.run("UPDATE current_taxonomy_terms SET label=?,slug=?,parent_term_id=?,term_order=?,state=? WHERE taxonomy_id=? AND term_id=?", input.label, input.slug, input.parentTermId ?? null, input.order, input.state, input.taxonomyId, input.termId);
+      return { ok: true, value: input };
+    }); },
+    deleteCurrentTaxonomyTerm(identity) { return guarded(() => {
+      if (!validTaxonomyIdentity(identity)) return failed("INVALID_PERSISTENCE_INPUT");
+      if (database.get("SELECT 1 FROM current_entry_taxonomy_bindings WHERE taxonomy_id=? AND term_id=? LIMIT 1", identity.taxonomyId, identity.termId) !== undefined || database.get("SELECT 1 FROM current_taxonomy_terms WHERE taxonomy_id=? AND parent_term_id=? LIMIT 1", identity.taxonomyId, identity.termId) !== undefined) return failed("CONSTRAINT_VIOLATION");
+      database.run("DELETE FROM current_taxonomy_terms WHERE taxonomy_id=? AND term_id=?", identity.taxonomyId, identity.termId);
+      return { ok: true, value: undefined };
+    }); },
+    replaceCurrentEntryTermBindings(entryId, bindings) { return guarded(() => {
+      if (!validStableId(entryId) || !Array.isArray(bindings) || bindings.some((binding) => !validTaxonomyIdentity(binding))) return failed("INVALID_PERSISTENCE_INPUT");
+      const sorted = [...bindings].sort((a,b) => compareCodeUnits(a.taxonomyId,b.taxonomyId) || compareCodeUnits(a.termId,b.termId));
+      if (sorted.some((binding,index) => index > 0 && binding.taxonomyId === sorted[index-1]?.taxonomyId && binding.termId === sorted[index-1]?.termId)) return failed("CONSTRAINT_VIOLATION");
+      if (database.get("SELECT 1 FROM current_entries WHERE entry_id=?", entryId) === undefined) return failed("CURRENT_ENTRY_NOT_FOUND");
+      for (const binding of sorted) {
+        const term = database.get("SELECT state FROM current_taxonomy_terms WHERE taxonomy_id=? AND term_id=?", binding.taxonomyId, binding.termId);
+        const retained = database.get("SELECT 1 FROM current_entry_taxonomy_bindings WHERE entry_id=? AND taxonomy_id=? AND term_id=?", entryId, binding.taxonomyId, binding.termId);
+        if (term === undefined || (term.state !== "live" && retained === undefined)) return failed("CONSTRAINT_VIOLATION");
+      }
+      database.run("DELETE FROM current_entry_taxonomy_bindings WHERE entry_id=?", entryId);
+      for (const binding of sorted) database.run("INSERT INTO current_entry_taxonomy_bindings (entry_id,taxonomy_id,term_id) VALUES (?,?,?)", entryId,binding.taxonomyId,binding.termId);
+      return { ok: true, value: sorted };
+    }); },
     registerSchemaVersion(input) { return guarded(() => {
       if (!validSchemaIdentity(input.identity)) return failed("INVALID_PERSISTENCE_INPUT");
       const canonical = validateCanonicalBytes(input.schemaBytes, input.schemaDigest);
@@ -427,8 +525,8 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     readPluginActivationState() { return reading(() => readOpaqueState(database, "plugin_activation_state")); },
     readThemeActivationState() { return reading(() => readOpaqueState(database, "theme_activation_state")); },
     readPluginSettingsState() { return reading(() => readOpaqueState(database, "plugin_settings_state")); },
-    getCurrentContentType(typeId) { return reading(() => currentContentTypeRecord(database.get("SELECT definition_bytes,definition_digest,legacy_schema_id FROM current_content_types WHERE type_id=?", typeId), typeId, refused)); },
-    listCurrentContentTypes() { return reading(() => { const records: CurrentContentTypeRecord[] = []; for (const row of database.all("SELECT type_id,definition_bytes,definition_digest,legacy_schema_id FROM current_content_types")) { const typeId = text(row, "type_id"); if (typeId === null) return refused("STORAGE_FAILURE"); const record = currentContentTypeRecord(row, typeId, refused); if (!record.ok) return record; records.push(record.value); } return { ok: true, value: records.sort((left, right) => compareCodeUnits(left.typeId, right.typeId)) }; }); },
+    getCurrentContentType(typeId) { return reading(() => currentContentTypeRecord(database.get("SELECT definition_bytes,definition_digest FROM current_content_types WHERE type_id=?", typeId), typeId, refused)); },
+    listCurrentContentTypes() { return reading(() => { const records: CurrentContentTypeRecord[] = []; for (const row of database.all("SELECT type_id,definition_bytes,definition_digest FROM current_content_types")) { const typeId = text(row, "type_id"); if (typeId === null) return refused("STORAGE_FAILURE"); const record = currentContentTypeRecord(row, typeId, refused); if (!record.ok) return record; records.push(record.value); } return { ok: true, value: records.sort((left, right) => compareCodeUnits(left.typeId, right.typeId)) }; }); },
     getGlobalSlugClaim(namespaceKey) { return reading(() => globalSlugClaimRecord(database.get("SELECT slug,entity_kind,entity_id FROM global_slug_claims WHERE namespace_key=?", namespaceKey), namespaceKey, refused)); },
     getGlobalSlugClaimByEntity(identity) { return reading(() => {
       if (identity === null || typeof identity !== "object" || !validText(identity.entityId) || !validGlobalEntityKind(identity.entityKind)) return refused("INVALID_PERSISTENCE_INPUT");
@@ -453,6 +551,8 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     deleteCurrentEntry(entryId) { return guarded(() => {
       if (!validStableId(entryId)) return failed("INVALID_PERSISTENCE_INPUT");
       if (database.get("SELECT 1 FROM current_entries WHERE entry_id=?", entryId) === undefined) return failed("CURRENT_ENTRY_NOT_FOUND");
+      database.run("DELETE FROM current_media_references WHERE entry_id=?", entryId);
+      database.run("DELETE FROM current_entry_taxonomy_bindings WHERE entry_id=?", entryId);
       database.run("DELETE FROM current_entries WHERE entry_id=?", entryId);
       return { ok: true, value: undefined };
     }); },
@@ -492,13 +592,13 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
     createCurrentContentType(input) { return guarded(() => {
       const record = normalizeCurrentContentType(input, failed); if (!record.ok) return record;
       if (database.get("SELECT 1 FROM current_content_types WHERE type_id=?", record.value.typeId) !== undefined) return failed("CURRENT_CONTENT_TYPE_CONFLICT");
-      database.run("INSERT INTO current_content_types (type_id,definition_bytes,definition_digest,legacy_schema_id) VALUES (?,?,?,?)", record.value.typeId, record.value.definitionBytes, record.value.definitionDigest, record.value.legacySchemaId ?? null);
+      database.run("INSERT INTO current_content_types (type_id,definition_bytes,definition_digest) VALUES (?,?,?)", record.value.typeId, record.value.definitionBytes, record.value.definitionDigest);
       return { ok: true, value: record.value };
     }, "CURRENT_CONTENT_TYPE_CONFLICT"); },
     replaceCurrentContentType(input) { return guarded(() => {
       const record = normalizeCurrentContentType(input, failed); if (!record.ok) return record;
       if (database.get("SELECT 1 FROM current_content_types WHERE type_id=?", record.value.typeId) === undefined) return failed("CURRENT_CONTENT_TYPE_NOT_FOUND");
-      database.run("UPDATE current_content_types SET definition_bytes=?,definition_digest=?,legacy_schema_id=? WHERE type_id=?", record.value.definitionBytes, record.value.definitionDigest, record.value.legacySchemaId ?? null, record.value.typeId);
+      database.run("UPDATE current_content_types SET definition_bytes=?,definition_digest=? WHERE type_id=?", record.value.definitionBytes, record.value.definitionDigest, record.value.typeId);
       return { ok: true, value: record.value };
     }); },
     allocateGlobalSlug(input) { return guarded(() => {
@@ -517,27 +617,44 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       return failed("GLOBAL_SLUG_CONFLICT");
     }, "GLOBAL_SLUG_CONFLICT"); },
     releaseGlobalSlug(input) { return guarded(() => { if (input === null || typeof input !== "object" || !validText(input.entityId) || !validGlobalEntityKind(input.entityKind)) return failed("INVALID_PERSISTENCE_INPUT"); database.run("DELETE FROM global_slug_claims WHERE entity_kind=? AND entity_id=?", input.entityKind, input.entityId); return { ok: true, value: undefined }; }); },
-    contentTypeHasCurrentEntries(typeId) { return reading(() => { if (!validText(typeId)) return refused("INVALID_PERSISTENCE_INPUT"); return { ok: true, value: database.get("SELECT 1 FROM current_content_types c JOIN revisions r ON r.schema_id=c.legacy_schema_id JOIN entry_pointers p ON p.entry_id=r.entry_id AND p.current_revision_id=r.revision_id WHERE c.type_id=? LIMIT 1", typeId) !== undefined || database.get("SELECT 1 FROM current_entries WHERE type_id=? LIMIT 1", typeId) !== undefined }; }); },
+    contentTypeHasCurrentEntries(typeId) { return reading(() => { if (!validText(typeId)) return refused("INVALID_PERSISTENCE_INPUT"); return { ok: true, value: database.get("SELECT 1 FROM current_entries WHERE type_id=? LIMIT 1", typeId) !== undefined }; }); },
     canonicalState() { return reading(() => canonicalState(database, refused)); },
   };
 }
 
+function validCurrentTaxonomy(value: CurrentTaxonomyRecord): boolean {
+  return value !== null && typeof value === "object" && validStableId(value.taxonomyId) && validText(value.label) && validText(value.slug) && typeof value.hierarchical === "boolean";
+}
+function validCurrentTerm(value: CurrentTaxonomyTermRecord): boolean {
+  return value !== null && typeof value === "object" && validTaxonomyIdentity(value) && validText(value.label) && validText(value.slug) && (value.parentTermId === undefined || validStableId(value.parentTermId)) && Number.isSafeInteger(value.order) && value.order >= 0 && (value.state === "live" || value.state === "retired");
+}
+function currentTaxonomyRow(row: SqliteRow | undefined, refused: Fail): PersistenceResult<CurrentTaxonomyRecord> {
+  if (row === undefined) return refused("CONSTRAINT_VIOLATION");
+  const taxonomyId = text(row,"taxonomy_id"), label = text(row,"label"), slug = text(row,"slug"), hierarchical = row.hierarchical;
+  if (taxonomyId === null || label === null || slug === null || (hierarchical !== 0 && hierarchical !== 1)) return refused("STORAGE_FAILURE");
+  return { ok: true, value: { taxonomyId, label, slug, hierarchical: hierarchical === 1 } };
+}
+function currentTermRow(row: SqliteRow | undefined, refused: Fail): PersistenceResult<CurrentTaxonomyTermRecord> {
+  if (row === undefined) return refused("CONSTRAINT_VIOLATION");
+  const taxonomyId = text(row,"taxonomy_id"), termId = text(row,"term_id"), label = text(row,"label"), slug = text(row,"slug"), parentTermId = nullableText(row,"parent_term_id"), order = row.term_order, state = row.state;
+  if (taxonomyId === null || termId === null || label === null || slug === null || parentTermId === undefined || !nonnegative(order) || (state !== "live" && state !== "retired")) return refused("STORAGE_FAILURE");
+  return { ok: true, value: { taxonomyId, termId, label, slug, ...(parentTermId === null ? {} : { parentTermId }), order, state } };
+}
 function currentContentTypeRecord(row: SqliteRow | undefined, typeId: string, failed: Fail): PersistenceResult<CurrentContentTypeRecord> {
   if (row === undefined) return failed("CURRENT_CONTENT_TYPE_NOT_FOUND");
   const bytes = byte(row, "definition_bytes");
   const digest = digestField(row, "definition_digest");
-  const legacySchemaId = nullableText(row, "legacy_schema_id");
-  if (!validStableId(typeId) || bytes === null || digest === null || legacySchemaId === undefined) return failed("STORAGE_FAILURE");
+  if (!validStableId(typeId) || bytes === null || digest === null) return failed("STORAGE_FAILURE");
   const canonical = validateCanonicalBytes(bytes, digest);
   if (!canonical.ok) return failed(canonical.code);
-  return { ok: true, value: { typeId, definitionBytes: copyBytes(canonical.bytes), definitionDigest: canonical.digest, ...(legacySchemaId === null ? {} : { legacySchemaId }) } };
+  return { ok: true, value: { typeId, definitionBytes: copyBytes(canonical.bytes), definitionDigest: canonical.digest } };
 }
 
 function normalizeCurrentContentType(input: CreateCurrentContentTypeInput, failed: Fail): PersistenceResult<CurrentContentTypeRecord> {
-  if (input === null || typeof input !== "object" || !validStableId(input.typeId) || !(input.definitionBytes instanceof Uint8Array) || !isDigest(input.definitionDigest) || (input.legacySchemaId !== undefined && !validText(input.legacySchemaId))) return failed("INVALID_PERSISTENCE_INPUT");
+  if (input === null || typeof input !== "object" || !validStableId(input.typeId) || !(input.definitionBytes instanceof Uint8Array) || !isDigest(input.definitionDigest)) return failed("INVALID_PERSISTENCE_INPUT");
   const canonical = validateCanonicalBytes(input.definitionBytes, input.definitionDigest);
   if (!canonical.ok) return failed(canonical.code);
-  return { ok: true, value: { typeId: input.typeId, definitionBytes: copyBytes(canonical.bytes), definitionDigest: canonical.digest, ...(input.legacySchemaId === undefined ? {} : { legacySchemaId: input.legacySchemaId }) } };
+  return { ok: true, value: { typeId: input.typeId, definitionBytes: copyBytes(canonical.bytes), definitionDigest: canonical.digest } };
 }
 
 function globalSlugClaimRecord(row: SqliteRow | undefined, namespaceKey: string, failed: Fail): PersistenceResult<GlobalSlugClaimRecord> {
@@ -629,7 +746,7 @@ function currentMediaThumbnail(row: SqliteRow): CurrentMediaThumbnail | null | u
 }
 
 function validGlobalEntityKind(value: unknown): value is GlobalSlugClaimRecord["entityKind"] {
-  return value === "content-type" || value === "taxonomy" || value === "entry" || value === "media";
+  return value === "content-type" || value === "taxonomy" || value === "term" || value === "entry" || value === "media";
 }
 
 /**
@@ -884,39 +1001,23 @@ function canonicalState(database: SqliteAdapter, failed: Fail): PersistenceResul
     .map((row) => Object.fromEntries(keys.map((key) => [key, row[key]])))
     .sort((left, right) => compareCodeUnits(JSON.stringify(left), JSON.stringify(right)));
   try {
-    const schemaVersions = collect("SELECT schema_id AS schemaId,version,schema_digest AS schemaDigest FROM schema_versions", ["schemaId", "version", "schemaDigest"]);
-    const revisions = collect("SELECT entry_id AS entryId,revision_id AS revisionId,schema_id AS schemaId,schema_version AS schemaVersion,content_digest AS contentDigest,restored_from_revision_id AS restoredFromRevisionId FROM revisions", ["entryId", "revisionId", "schemaId", "schemaVersion", "contentDigest", "restoredFromRevisionId"]);
-    const operationLineage = collect("SELECT entry_id AS entryId,revision_id AS revisionId,operation_id AS operationId,operation_kind AS operationKind,creates_revision AS createsRevision FROM operation_lineage", ["entryId", "revisionId", "operationId", "operationKind", "createsRevision"]);
-    const entryPointers = collect("SELECT entry_id AS entryId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointers", ["entryId", "currentRevisionId", "publishedRevisionId"]);
-    const entryPointerLineage = collect("SELECT entry_id AS entryId,operation_revision_id AS operationRevisionId,operation_id AS operationId,current_revision_id AS currentRevisionId,published_revision_id AS publishedRevisionId FROM entry_pointer_lineage", ["entryId", "operationRevisionId", "operationId", "currentRevisionId", "publishedRevisionId"]);
-    const routeClaims = collect("SELECT graph,normalized_route AS normalizedRoute,owner_entry_id AS ownerEntryId,source_revision_id AS sourceRevisionId FROM route_claims", ["graph", "normalizedRoute", "ownerEntryId", "sourceRevisionId"]);
-    const mediaImportIntents = collect("SELECT import_id AS importId,asset_id AS assetId,asset_version_id AS assetVersionId,object_digest AS objectDigest,byte_length AS byteLength,metadata_digest AS metadataDigest FROM media_import_intents", ["importId", "assetId", "assetVersionId", "objectDigest", "byteLength", "metadataDigest"]);
-    const mediaObjects = collect("SELECT object_digest AS objectDigest,byte_length AS byteLength FROM media_objects", ["objectDigest", "byteLength"]);
-    const mediaAssets = collect("SELECT asset_id AS assetId FROM media_assets", ["assetId"]);
-    const assetVersions = collect("SELECT v.asset_id AS assetId,v.asset_version_id AS assetVersionId,v.object_digest AS objectDigest,v.metadata_digest AS metadataDigest,a.availability FROM asset_versions v JOIN asset_version_availability a ON a.asset_id=v.asset_id AND a.asset_version_id=v.asset_version_id", ["assetId", "assetVersionId", "objectDigest", "metadataDigest", "availability"]);
-    const revisionReferences = collect("SELECT entry_id AS entryId,revision_id AS revisionId,asset_id AS assetId,asset_version_id AS assetVersionId FROM revision_refs", ["entryId", "revisionId", "assetId", "assetVersionId"]);
-    const taxonomyCatalog = collect("SELECT taxonomy_id AS taxonomyId,label FROM taxonomies", ["taxonomyId", "label"]);
-    const taxonomyTermIdentities = collect("SELECT taxonomy_id AS taxonomyId,term_id AS termId FROM taxonomy_term_identities", ["taxonomyId", "termId"]);
-    const taxonomyTerms = collect("SELECT taxonomy_id AS taxonomyId,term_id AS termId,label,slug,term_order AS termOrder,state FROM taxonomy_terms", ["taxonomyId", "termId", "label", "slug", "termOrder", "state"]);
-    const revisionTaxonomyBindings = collect("SELECT entry_id AS entryId,revision_id AS revisionId,taxonomy_id AS taxonomyId,term_id AS termId,evidence_digest AS evidenceDigest FROM revision_taxonomy_bindings", ["entryId", "revisionId", "taxonomyId", "termId", "evidenceDigest"]);
+    const currentContentTypes = collect("SELECT type_id AS typeId,definition_digest AS definitionDigest FROM current_content_types", ["typeId", "definitionDigest"]);
+    const currentEntries = collect("SELECT entry_id AS entryId,type_id AS typeId,authoring_route AS authoringRoute,content_digest AS contentDigest,status,published_at AS publishedAt,last_published_digest AS lastPublishedDigest FROM current_entries", ["entryId", "typeId", "authoringRoute", "contentDigest", "status", "publishedAt", "lastPublishedDigest"]);
+    const currentMediaAssets = collect("SELECT asset_id AS assetId,slug,title,alt_text AS altText,caption,description,original_filename AS originalFilename,mime_type AS mimeType,byte_length AS byteLength,checksum,image_width AS imageWidth,image_height AS imageHeight,thumbnail_digest AS thumbnailDigest,thumbnail_byte_length AS thumbnailByteLength,thumbnail_width AS thumbnailWidth,thumbnail_height AS thumbnailHeight,uploaded_at AS uploadedAt FROM current_media_assets", ["assetId", "slug", "title", "altText", "caption", "description", "originalFilename", "mimeType", "byteLength", "checksum", "imageWidth", "imageHeight", "thumbnailDigest", "thumbnailByteLength", "thumbnailWidth", "thumbnailHeight", "uploadedAt"]);
+    const currentMediaReferences = collect("SELECT asset_id AS assetId,entry_id AS entryId,entry_status AS entryStatus FROM current_media_references", ["assetId", "entryId", "entryStatus"]);
+    const currentTaxonomies = collect("SELECT taxonomy_id AS taxonomyId,label,slug,hierarchical FROM current_taxonomies", ["taxonomyId", "label", "slug", "hierarchical"]);
+    const currentTerms = collect("SELECT taxonomy_id AS taxonomyId,term_id AS termId,label,slug,parent_term_id AS parentTermId,term_order AS termOrder,state FROM current_taxonomy_terms", ["taxonomyId", "termId", "label", "slug", "parentTermId", "termOrder", "state"]);
+    const currentBindings = collect("SELECT entry_id AS entryId,taxonomy_id AS taxonomyId,term_id AS termId FROM current_entry_taxonomy_bindings", ["entryId", "taxonomyId", "termId"]);
+    const globalSlugClaims = collect("SELECT namespace_key AS namespaceKey,slug,entity_kind AS entityKind,entity_id AS entityId FROM global_slug_claims", ["namespaceKey", "slug", "entityKind", "entityId"]);
     const pluginActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_activation_state", ["singleton", "stateDigest"]);
     const themeActivationStates = collect("SELECT singleton,state_digest AS stateDigest FROM theme_activation_state", ["singleton", "stateDigest"]);
     const pluginSettingsStates = collect("SELECT singleton,state_digest AS stateDigest FROM plugin_settings_state", ["singleton", "stateDigest"]);
-    const schemaMigrationExecutions = collect("SELECT operation_id AS operationId,source_schema_id AS sourceSchemaId,source_schema_version AS sourceSchemaVersion,target_schema_id AS targetSchemaId,target_schema_version AS targetSchemaVersion,mapping_identity AS mappingIdentity FROM schema_migration_executions", ["operationId", "sourceSchemaId", "sourceSchemaVersion", "targetSchemaId", "targetSchemaVersion", "mappingIdentity"]);
-    const schemaMigrationRevisionLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,source_revision_id AS sourceRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_revision_lineage", ["operationId", "entryId", "sourceRevisionId", "replacementRevisionId"]);
-    const schemaMigrationPointerLineage = collect("SELECT operation_id AS operationId,entry_id AS entryId,pointer,source_revision_id AS sourceRevisionId,policy,result_revision_id AS resultRevisionId,replacement_revision_id AS replacementRevisionId FROM schema_migration_pointer_lineage", ["operationId", "entryId", "pointer", "sourceRevisionId", "policy", "resultRevisionId", "replacementRevisionId"]);
-    const currentContentTypes = collect("SELECT type_id AS typeId,definition_digest AS definitionDigest,legacy_schema_id AS legacySchemaId FROM current_content_types", ["typeId", "definitionDigest", "legacySchemaId"]);
-    const currentMediaAssets = collect("SELECT asset_id AS assetId,slug,title,alt_text AS altText,caption,description,original_filename AS originalFilename,mime_type AS mimeType,byte_length AS byteLength,checksum,image_width AS imageWidth,image_height AS imageHeight,thumbnail_digest AS thumbnailDigest,thumbnail_byte_length AS thumbnailByteLength,thumbnail_width AS thumbnailWidth,thumbnail_height AS thumbnailHeight,uploaded_at AS uploadedAt FROM current_media_assets", ["assetId", "slug", "title", "altText", "caption", "description", "originalFilename", "mimeType", "byteLength", "checksum", "imageWidth", "imageHeight", "thumbnailDigest", "thumbnailByteLength", "thumbnailWidth", "thumbnailHeight", "uploadedAt"]);
-    const currentMediaReferences = collect("SELECT asset_id AS assetId,entry_id AS entryId,entry_status AS entryStatus FROM current_media_references", ["assetId", "entryId", "entryStatus"]);
-    const globalSlugClaims = collect("SELECT namespace_key AS namespaceKey,slug,entity_kind AS entityKind,entity_id AS entityId FROM global_slug_claims", ["namespaceKey", "slug", "entityKind", "entityId"]);
-    const currentEntries = collect("SELECT entry_id AS entryId,type_id AS typeId,authoring_route AS authoringRoute,content_digest AS contentDigest,status,published_at AS publishedAt,last_published_digest AS lastPublishedDigest FROM current_entries", ["entryId", "typeId", "authoringRoute", "contentDigest", "status", "publishedAt", "lastPublishedDigest"]);
-    const payload = { contract: "persistence-canonical-state/v2", schemaVersions, revisions, operationLineage, entryPointers, entryPointerLineage, routeClaims, mediaImportIntents, mediaObjects, mediaAssets, assetVersions, revisionReferences, taxonomyCatalog, taxonomyTermIdentities, taxonomyTerms, revisionTaxonomyBindings, currentContentTypes, globalSlugClaims, currentEntries, currentMediaAssets, currentMediaReferences, pluginActivationStates, themeActivationStates, pluginSettingsStates, schemaMigrationExecutions, schemaMigrationRevisionLineage, schemaMigrationPointerLineage };
+    const payload = { contract: "persistence-canonical-state/v2", currentContentTypes, globalSlugClaims, currentEntries, currentMediaAssets, currentMediaReferences, currentTaxonomies, currentTerms, currentBindings, pluginActivationStates, themeActivationStates, pluginSettingsStates };
     const bytes = canonicalJsonBytes(payload);
     if (!bytes.ok) return failed("STORAGE_FAILURE");
-    return Object.freeze({ ok: true, value: Object.freeze({ contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts: Object.freeze({ schemaVersions: schemaVersions.length, revisions: revisions.length, operationLineage: operationLineage.length, entryPointers: entryPointers.length, entryPointerLineage: entryPointerLineage.length, routeClaims: routeClaims.length, mediaImportIntents: mediaImportIntents.length, mediaObjects: mediaObjects.length, mediaAssets: mediaAssets.length, assetVersions: assetVersions.length, revisionReferences: revisionReferences.length, taxonomies: taxonomyCatalog.length, taxonomyTermIdentities: taxonomyTermIdentities.length, taxonomyTerms: taxonomyTerms.length, revisionTaxonomyBindings: revisionTaxonomyBindings.length, currentContentTypes: currentContentTypes.length, globalSlugClaims: globalSlugClaims.length, currentEntries: currentEntries.length, currentMediaAssets: currentMediaAssets.length, currentMediaReferences: currentMediaReferences.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: schemaMigrationExecutions.length, schemaMigrationRevisionLineage: schemaMigrationRevisionLineage.length, schemaMigrationPointerLineage: schemaMigrationPointerLineage.length }) }) });
-  } catch {
-    return failed("STORAGE_FAILURE");
-  }
+    const counts = { schemaVersions: 0, revisions: 0, operationLineage: 0, entryPointers: 0, entryPointerLineage: 0, routeClaims: 0, mediaImportIntents: 0, mediaObjects: 0, mediaAssets: 0, assetVersions: 0, revisionReferences: 0, taxonomies: currentTaxonomies.length, taxonomyTermIdentities: currentTerms.length, taxonomyTerms: currentTerms.length, revisionTaxonomyBindings: currentBindings.length, currentContentTypes: currentContentTypes.length, globalSlugClaims: globalSlugClaims.length, currentEntries: currentEntries.length, currentMediaAssets: currentMediaAssets.length, currentMediaReferences: currentMediaReferences.length, pluginActivationStates: pluginActivationStates.length, themeActivationStates: themeActivationStates.length, pluginSettingsStates: pluginSettingsStates.length, schemaMigrationExecutions: 0, schemaMigrationRevisionLineage: 0, schemaMigrationPointerLineage: 0 };
+    return { ok: true, value: { contract: "persistence-canonical-state/v2", bytes: copyBytes(bytes.value), digest: sha256Digest(bytes.value), counts } };
+  } catch { return failed("STORAGE_FAILURE"); }
 }
 function pointer(row:SqliteRow|undefined,entryId:string,failed:Fail):PersistenceResult<EntryPointerRecord>{if(row===undefined)return failed("ENTRY_POINTER_NOT_FOUND");const current=text(row,"current_revision_id"),published=nullableText(row,"published_revision_id");if(current===null||published===undefined)return failed("STORAGE_FAILURE");return{ok:true,value:{entryId,currentRevisionId:current,...(published===null?{}:{publishedRevisionId:published})}};}
 function readMediaStartupSnapshot(database: SqliteAdapter): PersistenceResult<MediaStartupSnapshot> {

@@ -1,8 +1,8 @@
 ---
 id: cycle-2026-09-15-1316-cms-core-data-reset
-status: active
+status: completed
 created_at: 2026-09-15T13:16:54+08:00
-updated_at: 2026-09-16T16:10:13+08:00
+updated_at: 2026-10-07T11:04:41+08:00
 ---
 
 ## Goal
@@ -12,10 +12,10 @@ updated_at: 2026-09-16T16:10:13+08:00
 ## Scope
 
 - CMS：Content Type Builder、動態 content menu、entry editor／catalog、Taxonomy 與 Media 操作介面。
-- Core／Application：current-only Content Type、entry、taxonomy、media contract，global slug、CAS、validation 與 legacy cutover。
-- Persistence：current records、atomic mutation／delete、streaming media staging 與 migration evidence。
+- Core／Application：current-only Content Type、entry、taxonomy、media contract，global slug、CAS 與 validation。
+- Persistence：全新安裝的 current records、atomic mutation／delete、streaming media staging；舊 SQLite／媒體 layout 在寫入前拒絕，不執行資料 migration。
 - Authoring API：finite same-origin JSON commands、entry search 與 streaming multipart media transport。
-- 不包含 Projection、Renderer、archive page、canonical public URL、Release、Public UI 或視覺重設。
+- 本輪暫停依賴舊 Revision 的 Preview、site build 與 Release 入口；不包含新 current-only Projection、Renderer、archive page、canonical public URL、Public UI 或視覺重設。
 
 ## Context
 

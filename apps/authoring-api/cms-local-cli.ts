@@ -3,6 +3,9 @@ import { lstat, mkdir, realpath } from "node:fs/promises";
 import path from "node:path";
 import { pathToFileURL } from "node:url";
 
+import { inspectCurrentMediaRoot, markCurrentMediaRoot } from "../../core/media/index.js";
+import { inspectDatabaseGeneration } from "../../core/persistence/index.js";
+
 import { createLocalAuthoringCredentialAuthority } from "./credential-store.js";
 import { runCmsServe, type CmsServeCliIo } from "./cms-serve-cli.js";
 
@@ -92,6 +95,11 @@ async function privateDatabase(databasePath: string, required: boolean): Promise
 }
 
 async function initialize(runtime: CmsLocalRuntime, environment: CmsLocalCliEnvironment, io: CmsLocalCliIo): Promise<number> {
+  const databaseGeneration = inspectDatabaseGeneration(runtime.databasePath);
+  if (databaseGeneration === "old") return failure(io, "CMS_INIT", "OLD_DATABASE_UNSUPPORTED");
+  if (databaseGeneration === "unknown") return failure(io, "CMS_INIT", "UNKNOWN_DATABASE");
+  const mediaGeneration = inspectCurrentMediaRoot(runtime.mediaRoot);
+  if (mediaGeneration === "old" || mediaGeneration === "unknown") return failure(io, "CMS_INIT", "OLD_MEDIA_UNSUPPORTED");
   const projectRoot = path.dirname(runtime.root);
   const shareRoot = path.dirname(projectRoot);
   const localRoot = path.dirname(shareRoot);
@@ -105,12 +113,10 @@ async function initialize(runtime: CmsLocalRuntime, environment: CmsLocalCliEnvi
     runtime.themesRoot,
   ];
   for (const directory of directories) if (!(await privateDirectory(path.resolve(directory)))) return failure(io, "CMS_INIT", "RUNTIME_DIRECTORY_UNAVAILABLE");
+  if (!markCurrentMediaRoot(runtime.mediaRoot)) return failure(io, "CMS_INIT", "RUNTIME_DIRECTORY_UNAVAILABLE");
   if (!(await privateDatabase(runtime.databasePath, false))) return failure(io, "CMS_INIT", "RUNTIME_DIRECTORY_UNAVAILABLE");
   if (invokeCli("apps/cli/db-migrate.ts", ["--database", runtime.databasePath], io) !== 0) return 1;
   if (!(await privateDatabase(runtime.databasePath, true))) return failure(io, "CMS_INIT", "RUNTIME_DIRECTORY_UNAVAILABLE");
-  if (invokeCli("apps/cli/plugin-package.ts", ["--id", "seo-basics", "--installed-plugins-root", runtime.pluginsRoot], io) !== 0) return 1;
-  if (invokeCli("apps/cli/theme-package.ts", ["--id", "study-notes", "--installed-themes-root", runtime.themesRoot], io) !== 0) return 1;
-  if (invokeCli("apps/cli/theme-activate.ts", ["--database", runtime.databasePath, "--installed-themes-root", runtime.themesRoot, "--id", "study-notes"], io) !== 0) return 1;
   const credentialError = await provisionCredential(environment);
   if (credentialError !== undefined) return failure(io, "CMS_INIT", credentialError);
   io.stdout(`CMS_INIT_OK runtime=${runtime.root}\n`);

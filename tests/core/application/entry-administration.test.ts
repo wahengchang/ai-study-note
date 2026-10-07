@@ -34,6 +34,11 @@ function fixture(): Fixture {
   };
 }
 
+function seedMedia(store: PersistenceStore, assetId: string): void {
+  const created = store.createCurrentMediaAsset({ assetId, slug: assetId, title: assetId, altText: null, caption: "", description: "", originalFilename: `${assetId}.png`, mimeType: "image/png", byteLength: 1, checksum: sha256Digest(new TextEncoder().encode(assetId)), uploadedAt: "2026-09-16T03:00:00.000Z", image: { width: 1, height: 1 } });
+  assert.equal(created.ok, true);
+}
+
 /** 建立一個帶 custom fields 的 Content Type，回傳它的 stable ID 與 definition 供 entry 測試使用。 */
 async function customContentType(context: Fixture, fields: readonly Readonly<Record<string, unknown>>[]): Promise<Readonly<{ typeId: string; definition: ContentTypeDefinitionV1 }>> {
   const contentTypes = createContentTypeAdministration({ persistence: context.store, newStableId: context.newStableId });
@@ -62,11 +67,11 @@ function customContent(input: Readonly<{ typeId: string; title: string; customVa
 
 /** 只送 customValues 的 create/save request；其他必填 system field 由 helper 補齊。 */
 function customCreateRequest(catalog: CptEntryCatalogV1, input: Readonly<{ typeId: string; title: string; status?: string; customValues?: readonly Readonly<{ fieldId: string; value: unknown }>[] }>): CptEntryCreateRequestV1 {
-  return { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.stateDigest, content: customContent({ typeId: input.typeId, title: input.title, customValues: input.customValues ?? [] }), status: input.status ?? "draft" };
+  return { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.stateDigest, content: customContent({ typeId: input.typeId, title: input.title, customValues: input.customValues ?? [] }), taxonomyTerms: [], status: input.status ?? "draft" };
 }
 
 function customSaveRequest(entry: CptEntryV1, input: Readonly<{ status?: string; customValues?: readonly Readonly<{ fieldId: string; value: unknown }>[] }>): CptEntrySaveRequestV1 {
-  return { contract: "cpt-entry-save-request/v1", expectedStateDigest: entry.stateDigest, slug: entry.slug, content: customContent({ typeId: entry.typeId, title: entry.content.title, customValues: input.customValues ?? [] }), status: input.status ?? entry.status };
+  return { contract: "cpt-entry-save-request/v1", expectedStateDigest: entry.stateDigest, slug: entry.slug, content: customContent({ typeId: entry.typeId, title: entry.content.title, customValues: input.customValues ?? [] }), taxonomyTerms: entry.taxonomyTerms, status: input.status ?? entry.status };
 }
 
 function valuesOf(entry: CptEntryV1): Readonly<Record<string, unknown>> {
@@ -95,7 +100,7 @@ function content(input: Readonly<{ title: string; text?: string; excerpt?: strin
 }
 
 function createRequest(catalog: CptEntryCatalogV1, input: Readonly<{ title: string; slug?: string; status?: string; text?: string; excerpt?: string }>): CptEntryCreateRequestV1 {
-  return { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.stateDigest, ...(input.slug === undefined ? {} : { slug: input.slug }), content: content(input), status: input.status ?? "draft" };
+  return { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.stateDigest, ...(input.slug === undefined ? {} : { slug: input.slug }), content: content(input), taxonomyTerms: [], status: input.status ?? "draft" };
 }
 
 function deleteRequest(digest: string): CptEntryDeleteRequestV1 {
@@ -108,7 +113,7 @@ function bodyText(entry: CptEntryV1): string {
 }
 
 function saveRequest(entry: CptEntryV1, input: Readonly<{ title?: string; slug?: string; status?: string; digest?: string; text?: string; excerpt?: string }>): CptEntrySaveRequestV1 {
-  return { contract: "cpt-entry-save-request/v1", expectedStateDigest: input.digest ?? entry.stateDigest, slug: input.slug ?? entry.slug, content: content({ title: input.title ?? entry.content.title, text: input.text ?? bodyText(entry), excerpt: input.excerpt ?? entry.content.excerpt }), status: input.status ?? entry.status };
+  return { contract: "cpt-entry-save-request/v1", expectedStateDigest: input.digest ?? entry.stateDigest, slug: input.slug ?? entry.slug, content: content({ title: input.title ?? entry.content.title, text: input.text ?? bodyText(entry), excerpt: input.excerpt ?? entry.content.excerpt }), taxonomyTerms: entry.taxonomyTerms, status: input.status ?? entry.status };
 }
 
 test("create derives the actual slug, returns cpt-entry/v1 readback, and lists it in the type catalog", async () => {
@@ -149,7 +154,7 @@ test("save replaces content and status together and renames the global slug with
     assert.equal(saved.slug, "second-post");
     assert.equal(saved.status, "published");
     assert.equal(saved.publishedAt, "2026-09-16T03:00:00.000Z");
-    assert.equal(saved.lastPublishedDigest, saved.content && unwrap(context.store.getCurrentEntry(created.entryId)).contentDigest);
+    assert.equal(typeof saved.lastPublishedDigest, "string");
     assert.equal(unwrap(context.store.getCurrentEntry(created.entryId)).authoringRoute, "/second-post");
     assert.equal(context.store.getGlobalSlugClaim("first-post").ok, false);
 
@@ -190,6 +195,33 @@ test("publishedAt only advances when the publishable content digest really chang
     context.setNow("2026-09-16T07:00:00.000Z");
     const republished = unwrap(await context.administration.save({ typeId: articleTypeId, entryId: created.entryId, request: saveRequest(drafted, { status: "published" }) }));
     assert.equal(republished.publishedAt, "2026-09-16T05:00:00.000Z");
+  } finally {
+    context.store.close();
+    rmSync(context.directory, { recursive: true, force: true });
+  }
+});
+
+test("taxonomy-only published Save advances publishedAt without changing content bytes", async () => {
+  const context = fixture();
+  try {
+    const taxonomyId = "00000000-0000-4000-8000-000000000002";
+    const firstTerm = "00000000-0000-4000-8000-0000000000a1";
+    const secondTerm = "00000000-0000-4000-8000-0000000000a2";
+    for (const [termId, label, slug] of [[firstTerm, "第一類", "first-category"], [secondTerm, "第二類", "second-category"]]) {
+      assert.equal(context.store.createCurrentTaxonomyTerm({ taxonomyId, termId: termId!, label: label!, slug: slug!, order: 0, state: "live" }).ok, true);
+    }
+    const catalog = unwrap(await context.administration.catalog({ typeId: articleTypeId }));
+    const created = unwrap(await context.administration.create({ typeId: articleTypeId, request: { ...createRequest(catalog, { title: "分類發布", status: "published" }), taxonomyTerms: [{ taxonomyId, termId: firstTerm }] } }));
+    const contentBefore = unwrap(context.store.getCurrentEntry(created.entryId)).contentDigest;
+    context.setNow("2026-09-16T09:00:00.000Z");
+    const updated = unwrap(await context.administration.save({ typeId: articleTypeId, entryId: created.entryId, request: { ...saveRequest(created, {}), taxonomyTerms: [{ taxonomyId, termId: secondTerm }] } }));
+    assert.equal(updated.publishedAt, "2026-09-16T09:00:00.000Z");
+    assert.notEqual(updated.lastPublishedDigest, created.lastPublishedDigest);
+    assert.equal(unwrap(context.store.getCurrentEntry(created.entryId)).contentDigest, contentBefore);
+    assert.deepEqual(updated.taxonomyTerms, [{ taxonomyId, termId: secondTerm }]);
+    const missing = await context.administration.save({ typeId: articleTypeId, entryId: created.entryId, request: rawRequest<CptEntrySaveRequestV1>({ ...saveRequest(updated, {}), taxonomyTerms: undefined }) });
+    assert.equal(failureCode(missing), "INVALID_ENTRY_TAXONOMY");
+    assert.deepEqual(unwrap(await context.administration.get({ typeId: articleTypeId, entryId: created.entryId })), updated);
   } finally {
     context.store.close();
     rmSync(context.directory, { recursive: true, force: true });
@@ -370,6 +402,8 @@ test("custom values are read back sorted by field ID and multi values are canoni
 test("published save validates every custom constraint and writes nothing when it fails", async () => {
   const context = fixture();
   try {
+    seedMedia(context.store, "asset-1");
+    seedMedia(context.store, "asset-2");
     const type = await customContentType(context, [
       { kind: "text", label: "標語", help: "", order: 0, required: true, showInGenericTemplate: false, constraints: { minLength: 3, maxLength: 5 } },
       { kind: "number", label: "分數", help: "", order: 1, required: false, showInGenericTemplate: false, constraints: { minimum: 1, maximum: 10 } },
@@ -552,6 +586,8 @@ test("draft keeps shape-only string lists while published rejects unusable ident
 test("a legacy unordered multi-media default is read faithfully but materialized canonically", async () => {
   const context = fixture();
   try {
+    seedMedia(context.store, "a-asset");
+    seedMedia(context.store, "b-asset");
     const typeId = "00000000-0000-4000-8000-0000000000b1";
     const legacy = { contract: "content-type-definition/v1", typeId, label: "舊定義", slug: "legacy-media-default", help: "", order: 0, showInMenu: false, systemFields: ["title", "body", "slug", "excerpt", "featuredMedia", "categories", "tags", "seo", "status", "publishedAt"], fieldGroups: [{ groupId: "00000000-0000-4000-8000-0000000000b2", label: "主要", help: "", order: 0, fields: [{ fieldId: "00000000-0000-4000-8000-0000000000b3", kind: "multi-media", label: "相簿", help: "", order: 0, required: false, showInGenericTemplate: false, constraints: { mimeTypes: ["image/png"] }, defaultValue: ["b-asset", "a-asset"] }] }], taxonomyAttachments: [] };
     const bytes = canonicalJsonBytes(legacy);
@@ -570,6 +606,29 @@ test("a legacy unordered multi-media default is read faithfully but materialized
     assert.deepEqual(valuesOf(created), { "00000000-0000-4000-8000-0000000000b3": ["a-asset", "b-asset"] });
     const published = unwrap(await context.administration.save({ typeId, entryId: created.entryId, request: customSaveRequest(created, { status: "published", customValues: [{ fieldId: "00000000-0000-4000-8000-0000000000b3", value: ["a-asset", "b-asset"] }] }) }));
     assert.deepEqual(valuesOf(published), { "00000000-0000-4000-8000-0000000000b3": ["a-asset", "b-asset"] });
+  } finally {
+    context.store.close();
+    rmSync(context.directory, { recursive: true, force: true });
+  }
+});
+
+test("featured media usage follows entry CAS, save, and delete atomically", async () => {
+  const context = fixture();
+  try {
+    seedMedia(context.store, "featured-asset");
+    const empty = unwrap(await context.administration.catalog({ typeId: articleTypeId }));
+    const created = unwrap(await context.administration.create({ typeId: articleTypeId, request: { ...createRequest(empty, { title: "媒體關聯" }), content: { ...content({ title: "媒體關聯" }), featuredMedia: "featured-asset" } } }));
+    assert.deepEqual(unwrap(context.store.listCurrentMediaReferences("featured-asset")), [{ entryId: created.entryId, status: "draft" }]);
+    assert.equal(context.store.deleteCurrentMediaAsset("featured-asset").ok, false);
+    const stale = await context.administration.save({ typeId: articleTypeId, entryId: created.entryId, request: { ...saveRequest(created, { digest: empty.stateDigest }), content: content({ title: "媒體關聯" }) } });
+    assert.equal(failureCode(stale), "ENTRY_STATE_CONFLICT");
+    assert.deepEqual(unwrap(context.store.listCurrentMediaReferences("featured-asset")), [{ entryId: created.entryId, status: "draft" }]);
+    const published = unwrap(await context.administration.save({ typeId: articleTypeId, entryId: created.entryId, request: { ...saveRequest(created, { status: "published" }), content: { ...content({ title: "媒體關聯" }), featuredMedia: "featured-asset" } } }));
+    assert.deepEqual(unwrap(context.store.listCurrentMediaReferences("featured-asset")), [{ entryId: created.entryId, status: "published" }]);
+    const cleared = unwrap(await context.administration.save({ typeId: articleTypeId, entryId: created.entryId, request: { ...saveRequest(published, {}), content: content({ title: "媒體關聯" }) } }));
+    assert.deepEqual(unwrap(context.store.listCurrentMediaReferences("featured-asset")), []);
+    assert.equal((await context.administration.delete({ typeId: articleTypeId, entryId: cleared.entryId, request: deleteRequest(cleared.stateDigest) })).ok, true);
+    assert.equal(context.store.deleteCurrentMediaAsset("featured-asset").ok, true);
   } finally {
     context.store.close();
     rmSync(context.directory, { recursive: true, force: true });

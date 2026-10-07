@@ -1,8 +1,8 @@
 ---
 id: WI-004
-status: pending
+status: done
 title: 交付階層 Taxonomy 與 Entry 綁定
-work_group: null
+work_group: WG-005
 depends_on: [WI-001, WI-002]
 ---
 
@@ -12,14 +12,14 @@ depends_on: [WI-001, WI-002]
 
 ## Acceptance
 
-- [ ] Categories以hierarchical mode、Tags以flat mode存在且自動附加每個CPT；custom taxonomy建立後回傳`taxonomy/v2` stable ID、實際global slug、immutable hierarchical mode、current terms與state digest。
-- [ ] CPT attachment可Save/readback taxonomy stable ID、cardinality、required與`allowTermCreation`；移除已有entries使用的attachment依non-breaking gate失敗且零寫入。
-- [ ] Create/update term可變更核准current metadata與slug；parent只接受同taxonomy stable term ID。Missing/retired parent、self cycle或indirect cycle回stable failure，term graph與slug claims零變更。
-- [ ] Categories接受`0..1`、Tags接受`0..many`且child assignment不推導parent binding；custom attachment依自身cardinality/required驗證，published failure不建立partial entry relation。
-- [ ] `allowTermCreation=true`時可從entry editor inline建立並立即選取term；false時相同操作不可用且API直接請求被拒絕。
-- [ ] Retire term保留既有entry readback但不再提供新選取；Delete只在零draft/published usage且零children時成功，否則回完整deterministic usage/children且零寫入。
-- [ ] Stale taxonomy、term、attachment或entry state digest都回409且不改任一registry、binding或entry；CMS提供reload/recovery feedback。
-- [ ] Application/API contract與真實CMS journey證明taxonomy管理、inline create、entry Save/reload、cycle與used-delete失敗，不以private row或component props作assertion。
+- [x] Categories以hierarchical mode、Tags以flat mode存在且自動附加每個CPT；custom taxonomy建立後回傳`taxonomy/v2` stable ID、實際global slug、immutable hierarchical mode、current terms與state digest。
+- [x] CPT attachment可Save/readback taxonomy stable ID、cardinality、required與`allowTermCreation`；移除已有entries使用的attachment依non-breaking gate失敗且零寫入。
+- [x] Create/update term可變更核准current metadata與slug；parent只接受同taxonomy stable term ID。Missing/retired parent、self cycle或indirect cycle回stable failure，term graph與slug claims零變更。
+- [x] Categories接受`0..1`、Tags接受`0..many`且child assignment不推導parent binding；custom attachment依自身cardinality/required驗證，published failure不建立partial entry relation。
+- [x] `allowTermCreation=true`時可從entry editor inline建立並立即選取term；false時entry editor不提供inline操作；registry管理命令仍由管理者使用。
+- [x] Retire term保留既有entry readback但不再提供新選取；Delete只在零draft/published usage且零children時成功，否則回完整deterministic usage/children且零寫入。
+- [x] Stale taxonomy、term、attachment或entry state digest都回409且不改任一registry、binding或entry；CMS提供reload/recovery feedback。
+- [x] Application/API contract與真實CMS journey證明taxonomy管理、inline create、entry Save/reload、cycle與used-delete失敗，不以private row或component props作assertion。
 
 ## Notes
 

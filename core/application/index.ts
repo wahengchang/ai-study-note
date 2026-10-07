@@ -1,63 +1,10 @@
-export { createDomainApplication } from "./application.js";
 export { createPersistencePluginActivationStatePort } from "./plugin-activation-state-adapter.js";
 export { createPersistencePluginSettingsStatePort } from "./plugin-settings-state-adapter.js";
-export { createAuthoringReadFacade } from "./authoring-read.js";
 export { createContentTypeAdministration } from "./content-type-administration.js";
 export { createCurrentEntryAdministration } from "./entry-administration.js";
-export { createContentTypeMigrationAdministration } from "./content-type-migration.js";
+export { createCurrentTaxonomyAdministration } from "./current-taxonomy-administration.js";
+export type { CurrentTaxonomyAdministration, CurrentTaxonomyCatalog, CurrentTaxonomySnapshot, CurrentTaxonomyCreateRequest, CurrentTaxonomyCommand, CurrentTaxonomyFailure, CurrentTaxonomyFailureCode, CurrentTaxonomyResult } from "./current-taxonomy-administration.js";
 export { createCurrentMediaLibrary, MEDIA_FILE_CEILING, MEDIA_THUMBNAIL_MAX_EDGE } from "./current-media-library.js";
-export type {
-  AuthoringEntryV1,
-  ChangeRouteRequest,
-  ChangeRouteSuccess,
-  RouteChangeProposalRequest,
-  RouteChangeProposalV1,
-  RouteGraphDigests,
-  SiteRouteGraphReadRequest,
-  SiteRouteGraphV1,
-  CmsEditorBlockResolutionItem,
-  CmsEditorBlockResolutions,
-  CmsEditorBlockResolutionsRequest,
-  CmsSeoAnalysisRequest,
-  CmsSeoAnalysisResponse,
-  DomainApplication,
-  DomainApplicationCommandFailure,
-  DomainApplicationDependencies,
-  DomainApplicationFailure,
-  DomainApplicationFailureCode,
-  DomainApplicationResult,
-  PluginActivationRequest,
-  PluginManagementSnapshotV1,
-  PluginSettingsReplaceRequest,
-  PublishRevisionRequest,
-  PublishRevisionSuccess,
-  RestoreRevisionRequest,
-  RestoreRevisionSuccess,
-  RevisionSchemaValidator,
-  SaveRevisionRequest,
-  SaveRevisionSuccess,
-} from "./contracts.js";
-export type {
-  CreateTaxonomyRequest,
-  TaxonomyCatalog,
-  TaxonomyCommand,
-  TaxonomyCommandResult,
-  TaxonomyFailureCode,
-  TaxonomySnapshot,
-} from "../taxonomy/index.js";
-export type {
-  AuthoringReadFacade,
-  AuthoringReadFailure,
-  AuthoringReadFailureCode,
-  AuthoringReadResult,
-  ContentTypeDefinitionValidator,
-  ContentTypeCatalog,
-  ContentTypeDocument,
-  CreateAuthoringReadFacadeInput,
-  EntryCatalog,
-  EntryDetail,
-  EntryRevisionCatalog,
-} from "./authoring-read.js";
 export type {
   ContentTypeAdministration,
   ContentTypeAdministrationFailure,
@@ -81,6 +28,8 @@ export type {
   CptEntryDeleteRequestV1,
   CptEntryDeletedV1,
   CptEntrySaveRequestV1,
+  CptEntrySearchRequestV1,
+  CptEntrySearchResultV1,
   CptEntrySummaryV1,
   CptEntryV1,
   CptSeo,
@@ -107,14 +56,3 @@ export type {
   MediaUploadSource,
   MediaUsageV2,
 } from "./current-media-library.js";
-export type {
-  ContentTypeMigrationAdministration,
-  ContentTypeMigrationCommand,
-  ContentTypeMigrationExecution,
-  ContentTypeMigrationFailureCode,
-  ContentTypeMigrationImpact,
-  ContentTypeMigrationMapping,
-  ContentTypeMigrationPolicy,
-  ContentTypeMigrationProposal,
-  ContentTypeMigrationResult,
-} from "./content-type-migration.js";

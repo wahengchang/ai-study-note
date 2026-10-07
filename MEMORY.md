@@ -1,6 +1,6 @@
 # CMS 專案長期原則
 
-本專案自建 JavaScript／TypeScript local-first CMS：authoring canonical state 與 media 留在本機，公開端只服務 published projection 的 immutable static artifact。它借鏡 WordPress 的穩定核心與受控擴充哲學，但不採用其程式碼或 runtime。
+本專案自建 JavaScript／TypeScript local-first CMS：current-only authoring canonical state 與 media 留在本機。新內容的公開站接線尚待後續 PR；Preview、`site:build` 與 Release 暫停。它借鏡 WordPress 的穩定核心與受控擴充哲學，但不採用其程式碼或 runtime。
 
 ## 架構邊界
 

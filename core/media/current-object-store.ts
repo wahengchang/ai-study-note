@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { closeSync, constants, copyFileSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readSync, readdirSync, realpathSync, unlinkSync, writeSync } from "node:fs";
+import { closeSync, constants, copyFileSync, fsyncSync, linkSync, lstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, realpathSync, unlinkSync, writeFileSync, writeSync } from "node:fs";
 import path from "node:path";
 
 import type { Digest } from "../foundation/index.js";
@@ -7,6 +7,44 @@ import type { DataMediaFailureCode, DataMediaResult } from "./contracts.js";
 import { mediaFailureMessages } from "./failures.js";
 
 export type MediaByteEvidence = Readonly<{ checksum: Digest; byteLength: number }>;
+const currentMediaMarker = ".cms-current-only-v1";
+const currentMediaMarkerBytes = "ai-study-note-reset/current-media/v1\n";
+
+/** 此檢查不得建立目錄或 sweep；舊媒體 bytes 必須在啟動前保持原狀。 */
+export function inspectCurrentMediaRoot(root: string): "absent" | "empty" | "current" | "old" | "unknown" {
+  try {
+    const stat = lstatSync(root);
+    if (!stat.isDirectory() || stat.isSymbolicLink()) return "unknown";
+    const entries = readdirSync(root);
+    if (entries.length === 0) return "empty";
+    if (!entries.includes(currentMediaMarker)) return "old";
+    if (entries.some((name) => name !== currentMediaMarker && name !== "current")) return "old";
+    const marker = lstatSync(path.join(root, currentMediaMarker));
+    if (!marker.isFile() || marker.isSymbolicLink() || readFileSync(path.join(root, currentMediaMarker), "utf8") !== currentMediaMarkerBytes) return "unknown";
+    if (entries.includes("current")) {
+      const current = lstatSync(path.join(root, "current"));
+      if (!current.isDirectory() || current.isSymbolicLink()) return "unknown";
+      for (const name of readdirSync(path.join(root, "current"))) {
+        if (name !== "staging" && name !== "objects") return "unknown";
+        const child = lstatSync(path.join(root, "current", name));
+        if (!child.isDirectory() || child.isSymbolicLink()) return "unknown";
+      }
+    }
+    return "current";
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT" ? "absent" : "unknown";
+  }
+}
+
+export function markCurrentMediaRoot(root: string): boolean {
+  const state = inspectCurrentMediaRoot(root);
+  if (state === "current") return true;
+  if (state !== "empty") return false;
+  try {
+    writeFileSync(path.join(root, currentMediaMarker), currentMediaMarkerBytes, { flag: "wx", mode: 0o600 });
+    return true;
+  } catch { return false; }
+}
 export type CurrentMediaStageWriter = Readonly<{
   readonly stageId: string;
   /** 累計 checksum 與長度；超過 ceiling 時回 failure，且不寫入超出的 bytes。 */
@@ -43,8 +81,17 @@ export function createCurrentMediaObjectStore(input: Readonly<{ objectsRoot: str
   try {
     if (!path.isAbsolute(input.objectsRoot)) return storeFailure("MEDIA_ROOT_FAILURE");
     const root = realpathSync(mkdirp(input.objectsRoot));
+    for (const directory of [path.join(root, "current"), path.join(root, "current", "staging"), path.join(root, "current", "objects")]) {
+      try {
+        const stat = lstatSync(directory);
+        if (!stat.isDirectory() || stat.isSymbolicLink()) return storeFailure("MEDIA_ROOT_FAILURE");
+      } catch (error) {
+        if (errorCode(error) !== "ENOENT") return storeFailure("MEDIA_ROOT_FAILURE");
+      }
+    }
     const staging = realpathSync(mkdirp(path.join(root, "current", "staging")));
     const objects = realpathSync(mkdirp(path.join(root, "current", "objects")));
+    if (staging !== path.join(root, "current", "staging") || objects !== path.join(root, "current", "objects")) return storeFailure("MEDIA_ROOT_FAILURE");
     const stagingIdentity = directoryIdentity(staging);
     const objectsIdentity = directoryIdentity(objects);
     if (stagingIdentity === undefined || objectsIdentity === undefined) return storeFailure("MEDIA_ROOT_FAILURE");

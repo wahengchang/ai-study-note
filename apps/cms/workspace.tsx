@@ -9,7 +9,6 @@ import { openAuthoringSession, type AuthoringSession } from "./session.js";
 const AUTHORING_RESOURCE_ID_PATTERN = /^(?!\.{1,2}$)[A-Za-z0-9._~-]+$/u;
 const digestSchema = z.string().regex(/^sha256:[0-9a-f]{64}$/u);
 const jsonContent = z.unknown().refine((value) => value !== undefined);
-const schemaIdentitySchema = z.object({ schemaId: z.string(), version: z.number().int().safe().positive() }).strict();
 const remediationSchema = z.object({ kind: z.literal("message"), message: z.string() }).strict();
 const authoringErrorSchema = z.object({ contract: z.literal("authoring-error/v1"), requestId: z.string(), code: z.string(), owner: z.string(), subjectIds: z.array(z.string()), remediation: remediationSchema }).strict();
 const mediaUsageV2Schema = z.object({ entryId: z.string().min(1), status: z.enum(["draft", "published"]) }).strict();
@@ -18,7 +17,6 @@ const mediaUsageV2Schema = z.object({ entryId: z.string().min(1), status: z.enum
  * generic `authoring-error/v1` 無法承載，因此以 exact contract 單獨驗證並保留給 UI 顯示。
  */
 const mediaAssetReferencedErrorSchema = z.object({ contract: z.literal("media-asset-referenced/v2"), requestId: z.string(), code: z.literal("MEDIA_ASSET_REFERENCED"), owner: z.literal("DataMedia"), subjectIds: z.array(z.string()), remediation: remediationSchema, usage: z.array(mediaUsageV2Schema).nonempty() }).strict();
-const entryCatalogSchema = z.object({ contract: z.literal("entry-catalog/v1"), items: z.array(z.object({ entryId: z.string(), title: z.string(), status: z.enum(["draft", "published", "published-with-draft"]), current: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict(), published: z.object({ revisionId: z.string(), contentDigest: digestSchema, normalizedRoute: z.string() }).strict().optional() }).strict()), routeGraphs: z.unknown(), stateDigest: digestSchema }).strict();
 const contentFieldKindSchema = z.enum(["text", "textarea", "number", "boolean", "url", "date", "datetime", "single-select", "multi-select", "single-media", "multi-media"]);
 const contentFieldOptionSchema = z.object({ optionId: z.string(), label: z.string(), order: z.number().int().safe() }).strict();
 /**
@@ -33,22 +31,16 @@ type ContentFieldGroup = Readonly<z.infer<typeof contentFieldGroupSchema>>;
 const contentTypeSummarySchema = z.object({ typeId: z.string().uuid(), label: z.string(), slug: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), stateDigest: digestSchema }).strict();
 const contentTypeSchema = z.object({ contract: z.literal("content-type-definition/v1"), typeId: z.string().uuid(), label: z.string(), slug: z.string(), help: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), systemFields: z.array(z.string()), fieldGroups: z.array(contentFieldGroupSchema), taxonomyAttachments: z.array(z.object({ taxonomyId: z.string().min(1), cardinality: z.enum(["one", "many"]), required: z.boolean(), allowTermCreation: z.boolean() }).strict()), stateDigest: digestSchema }).strict();
 const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSummarySchema), stateDigest: digestSchema }).strict();
-const taxonomyBindingSchema = z.object({ taxonomyId: z.string(), termId: z.string(), evidence: z.object({ taxonomyId: z.string(), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe() }).strict(), evidenceDigest: digestSchema }).strict();
-const authoringEntrySchema = z.object({ contract: z.literal("authoring-entry/v1"), entryId: z.string(), current: z.object({ revisionId: z.string(), schemaIdentity: schemaIdentitySchema, content: jsonContent, contentDigest: digestSchema, route: z.string(), assets: z.array(z.object({ assetId: z.string(), assetVersionId: z.string() }).strict()), taxonomyBindings: z.array(taxonomyBindingSchema) }).strict(), stateDigest: digestSchema }).strict();
-const taxonomyTermSchema = z.object({ taxonomyId: z.string(), termId: z.string(), label: z.string(), slug: z.string(), order: z.number().int().safe(), state: z.enum(["live", "retired"]) }).strict();
-const taxonomySnapshotSchema = z.object({ contract: z.literal("taxonomy/v1"), taxonomy: z.object({ taxonomyId: z.string(), label: z.string() }).strict(), terms: z.array(taxonomyTermSchema), stateDigest: digestSchema }).strict();
-const taxonomyCatalogSchema = z.object({ contract: z.literal("taxonomy-catalog/v1"), taxonomies: z.array(z.object({ taxonomy: z.object({ taxonomyId: z.string(), label: z.string() }).strict(), stateDigest: digestSchema }).strict()) }).strict();
-const seoSettingsSchema = z.object({ contract: z.literal("seo-plugin-settings/v1"), publicSiteUrl: z.string().url(), indexing: z.enum(["allow", "disallow"]) }).strict();
-const pluginIdentitySchema = z.object({ id: z.string(), version: z.string(), hookContract: z.literal("plugin-hooks/v1"), manifestHash: digestSchema, capabilities: z.array(z.string()) }).strict();
-const pluginManagementSnapshotSchema = z.object({ contract: z.literal("plugin-management-snapshot/v1"), activationStateDigest: digestSchema, settingsStateDigest: digestSchema, plugins: z.array(z.object({ identity: pluginIdentitySchema, status: z.enum(["inactive", "active", "reactivation-required"]), settings: z.object({ settingsContract: z.literal("seo-plugin-settings/v1"), settings: seoSettingsSchema, settingsDigest: digestSchema }).strict().optional() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
+const currentTaxonomyRecordSchema = z.object({ taxonomyId: z.string().uuid(), label: z.string(), slug: z.string(), hierarchical: z.boolean() }).strict();
+const taxonomyTermSchema = z.object({ taxonomyId: z.string().uuid(), termId: z.string().uuid(), label: z.string(), slug: z.string(), parentTermId: z.string().uuid().optional(), order: z.number().int().safe(), state: z.enum(["live", "retired"]) }).strict();
+const taxonomySnapshotSchema = z.object({ contract: z.literal("taxonomy/v2"), taxonomy: currentTaxonomyRecordSchema, terms: z.array(taxonomyTermSchema), stateDigest: digestSchema }).strict();
+const taxonomyCatalogSchema = z.object({ contract: z.literal("taxonomy-catalog/v2"), taxonomies: z.array(z.object({ taxonomy: currentTaxonomyRecordSchema, stateDigest: digestSchema }).strict()), stateDigest: digestSchema }).strict();
 const mediaImageV2Schema = z.object({ width: z.number().int().safe().positive(), height: z.number().int().safe().positive() }).strict();
 const mediaThumbnailV2Schema = z.object({ digest: digestSchema, byteLength: z.number().int().nonnegative(), width: z.number().int().safe().positive(), height: z.number().int().safe().positive() }).strict();
 const mediaAssetV2Schema = z.object({ contract: z.literal("media-asset/v2"), assetId: z.string().min(1), slug: z.string().min(1), title: z.string().min(1), altText: z.string().nullable(), caption: z.string(), description: z.string(), originalFilename: z.string().min(1), mimeType: z.string().min(1), byteLength: z.number().int().nonnegative(), checksum: digestSchema, uploadedAt: z.string().min(1), image: mediaImageV2Schema.nullable(), thumbnail: mediaThumbnailV2Schema.nullable(), stateDigest: digestSchema }).strict();
 const mediaCatalogV2Schema = z.object({ contract: z.literal("media-catalog/v2"), items: z.array(mediaAssetV2Schema), stateDigest: digestSchema }).strict();
 const mediaAssetDetailV2Schema = z.object({ contract: z.literal("media-asset-detail/v2"), asset: mediaAssetV2Schema, usage: z.array(mediaUsageV2Schema) }).strict();
 const mediaDeleteReceiptV2Schema = z.object({ contract: z.literal("media-delete-receipt/v2"), assetId: z.string().min(1), releasedSlug: z.string().min(1) }).strict();
-const cmsSeoAnalysisResponseSchema = z.object({ contract: z.literal("cms-seo-analysis-response/v1"), documentDigest: digestSchema, status: z.enum(["available", "unavailable"]), preview: z.object({ title: z.string(), description: z.string().optional(), canonicalUrl: z.string().url().optional() }).strict().optional(), suggestions: z.array(z.object({ code: z.string() }).strict()), diagnostics: z.array(z.unknown()) }).strict();
-const previewDocumentSchema = z.object({ contract: z.literal("preview-document/v1"), selection: z.enum(["current", "published"]), subject: z.object({ entryId: z.string() }).strict(), revisionId: z.string(), contentDigest: digestSchema, document: z.string() }).strict();
 const interactiveDemoBlockSchema = z.object({
   kind: z.literal("interactive-demo"),
   identity: z.object({ id: z.string().min(1), version: z.string().min(1) }).strict(),
@@ -58,75 +50,31 @@ const interactiveDemoBlockSchema = z.object({
   staticFallback: z.string().min(1),
 }).strict();
 const articleBlockSchema = z.object({ kind: z.literal("article"), text: z.string().min(1) }).strict();
-const structuredContentSchema = z.object({ contract: z.literal("site-content/v1"), title: z.string().min(1), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), seo: z.object({ title: z.string().min(1).optional(), description: z.string().min(1).optional(), canonicalPath: z.string().min(1).optional() }).strict() }).strict();
-const cptEntrySchema = z.object({ contract: z.literal("cpt-entry/v1"), entryId: z.string(), typeId: z.string(), slug: z.string(), content: z.object({ contract: z.literal("cpt-content/v1"), typeId: z.string(), title: z.string(), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), excerpt: z.string(), seo: z.object({ title: z.string().optional(), description: z.string().optional(), canonicalPath: z.string().optional() }).strict(), customValues: z.array(z.object({ fieldId: z.string(), value: jsonContent }).strict()) }).strict(), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), lastPublishedDigest: digestSchema.optional(), stateDigest: digestSchema }).strict();
+const cptEntrySchema = z.object({ contract: z.literal("cpt-entry/v1"), entryId: z.string(), typeId: z.string(), slug: z.string(), content: z.object({ contract: z.literal("cpt-content/v1"), typeId: z.string(), title: z.string(), blocks: z.array(z.discriminatedUnion("kind", [articleBlockSchema, interactiveDemoBlockSchema])).min(1), excerpt: z.string(), seo: z.object({ title: z.string().optional(), description: z.string().optional(), canonicalPath: z.string().optional() }).strict(), featuredMedia: z.string().optional(), customValues: z.array(z.object({ fieldId: z.string(), value: jsonContent }).strict()) }).strict(), taxonomyTerms: z.array(z.object({ taxonomyId: z.string().uuid(), termId: z.string().uuid() }).strict()), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), lastPublishedDigest: digestSchema.optional(), stateDigest: digestSchema }).strict();
 const cptEntryCatalogSchema = z.object({ contract: z.literal("cpt-entry-catalog/v1"), typeId: z.string(), items: z.array(z.object({ entryId: z.string(), slug: z.string(), title: z.string(), status: z.enum(["draft", "published"]), publishedAt: z.string().optional(), stateDigest: digestSchema }).strict()), stateDigest: digestSchema }).strict();
+const cptEntrySearchResultSchema = z.object({ contract: z.literal("entry-search-result/v1"), typeId: z.string(), page: z.number().int().positive(), pageSize: z.literal(20), totalItems: z.number().int().nonnegative(), totalPages: z.number().int().nonnegative(), items: cptEntryCatalogSchema.shape.items, stateDigest: digestSchema }).strict();
 const cptEntryDeletedSchema = z.object({ contract: z.literal("cpt-entry-deleted/v1"), entryId: z.string() }).strict();
-const cmsEditorBlockDiagnosticSchema = z.object({ code: z.enum(["PLUGIN_BLOCK_INACTIVE", "PLUGIN_BLOCK_MISSING", "PLUGIN_BLOCK_IDENTITY_CHANGED"]), owner: z.literal("PluginHost"), subjectIds: z.array(z.string()), remediation: z.object({ kind: z.literal("message"), message: z.string() }).strict(), detail: z.object({ pluginId: z.string(), hook: z.literal("cms/editor-block/resolve"), capability: z.literal("cms-editor-block-resolution"), entryId: z.string(), cause: z.enum(["inactive", "missing", "identity-changed"]) }).strict() }).strict();
-const cmsEditorBlockResolutionSchema = z.object({ blockIndex: z.number().int().nonnegative(), pluginIdentity: z.object({ id: z.string(), version: z.string(), hook: z.literal("cms/editor-block/resolve"), manifestHash: digestSchema }).strict(), source: z.object({ html: z.string(), css: z.string(), javascript: z.string() }).strict(), sourceDigest: digestSchema, activeStateDigest: digestSchema, status: z.enum(["active", "inactive", "missing", "identity-changed"]), output: jsonContent.optional(), outputDigest: digestSchema.optional(), diagnostic: cmsEditorBlockDiagnosticSchema.optional() }).strict().superRefine((value, context) => {
-  if (value.status === "active" && (value.output === undefined || value.outputDigest === undefined || value.diagnostic !== undefined)) context.addIssue({ code: "custom", message: "CMS_EDITOR_BLOCK_RESOLUTION_INVALID" });
-  if (value.status !== "active" && (value.output !== undefined || value.outputDigest !== undefined || value.diagnostic === undefined || value.diagnostic.code !== `PLUGIN_BLOCK_${value.status === "identity-changed" ? "IDENTITY_CHANGED" : value.status.toUpperCase()}` || value.diagnostic.detail.cause !== value.status)) context.addIssue({ code: "custom", message: "CMS_EDITOR_BLOCK_RESOLUTION_INVALID" });
-});
-const cmsEditorBlockResolutionsSchema = z.object({ contract: z.literal("cms-editor-block-resolutions/v1"), entryId: z.string(), revisionId: z.string(), contentDigest: digestSchema, stateDigest: digestSchema, items: z.array(cmsEditorBlockResolutionSchema) }).strict();
-const saveRevisionSuccessSchema = z.unknown();
-const siteRouteClaimSchema = z.object({ graph: z.enum(["current", "published"]), normalizedRoute: z.string(), owner: z.string(), sourceRevisionId: z.string() }).strict();
-const siteRouteGraphSchema = z.object({ contract: z.literal("route-graph/v1"), normalization: z.literal("route-normalization/v1"), graph: z.enum(["current", "published"]), claims: z.array(siteRouteClaimSchema), digest: digestSchema }).strict();
-const routeGraphDigestsSchema = z.object({ current: digestSchema, published: digestSchema }).strict();
-const routeChangeProposalSchema = z.object({ contract: z.literal("route-change-proposal/v1"), baselineDigests: routeGraphDigestsSchema, claim: siteRouteClaimSchema, impact: z.array(z.object({ change: z.enum(["route-move", "attribution-only", "retained"]), graph: z.enum(["current", "published"]), owner: z.string(), from: z.string(), to: z.string(), resultingSourceRevisionId: z.string() }).strict()), resultingDigests: routeGraphDigestsSchema }).strict();
-const publishRevisionSuccessSchema = z.unknown();
-const releaseDiagnosticSchema = z.object({ code: z.string().regex(/^[A-Z0-9_]+$/u) }).strict();
-const releaseDiagnosisSchema = z.object({ contract: z.literal("release-diagnosis/v1"), status: z.enum(["ready", "blocked"]), diagnostics: z.array(releaseDiagnosticSchema) }).strict();
-const releaseBuildSchema = z.object({ contract: z.literal("release-build/v1"), artifactDigest: digestSchema, diagnostics: z.array(releaseDiagnosticSchema) }).strict();
-const releaseReceiptSchema = z.object({ contract: z.literal("release-receipt/v1"), artifactDigest: digestSchema, targetDigest: digestSchema }).strict();
-type AuthoringEntryDto = Readonly<z.infer<typeof authoringEntrySchema>>;
-type CmsEditorBlockResolutionsDto = Readonly<z.infer<typeof cmsEditorBlockResolutionsSchema>>;
-type CmsSeoAnalysisResponseDto = Readonly<z.infer<typeof cmsSeoAnalysisResponseSchema>>;
-type EntryCatalogDto = Readonly<z.infer<typeof entryCatalogSchema>>;
 type CptEntryDto = Readonly<z.infer<typeof cptEntrySchema>>;
 type CptEntryCatalogDto = Readonly<z.infer<typeof cptEntryCatalogSchema>>;
+type CptEntrySearchResultDto = Readonly<z.infer<typeof cptEntrySearchResultSchema>>;
 type ContentTypeCatalogDto = Readonly<z.infer<typeof contentTypeCatalogSchema>>;
 type ContentTypeDto = Readonly<z.infer<typeof contentTypeSchema>>;
-type PluginManagementSnapshotDto = Readonly<z.infer<typeof pluginManagementSnapshotSchema>>;
-type PreviewDocumentDto = Readonly<z.infer<typeof previewDocumentSchema>>;
-type ReleaseDiagnosisDto = Readonly<z.infer<typeof releaseDiagnosisSchema>>;
-type ReleaseBuildDto = Readonly<z.infer<typeof releaseBuildSchema>>;
-type ReleaseReceiptDto = Readonly<z.infer<typeof releaseReceiptSchema>>;
 type TaxonomySnapshotDto = Readonly<z.infer<typeof taxonomySnapshotSchema>>;
 type TaxonomyCatalogDto = Readonly<z.infer<typeof taxonomyCatalogSchema>>;
-type StructuredContent = Readonly<z.infer<typeof structuredContentSchema>>;
 type MediaAssetV2Dto = Readonly<z.infer<typeof mediaAssetV2Schema>>;
 type MediaCatalogV2Dto = Readonly<z.infer<typeof mediaCatalogV2Schema>>;
 type MediaAssetDetailV2Dto = Readonly<z.infer<typeof mediaAssetDetailV2Schema>>;
 type MediaUsageV2Dto = Readonly<z.infer<typeof mediaUsageV2Schema>>;
-type SiteRouteGraphDto = Readonly<z.infer<typeof siteRouteGraphSchema>>;
-type RouteChangeProposalDto = Readonly<z.infer<typeof routeChangeProposalSchema>>;
-type StructuredBlock = StructuredContent["blocks"][number];
-type InteractiveDemoBlock = Extract<StructuredBlock, Readonly<{ kind: "interactive-demo" }>>;
+type StructuredBlock = CptEntryDto["content"]["blocks"][number];
 
-const seoKeys = ["title", "description", "canonicalPath"] as const;
-type Seo = Readonly<{ title?: string | undefined; description?: string | undefined; canonicalPath?: string | undefined }>;
-type NormalizedDocument = Readonly<{ content: StructuredContent; route: string }>;
 type TaxonomyTermIdentity = Readonly<{ taxonomyId: string; termId: string }>;
+type TaxonomyAttachment = ContentTypeDto["taxonomyAttachments"][number];
 export { openAuthoringSession } from "./session.js";
 
 export class CmsApiError extends Error {
   constructor(readonly code: string, readonly status: number, readonly remediation: string, readonly usage: readonly MediaUsageV2Dto[] = [], readonly subjectIds: readonly string[] = []) {
     super(remediation);
   }
-}
-
-function canonicalJson(value: unknown): string {
-  if (value === null || typeof value === "boolean" || typeof value === "number" || typeof value === "string") return JSON.stringify(value);
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (typeof value !== "object") throw new Error("CMS_CANONICAL_JSON_INVALID");
-  const record = value as Readonly<Record<string, unknown>>;
-  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`;
-}
-
-async function sha256(value: string): Promise<string> {
-  const bytes = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return `sha256:${Array.from(new Uint8Array(digest), (byte) => byte.toString(16).padStart(2, "0")).join("")}`;
 }
 
 function message(reason: unknown): string {
@@ -355,33 +303,6 @@ function customFieldDescription(field: ContentField): string {
   return parts.join("；");
 }
 
-function normalizeSeo(value: Seo): Seo {
-  const result: Record<string, string> = {};
-  for (const key of seoKeys) {
-    const trimmed = value[key]?.trim();
-    if (trimmed !== undefined && trimmed !== "") result[key] = trimmed;
-  }
-  return result as Seo;
-}
-
-function normalizeDocument(title: string, route: string, text: string, seo: Seo, blocks: readonly StructuredBlock[] = [{ kind: "article", text }]): NormalizedDocument {
-  const normalizedRoute = route.trim().startsWith("/") ? route.trim() : `/${route.trim()}`;
-  return { content: { contract: "site-content/v1", title, blocks: blocks.map((block) => block.kind === "article" ? { kind: "article", text } : block), seo: normalizeSeo(seo) }, route: normalizedRoute };
-}
-
-function articleDocument(value: unknown, route: string): NormalizedDocument | undefined {
-  const parsed = structuredContentSchema.safeParse(value);
-  if (!parsed.success) return undefined;
-  const articles = parsed.data.blocks.filter((block) => block.kind === "article");
-  if (articles.length !== 1) return undefined;
-  return normalizeDocument(parsed.data.title, route, articles[0]!.text, parsed.data.seo, parsed.data.blocks);
-}
-
-function isValidDocument(document: NormalizedDocument): boolean {
-  const article = document.content.blocks.find((block) => block.kind === "article");
-  return article !== undefined && document.content.title.trim() !== "" && document.route !== "/" && document.route.startsWith("/") && article.text.trim() !== "";
-}
-
 type MediaMetadataFields = Readonly<{ title: string; slug: string; altText: string; caption: string; description: string }>;
 type MediaImportMetadata = Readonly<{ contract: "media-import-metadata/v2"; title: string; slug?: string; altText: string | null; caption: string; description: string }>;
 
@@ -398,18 +319,9 @@ function mediaImportMetadata(fields: MediaMetadataFields, filename: string, slug
   return { contract: "media-import-metadata/v2", title, ...(slug === undefined ? {} : { slug }), altText: fields.altText === "" ? null : fields.altText, caption: fields.caption, description: fields.description };
 }
 
-function slugify(title: string): string {
-  return title.normalize("NFKC").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "-").replace(/^-+|-+$/gu, "");
-}
-
-
 class CmsApiClient {
   constructor(private readonly session: AuthoringSession) {}
 
-  listEntries(): Promise<EntryCatalogDto> { return this.json("/v1/entries", entryCatalogSchema); }
-  routeGraph(selection: "current" | "published"): Promise<SiteRouteGraphDto> { return this.json(`/v1/site/routes?selection=${selection}` as `/v1/${string}`, siteRouteGraphSchema); }
-  proposeRouteChange(body: Record<string, unknown>): Promise<RouteChangeProposalDto> { return this.json("/v1/site/routes/change", routeChangeProposalSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
-  changeRoute(proposal: RouteChangeProposalDto): Promise<unknown> { return this.json("/v1/site/routes/change", undefined, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "change-route-command/v1", operationId: crypto.randomUUID(), proposal }) }); }
   listMedia(): Promise<MediaCatalogV2Dto> { return this.json("/v1/media", mediaCatalogV2Schema); }
   getMedia(assetId: string): Promise<MediaAssetDetailV2Dto> { return this.json(`/v1/media/${this.resourceId(assetId)}`, mediaAssetDetailV2Schema); }
   saveMediaMetadata(request: Readonly<{ assetId: string; expectedStateDigest: string; title: string; slug: string; altText: string | null; caption: string; description: string }>): Promise<MediaAssetV2Dto> {
@@ -463,32 +375,15 @@ class CmsApiClient {
   createContentType(request: Record<string, unknown>): Promise<ContentTypeDto> { return this.json("/v1/content-types", contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
   replaceContentType(typeId: string, request: Record<string, unknown>): Promise<ContentTypeDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}`, contentTypeSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
   taxonomies(): Promise<TaxonomyCatalogDto> { return this.json("/v1/taxonomies", taxonomyCatalogSchema); }
-  createTaxonomy(taxonomyId: string, label: string): Promise<TaxonomySnapshotDto> { return this.json("/v1/taxonomies", taxonomySnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "taxonomy-create-request/v1", taxonomyId: this.resourceId(taxonomyId), label }) }); }
+  createTaxonomy(request: Readonly<{ expectedStateDigest: string; label: string; slug?: string; hierarchical: boolean }>): Promise<TaxonomySnapshotDto> { return this.json("/v1/taxonomies", taxonomySnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "taxonomy-create-request/v2", ...request }) }); }
   taxonomy(taxonomyId: string): Promise<TaxonomySnapshotDto> { return this.json(`/v1/taxonomies/${this.resourceId(taxonomyId)}`, taxonomySnapshotSchema); }
+  taxonomyCommand(taxonomyId: string, command: Readonly<Record<string, unknown>>): Promise<TaxonomySnapshotDto> { return this.json(`/v1/taxonomies/${this.resourceId(taxonomyId)}/commands`, taxonomySnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "taxonomy-command/v2", ...command }) }); }
   entryCatalog(typeId: string): Promise<CptEntryCatalogDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries`, cptEntryCatalogSchema); }
+  searchEntries(typeId: string, request: Readonly<{ search: string; statuses: readonly ("draft" | "published")[]; taxonomyFilters: readonly Readonly<{ taxonomyId: string; termIds: readonly string[] }>[]; page: number }>): Promise<CptEntrySearchResultDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries/search`, cptEntrySearchResultSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "entry-search-request/v1", typeId, ...request }) }); }
   entry(typeId: string, entryId: string): Promise<CptEntryDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries/${this.resourceId(entryId)}`, cptEntrySchema); }
   createEntry(typeId: string, request: Record<string, unknown>): Promise<CptEntryDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries`, cptEntrySchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
   saveEntry(typeId: string, entryId: string, request: Record<string, unknown>): Promise<CptEntryDto> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries/${this.resourceId(entryId)}`, cptEntrySchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
   deleteEntry(typeId: string, entryId: string, request: Record<string, unknown>): Promise<unknown> { return this.json(`/v1/content-types/${this.resourceId(typeId)}/entries/${this.resourceId(entryId)}/delete`, cptEntryDeletedSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(request) }); }
-  current(entryId: string): Promise<AuthoringEntryDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current`, authoringEntrySchema); }
-  editorBlocks(entryId: string): Promise<CmsEditorBlockResolutionsDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/current/editor-blocks`, cmsEditorBlockResolutionsSchema); }
-  plugins(): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins", pluginManagementSnapshotSchema); }
-  replaceSettings(body: Record<string, unknown>): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins/settings", pluginManagementSnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
-  activate(body: Record<string, unknown>): Promise<PluginManagementSnapshotDto> { return this.json("/v1/plugins/activate", pluginManagementSnapshotSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
-  analyze(entryId: string, body: Record<string, unknown>): Promise<CmsSeoAnalysisResponseDto> { return this.json(`/v1/entries/${this.resourceId(entryId)}/seo-analysis`, cmsSeoAnalysisResponseSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
-  save(entryId: string, baseline: string | null, document: NormalizedDocument, taxonomyTerms: readonly TaxonomyTermIdentity[]): Promise<unknown> {
-    return this.json(`/v1/entries/${this.resourceId(entryId)}/revisions`, saveRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "save-revision-request/v1", revisionId: crypto.randomUUID(), operationId: crypto.randomUUID(), expectedCurrentRevisionId: baseline, schemaIdentity: { schemaId: "site-content", version: 1 }, content: document.content, route: document.route, assetVersions: [], taxonomyTerms }) });
-  }
-  publish(entryId: string, baseline: string): Promise<unknown> {
-    return this.json(`/v1/entries/${this.resourceId(entryId)}/publish`, publishRevisionSuccessSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "publish-revision-request/v1", expectedCurrentRevisionId: baseline, operationId: crypto.randomUUID() }) });
-  }
-  preview(entryId: string, selection: "current" | "published"): Promise<PreviewDocumentDto> {
-    return this.json("/v1/preview", previewDocumentSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "preview-request/v1", selection, subject: { entryId: this.resourceId(entryId) } }) });
-  }
-  diagnoseRelease(): Promise<ReleaseDiagnosisDto> { return this.json("/v1/release/diagnose", releaseDiagnosisSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "release-diagnose-request/v1" }) }); }
-  buildRelease(): Promise<ReleaseBuildDto> { return this.json("/v1/release/build", releaseBuildSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "release-build-request/v1" }) }); }
-  releaseArtifact(artifactDigest: string): Promise<ReleaseReceiptDto> { return this.json("/v1/release", releaseReceiptSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "release-request/v1", artifactDigest }) }); }
-  redeliverArtifact(artifactDigest: string): Promise<ReleaseReceiptDto> { return this.json("/v1/redeliver", releaseReceiptSchema, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract: "redeliver-request/v1", artifactDigest }) }); }
 
   private resourceId(value: string): string {
     if (!AUTHORING_RESOURCE_ID_PATTERN.test(value)) throw new CmsApiError("CMS_RESPONSE_INVALID", 0, "CMS request 無法驗證。");
@@ -524,10 +419,6 @@ function ContentTypeCatalogProvider({ api, children }: Readonly<{ api: CmsApiCli
 }
 
 
-function entryStatusText(status: EntryCatalogDto["items"][number]["status"]): string {
-  return status === "draft" ? "草稿" : status === "published" ? "已發布" : "已發布，有未發布變更";
-}
-
 function PageHeading({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
   const heading = useRef<HTMLHeadingElement>(null);
   const { pathname } = useLocation();
@@ -539,47 +430,18 @@ function Layout({ children }: Readonly<{ children: React.ReactNode }>): React.JS
   const catalog = useContext(ContentTypeCatalogContext);
   const location = useLocation();
   const menuItems = contentTypeDisplayOrder(catalog?.catalog?.items ?? []).filter((item) => item.showInMenu);
-  // 所有 CPT 的 document pathname 都是 `/cms/post`，因此 active 判定必須比較 canonical query 的 typeId，
-  // 不能用 NavLink 的 pathname 比對（否則每個動態項目會同時 active）。
-  const activeTypeId = location.pathname === "/cms/post" ? activeContentTypeId(location.search) : undefined;
-  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>本機 CMS 已連線。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink>{menuItems.map((item) => <Link key={item.typeId} to={postPath(item.typeId)} aria-current={item.typeId === activeTypeId ? "page" : undefined}>{item.label}</Link>)}<NavLink to="/cms/entries">舊版文章</NavLink><NavLink to="/cms/entries/new">新增文章</NavLink><NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink><NavLink to="/cms/plugins">外掛</NavLink><NavLink to="/cms/release">發布診斷</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
-}
-
-function EntryList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const [entries, setEntries] = useState<EntryCatalogDto["items"]>();
-  const [error, setError] = useState<string>();
-  const load = useCallback((): void => {
-    setEntries(undefined); setError(undefined);
-    void api.listEntries().then((value) => setEntries(value.items)).catch((reason: unknown) => setError(message(reason)));
-  }, [api]);
-  useEffect(load, [load]);
-  if (entries === undefined) return <Layout><PageHeading>文章全覽</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  return <Layout><PageHeading>文章全覽</PageHeading>{entries.length === 0 ? <p>尚無文章。<Link to="/cms/entries/new">建立第一篇文章</Link></p> : <table><caption>所有文章</caption><thead><tr><th scope="col">標題</th><th scope="col">狀態</th><th scope="col">網址</th></tr></thead><tbody>{entries.map((entry) => <tr key={entry.entryId}><td><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link></td><td>{entryStatusText(entry.status)}</td><td>{entry.current.normalizedRoute}</td></tr>)}</tbody></table>}</Layout>;
-}
-
-
-/**
- * `/cms/post`（Article）與 `/cms/post?cpt=<typeId>`（其他 CPT）是 current entry 的唯一 document。
- * query canonicality 由 server admission 保證；這裡只做防禦性解析，讓非 canonical 值不會被當成 identity。
- * Article 的 seeded stable ID 來自 migration 0012。
- */
-const articleTypeId = "00000000-0000-4000-8000-000000000001";
-const canonicalUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
-
-function activeContentTypeId(search: string): string | undefined {
-  if (search === "") return articleTypeId;
-  const params = new URLSearchParams(search);
-  const value = params.get("cpt");
-  return params.size === 1 && value !== null && canonicalUuidPattern.test(value) && value !== articleTypeId ? value : undefined;
+  // 動態內容選單以路徑中的 typeId 判定 active，避免每個項目同時亮起。
+  const activeTypeId = location.pathname.startsWith("/cms/content/") ? location.pathname.slice("/cms/content/".length) : undefined;
+  return <><a className="skip" href="#page-title">跳到主標題</a><header><p>本機 CMS 已連線。</p><nav aria-label="CMS 導覽"><NavLink to="/cms" end>首頁</NavLink>{menuItems.map((item) => <Link key={item.typeId} to={postPath(item.typeId)} aria-current={item.typeId === activeTypeId ? "page" : undefined}>{item.label}</Link>)}<NavLink to="/cms/media">媒體庫</NavLink><NavLink to="/cms/content-types">內容類型</NavLink><NavLink to="/cms/taxonomies">分類</NavLink></nav></header><main id="workspace" aria-labelledby="page-title">{children}</main></>;
 }
 
 function postPath(typeId: string): string {
-  return typeId === articleTypeId ? "/cms/post" : `/cms/post?cpt=${typeId}`;
+  return `/cms/content/${typeId}`;
 }
 
-type EntryForm = Readonly<{ title: string; slug: string; excerpt: string; text: string; blocks: readonly StructuredBlock[]; seoTitle: string; seoDescription: string; canonicalPath: string; status: "draft" | "published"; custom: Readonly<Record<string, unknown>> }>;
+type EntryForm = Readonly<{ title: string; slug: string; excerpt: string; text: string; blocks: readonly StructuredBlock[]; seoTitle: string; seoDescription: string; canonicalPath: string; featuredMedia: string; taxonomyTerms: readonly TaxonomyTermIdentity[]; status: "draft" | "published"; custom: Readonly<Record<string, unknown>> }>;
 
-const emptyEntryForm: EntryForm = { title: "", slug: "", excerpt: "", text: "", blocks: [], seoTitle: "", seoDescription: "", canonicalPath: "", status: "draft", custom: {} };
+const emptyEntryForm: EntryForm = { title: "", slug: "", excerpt: "", text: "", blocks: [], seoTitle: "", seoDescription: "", canonicalPath: "", featuredMedia: "", taxonomyTerms: [], status: "draft", custom: {} };
 
 function entryArticleText(entry: CptEntryDto): string {
   const article = entry.content.blocks.find((block) => block.kind === "article");
@@ -587,7 +449,7 @@ function entryArticleText(entry: CptEntryDto): string {
 }
 
 function entryFormOf(entry: CptEntryDto): EntryForm {
-  return { title: entry.content.title, slug: entry.slug, excerpt: entry.content.excerpt, text: entryArticleText(entry), blocks: entry.content.blocks, seoTitle: entry.content.seo.title ?? "", seoDescription: entry.content.seo.description ?? "", canonicalPath: entry.content.seo.canonicalPath ?? "", status: entry.status, custom: customValuesOf(entry) };
+  return { title: entry.content.title, slug: entry.slug, excerpt: entry.content.excerpt, text: entryArticleText(entry), blocks: entry.content.blocks, seoTitle: entry.content.seo.title ?? "", seoDescription: entry.content.seo.description ?? "", canonicalPath: entry.content.seo.canonicalPath ?? "", featuredMedia: entry.content.featuredMedia ?? "", taxonomyTerms: entry.taxonomyTerms, status: entry.status, custom: customValuesOf(entry) };
 }
 
 /** 只有實際渲染出來的 field 才能成為 focus 目標；其他 subjectIds 退回 form 層訊息。 */
@@ -617,18 +479,22 @@ function articleBlockCount(blocks: readonly StructuredBlock[]): number {
 }
 
 function cptContentOf(typeId: string, form: EntryForm): unknown {
-  return { contract: "cpt-content/v1", typeId, title: form.title, blocks: cptBlocksOf(form), excerpt: form.excerpt, seo: { ...(form.seoTitle.trim() === "" ? {} : { title: form.seoTitle }), ...(form.seoDescription.trim() === "" ? {} : { description: form.seoDescription }), ...(form.canonicalPath.trim() === "" ? {} : { canonicalPath: form.canonicalPath }) }, customValues: customValuesRequest(form.custom) };
+  return { contract: "cpt-content/v1", typeId, title: form.title, blocks: cptBlocksOf(form), excerpt: form.excerpt, seo: { ...(form.seoTitle.trim() === "" ? {} : { title: form.seoTitle }), ...(form.seoDescription.trim() === "" ? {} : { description: form.seoDescription }), ...(form.canonicalPath.trim() === "" ? {} : { canonicalPath: form.canonicalPath }) }, ...(form.featuredMedia === "" ? {} : { featuredMedia: form.featuredMedia }), customValues: customValuesRequest(form.custom) };
 }
 
 function cptEntryStatusText(status: CptEntryDto["status"]): string {
   return status === "draft" ? "草稿" : "已發布";
 }
 
+function mediaChoiceLabel(asset: MediaAssetV2Dto): string {
+  return `${asset.title} · ${asset.originalFilename} (${asset.mimeType})`;
+}
+
 /**
  * entry editor 的自訂欄位控制項：只依 definition metadata 渲染，不套任何 HTML constraint，
  * 也不重算 server 的驗證規則（required 只以 aria-required 與文字呈現）。
  */
-function CustomFieldControl({ field, index, value, invalid, disabled, onChange }: Readonly<{ field: ContentField; index: number; value: unknown; invalid: boolean; disabled: boolean; onChange: (value: unknown) => void }>): React.JSX.Element {
+function CustomFieldControl({ field, index, value, invalid, disabled, assets, onChange }: Readonly<{ field: ContentField; index: number; value: unknown; invalid: boolean; disabled: boolean; assets: readonly MediaAssetV2Dto[]; onChange: (value: unknown) => void }>): React.JSX.Element {
   const description = customFieldDescription(field);
   const descriptionId = `custom-field-description-${index}`;
   const errorId = `custom-field-error-${index}`;
@@ -644,36 +510,36 @@ function CustomFieldControl({ field, index, value, invalid, disabled, onChange }
       ? <select aria-label={field.label} value={value === undefined ? "unset" : value === true ? "true" : "false"} aria-invalid={invalid || undefined} onChange={(event) => onChange(event.target.value === "unset" ? undefined : event.target.value === "true")} disabled={disabled}><option value="unset">未設定</option><option value="true">是</option><option value="false">否</option></select>
       : field.kind === "multi-select"
         ? (field.options ?? []).map((option) => <label key={option.optionId}><input type="checkbox" aria-label={option.label} checked={Array.isArray(value) && value.includes(option.optionId)} aria-invalid={invalid || undefined} onChange={(event) => { const current = Array.isArray(value) ? (value as readonly string[]) : []; const next = event.target.checked ? [...current, option.optionId] : current.filter((item) => item !== option.optionId); onChange(next.length === 0 ? undefined : next); }} disabled={disabled} />{option.label}</label>)
-        : <textarea aria-label={field.label} value={Array.isArray(value) ? (value as readonly string[]).join("\n") : ""} aria-invalid={invalid || undefined} onChange={(event) => { const lines = [...new Set(event.target.value.split("\n").map((line) => line.trim()).filter((line) => line !== ""))]; onChange(lines.length === 0 ? undefined : lines); }} disabled={disabled} placeholder="每行一個 asset ID" />;
+        : assets.filter((asset) => !Array.isArray(field.constraints.mimeTypes) || field.constraints.mimeTypes.includes(asset.mimeType)).map((asset) => <label key={asset.assetId}><input type="checkbox" checked={Array.isArray(value) && value.includes(asset.assetId)} onChange={(event) => { const current = Array.isArray(value) ? value as readonly string[] : []; const next = event.target.checked ? [...current, asset.assetId] : current.filter((id) => id !== asset.assetId); onChange(next.length === 0 ? undefined : next); }} disabled={disabled} />{mediaChoiceLabel(asset)}</label>);
     return <fieldset className="custom-field" data-custom-field={field.fieldId} tabIndex={-1} {...accessibility}>{<legend>{legend}</legend>}{hint}{body}{issue}</fieldset>;
   }
   if (field.kind === "single-select") return <label className="custom-field">{field.label}{field.required && "（必填）"}<select value={textValue} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.value)} disabled={disabled}><option value="">未選擇</option>{(field.options ?? []).map((option) => <option key={option.optionId} value={option.optionId}>{option.label}</option>)}</select>{hint}{issue}</label>;
+  if (field.kind === "single-media") return <label className="custom-field">{field.label}{field.required && "（必填）"}<select value={textValue} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.value)} disabled={disabled}><option value="">未選擇</option>{assets.filter((asset) => !Array.isArray(field.constraints.mimeTypes) || field.constraints.mimeTypes.includes(asset.mimeType)).map((asset) => <option key={asset.assetId} value={asset.assetId}>{mediaChoiceLabel(asset)}</option>)}</select>{hint}{issue}</label>;
   if (field.kind === "textarea") return <label className="custom-field">{field.label}{field.required && "（必填）"}<textarea value={textValue} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value)} disabled={disabled} />{hint}{issue}</label>;
   if (field.kind === "number") return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="number" value={typeof value === "number" ? String(value) : ""} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value.trim() === "" ? undefined : Number(event.target.value))} disabled={disabled} />{hint}{issue}</label>;
   if (field.kind === "datetime") return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="datetime-local" value={isoToDatetimeLocal(value)} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(datetimeLocalToIso(event.target.value))} disabled={disabled} />{hint}{issue}</label>;
   if (field.kind === "date") return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="date" value={textValue} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(event.target.value === "" ? undefined : event.target.value)} disabled={disabled} />{hint}{issue}</label>;
   // text 的空字串是合法的明示空值；url／single-media 的空輸入代表移除該值。
   const clearsOnEmpty = field.kind !== "text";
-  const placeholder = field.kind === "single-media" ? "asset stable ID" : field.kind === "url" ? "https://example.com" : undefined;
+  const placeholder = field.kind === "url" ? "https://example.com" : undefined;
   return <label className="custom-field">{field.label}{field.required && "（必填）"}<input type="text" value={textValue} placeholder={placeholder} data-custom-field={field.fieldId} aria-invalid={invalid || undefined} {...accessibility} onChange={(event) => onChange(clearsOnEmpty && event.target.value === "" ? undefined : event.target.value)} disabled={disabled} />{hint}{issue}</label>;
 }
 
-function CustomFieldsSection({ definition, values, invalidFieldIds, disabled, onChange }: Readonly<{ definition: ContentTypeDto; values: Readonly<Record<string, unknown>>; invalidFieldIds: readonly string[]; disabled: boolean; onChange: (fieldId: string, value: unknown) => void }>): React.JSX.Element | null {
+function CustomFieldsSection({ definition, values, invalidFieldIds, disabled, assets, onChange }: Readonly<{ definition: ContentTypeDto; values: Readonly<Record<string, unknown>>; invalidFieldIds: readonly string[]; disabled: boolean; assets: readonly MediaAssetV2Dto[]; onChange: (fieldId: string, value: unknown) => void }>): React.JSX.Element | null {
   if (definition.fieldGroups.length === 0) return null;
   const positions = new Map<string, number>();
   let position = -1;
   for (const group of definition.fieldGroups) for (const field of group.fields) positions.set(field.fieldId, ++position);
   return <section aria-labelledby="custom-fields-heading">
     <h2 id="custom-fields-heading">自訂欄位</h2>
-    {definition.fieldGroups.map((group) => <fieldset key={group.groupId}><legend>{group.label}</legend>{group.help !== "" && <p>{group.help}</p>}{group.fields.map((field) => <CustomFieldControl key={field.fieldId} field={field} index={positions.get(field.fieldId) ?? 0} value={values[field.fieldId]} invalid={invalidFieldIds.includes(field.fieldId)} disabled={disabled} onChange={(value) => onChange(field.fieldId, value)} />)}</fieldset>)}
+    {definition.fieldGroups.map((group) => <fieldset key={group.groupId}><legend>{group.label}</legend>{group.help !== "" && <p>{group.help}</p>}{group.fields.map((field) => <CustomFieldControl key={field.fieldId} field={field} index={positions.get(field.fieldId) ?? 0} value={values[field.fieldId]} invalid={invalidFieldIds.includes(field.fieldId)} disabled={disabled} assets={assets} onChange={(value) => onChange(field.fieldId, value)} />)}</fieldset>)}
   </section>;
 }
 
 function PostWorkspace({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const { pathname, search } = useLocation();
-  const typeId = pathname === "/cms/post" ? activeContentTypeId(search) : undefined;
+  const { typeId } = useParams();
   return typeId === undefined
-    ? <Layout><PageHeading>內容</PageHeading><p role="alert">這個網址不是 canonical 的內容位置。</p><p><Link to="/cms/post">回到文章內容</Link></p></Layout>
+    ? <Layout><PageHeading>內容</PageHeading><p role="alert">找不到內容類型。</p></Layout>
     : <PostCatalog key={typeId} api={api} typeId={typeId} />;
 }
 
@@ -688,6 +554,16 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
   const editingEntryId = useRef<string | undefined>(undefined);
   const [definition, setDefinition] = useState<ContentTypeDto>();
   const [catalog, setCatalog] = useState<CptEntryCatalogDto>();
+  const [assets, setAssets] = useState<readonly MediaAssetV2Dto[]>([]);
+  const [taxonomies, setTaxonomies] = useState<readonly TaxonomySnapshotDto[]>([]);
+  const [newTermLabels, setNewTermLabels] = useState<Readonly<Record<string, string>>>({});
+  const [searchResult, setSearchResult] = useState<CptEntrySearchResultDto>();
+  const searchGeneration = useRef(0);
+  const [searchText, setSearchText] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"all" | "draft" | "published">("all");
+  const [filterTaxonomy, setFilterTaxonomy] = useState("");
+  const [filterTerm, setFilterTerm] = useState("");
+  const [page, setPage] = useState(1);
   const [mode, setMode] = useState<"create" | "edit">();
   // 每次開啟或切換編輯對象都遞增，讓 focus 由 render 後的 effect 執行（不用 mouse-only 的選取路徑）。
   const [editorToken, setEditorToken] = useState(0);
@@ -700,6 +576,28 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
   const [notice, setNotice] = useState("");
   // 只有實際渲染出來的 field 才會進到這裡；其他 subjectIds 留在 form 層訊息。
   const [customErrors, setCustomErrors] = useState<readonly string[]>([]);
+  const createInlineTerm = async (taxonomy: TaxonomySnapshotDto, cardinality: "one" | "many"): Promise<void> => {
+    const label = newTermLabels[taxonomy.taxonomy.taxonomyId]?.trim() ?? "";
+    if (label === "") return;
+    try {
+      const updated = await api.taxonomyCommand(taxonomy.taxonomy.taxonomyId, { kind: "create-term", expectedStateDigest: taxonomy.stateDigest, label, order: taxonomy.terms.length });
+      const created = updated.terms.find((term) => !taxonomy.terms.some((existing) => existing.termId === term.termId));
+      setTaxonomies((items) => items.map((item) => item.taxonomy.taxonomyId === updated.taxonomy.taxonomyId ? updated : item));
+      if (created !== undefined && form !== undefined) setForm({ ...form, taxonomyTerms: [...(cardinality === "one" ? form.taxonomyTerms.filter((item) => item.taxonomyId !== updated.taxonomy.taxonomyId) : form.taxonomyTerms), { taxonomyId: updated.taxonomy.taxonomyId, termId: created.termId }] });
+      setNewTermLabels((values) => ({ ...values, [taxonomy.taxonomy.taxonomyId]: "" }));
+    } catch (reason) { setError(message(reason)); }
+  };
+  const refreshSearch = useCallback(async (): Promise<void> => {
+    const generation = ++searchGeneration.current;
+    setSearchResult(undefined);
+    try {
+      const result = await api.searchEntries(typeId, { search: searchText, statuses: statusFilter === "all" ? [] : [statusFilter], taxonomyFilters: filterTaxonomy === "" || filterTerm === "" ? [] : [{ taxonomyId: filterTaxonomy, termIds: [filterTerm] }], page });
+      if (generation === searchGeneration.current) setSearchResult(result);
+    } catch (reason) {
+      if (generation === searchGeneration.current) throw reason;
+    }
+  }, [api, typeId, searchText, statusFilter, filterTaxonomy, filterTerm, page]);
+  useEffect(() => { void refreshSearch().catch((reason: unknown) => setError(message(reason))); return () => { searchGeneration.current += 1; }; }, [refreshSearch]);
 
   const refreshEntry = useCallback(async (entryId: string, focusEditor: boolean): Promise<void> => {
     const entry = await api.entry(typeId, entryId);
@@ -717,8 +615,10 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
     setLoading(true); setError(undefined); setConflict(false);
     void (async () => {
       try {
-        const [nextDefinition, nextCatalog] = await Promise.all([api.contentType(typeId), api.entryCatalog(typeId)]);
+        const [nextDefinition, nextCatalog, media] = await Promise.all([api.contentType(typeId), api.entryCatalog(typeId), api.listMedia()]);
         setDefinition(nextDefinition); setCatalog(nextCatalog);
+        setAssets(media.items);
+        setTaxonomies(await Promise.all(nextDefinition.taxonomyAttachments.map((attachment) => api.taxonomy(attachment.taxonomyId))));
         const entryId = editingEntryId.current;
         if (entryId !== undefined) await refreshEntry(entryId, true);
       } catch (reason) {
@@ -752,11 +652,12 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
     try {
       const content = cptContentOf(typeId, form);
       const saved = mode === "create"
-        ? await api.createEntry(typeId, { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.stateDigest, ...(form.slug.trim() === "" ? {} : { slug: form.slug.trim() }), content, status: form.status })
-        : await api.saveEntry(typeId, editingEntryId.current ?? "", { contract: "cpt-entry-save-request/v1", expectedStateDigest: baseline ?? "", slug: form.slug.trim(), content, status: form.status });
+        ? await api.createEntry(typeId, { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.stateDigest, ...(form.slug.trim() === "" ? {} : { slug: form.slug.trim() }), content, taxonomyTerms: form.taxonomyTerms, status: form.status })
+        : await api.saveEntry(typeId, editingEntryId.current ?? "", { contract: "cpt-entry-save-request/v1", expectedStateDigest: baseline ?? "", slug: form.slug.trim(), content, taxonomyTerms: form.taxonomyTerms, status: form.status });
       editingEntryId.current = saved.entryId;
       setMode("edit"); setForm(entryFormOf(saved)); setBaseline(saved.stateDigest);
       setCatalog(await api.entryCatalog(typeId));
+      await refreshSearch();
       setNotice("已儲存。");
     } catch (reason) {
       if (reason instanceof CmsApiError && reason.status === 409) setConflict(true);
@@ -772,6 +673,7 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
       dialog.current?.close();
       editingEntryId.current = undefined; setMode(undefined); setForm(undefined); setBaseline(undefined);
       setCatalog(await api.entryCatalog(typeId));
+      await refreshSearch();
       setNotice("已刪除。");
     } catch (reason) {
       dialog.current?.close();
@@ -804,17 +706,23 @@ function PostCatalog({ api, typeId }: Readonly<{ api: CmsApiClient; typeId: stri
     <section aria-labelledby="entry-catalog-heading">
       <h2 id="entry-catalog-heading">內容清單</h2>
       <p><button type="button" onClick={startCreate} disabled={locked}>建立內容</button></p>
-      {catalog.items.length === 0 ? <p>尚無內容。</p> : <table><caption>{definition.label}的所有內容</caption><thead><tr><th scope="col">標題</th><th scope="col">Slug</th><th scope="col">狀態</th><th scope="col">最後發布</th></tr></thead><tbody>{catalog.items.map((item) => <tr key={item.entryId}><td><button type="button" aria-current={item.entryId === editingEntryId.current ? "true" : undefined} onClick={() => void refreshEntry(item.entryId, true).catch((reason: unknown) => setError(message(reason)))}>{item.title}</button></td><td>{item.slug}</td><td>{cptEntryStatusText(item.status)}</td><td>{item.publishedAt ?? "尚未發布"}</td></tr>)}</tbody></table>}
+      <label>搜尋標題或 Slug<input value={searchText} onChange={(event) => { setSearchText(event.target.value); setPage(1); }} /></label>
+      <label>狀態<select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value as "all" | "draft" | "published"); setPage(1); }}><option value="all">全部</option><option value="draft">草稿</option><option value="published">已發布</option></select></label>
+      <label>分類<select value={filterTaxonomy} onChange={(event) => { setFilterTaxonomy(event.target.value); setFilterTerm(""); setPage(1); }}><option value="">全部</option>{taxonomies.map((taxonomy) => <option key={taxonomy.taxonomy.taxonomyId} value={taxonomy.taxonomy.taxonomyId}>{taxonomy.taxonomy.label}</option>)}</select></label>
+      {filterTaxonomy !== "" && <label>Term<select value={filterTerm} onChange={(event) => { setFilterTerm(event.target.value); setPage(1); }}><option value="">全部</option>{taxonomies.find((item) => item.taxonomy.taxonomyId === filterTaxonomy)?.terms.map((term) => <option key={term.termId} value={term.termId}>{term.label}</option>)}</select></label>}
+      {searchResult === undefined ? <p role="status">正在搜尋內容。</p> : <><p>{searchResult.totalItems} 筆結果；第 {searchResult.page}／{Math.max(1, searchResult.totalPages)} 頁</p>{searchResult.items.length === 0 ? <p>沒有符合條件的內容。</p> : <table><caption>{definition.label}的搜尋結果</caption><thead><tr><th scope="col">標題</th><th scope="col">Slug</th><th scope="col">狀態</th><th scope="col">最後發布</th></tr></thead><tbody>{searchResult.items.map((item) => <tr key={item.entryId}><td><button type="button" aria-current={item.entryId === editingEntryId.current ? "true" : undefined} onClick={() => void refreshEntry(item.entryId, true).catch((reason: unknown) => setError(message(reason)))}>{item.title}</button></td><td>{item.slug}</td><td>{cptEntryStatusText(item.status)}</td><td>{item.publishedAt ?? "尚未發布"}</td></tr>)}</tbody></table>}<p><button type="button" disabled={page <= 1} onClick={() => setPage(page - 1)}>上一頁</button><button type="button" disabled={page >= searchResult.totalPages} onClick={() => setPage(page + 1)}>下一頁</button></p></>}
     </section>
     {mode !== undefined && form !== undefined && <section aria-labelledby="entry-editor-heading">
       <h2 id="entry-editor-heading" ref={editorHeading} tabIndex={-1}>{mode === "create" ? "建立內容" : "編輯內容"}</h2>
-      <p>{form.blocks.length === 1 ? "本文以外的區塊會原樣保留。" : `這個內容另有 ${String(form.blocks.length - 1)} 個非本文區塊；儲存時會原樣保留在原本位置。`}</p>
+      <p>{form.blocks.length <= 1 ? "本文以外的區塊會原樣保留。" : `這個內容另有 ${String(form.blocks.length - 1)} 個非本文區塊；儲存時會原樣保留在原本位置。`}</p>
       <form aria-label="內容編輯" noValidate onSubmit={(event) => void save(event)}>
         <label>標題<input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} disabled={locked} /></label>
         <label>Slug<input value={form.slug} onChange={(event) => setForm({ ...form, slug: event.target.value })} disabled={locked} /></label>
         <label>摘要<textarea value={form.excerpt} onChange={(event) => setForm({ ...form, excerpt: event.target.value })} disabled={locked} /></label>
         <label>本文<textarea value={form.text} onChange={(event) => setForm({ ...form, text: event.target.value })} disabled={locked} /></label>
-        {definition !== undefined && <CustomFieldsSection definition={definition} values={form.custom} invalidFieldIds={customErrors} disabled={locked} onChange={(fieldId, value) => setForm({ ...form, custom: value === undefined ? Object.fromEntries(Object.entries(form.custom).filter(([key]) => key !== fieldId)) : { ...form.custom, [fieldId]: value } })} />}
+        <label>特色媒體<select value={form.featuredMedia} onChange={(event) => setForm({ ...form, featuredMedia: event.target.value })} disabled={locked}><option value="">未選擇</option>{assets.map((asset) => <option key={asset.assetId} value={asset.assetId}>{mediaChoiceLabel(asset)}</option>)}</select></label>
+        <section aria-labelledby="entry-taxonomy-heading"><h3 id="entry-taxonomy-heading">分類與標籤</h3>{definition.taxonomyAttachments.map((attachment) => { const taxonomy = taxonomies.find((item) => item.taxonomy.taxonomyId === attachment.taxonomyId); if (taxonomy === undefined) return null; const selected = form.taxonomyTerms.filter((item) => item.taxonomyId === attachment.taxonomyId).map((item) => item.termId); return <fieldset key={attachment.taxonomyId} disabled={locked}><legend>{taxonomy.taxonomy.label}{attachment.required ? "（發布時必填）" : ""}</legend>{attachment.cardinality === "one" ? <select aria-label={taxonomy.taxonomy.label} value={selected[0] ?? ""} onChange={(event) => setForm({ ...form, taxonomyTerms: [...form.taxonomyTerms.filter((item) => item.taxonomyId !== attachment.taxonomyId), ...(event.target.value === "" ? [] : [{ taxonomyId: attachment.taxonomyId, termId: event.target.value }])] })}><option value="">未選擇</option>{taxonomy.terms.filter((term) => term.state === "live" || selected.includes(term.termId)).map((term) => <option key={term.termId} value={term.termId}>{term.label}{term.state === "retired" ? "（已停用）" : ""}</option>)}</select> : taxonomy.terms.filter((term) => term.state === "live" || selected.includes(term.termId)).map((term) => <label key={term.termId}><input type="checkbox" checked={selected.includes(term.termId)} onChange={(event) => setForm({ ...form, taxonomyTerms: event.target.checked ? [...form.taxonomyTerms, { taxonomyId: attachment.taxonomyId, termId: term.termId }] : form.taxonomyTerms.filter((item) => item.taxonomyId !== attachment.taxonomyId || item.termId !== term.termId) })} />{term.label}</label>)}{attachment.allowTermCreation && <div><label>新增 term<input value={newTermLabels[attachment.taxonomyId] ?? ""} onChange={(event) => setNewTermLabels((values) => ({ ...values, [attachment.taxonomyId]: event.target.value }))} /></label><button type="button" onClick={() => void createInlineTerm(taxonomy, attachment.cardinality)} disabled={(newTermLabels[attachment.taxonomyId] ?? "").trim() === ""}>建立並選取</button></div>}</fieldset>; })}</section>
+        {definition !== undefined && <CustomFieldsSection definition={definition} values={form.custom} invalidFieldIds={customErrors} disabled={locked} assets={assets} onChange={(fieldId, value) => setForm({ ...form, custom: value === undefined ? Object.fromEntries(Object.entries(form.custom).filter(([key]) => key !== fieldId)) : { ...form.custom, [fieldId]: value } })} />}
         <fieldset disabled={locked}><legend>SEO</legend><label>SEO 標題<input value={form.seoTitle} onChange={(event) => setForm({ ...form, seoTitle: event.target.value })} /></label><label>Meta description<textarea value={form.seoDescription} onChange={(event) => setForm({ ...form, seoDescription: event.target.value })} /></label><label>Canonical path<input value={form.canonicalPath} onChange={(event) => setForm({ ...form, canonicalPath: event.target.value })} /></label></fieldset>
         <fieldset disabled={locked}><legend>狀態</legend><label><input type="radio" name="entry-status" checked={form.status === "draft"} onChange={() => setForm({ ...form, status: "draft" })} />草稿</label><label><input type="radio" name="entry-status" checked={form.status === "published"} onChange={() => setForm({ ...form, status: "published" })} />已發布</label></fieldset>
         <p><button type="submit" disabled={!valid || locked}>{busy === "save" ? "正在儲存…" : "儲存"}</button>{mode === "edit" && <button ref={deleteTrigger} type="button" onClick={() => { dialog.current?.showModal(); cancelDelete.current?.focus(); }} disabled={locked}>刪除內容</button>}</p>
@@ -929,6 +837,17 @@ function ContentTypeList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.El
   return <Layout><PageHeading>內容類型全覽</PageHeading><p><Link className="action-link" to="/cms/content-types/new">建立內容類型</Link></p><table><caption>所有內容類型</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">Stable ID</th><th scope="col">排序</th><th scope="col">選單</th></tr></thead><tbody>{contentTypeDisplayOrder(catalog.items).map((item) => <tr key={item.typeId}><td><Link to={`/cms/content-types/${item.typeId}`}>{item.label}</Link></td><td>{item.slug}</td><td>{item.typeId}</td><td>{item.order}</td><td>{item.showInMenu ? "顯示" : "隱藏"}</td></tr>)}</tbody></table></Layout>;
 }
 
+function TaxonomyAttachmentsEditor({ catalog, attachments, disabled, onChange }: Readonly<{ catalog: TaxonomyCatalogDto | undefined; attachments: readonly TaxonomyAttachment[]; disabled: boolean; onChange: (next: readonly TaxonomyAttachment[]) => void }>): React.JSX.Element {
+  const available = catalog?.taxonomies ?? [];
+  const fixedIds = new Set(["00000000-0000-4000-8000-000000000002", "00000000-0000-4000-8000-000000000003"]);
+  const update = (taxonomyId: string, change: Partial<TaxonomyAttachment>): void => onChange(attachments.map((item) => item.taxonomyId === taxonomyId ? { ...item, ...change } : item));
+  return <fieldset disabled={disabled || catalog === undefined}><legend>分類附掛</legend>{catalog === undefined ? <p>正在載入分類。</p> : available.length === 0 ? <p>尚無分類。請先建立 taxonomy。</p> : available.map(({ taxonomy }) => {
+    const selected = attachments.find((item) => item.taxonomyId === taxonomy.taxonomyId);
+    const fixed = fixedIds.has(taxonomy.taxonomyId);
+    return <div key={taxonomy.taxonomyId} className="custom-field"><label><input type="checkbox" checked={fixed || selected !== undefined} disabled={fixed} onChange={(event) => onChange(event.target.checked ? [...attachments, { taxonomyId: taxonomy.taxonomyId, cardinality: "many", required: false, allowTermCreation: false }] : attachments.filter((item) => item.taxonomyId !== taxonomy.taxonomyId))} />附加 {taxonomy.label}{fixed ? "（固定）" : ""}</label>{selected !== undefined && !fixed && <div><label>{taxonomy.label}選取數量<select aria-label={`${taxonomy.label}選取數量`} value={selected.cardinality} onChange={(event) => update(taxonomy.taxonomyId, { cardinality: event.target.value as "one" | "many" })}><option value="one">單選</option><option value="many">多選</option></select></label><label><input type="checkbox" checked={selected.required} onChange={(event) => update(taxonomy.taxonomyId, { required: event.target.checked })} />發布時必填</label><label><input type="checkbox" checked={selected.allowTermCreation} onChange={(event) => update(taxonomy.taxonomyId, { allowTermCreation: event.target.checked })} />允許在編輯器建立 term</label></div>}</div>;
+  })}</fieldset>;
+}
+
 function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
   const navigate = useNavigate();
   const catalogContext = useContext(ContentTypeCatalogContext);
@@ -941,6 +860,9 @@ function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
   const [error, setError] = useState<string>();
   const [stale, setStale] = useState(false);
   const [drafts, setDrafts] = useState<readonly FieldGroupDraft[]>([]);
+  const [taxonomies, setTaxonomies] = useState<TaxonomyCatalogDto>();
+  const [attachments, setAttachments] = useState<readonly TaxonomyAttachment[]>([]);
+  useEffect(() => { void api.taxonomies().then(setTaxonomies).catch((reason: unknown) => setError(message(reason))); }, [api]);
   const issues = useMemo(() => fieldGroupsIssues(drafts), [drafts]);
   const blocked = issues.size > 0;
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
@@ -948,7 +870,7 @@ function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
     if (catalog === undefined || label.trim() === "") { setError("請輸入內容類型名稱。"); return; }
     if (blocked) { setError(`欄位群組仍有 ${String(issues.size)} 個問題，請先修正後再儲存。`); return; }
     try {
-      const created = await api.createContentType({ contract: "content-type-create-request/v1", expectedStateDigest: catalog.stateDigest, label, ...(slug === "" ? {} : { slug }), help, order: Number(order), showInMenu, fieldGroups: fieldGroupsRequest(drafts), taxonomyAttachments: [] });
+      const created = await api.createContentType({ contract: "content-type-create-request/v1", expectedStateDigest: catalog.stateDigest, label, ...(slug === "" ? {} : { slug }), help, order: Number(order), showInMenu, fieldGroups: fieldGroupsRequest(drafts), taxonomyAttachments: attachments });
       setError(undefined); setStale(false);
       await catalogContext?.refresh();
       navigate(`/cms/content-types/${created.typeId}`);
@@ -958,17 +880,18 @@ function ContentTypeNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
     }
   };
   const reload = (): void => { setError(undefined); setStale(false); void catalogContext?.refresh().catch((reason: unknown) => setError(message(reason))); };
-  return <Layout><PageHeading>建立內容類型</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}<form aria-label="Content Type 定義" onSubmit={(event) => void submit(event)}><label>名稱<input required value={label} onChange={(event) => setLabel(event.target.value)} /></label><label>Slug（選填）<input value={slug} onChange={(event) => setSlug(event.target.value)} /></label><label>說明<textarea value={help} onChange={(event) => setHelp(event.target.value)} /></label><label>排序<input type="number" value={order} onChange={(event) => setOrder(event.target.value)} /></label><label><input type="checkbox" checked={showInMenu} onChange={(event) => setShowInMenu(event.target.checked)} />顯示於選單</label><ContentTypeFieldGroupsEditor groups={drafts} issues={issues} disabled={catalog === undefined} onChange={setDrafts} /><button disabled={catalog === undefined || blocked} type="submit">建立內容類型</button></form></Layout>;
+  return <Layout><PageHeading>建立內容類型</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}<form aria-label="Content Type 定義" onSubmit={(event) => void submit(event)}><label>名稱<input required value={label} onChange={(event) => setLabel(event.target.value)} /></label><label>Slug（選填）<input value={slug} onChange={(event) => setSlug(event.target.value)} /></label><label>說明<textarea value={help} onChange={(event) => setHelp(event.target.value)} /></label><label>排序<input type="number" value={order} onChange={(event) => setOrder(event.target.value)} /></label><label><input type="checkbox" checked={showInMenu} onChange={(event) => setShowInMenu(event.target.checked)} />顯示於選單</label><ContentTypeFieldGroupsEditor groups={drafts} issues={issues} disabled={catalog === undefined} onChange={setDrafts} /><TaxonomyAttachmentsEditor catalog={taxonomies} attachments={attachments} disabled={catalog === undefined} onChange={setAttachments} /><button disabled={catalog === undefined || taxonomies === undefined || blocked} type="submit">建立內容類型</button></form></Layout>;
 }
 
-type ContentTypeFormSubmission = Readonly<{ label: string; slug: string; help: string; order: number; showInMenu: boolean; fieldGroups: readonly unknown[] }>;
+type ContentTypeFormSubmission = Readonly<{ label: string; slug: string; help: string; order: number; showInMenu: boolean; fieldGroups: readonly unknown[]; taxonomyAttachments: readonly TaxonomyAttachment[] }>;
 
 /**
  * Builder 的定義表單。以 `definition.stateDigest` 為 key 掛載，因此 draft 一定由目前 definition 導出，
  * 儲存成功後也一定由 response 重建；CAS token 與 payload 不會來自兩個不同來源。
  */
-function ContentTypeDefinitionForm({ definition, busy, onSubmit }: Readonly<{ definition: ContentTypeDto; busy: boolean; onSubmit: (submission: ContentTypeFormSubmission) => Promise<void> }>): React.JSX.Element {
+function ContentTypeDefinitionForm({ definition, taxonomyCatalog, busy, onSubmit }: Readonly<{ definition: ContentTypeDto; taxonomyCatalog: TaxonomyCatalogDto | undefined; busy: boolean; onSubmit: (submission: ContentTypeFormSubmission) => Promise<void> }>): React.JSX.Element {
   const [drafts, setDrafts] = useState<readonly FieldGroupDraft[]>(() => groupDraftsOf(definition.fieldGroups));
+  const [attachments, setAttachments] = useState<readonly TaxonomyAttachment[]>(definition.taxonomyAttachments);
   const [localError, setLocalError] = useState<string>();
   const issues = useMemo(() => fieldGroupsIssues(drafts), [drafts]);
   const blocked = issues.size > 0;
@@ -981,7 +904,7 @@ function ContentTypeDefinitionForm({ definition, busy, onSubmit }: Readonly<{ de
     const metadataIssue = label.trim() === "" ? "請輸入內容類型名稱。" : slug.trim() === "" ? "請輸入內容類型 slug。" : undefined;
     setLocalError(metadataIssue);
     if (metadataIssue !== undefined || blocked) return;
-    void onSubmit({ label, slug, help: String(form.get("help") ?? ""), order: Number(form.get("order")), showInMenu: form.has("showInMenu"), fieldGroups: fieldGroupsRequest(drafts) });
+    void onSubmit({ label, slug, help: String(form.get("help") ?? ""), order: Number(form.get("order")), showInMenu: form.has("showInMenu"), fieldGroups: fieldGroupsRequest(drafts), taxonomyAttachments: attachments });
   };
   const alert = localError ?? (blocked ? `欄位群組仍有 ${String(issues.size)} 個問題，請先修正後再儲存。` : undefined);
   return <form aria-label="Content Type 定義" aria-busy={busy} noValidate onSubmit={submit}>
@@ -991,6 +914,7 @@ function ContentTypeDefinitionForm({ definition, busy, onSubmit }: Readonly<{ de
     <label>排序<input name="order" type="number" defaultValue={definition.order} disabled={busy} /></label>
     <label><input name="showInMenu" type="checkbox" defaultChecked={definition.showInMenu} disabled={busy} />顯示於選單</label>
     <ContentTypeFieldGroupsEditor groups={drafts} issues={issues} disabled={busy} onChange={setDrafts} />
+    <TaxonomyAttachmentsEditor catalog={taxonomyCatalog} attachments={attachments} disabled={busy} onChange={setAttachments} />
     {alert !== undefined && <p role="alert">{alert}</p>}
     <p><button type="submit" disabled={busy || blocked}>{busy ? "正在儲存…" : "儲存內容類型"}</button></p>
   </form>;
@@ -1000,17 +924,18 @@ function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.
   const { typeId } = useParams();
   const catalogContext = useContext(ContentTypeCatalogContext);
   const [definition, setDefinition] = useState<ContentTypeDto>();
+  const [taxonomies, setTaxonomies] = useState<TaxonomyCatalogDto>();
   const [error, setError] = useState<string>();
   const [stale, setStale] = useState(false);
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<string>();
-  const load = useCallback((): void => { if (typeId === undefined) { setError("找不到內容類型。"); return; } setDefinition(undefined); setError(undefined); setStale(false); setStatus(undefined); void api.contentType(typeId).then(setDefinition).catch((reason: unknown) => setError(message(reason))); }, [api, typeId]);
+  const load = useCallback((): void => { if (typeId === undefined) { setError("找不到內容類型。"); return; } setDefinition(undefined); setError(undefined); setStale(false); setStatus(undefined); void Promise.all([api.contentType(typeId), api.taxonomies()]).then(([nextDefinition, nextTaxonomies]) => { setDefinition(nextDefinition); setTaxonomies(nextTaxonomies); }).catch((reason: unknown) => setError(message(reason))); }, [api, typeId]);
   useEffect(load, [load]);
   if (definition === undefined) return <Layout><PageHeading>內容類型詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
   const submit = async (submission: ContentTypeFormSubmission): Promise<void> => {
     setBusy(true); setStatus(undefined);
     try {
-      const replaced = await api.replaceContentType(definition.typeId, { contract: "content-type-replace-request/v1", expectedStateDigest: definition.stateDigest, label: submission.label, slug: submission.slug, help: submission.help, order: submission.order, showInMenu: submission.showInMenu, fieldGroups: submission.fieldGroups, taxonomyAttachments: definition.taxonomyAttachments });
+      const replaced = await api.replaceContentType(definition.typeId, { contract: "content-type-replace-request/v1", expectedStateDigest: definition.stateDigest, label: submission.label, slug: submission.slug, help: submission.help, order: submission.order, showInMenu: submission.showInMenu, fieldGroups: submission.fieldGroups, taxonomyAttachments: submission.taxonomyAttachments });
       await catalogContext?.refresh();
       setDefinition(replaced);
       setError(undefined);
@@ -1024,7 +949,7 @@ function ContentTypeDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.
     } finally { setBusy(false); }
   };
   const reload = (): void => { load(); queueMicrotask(() => document.getElementById("page-title")?.focus()); };
-  return <Layout><PageHeading>內容類型：{definition.label}</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}{status !== undefined && <p role="status" aria-live="polite">{status}</p>}<ContentTypeDefinitionForm key={definition.stateDigest} definition={definition} busy={busy} onSubmit={submit} /><dl><dt>Stable ID</dt><dd>{definition.typeId}</dd><dt>Slug</dt><dd>{definition.slug}</dd><dt>System fields</dt><dd>{definition.systemFields.join(", ")}</dd></dl><p>欄位群組：{definition.fieldGroups.length}；分類附掛：{definition.taxonomyAttachments.length}</p></Layout>;
+  return <Layout><PageHeading>內容類型：{definition.label}</PageHeading>{error !== undefined && <><p role="alert">{error}</p>{stale && <button onClick={reload}>重新載入</button>}</>}{status !== undefined && <p role="status" aria-live="polite">{status}</p>}<ContentTypeDefinitionForm key={definition.stateDigest} definition={definition} taxonomyCatalog={taxonomies} busy={busy} onSubmit={submit} /><dl><dt>Stable ID</dt><dd>{definition.typeId}</dd><dt>Slug</dt><dd>{definition.slug}</dd><dt>System fields</dt><dd>{definition.systemFields.join(", ")}</dd></dl><p>欄位群組：{definition.fieldGroups.length}；分類附掛：{definition.taxonomyAttachments.length}</p></Layout>;
 }
 
 function TaxonomyList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -1038,38 +963,47 @@ function TaxonomyList({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Eleme
 
 function TaxonomyNew({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
   const navigate = useNavigate();
-  const [taxonomyId, setTaxonomyId] = useState("");
+  const [slug, setSlug] = useState("");
+  const [hierarchical, setHierarchical] = useState(false);
   const [label, setLabel] = useState("");
-  const [idError, setIdError] = useState<string>();
   const [labelError, setLabelError] = useState<string>();
   const [formError, setFormError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const submit = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
-    setIdError(undefined);
     setLabelError(undefined);
     setFormError(undefined);
-    if (!AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) {
-      setIdError("Taxonomy ID 只能使用英數字、句點、底線、連字號或波浪號。");
-      return;
-    }
     if (label.trim() === "") {
       setLabelError("請輸入分類名稱。");
       return;
     }
     setBusy(true);
     try {
-      const created = await api.createTaxonomy(taxonomyId, label.trim());
+      const catalog = await api.taxonomies();
+      const created = await api.createTaxonomy({ expectedStateDigest: catalog.stateDigest, label: label.trim(), ...(slug.trim() === "" ? {} : { slug: slug.trim() }), hierarchical });
       navigate(`/cms/taxonomies/${created.taxonomy.taxonomyId}`, { state: { createdTaxonomyId: created.taxonomy.taxonomyId } });
     } catch (reason) {
       const error = message(reason);
-      if (reason instanceof CmsApiError && reason.code === "TAXONOMY_CONFLICT") setIdError(error);
-      else setFormError(error);
+      setFormError(error);
     } finally {
       setBusy(false);
     }
   };
-  return <Layout><PageHeading>建立分類</PageHeading><form aria-label="分類定義" aria-busy={busy} onSubmit={(event) => void submit(event)}><label htmlFor="taxonomy-id">Taxonomy ID<input id="taxonomy-id" required value={taxonomyId} onChange={(event) => { setTaxonomyId(event.target.value); setIdError(undefined); }} aria-invalid={idError !== undefined} aria-describedby={idError === undefined ? undefined : "taxonomy-id-error"} disabled={busy} /></label>{idError !== undefined && <p id="taxonomy-id-error" role="alert">{idError}</p>}<label htmlFor="taxonomy-label">分類名稱<input id="taxonomy-label" required value={label} onChange={(event) => { setLabel(event.target.value); setLabelError(undefined); }} aria-invalid={labelError !== undefined} aria-describedby={labelError === undefined ? undefined : "taxonomy-label-error"} disabled={busy} /></label>{labelError !== undefined && <p id="taxonomy-label-error" role="alert">{labelError}</p>}{formError !== undefined && <p role="alert">{formError}</p>}<p role="status" aria-live="polite" aria-atomic="true">{busy ? "正在建立分類。" : ""}</p><button type="submit" disabled={busy}>{busy ? "正在建立…" : "建立分類"}</button></form></Layout>;
+  return <Layout><PageHeading>建立分類</PageHeading><form aria-label="分類定義" aria-busy={busy} onSubmit={(event) => void submit(event)}><label htmlFor="taxonomy-label">分類名稱<input id="taxonomy-label" required value={label} onChange={(event) => { setLabel(event.target.value); setLabelError(undefined); }} aria-invalid={labelError !== undefined} disabled={busy} /></label><label>Slug（可留空）<input value={slug} onChange={(event) => setSlug(event.target.value)} disabled={busy} /></label><label><input type="checkbox" checked={hierarchical} onChange={(event) => setHierarchical(event.target.checked)} disabled={busy} />支援階層</label>{labelError !== undefined && <p role="alert">{labelError}</p>}{formError !== undefined && <p role="alert">{formError}</p>}<p role="status" aria-live="polite" aria-atomic="true">{busy ? "正在建立分類。" : ""}</p><button type="submit" disabled={busy}>{busy ? "正在建立…" : "建立分類"}</button></form></Layout>;
+}
+
+function TaxonomyDefinitionEditor({ snapshot, busy, onSave }: Readonly<{ snapshot: TaxonomySnapshotDto; busy: boolean; onSave: (body: Readonly<Record<string, unknown>>) => Promise<void> }>): React.JSX.Element {
+  const [label, setLabel] = useState(snapshot.taxonomy.label);
+  const [slug, setSlug] = useState(snapshot.taxonomy.slug);
+  const [hierarchical, setHierarchical] = useState(snapshot.taxonomy.hierarchical);
+  return <form aria-label="編輯分類" onSubmit={(event) => { event.preventDefault(); void onSave({ kind: "replace-taxonomy", label: label.trim(), slug: slug.trim(), hierarchical }); }}><label>分類名稱<input required value={label} onChange={(event) => setLabel(event.target.value)} disabled={busy} /></label><label>分類 slug<input value={slug} onChange={(event) => setSlug(event.target.value)} disabled={busy} /></label><label><input type="checkbox" checked={hierarchical} onChange={(event) => setHierarchical(event.target.checked)} disabled={busy} />支援階層</label><button disabled={busy || label.trim() === ""}>儲存分類</button></form>;
+}
+
+function TaxonomyTermEditor({ term, terms, hierarchical, busy, onSave }: Readonly<{ term: TaxonomySnapshotDto["terms"][number]; terms: TaxonomySnapshotDto["terms"]; hierarchical: boolean; busy: boolean; onSave: (body: Readonly<Record<string, unknown>>) => Promise<void> }>): React.JSX.Element {
+  const [label, setLabel] = useState(term.label);
+  const [slug, setSlug] = useState(term.slug);
+  const [parentTermId, setParentTermId] = useState(term.parentTermId ?? "");
+  return <form aria-label={`編輯 term：${term.label}`} onSubmit={(event) => { event.preventDefault(); void onSave({ kind: "replace-term", termId: term.termId, label: label.trim(), slug: slug.trim(), order: term.order, ...(parentTermId === "" ? {} : { parentTermId }), state: term.state }); }}><label>Term 名稱<input required value={label} onChange={(event) => setLabel(event.target.value)} disabled={busy} /></label><label>Term slug<input value={slug} onChange={(event) => setSlug(event.target.value)} disabled={busy} /></label>{hierarchical && <label>上層 term<select value={parentTermId} onChange={(event) => setParentTermId(event.target.value)} disabled={busy}><option value="">最上層</option>{terms.filter((item) => item.termId !== term.termId && item.state === "live").map((item) => <option key={item.termId} value={item.termId}>{item.label}</option>)}</select></label>}<button disabled={busy || label.trim() === ""}>儲存 term</button></form>;
 }
 
 function TaxonomyDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
@@ -1077,6 +1011,9 @@ function TaxonomyDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
   const { state } = useLocation();
   const [snapshot, setSnapshot] = useState<TaxonomySnapshotDto>();
   const [error, setError] = useState<string>();
+  const [termLabel, setTermLabel] = useState("");
+  const [parentTermId, setParentTermId] = useState("");
+  const [busy, setBusy] = useState(false);
   const load = useCallback((): void => {
     if (taxonomyId === undefined || !AUTHORING_RESOURCE_ID_PATTERN.test(taxonomyId)) {
       setSnapshot(undefined);
@@ -1088,9 +1025,15 @@ function TaxonomyDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Ele
     void api.taxonomy(taxonomyId).then(setSnapshot).catch((reason: unknown) => setError(reason instanceof CmsApiError && reason.status === 404 ? "找不到分類。" : message(reason)));
   }, [api, taxonomyId]);
   useEffect(load, [load]);
+  const command = async (body: Readonly<Record<string, unknown>>): Promise<void> => {
+    if (taxonomyId === undefined || snapshot === undefined) return;
+    setBusy(true); setError(undefined);
+    try { setSnapshot(await api.taxonomyCommand(taxonomyId, { expectedStateDigest: snapshot.stateDigest, ...body })); setTermLabel(""); }
+    catch (reason) { setError(message(reason)); } finally { setBusy(false); }
+  };
   if (snapshot === undefined) return <Layout><PageHeading>分類詳情</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入分類。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
   const createdTaxonomyId = typeof state === "object" && state !== null && "createdTaxonomyId" in state && typeof state.createdTaxonomyId === "string" ? state.createdTaxonomyId : undefined;
-  return <Layout><PageHeading>分類：{snapshot.taxonomy.label}</PageHeading>{createdTaxonomyId === snapshot.taxonomy.taxonomyId && <p role="status" aria-live="polite" aria-atomic="true">已建立分類。</p>}<dl><dt>Taxonomy ID</dt><dd>{snapshot.taxonomy.taxonomyId}</dd></dl><section aria-labelledby="taxonomy-terms"><h2 id="taxonomy-terms">Terms</h2>{snapshot.terms.length === 0 ? <p>尚無 term。</p> : <table><caption>所有 terms</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">順序</th><th scope="col">狀態</th></tr></thead><tbody>{snapshot.terms.map((term) => <tr key={term.termId}><td>{term.label}</td><td>{term.slug}</td><td>{term.order}</td><td>{term.state === "live" ? "使用中" : "已停用"}</td></tr>)}</tbody></table>}</section></Layout>;
+  return <Layout><PageHeading>分類：{snapshot.taxonomy.label}</PageHeading>{createdTaxonomyId === snapshot.taxonomy.taxonomyId && <p role="status" aria-live="polite" aria-atomic="true">已建立分類。</p>}{error !== undefined && <><p role="alert">{error}</p><button onClick={load}>重新載入</button></>}<dl><dt>Stable ID</dt><dd>{snapshot.taxonomy.taxonomyId}</dd><dt>Slug</dt><dd>{snapshot.taxonomy.slug}</dd><dt>模式</dt><dd>{snapshot.taxonomy.hierarchical ? "階層" : "平面"}</dd></dl><TaxonomyDefinitionEditor key={snapshot.taxonomy.taxonomyId} snapshot={snapshot} busy={busy} onSave={command} /><form onSubmit={(event) => { event.preventDefault(); void command({ kind: "create-term", label: termLabel.trim(), order: snapshot.terms.length, ...(parentTermId === "" ? {} : { parentTermId }) }); }}><label>新增 term<input value={termLabel} onChange={(event) => setTermLabel(event.target.value)} disabled={busy} /></label>{snapshot.taxonomy.hierarchical && <label>上層 term<select value={parentTermId} onChange={(event) => setParentTermId(event.target.value)} disabled={busy}><option value="">最上層</option>{snapshot.terms.filter((term) => term.state === "live").map((term) => <option key={term.termId} value={term.termId}>{term.label}</option>)}</select></label>}<button disabled={busy || termLabel.trim() === ""}>建立 term</button></form><section aria-labelledby="taxonomy-terms"><h2 id="taxonomy-terms">Terms</h2>{snapshot.terms.length === 0 ? <p>尚無 term。</p> : <table><caption>所有 terms</caption><thead><tr><th scope="col">名稱</th><th scope="col">Slug</th><th scope="col">上層</th><th scope="col">狀態</th><th scope="col">操作</th></tr></thead><tbody>{snapshot.terms.map((term) => <tr key={term.termId}><td>{term.label}</td><td>{term.slug}</td><td>{term.parentTermId === undefined ? "—" : snapshot.terms.find((item) => item.termId === term.parentTermId)?.label ?? term.parentTermId}</td><td>{term.state === "live" ? "使用中" : "已停用"}</td><td><TaxonomyTermEditor key={term.termId} term={term} terms={snapshot.terms} hierarchical={snapshot.taxonomy.hierarchical} busy={busy} onSave={command} /><button disabled={busy} onClick={() => void command({ kind: "replace-term", termId: term.termId, label: term.label, slug: term.slug, order: term.order, ...(term.parentTermId === undefined ? {} : { parentTermId: term.parentTermId }), state: term.state === "live" ? "retired" : "live" })}>{term.state === "live" ? "停用" : "重新啟用"}</button><button disabled={busy} onClick={() => void command({ kind: "delete-term", termId: term.termId })}>刪除</button></td></tr>)}</tbody></table>}</section></Layout>;
 }
 
 function MediaUsageList({ usage }: Readonly<{ usage: readonly MediaUsageV2Dto[] }>): React.JSX.Element {
@@ -1322,399 +1265,19 @@ function MediaDetail({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Elemen
 }
 
 function Home({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const [entries, setEntries] = useState<EntryCatalogDto["items"]>();
+  const [types, setTypes] = useState<ContentTypeCatalogDto["items"]>();
   const [error, setError] = useState<string>();
   const load = useCallback((): void => {
-    setEntries(undefined); setError(undefined);
-    void api.listEntries().then((value) => setEntries(value.items)).catch((reason: unknown) => setError(message(reason)));
+    setTypes(undefined); setError(undefined);
+    void api.contentTypes().then((value) => setTypes(value.items)).catch((reason: unknown) => setError(message(reason)));
   }, [api]);
   useEffect(load, [load]);
-  const actionableEntries = entries === undefined ? [] : entries.filter((entry) => entry.status !== "published").slice(0, 5);
-  return <Layout><PageHeading>CMS 文章工作台</PageHeading><p>建立、編輯並發布文章；發布只會更新已發布版本。</p><p><Link className="action-link" to="/cms/entries/new">建立文章</Link> <Link to="/cms/entries">查看所有文章</Link></p><section aria-labelledby="actionable-entries"><h2 id="actionable-entries">待處理文章</h2>{entries === undefined ? error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></> : actionableEntries.length === 0 ? <p>目前沒有待處理文章。<Link to="/cms/entries">查看所有文章</Link></p> : <ul>{actionableEntries.map((entry) => <li key={entry.entryId}><Link to={`/cms/entries/${entry.entryId}`}>{entry.title}</Link>（{entryStatusText(entry.status)}）</li>)}</ul>}</section></Layout>;
-}
-
-function Plugins({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const [snapshot, setSnapshot] = useState<PluginManagementSnapshotDto>();
-  const [url, setUrl] = useState("");
-  const [indexing, setIndexing] = useState<"allow" | "disallow">("disallow");
-  const [saved, setSaved] = useState<Readonly<{ url: string; indexing: "allow" | "disallow" }>>();
-  const [busy, setBusy] = useState<"settings" | "activation">();
-  const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState("");
-  const [conflict, setConflict] = useState<"settings" | "activation">();
-  const reload = useRef<HTMLButtonElement>(null);
-  const load = useCallback((): void => {
-    setError(undefined); setNotice("");
-    void api.plugins().then((next) => {
-      setSnapshot(next); setConflict(undefined);
-      const plugin = next.plugins.find((item) => item.identity.id === "seo-basics");
-      const settings = plugin?.settings?.settings;
-      setUrl(settings?.publicSiteUrl ?? "");
-      setIndexing(settings?.indexing ?? "disallow");
-      setSaved(settings === undefined ? undefined : { url: settings.publicSiteUrl, indexing: settings.indexing });
-    }).catch((reason: unknown) => { setSnapshot(undefined); setError(message(reason)); });
-  }, [api]);
-  useEffect(load, [load]);
-  useEffect(() => { if (conflict !== undefined) reload.current?.focus(); }, [conflict]);
-  if (snapshot === undefined) return <Layout><PageHeading>外掛</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入外掛。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></>}</Layout>;
-  const plugin = snapshot.plugins.find((item) => item.identity.id === "seo-basics");
-  if (plugin === undefined) return <Layout><PageHeading>外掛</PageHeading><p role="alert">找不到 seo-basics 外掛。</p><button onClick={load}>重新載入外掛狀態</button></Layout>;
-  const formDirty = saved === undefined || saved.url !== url || saved.indexing !== indexing;
-  const validUrl = (() => { try { return url !== "" && new URL(url).protocol === "https:"; } catch { return false; } })();
-  const mutationsLocked = busy !== undefined || conflict !== undefined;
-  const settings = plugin.settings;
-  const canActivate = settings !== undefined && !formDirty && plugin.status === "inactive" && !mutationsLocked;
-  const saveSettings = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (!validUrl || mutationsLocked) return;
-    setBusy("settings"); setError(undefined); setNotice("");
-    try {
-      const next = await api.replaceSettings({ contract: "plugin-settings-replace-request/v1", identity: plugin.identity, expectedSettingsStateDigest: snapshot.settingsStateDigest, settingsContract: "seo-plugin-settings/v1", settings: { contract: "seo-plugin-settings/v1", publicSiteUrl: url, indexing } });
-      setSnapshot(next); setSaved({ url, indexing }); setNotice("SEO 設定已儲存。現在可以啟用外掛。");
-    } catch (reason) {
-      if (reason instanceof CmsApiError && reason.status === 409) setConflict("settings");
-      else setError(message(reason));
-    } finally { setBusy(undefined); }
-  };
-  const activate = async (): Promise<void> => {
-    if (!canActivate) return;
-    setBusy("activation"); setError(undefined); setNotice("");
-    try {
-      const next = await api.activate({ contract: "plugin-activation-request/v1", identity: plugin.identity, expectedActivationStateDigest: snapshot.activationStateDigest });
-      setSnapshot(next); setNotice(`已啟用：${plugin.identity.id}@${plugin.identity.version}`);
-    } catch (reason) {
-      if (reason instanceof CmsApiError && reason.status === 409) setConflict("activation");
-      else setError(message(reason));
-    } finally { setBusy(undefined); }
-  };
-  return <Layout><PageHeading>外掛</PageHeading>{error !== undefined && <p role="alert">{error}</p>}{conflict !== undefined && <p role="alert">{conflict === "settings" ? "外掛設定已由另一個頁面更新。請重新載入。" : "外掛啟用狀態已由另一個頁面更新。請重新載入。"}</p>}<p role="status" aria-live="polite">{busy === "settings" ? "正在儲存…" : busy === "activation" ? "正在啟用…" : notice}</p><section aria-labelledby="seo-basics-heading"><h2 id="seo-basics-heading">seo-basics</h2><form onSubmit={(event) => void saveSettings(event)}><label>公開網站 URL<input type="url" required value={url} onChange={(event) => setUrl(event.target.value)} disabled={mutationsLocked} aria-invalid={url !== "" && !validUrl} /></label><fieldset disabled={mutationsLocked}><legend>索引設定</legend><label><input type="radio" name="indexing" checked={indexing === "allow"} onChange={() => setIndexing("allow")} />允許搜尋引擎索引</label><label><input type="radio" name="indexing" checked={indexing === "disallow"} onChange={() => setIndexing("disallow")} />禁止搜尋引擎索引</label></fieldset><button type="submit" disabled={!validUrl || !formDirty || mutationsLocked}>儲存 SEO 設定</button></form><p>狀態：{plugin.status}</p><button ref={reload} type="button" onClick={load}>重新載入外掛狀態</button><button type="button" onClick={() => void activate()} disabled={!canActivate}>{plugin.status === "active" ? "SEO Plugin 已啟用" : "啟用 SEO Plugin"}</button></section></Layout>;
-}
-
-function SeoPreview({ analysis, busy, invalid, failure }: Readonly<{ analysis: CmsSeoAnalysisResponseDto | undefined; busy: boolean; invalid: boolean; failure: string | undefined }>): React.JSX.Element {
-  const suggestions = analysis?.suggestions ?? [];
-  const status = invalid ? "填寫標題、網址代稱與本文後即可查看 SEO 預覽。" : busy || analysis === undefined ? "內容已變更，正在更新 SEO 預覽…" : failure !== undefined ? failure : analysis.status === "unavailable" ? "SEO 預覽目前無法使用；不影響儲存或發布。SEO 建議目前無法取得。請檢查外掛設定後再試。" : suggestions.length === 0 ? "目前沒有 SEO 建議。" : suggestions.map((suggestion) => suggestion.code === "SEO_TITLE_MISSING" ? "建議填寫 SEO 標題；目前預覽使用文章標題。" : suggestion.code === "SEO_DESCRIPTION_MISSING" ? "建議填寫 Meta description。" : suggestion.code).join(" ");
-  return <aside aria-labelledby="seo-preview-heading"><section aria-busy={busy}><h2 id="seo-preview-heading">SEO 預覽</h2><p role="status" aria-live="polite" aria-atomic="true">{status}</p>{!invalid && !busy && failure === undefined && analysis?.status === "available" && <>{analysis.preview?.title !== undefined && <h3>{analysis.preview.title}</h3>}{analysis.preview?.description !== undefined && <p>{analysis.preview.description}</p>}{analysis.preview?.canonicalUrl !== undefined && <p className="breakable">{analysis.preview.canonicalUrl}</p>}<ul>{suggestions.map((suggestion) => <li key={suggestion.code}>{suggestion.code}</li>)}</ul></>}</section></aside>;
-}
-
-/**
- * `failure` 只驅動這個 block 的 status text；對應的 `role="alert"` 由 Editor 統一渲染一次。
- * 一份 document 可含多個 interactive block，逐 block 重複 alert 會讓同一則訊息被 AT 播報多次。
- */
-function EditorPluginBlock({ block, blockIndex, resolution, failure }: Readonly<{ block: InteractiveDemoBlock; blockIndex: number; resolution: CmsEditorBlockResolutionsDto["items"][number] | undefined; failure: string | undefined }>): React.JSX.Element {
-  const ordinal = blockIndex + 1;
-  const headingId = `editor-plugin-block-${blockIndex}-heading`;
-  const statusId = `editor-plugin-block-${blockIndex}-status`;
-  const identity = `${block.identity.id}@${block.identity.version}`;
-  const status = resolution === undefined
-    ? failure === undefined ? `正在解析外掛 ${identity}。` : failure
-    : resolution.status === "active" ? `外掛 ${identity} 已啟用；已顯示 Host output。`
-      : resolution.status === "inactive" ? `外掛 ${identity} 尚未啟用；已保留原始內容。`
-        : resolution.status === "missing" ? `找不到外掛 ${identity}；已保留原始內容。`
-          : `外掛 ${identity} identity 已變更；已保留原始內容。`;
-  return <section aria-labelledby={headingId} aria-busy={resolution === undefined && failure === undefined}>
-    <h2 id={headingId}>互動區塊 {ordinal}</h2>
-    <dl><dt>Plugin</dt><dd>{identity}</dd><dt>Manifest hash</dt><dd className="breakable">{block.manifestHash}</dd></dl>
-    <p id={statusId} role="status" aria-live="polite" aria-atomic="true" aria-label={`互動區塊 ${ordinal} 狀態`}>{status}</p>
-    {resolution?.status === "active" && <pre role="region" tabIndex={0} aria-label={`互動區塊 ${ordinal} Host output`} aria-describedby={statusId}>{canonicalJson(resolution.output)}</pre>}
-    {resolution !== undefined && resolution.status !== "active" && <>{resolution.diagnostic !== undefined && <div role="note" aria-labelledby={`editor-plugin-block-${blockIndex}-diagnostic`}><h3 id={`editor-plugin-block-${blockIndex}-diagnostic`}>Plugin 診斷</h3><p>{resolution.diagnostic.code}</p><p>{resolution.diagnostic.remediation.message}</p></div>}<pre role="region" tabIndex={0} aria-label={`互動區塊 ${ordinal} 保留的來源`} aria-describedby={statusId}>{canonicalJson(resolution.source)}</pre></>}
-  </section>;
-}
-
-function Editor({ api, create }: Readonly<{ api: CmsApiClient; create: boolean }>): React.JSX.Element {
-  const { entryId: routeEntryId } = useParams();
-  const navigate = useNavigate();
-  const generatedId = useRef("");
-  if (generatedId.current === "") generatedId.current = crypto.randomUUID();
-  const entryId = routeEntryId ?? generatedId.current;
-  const timer = useRef<number | undefined>(undefined);
-  const analysisGeneration = useRef(0);
-  const editorBlockGeneration = useRef(0);
-  const reload = useRef<HTMLButtonElement>(null);
-  const publishTrigger = useRef<HTMLButtonElement>(null);
-  const cancelPublish = useRef<HTMLButtonElement>(null);
-  const confirmPublish = useRef<HTMLButtonElement>(null);
-  const dialog = useRef<HTMLDialogElement>(null);
-  const status = useRef<HTMLParagraphElement>(null);
-  const currentPreviewTab = useRef<HTMLButtonElement>(null);
-  const publishedPreviewTab = useRef<HTMLButtonElement>(null);
-  const [title, setTitle] = useState("");
-  const [route, setRoute] = useState("");
-  const [text, setText] = useState("");
-  const [seo, setSeo] = useState<Seo>({});
-  const [blocks, setBlocks] = useState<readonly StructuredBlock[]>([{ kind: "article", text: "" }]);
-  const [baseline, setBaseline] = useState<string | null>(null);
-  const [taxonomyTerms, setTaxonomyTerms] = useState<readonly TaxonomyTermIdentity[]>([]);
-  const [savedDocument, setSavedDocument] = useState<string>();
-  const [loading, setLoading] = useState(!create);
-  const [notFound, setNotFound] = useState(false);
-  const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState("");
-  const [publishError, setPublishError] = useState<string>();
-  const [conflict, setConflict] = useState(false);
-  const [entryBusy, setEntryBusy] = useState(false);
-  const [analysisBusy, setAnalysisBusy] = useState(false);
-  const [analysis, setAnalysis] = useState<CmsSeoAnalysisResponseDto>();
-  const [analysisFailure, setAnalysisFailure] = useState<string>();
-  const [editorBlockResolutions, setEditorBlockResolutions] = useState<CmsEditorBlockResolutionsDto>();
-  const [editorBlockFailure, setEditorBlockFailure] = useState<string>();
-  const [currentPreview, setCurrentPreview] = useState<string>();
-  const [publishedPreview, setPublishedPreview] = useState<string | null>();
-  const [previewError, setPreviewError] = useState<string>();
-  const [previewSelection, setPreviewSelection] = useState<"current" | "published">("current");
-  const normalized = useMemo(() => normalizeDocument(title, route, text, seo, blocks), [blocks, route, seo, text, title]);
-  const normalizedBytes = useMemo(() => canonicalJson(normalized), [normalized]);
-  const valid = isValidDocument(normalized);
-  const isNew = baseline === null && savedDocument === undefined;
-  const dirty = isNew || normalizedBytes !== savedDocument;
-  const focusConflict = (): void => { setConflict(true); setNotice(""); setError(undefined); };
-  const selectPreview = (selection: "current" | "published", focus = false): void => {
-    setPreviewSelection(selection);
-    if (focus) (selection === "current" ? currentPreviewTab : publishedPreviewTab).current?.focus();
-  };
-  const previewKeyDown = (event: React.KeyboardEvent<HTMLButtonElement>): void => {
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight" || event.key === "Home" || event.key === "End") {
-      event.preventDefault();
-      selectPreview(event.key === "Home" ? "current" : event.key === "End" ? "published" : event.key === "ArrowLeft" ? previewSelection === "current" ? "published" : "current" : previewSelection === "published" ? "current" : "published", true);
-    }
-  };
-  const trapPublishFocus = (event: React.KeyboardEvent<HTMLDialogElement>): void => {
-    if (event.key !== "Tab") return;
-    if (event.shiftKey && document.activeElement === cancelPublish.current) {
-      event.preventDefault();
-      confirmPublish.current?.focus();
-    } else if (!event.shiftKey && document.activeElement === confirmPublish.current) {
-      event.preventDefault();
-      cancelPublish.current?.focus();
-    }
-  };
-  const adopt = (entry: AuthoringEntryDto): boolean => {
-    const document = articleDocument(entry.current.content, entry.current.route);
-    const article = document?.content.blocks.find((block) => block.kind === "article");
-    // 每次 adopt 都換掉 editing instance；比它更早發出的 editor-block response 一律作廢。
-    editorBlockGeneration.current += 1;
-    if (document === undefined || article === undefined) { setError("目前 revision 無法作為 Article 編輯。"); return false; }
-    setTitle(document.content.title); setRoute(document.route.slice(1)); setText(article.text); setSeo(document.content.seo); setBlocks(document.content.blocks); setBaseline(entry.current.revisionId); setSavedDocument(canonicalJson(document)); setEditorBlockResolutions(undefined); setEditorBlockFailure(undefined);
-    setTaxonomyTerms(entry.current.taxonomyBindings.map(({ taxonomyId, termId }) => ({ taxonomyId, termId }))); setConflict(false);
-    return true;
-  };
-  const refreshPreviews = async (): Promise<void> => {
-    const [current, published] = await Promise.allSettled([api.preview(entryId, "current"), api.preview(entryId, "published")]);
-    if (current.status === "fulfilled") setCurrentPreview(current.value.document);
-    else setPreviewError(message(current.reason));
-    if (published.status === "fulfilled") setPublishedPreview(published.value.document);
-    else if (published.reason instanceof CmsApiError && published.reason.status === 404) setPublishedPreview(null);
-    else setPreviewError(message(published.reason));
-  };
-  /**
-   * Editor 以 block index 對齊 resolution，因此只採用「與目前 editing instance 完全相符」的 response：
-   * generation 擋掉切換文章後才回來的 stale response（否則另一篇文章的 Host output 會落在這裡的 block 上）；
-   * revision/digest 擋掉 canonical drift；index 序列與單一 activeStateDigest 擋掉 partial 或跨 activation
-   * state 拼出來的 snapshot——Application 是逐 block 呼叫 Host，中途的 activation 變更會讓各 item 不同源。
-   */
-  const refreshEditorBlocks = async (entry: AuthoringEntryDto): Promise<void> => {
-    const generation = editorBlockGeneration.current;
-    const document = articleDocument(entry.current.content, entry.current.route);
-    if (document === undefined) return;
-    const expected = document.content.blocks.flatMap((block, blockIndex) => block.kind === "interactive-demo" ? [blockIndex] : []);
-    if (expected.length === 0) return;
-    try {
-      const next = await api.editorBlocks(entryId);
-      if (editorBlockGeneration.current !== generation) return;
-      const aligned = next.items.length === expected.length && expected.every((blockIndex, position) => next.items[position]?.blockIndex === blockIndex);
-      const singleState = next.items.every((item) => item.activeStateDigest === next.items[0]?.activeStateDigest);
-      if (next.entryId !== entryId || next.revisionId !== entry.current.revisionId || next.contentDigest !== entry.current.contentDigest || !aligned || !singleState) { setEditorBlockFailure("互動區塊狀態已變更，請重新載入文章。"); return; }
-      setEditorBlockResolutions(next);
-    } catch (reason) {
-      if (editorBlockGeneration.current !== generation) return;
-      setEditorBlockFailure(message(reason));
-    }
-  };
-  const load = useCallback((): void => {
-    if (create) return;
-    setLoading(true); setNotFound(false); setError(undefined);
-    void api.current(entryId).then(async (entry) => {
-      if (adopt(entry)) await Promise.all([refreshPreviews(), refreshEditorBlocks(entry)]);
-    }).catch((reason: unknown) => {
-      if (reason instanceof CmsApiError && reason.status === 404) setNotFound(true);
-      else setError(message(reason));
-    }).finally(() => setLoading(false));
-  // refreshPreviews、refreshEditorBlocks 和 adopt 都刻意使用目前 editing instance。
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [api, create, entryId]);
-  useEffect(load, [load]);
-  useEffect(() => { if (conflict) reload.current?.focus(); }, [conflict]);
-  useEffect(() => { if (notice === "已發布。") status.current?.focus(); }, [notice]);
-  useEffect(() => {
-    const generation = ++analysisGeneration.current;
-    if (timer.current !== undefined) clearTimeout(timer.current);
-    if (!valid || conflict) { setAnalysisBusy(false); return; }
-    setAnalysisBusy(true); setAnalysisFailure(undefined);
-    timer.current = window.setTimeout(() => {
-      void (async () => {
-        const documentDigest = await sha256(canonicalJson({ entryId, expectedCurrentRevisionId: baseline, schemaIdentity: { schemaId: "site-content", version: 1 }, content: normalized.content, route: normalized.route }));
-        try {
-          const next = await api.analyze(entryId, { contract: "cms-seo-analysis-request/v1", entryId, expectedCurrentRevisionId: baseline, schemaIdentity: { schemaId: "site-content", version: 1 }, content: normalized.content, route: normalized.route, documentDigest });
-          if (analysisGeneration.current === generation && next.documentDigest === documentDigest) { setAnalysis(next); setAnalysisBusy(false); }
-        } catch (reason) {
-          if (analysisGeneration.current !== generation) return;
-          if (reason instanceof CmsApiError && reason.status === 409) focusConflict();
-          else { setAnalysisBusy(false); setAnalysisFailure("SEO 預覽目前無法使用；不影響儲存或發布。"); }
-        }
-      })();
-    }, 400);
-    return () => { if (timer.current !== undefined) clearTimeout(timer.current); };
-  }, [api, baseline, conflict, entryId, normalized, valid]);
-  useEffect(() => {
-    const element = dialog.current;
-    const close = (): void => publishTrigger.current?.focus();
-    element?.addEventListener("cancel", close);
-    return () => element?.removeEventListener("cancel", close);
-  }, []);
-  const save = async (event: React.FormEvent<HTMLFormElement>): Promise<void> => {
-    event.preventDefault();
-    if (!valid || !dirty || entryBusy || conflict) return;
-    if (timer.current !== undefined) clearTimeout(timer.current);
-    analysisGeneration.current += 1;
-    setEntryBusy(true); setError(undefined); setNotice("");
-    try {
-      await api.save(entryId, baseline, normalized, taxonomyTerms);
-      const refreshed = await api.current(entryId);
-      if (!adopt(refreshed)) return;
-      await Promise.all([refreshPreviews(), refreshEditorBlocks(refreshed)]);
-      setNotice("已儲存。");
-      if (create) navigate(`/cms/entries/${entryId}`, { replace: true });
-    } catch (reason) {
-      if (reason instanceof CmsApiError && reason.status === 409) focusConflict();
-      else setError(message(reason));
-    } finally { setEntryBusy(false); }
-  };
-  const openPublish = (): void => { setPublishError(undefined); dialog.current?.showModal(); cancelPublish.current?.focus(); };
-  const publish = async (): Promise<void> => {
-    if (baseline === null || dirty || entryBusy || conflict) return;
-    setEntryBusy(true); setPublishError(undefined); setNotice("");
-    try {
-      await api.publish(entryId, baseline);
-      const refreshed = await api.current(entryId);
-      if (!adopt(refreshed)) return;
-      await Promise.all([refreshPreviews(), refreshEditorBlocks(refreshed)]);
-      setNotice("已發布。");
-      dialog.current?.close();
-    } catch (reason) {
-      if (reason instanceof CmsApiError && reason.status === 409) focusConflict();
-      else setPublishError(message(reason));
-    } finally { setEntryBusy(false); }
-  };
-  if (loading) return <Layout><PageHeading>編輯文章</PageHeading><p role="status" aria-live="polite" aria-busy="true">正在載入文章。</p></Layout>;
-  if (notFound) return <Layout><PageHeading>編輯文章</PageHeading><p role="alert">找不到這篇文章。</p><button onClick={load}>重試</button></Layout>;
-  const mutationLocked = entryBusy || conflict;
-  const resolutionsByBlockIndex = new Map(editorBlockResolutions?.items.map((item) => [item.blockIndex, item]));
-  const currentRevisionText = baseline === null ? "尚未儲存" : baseline;
-  const operationStatus = entryBusy ? baseline === null ? "正在儲存新文章…" : "正在處理文章變更…" : notice || (dirty ? "有未儲存的變更；頁面預覽尚未更新，發布已停用。" : "頁面預覽顯示已儲存內容；SEO 預覽分析目前表單內容。");
-  return <Layout>
-    <PageHeading>{isNew ? "新增文章" : "編輯文章"}</PageHeading>
-    {error !== undefined && <p role="alert">{error}</p>}
-    {conflict && <><p role="alert">內容已由另一個頁面更新。</p><button ref={reload} onClick={load}>重新載入文章</button></>}
-    {editorBlockFailure !== undefined && <p role="alert">{editorBlockFailure}</p>}
-    <section className="editor">
-      <form id="entry-editor" aria-label="文章內容" onSubmit={(event) => void save(event)}>
-        <label>標題<input required aria-invalid={!valid && title.trim() === ""} value={title} onChange={(event) => { setTitle(event.target.value); if (route === "") setRoute(slugify(event.target.value)); }} disabled={mutationLocked} /></label>
-        <label>網址代稱<input required value={route} onChange={(event) => setRoute(event.target.value)} disabled={mutationLocked} /></label>
-        <label>本文<textarea required value={text} onChange={(event) => setText(event.target.value)} disabled={mutationLocked} /></label>
-        {normalized.content.blocks.map((block, blockIndex) => block.kind === "interactive-demo" && <EditorPluginBlock key={`${block.identity.id}\0${blockIndex}`} block={block} blockIndex={blockIndex} resolution={resolutionsByBlockIndex.get(blockIndex)} failure={editorBlockFailure} />)}
-        <fieldset><legend>SEO</legend><p>留白時使用文章標題</p><label>SEO 標題<input value={seo.title ?? ""} onChange={(event) => setSeo((current) => ({ ...current, title: event.target.value }))} disabled={mutationLocked} /></label><p>留白時會顯示 SEO 建議</p><label>Meta description<textarea value={seo.description ?? ""} onChange={(event) => setSeo((current) => ({ ...current, description: event.target.value }))} disabled={mutationLocked} /></label><p>留白時使用文章網址；站內路徑須以 / 開頭</p><label>Canonical path<input value={seo.canonicalPath ?? ""} onChange={(event) => setSeo((current) => ({ ...current, canonicalPath: event.target.value }))} disabled={mutationLocked} /></label></fieldset>
-      </form>
-      <div className="preview-column">
-        <aside aria-labelledby="entry-actions-heading"><h2 id="entry-actions-heading">文章動作</h2><p>目前 revision：<span className="breakable">{currentRevisionText}</span></p><p ref={status} role="status" tabIndex={-1} aria-live="polite" aria-atomic="true">{operationStatus}</p><button form="entry-editor" type="submit" disabled={!valid || !dirty || mutationLocked}>{entryBusy ? "正在儲存…" : "儲存"}</button><button ref={publishTrigger} type="button" onClick={openPublish} disabled={baseline === null || dirty || mutationLocked}>發布</button></aside>
-        <SeoPreview analysis={analysis} busy={analysisBusy} invalid={!valid} failure={analysisFailure} />
-        <aside aria-labelledby="page-preview-heading"><h2 id="page-preview-heading">頁面預覽</h2>{previewError !== undefined && <p role="alert">{previewError}</p>}<div role="tablist" aria-label="頁面預覽版本"><button ref={currentPreviewTab} id="current-preview-tab" type="button" role="tab" tabIndex={previewSelection === "current" ? 0 : -1} aria-selected={previewSelection === "current"} aria-controls="current-preview-panel" onClick={() => selectPreview("current")} onKeyDown={previewKeyDown}>目前版本</button><button ref={publishedPreviewTab} id="published-preview-tab" type="button" role="tab" tabIndex={previewSelection === "published" ? 0 : -1} aria-selected={previewSelection === "published"} aria-controls="published-preview-panel" onClick={() => selectPreview("published")} onKeyDown={previewKeyDown}>已發布版本</button></div>{previewSelection === "current" ? <section id="current-preview-panel" role="tabpanel" aria-labelledby="current-preview-tab">{currentPreview === undefined ? <p>尚未儲存</p> : <iframe title="目前版本頁面預覽" sandbox="" srcDoc={currentPreview} />}</section> : <section id="published-preview-panel" role="tabpanel" aria-labelledby="published-preview-tab">{publishedPreview === null || publishedPreview === undefined ? <p>尚未發布</p> : <iframe title="已發布版本頁面預覽" sandbox="" srcDoc={publishedPreview} />}</section>}</aside>
-      </div>
-    </section>
-
-    <dialog ref={dialog} aria-labelledby="publish-dialog-title" aria-describedby="publish-dialog-description" onKeyDown={trapPublishFocus}><h2 id="publish-dialog-title">發布文章</h2><p id="publish-dialog-description">將發布目前 revision：<span className="breakable">{currentRevisionText}</span>。發布只會更新已發布版本。</p>{publishError !== undefined && <p role="alert">{publishError}</p>}<button ref={cancelPublish} type="button" onClick={() => { dialog.current?.close(); publishTrigger.current?.focus(); }} disabled={entryBusy}>取消</button><button ref={confirmPublish} type="button" onClick={() => void publish()} disabled={entryBusy}>{entryBusy ? "正在發布…" : "確認發布"}</button></dialog>
-  </Layout>;
-}
-function SiteRouteWorkspace({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const [current, setCurrent] = useState<SiteRouteGraphDto>();
-  const [published, setPublished] = useState<SiteRouteGraphDto>();
-  const [error, setError] = useState<string>();
-  const [busy, setBusy] = useState(false);
-  const [status, setStatus] = useState("");
-  const [graph, setGraph] = useState<"current" | "published">("current");
-  const [owner, setOwner] = useState("");
-  const [sourceRevisionId, setSourceRevisionId] = useState("");
-  const [route, setRoute] = useState("");
-  const load = useCallback((): void => {
-    setCurrent(undefined); setPublished(undefined); setError(undefined);
-    void Promise.all([api.routeGraph("current"), api.routeGraph("published")]).then(([nextCurrent, nextPublished]) => {
-      setCurrent(nextCurrent); setPublished(nextPublished);
-    }).catch((reason: unknown) => setError(message(reason)));
-  }, [api]);
-  useEffect(load, [load]);
-  const claims = graph === "current" ? current?.claims ?? [] : published?.claims ?? [];
-  const selectClaim = (value: string): void => {
-    const claim = claims[Number(value)];
-    if (claim === undefined) return;
-    setOwner(claim.owner); setSourceRevisionId(claim.sourceRevisionId); setRoute(claim.normalizedRoute);
-  };
-  const submit = (event: React.FormEvent): void => {
-    event.preventDefault();
-    if (current === undefined || published === undefined || owner === "" || sourceRevisionId === "" || route.trim() === "") return;
-    setBusy(true); setError(undefined); setStatus("正在驗證路由變更。");
-    void api.proposeRouteChange({ contract: "route-change-proposal-request/v1", expectedRouteGraphDigests: { current: current.digest, published: published.digest }, graph, owner, route, sourceRevisionId }).then((proposal) => api.changeRoute(proposal)).then(() => {
-      setStatus("路由已更新。"); load();
-    }).catch((reason: unknown) => {
-      const code = reason instanceof CmsApiError ? reason.code : "";
-      setError(code === "STALE_ROUTE_PROPOSAL" || code === "ROUTE_CONFLICT" ? "路由已由其他操作更新；請重新載入後再試。" : message(reason));
-    }).finally(() => setBusy(false));
-  };
-  return <Layout><PageHeading>Site route 管理</PageHeading>
-    <p role="status" aria-live="polite" aria-atomic="true">{status}</p>
-    {error !== undefined && <p role="alert">{error}</p>}
-    {current === undefined || published === undefined
-      ? error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在載入路由圖。</p> : <button onClick={load}>重試</button>
-      : <><section aria-labelledby="route-graphs-heading"><h2 id="route-graphs-heading">目前與已發布路由</h2>
-        {(["current", "published"] as const).map((selection) => { const snapshot = selection === "current" ? current : published; return <section key={selection} aria-labelledby={`${selection}-routes-heading`}><h3 id={`${selection}-routes-heading`}>{selection === "current" ? "目前版本" : "已發布版本"}</h3>{snapshot.claims.length === 0 ? <p>此路由圖尚無 route claim。</p> : <table><caption>{selection === "current" ? "目前版本 route claims" : "已發布版本 route claims"}</caption><thead><tr><th scope="col">路徑</th><th scope="col">Owner</th><th scope="col">來源 revision</th></tr></thead><tbody>{snapshot.claims.map((claim) => <tr key={`${claim.normalizedRoute}\0${claim.owner}`}><td>{claim.normalizedRoute}</td><td>{claim.owner}</td><td className="breakable">{claim.sourceRevisionId}</td></tr>)}</tbody></table>}</section>; })}
-      </section><section aria-labelledby="change-route-heading"><h2 id="change-route-heading">變更路由</h2><form onSubmit={submit}><label>Route graph<select value={graph} onChange={(event) => { const next = event.target.value as "current" | "published"; setGraph(next); setOwner(""); setSourceRevisionId(""); setRoute(""); }} disabled={busy}><option value="current">目前版本</option><option value="published">已發布版本</option></select></label><label>現有 claim<select value={owner === "" ? "" : String(claims.findIndex((claim) => claim.owner === owner && claim.sourceRevisionId === sourceRevisionId))} onChange={(event) => selectClaim(event.target.value)} disabled={busy || claims.length === 0}><option value="">選擇 claim</option>{claims.map((claim, index) => <option key={`${claim.normalizedRoute}\0${claim.owner}`} value={index}>{claim.normalizedRoute} — {claim.owner}</option>)}</select></label><label>新 route<input required value={route} onChange={(event) => setRoute(event.target.value)} disabled={busy || owner === ""} /></label><button type="submit" disabled={busy || owner === ""}>{busy ? "正在變更…" : "變更路由"}</button></form></section></>}
-  </Layout>;
-}
-
-function Release({ api }: Readonly<{ api: CmsApiClient }>): React.JSX.Element {
-  const [diagnosis, setDiagnosis] = useState<ReleaseDiagnosisDto>();
-  const [build, setBuild] = useState<ReleaseBuildDto>();
-  const [receipt, setReceipt] = useState<ReleaseReceiptDto>();
-  const [busy, setBusy] = useState<"build" | "release" | "redeliver">();
-  const [error, setError] = useState<string>();
-  const [notice, setNotice] = useState("");
-  const retry = useRef<HTMLButtonElement>(null);
-  const load = useCallback((): void => {
-    setDiagnosis(undefined); setBuild(undefined); setReceipt(undefined); setError(undefined); setNotice("");
-    void api.diagnoseRelease().then(setDiagnosis).catch((reason: unknown) => setError(message(reason)));
-  }, [api]);
-  useEffect(load, [load]);
-  useEffect(() => { if (error !== undefined) retry.current?.focus(); }, [error]);
-  const run = async (operation: "build" | "release" | "redeliver"): Promise<void> => {
-    if (busy !== undefined || (operation !== "build" && build === undefined)) return;
-    setBusy(operation); setError(undefined); setNotice("");
-    try {
-      if (operation === "build") {
-        const next = await api.buildRelease();
-        setBuild(next); setReceipt(undefined); setNotice("已建立 release artifact；尚未發布。");
-      } else {
-        const next = operation === "release" ? await api.releaseArtifact(build!.artifactDigest) : await api.redeliverArtifact(build!.artifactDigest);
-        setReceipt(next); setNotice(operation === "release" ? "已發布 artifact。" : "已重新發布 artifact。");
-      }
-    } catch (reason) { setError(message(reason)); }
-    finally { setBusy(undefined); }
-  };
-  if (diagnosis === undefined) return <Layout><PageHeading>發布診斷</PageHeading>{error === undefined ? <p role="status" aria-live="polite" aria-busy="true">正在檢查 release 狀態。</p> : <><p role="alert">{error}</p><button ref={retry} onClick={load}>重新診斷</button></>}</Layout>;
-  const blocked = diagnosis.status === "blocked";
-  const status = busy === "build" ? "正在建立 release artifact…" : busy === "release" ? "正在發布 artifact…" : busy === "redeliver" ? "正在重新發布 artifact…" : notice || (blocked ? "診斷已阻擋；請先處理診斷項目。" : "診斷完成；可以建立 release artifact。");
-  return <Layout><PageHeading>發布診斷</PageHeading><p role="status" aria-live="polite" aria-atomic="true">{status}</p>{error !== undefined && <p role="alert">{error}</p>}<section aria-labelledby="release-diagnosis-heading"><h2 id="release-diagnosis-heading">Release 狀態</h2><p>{blocked ? "已阻擋" : "已就緒"}</p>{diagnosis.diagnostics.length === 0 ? <p>沒有診斷項目。</p> : <ul aria-label="Release 診斷項目">{diagnosis.diagnostics.map((diagnostic) => <li key={diagnostic.code}>{diagnostic.code}</li>)}</ul>}<button ref={retry} type="button" onClick={load} disabled={busy !== undefined}>重新診斷</button></section><section aria-labelledby="release-actions-heading"><h2 id="release-actions-heading">Release 動作</h2><p>建立 artifact 不會發布；發布只使用已建立且驗證過的 artifact。</p><button type="button" onClick={() => void run("build")} disabled={blocked || busy !== undefined}>{busy === "build" ? "正在建立 artifact…" : "建立 artifact"}</button><button type="button" onClick={() => void run("release")} disabled={build === undefined || busy !== undefined}>{busy === "release" ? "正在發布 artifact…" : "發布 artifact"}</button><button type="button" onClick={() => void run("redeliver")} disabled={build === undefined || busy !== undefined}>{busy === "redeliver" ? "正在重新發布 artifact…" : "重新發布 artifact"}</button>{build !== undefined && <dl><dt>Artifact digest</dt><dd className="breakable">{build.artifactDigest}</dd>{receipt !== undefined && <><dt>Target digest</dt><dd className="breakable">{receipt.targetDigest}</dd></>}</dl>}</section></Layout>;
+  return <Layout><PageHeading>CMS 工作台</PageHeading><p>建立並管理全新內容。公開網站發布目前暫停。</p><p><Link to="/cms/content-types/new">建立內容類型</Link> · <Link to="/cms/media/import">匯入媒體</Link> · <Link to="/cms/taxonomies">管理分類</Link></p>{types === undefined ? error === undefined ? <p role="status">正在載入內容類型。</p> : <><p role="alert">{error}</p><button onClick={load}>重試</button></> : <ul>{types.map((type) => <li key={type.typeId}><Link to={postPath(type.typeId)}>{type.label}</Link></li>)}</ul>}</Layout>;
 }
 
 function CmsApp({ session }: Readonly<{ session: AuthoringSession }>): React.JSX.Element {
   const api = useMemo(() => new CmsApiClient(session), [session]);
-  return <BrowserRouter><ContentTypeCatalogProvider api={api}><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/site/routes" element={<SiteRouteWorkspace api={api} />} /><Route path="/cms/post" element={<PostWorkspace api={api} />} /><Route path="/cms/entries" element={<EntryList api={api} />} /><Route path="/cms/entries/new" element={<Editor api={api} create />} /><Route path="/cms/entries/:entryId" element={<Editor api={api} create={false} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:typeId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /><Route path="/cms/plugins" element={<Plugins api={api} />} /><Route path="/cms/release" element={<Release api={api} />} /></Routes></ContentTypeCatalogProvider></BrowserRouter>;
+  return <BrowserRouter><ContentTypeCatalogProvider api={api}><Routes><Route path="/cms" element={<Home api={api} />} /><Route path="/cms/" element={<Home api={api} />} /><Route path="/cms/content/:typeId" element={<PostWorkspace api={api} />} /><Route path="/cms/media" element={<MediaList api={api} />} /><Route path="/cms/media/import" element={<MediaImport api={api} />} /><Route path="/cms/media/:assetId" element={<MediaDetail api={api} />} /><Route path="/cms/content-types" element={<ContentTypeList api={api} />} /><Route path="/cms/content-types/new" element={<ContentTypeNew api={api} />} /><Route path="/cms/content-types/:typeId" element={<ContentTypeDetail api={api} />} /><Route path="/cms/taxonomies" element={<TaxonomyList api={api} />} /><Route path="/cms/taxonomies/new" element={<TaxonomyNew api={api} />} /><Route path="/cms/taxonomies/:taxonomyId" element={<TaxonomyDetail api={api} />} /></Routes></ContentTypeCatalogProvider></BrowserRouter>;
 }
 
 export function startCms(): void {

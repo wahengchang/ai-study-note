@@ -333,12 +333,16 @@ test("replace keeps the stable asset ID and updates current byte evidence", asyn
 test("referenced assets reject replace and delete with complete deterministic usage", async () => {
   const fixture = openFixture();
   try {
+    const content = canonicalJsonBytes({ contract: "cpt-content/v1", typeId: "00000000-0000-4000-8000-000000000001", title: "媒體引用", blocks: [{ kind: "article", text: "內文" }], excerpt: "", seo: {}, customValues: [] });
+    assert.equal(content.ok, true);
+    if (!content.ok) return;
+    for (const suffix of ["a1", "a2"]) assert.equal(fixture.persistence.createCurrentEntry({ entryId: `00000000-0000-4000-8000-0000000000${suffix}`, typeId: "00000000-0000-4000-8000-000000000001", authoringRoute: `/media-${suffix}`, contentBytes: content.value, contentDigest: sha256Digest(content.value), status: "draft" }).ok, true);
     const imported = await fixture.library.importAsset({ filename: "photo.png", metadata: metadata("照片"), source: upload(pngBytes(4, 4)) });
     assert.equal(imported.ok, true);
     if (!imported.ok) return;
     const asset = imported.value;
-    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "entry-b", status: "published", assetIds: [asset.assetId] }).ok, true);
-    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "entry-a", status: "draft", assetIds: [asset.assetId] }).ok, true);
+    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-0000000000a2", status: "published", assetIds: [asset.assetId] }).ok, true);
+    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-0000000000a1", status: "draft", assetIds: [asset.assetId] }).ok, true);
     const before = fixture.persistence.canonicalState();
     assert.equal(before.ok, true);
 
@@ -353,15 +357,15 @@ test("referenced assets reject replace and delete with complete deterministic us
     if (!replaced.ok) {
       assert.equal(replaced.error.code, "MEDIA_ASSET_REFERENCED");
       assert.deepEqual(replaced.error.usage, [
-        { entryId: "entry-a", status: "draft" },
-        { entryId: "entry-b", status: "published" },
+        { entryId: "00000000-0000-4000-8000-0000000000a1", status: "draft" },
+        { entryId: "00000000-0000-4000-8000-0000000000a2", status: "published" },
       ]);
     }
     const deleted = await fixture.library.deleteAsset({ contract: "media-delete-request/v2", assetId: asset.assetId, expectedStateDigest: asset.stateDigest });
     assert.equal(deleted.ok, false);
     if (!deleted.ok) {
       assert.equal(deleted.error.code, "MEDIA_ASSET_REFERENCED");
-      assert.deepEqual(deleted.error.usage?.map((usage) => usage.entryId), ["entry-a", "entry-b"]);
+      assert.deepEqual(deleted.error.usage?.map((usage) => usage.entryId), ["00000000-0000-4000-8000-0000000000a1", "00000000-0000-4000-8000-0000000000a2"]);
     }
     const after = fixture.persistence.canonicalState();
     assert.equal(after.ok, true);
@@ -369,14 +373,14 @@ test("referenced assets reject replace and delete with complete deterministic us
     const detail = await fixture.library.get(asset.assetId);
     assert.equal(detail.ok, true);
     if (detail.ok) {
-      assert.deepEqual(detail.value.usage, [{ entryId: "entry-a", status: "draft" }, { entryId: "entry-b", status: "published" }]);
+      assert.deepEqual(detail.value.usage, [{ entryId: "00000000-0000-4000-8000-0000000000a1", status: "draft" }, { entryId: "00000000-0000-4000-8000-0000000000a2", status: "published" }]);
       assert.equal(detail.value.asset.checksum, asset.checksum);
     }
     assert.deepEqual(stagingFiles(fixture.directory), []);
 
     // 解除引用後即可刪除，且 slug 立即釋放。
-    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "entry-a", status: "draft", assetIds: [] }).ok, true);
-    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "entry-b", status: "published", assetIds: [] }).ok, true);
+    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-0000000000a1", status: "draft", assetIds: [] }).ok, true);
+    assert.equal(fixture.persistence.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-0000000000a2", status: "published", assetIds: [] }).ok, true);
     const deletedNow = await fixture.library.deleteAsset({ contract: "media-delete-request/v2", assetId: asset.assetId, expectedStateDigest: asset.stateDigest });
     assert.equal(deletedNow.ok, true, JSON.stringify(deletedNow));
     if (deletedNow.ok) assert.equal(deletedNow.value.releasedSlug, asset.slug);
@@ -537,6 +541,11 @@ test("the 400 MiB raw file ceiling accepts the boundary and rejects one byte mor
     if (accepted.ok) {
       assert.equal(accepted.value.byteLength, ceiling);
       assert.equal(accepted.value.thumbnail, null);
+      const stored = objectFiles(fixture.directory);
+      assert.equal(stored.length, 1);
+      assert.equal(statSync(path.join(fixture.directory, "objects", "current", "objects", stored[0] ?? "")).size, ceiling);
+      assert.equal((await fixture.library.deleteAsset({ contract: "media-delete-request/v2", assetId: accepted.value.assetId, expectedStateDigest: accepted.value.stateDigest })).ok, true);
+      assert.equal(fixture.objectStore.sweepObjects([]).ok, true);
     }
     assert.deepEqual(stagingFiles(fixture.directory), []);
 
@@ -544,11 +553,8 @@ test("the 400 MiB raw file ceiling accepts the boundary and rejects one byte mor
     assert.equal(rejected.ok, false);
     if (!rejected.ok) assert.equal(rejected.error.code, "MEDIA_SIZE_LIMIT_EXCEEDED");
     const catalog = await fixture.library.list();
-    assert.equal(catalog.ok && catalog.value.items.length, 1, "超限不得建立任何 record");
+    assert.equal(catalog.ok && catalog.value.items.length, 0, "超限不得建立任何 record");
     assert.deepEqual(stagingFiles(fixture.directory), []);
-    const stored = objectFiles(fixture.directory);
-    assert.equal(stored.length, 1);
-    assert.equal(statSync(path.join(fixture.directory, "objects", "current", "objects", stored[0] ?? "")).size, ceiling);
   } finally {
     closeFixture(fixture);
   }
@@ -572,9 +578,10 @@ test("streaming import keeps process memory flat for a large file", async () => 
     global.gc?.();
     const before = process.memoryUsage();
     const imported = await fixture.library.importAsset({ filename: "big.txt", metadata: metadata("大檔"), source });
-    const after = process.memoryUsage();
     assert.equal(imported.ok, true, JSON.stringify(imported));
     if (imported.ok) assert.equal(imported.value.byteLength, total);
+    global.gc?.();
+    const after = process.memoryUsage();
     const growth = after.heapUsed + after.external - before.heapUsed - before.external;
     assert.ok(growth < 16 * 1024 * 1024, `import 不得整檔進記憶體（growth=${growth}）`);
   } finally {

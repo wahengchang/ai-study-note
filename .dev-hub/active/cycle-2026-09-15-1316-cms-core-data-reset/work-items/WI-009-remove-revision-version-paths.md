@@ -1,9 +1,9 @@
 ---
 id: WI-009
-status: pending
+status: done
 title: 移除 Revision 與 Version 舊路徑
-work_group: null
-depends_on: [WI-003, WI-004, WI-005, WI-006, WI-007, WI-008]
+work_group: WG-005
+depends_on: [WI-003, WI-004, WI-005, WI-006, WI-007]
 ---
 
 ## Outcome
@@ -12,13 +12,14 @@ depends_on: [WI-003, WI-004, WI-005, WI-006, WI-007, WI-008]
 
 ## Acceptance
 
-- [ ] CMS、Authoring API與Application不再提供SaveRevision、PublishRevision、RestoreRevision、history、current/published preview、raw JSON Schema administration或Content Type schema migration的可呼叫入口。
-- [ ] Media catalog/import/detail不再暴露asset version、Base64 JSON import、archive或restore；只保留`media-asset/v2` current metadata、streaming import/replace與real Delete workflow。
-- [ ] `/cms/entries`、`/cms/entries/new`、`/cms/entries/:entryId`及所有encoded/nested/trailing變體不在document allowlist、navigation或logger route union，且不redirect；Article只使用`/cms/post`，其他 CPT 只使用`/cms/post?cpt=<typeId>`。
-- [ ] 所有已遷移caller、fixtures、tests與維護文件只使用current-only DTO/status/CAS；不存在alias、shim、deprecated export、fallback parser或可成功寫入的parallel legacy lifecycle。
-- [ ] Implemented baseline在clean cutover完成後精確描述current-only CPT/entry/taxonomy/media行為；舊規格只保留明確historical/superseded身分，不會被文件router當作新工作入口。
-- [ ] Fresh runtime與完成WI-008的legacy fixture都可完成CPT建立→menu出現→draft→custom/taxonomy/media→published Save→search→Delete journey，且repository-wide consumer checks不再要求舊lifecycle。
-- [ ] Application、Authoring API、CMS Chromium與architecture verification全數通過；針對已移除route/DTO的negative proof顯示fail closed，而非轉送相容層。
+- [x] CMS、Authoring API與Application不再提供SaveRevision、PublishRevision、RestoreRevision、history、current/published preview、raw JSON Schema administration或Content Type schema migration的可呼叫入口。
+- [x] Media catalog/import/detail不再暴露asset version、Base64 JSON import、archive或restore；只保留`media-asset/v2` current metadata、streaming import/replace與real Delete workflow。
+- [x] `/cms/entries*`、`/cms/post*`及其encoded/nested/trailing變體不在document allowlist或navigation，且不redirect；Article與其他CPT都使用`/cms/content/:typeId`。
+- [x] 所有已遷移caller、fixtures、tests與維護文件只使用current-only DTO/status/CAS；不存在alias、shim、deprecated export、fallback parser或可成功寫入的parallel legacy lifecycle。
+- [x] Implemented baseline在clean cutover完成後精確描述current-only CPT/entry/taxonomy/media行為；舊規格只保留明確historical/superseded身分，不會被文件router當作新工作入口。
+- [x] Fresh runtime可完成CPT建立→menu出現→draft→custom/taxonomy/media→published Save→search→Delete journey；舊資料目錄在寫入前明確拒絕且原狀保留，repository-wide consumer checks不再要求舊lifecycle。
+- [x] 依賴舊 Revision 的 Preview、`site:build` 與 Release 入口暫停，CMS 不顯示無法使用的操作；Renderer／Delivery 的獨立 immutable artifact contract 維持可驗證。
+- [x] Application、Authoring API、CMS Chromium與architecture verification全數通過；針對已移除route/DTO的negative proof顯示fail closed，而非轉送相容層。
 
 ## Notes
 

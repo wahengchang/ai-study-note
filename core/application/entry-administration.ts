@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { canonicalJsonBytes, sha256Digest, type Digest, type JsonValue, type MessageRemediation } from "../foundation/index.js";
 import { isMediaAssetId } from "../media/index.js";
 import { parseCmsBodyBlocks, type CmsBodyBlock } from "../content/index.js";
-import { globalSlug, suggestGlobalSlug, type CurrentEntryRecord, type CurrentEntryStatus, type PersistenceFailure, type PersistenceReadSnapshot, type PersistenceStore, type TransactionDecision } from "../persistence/index.js";
+import { globalSlug, suggestGlobalSlug, type CurrentEntryRecord, type CurrentEntryStatus, type CurrentEntryTermBinding, type PersistenceFailure, type PersistenceReadSnapshot, type PersistenceStore, type PersistenceTransaction, type TransactionDecision } from "../persistence/index.js";
 import { contentTypeFieldValueShape, isAbsoluteHttpUrl, isCanonicalDate, isCanonicalDatetime, readContentTypeDefinition, scalarLength, type ContentTypeFieldDefinition } from "./content-type-administration.js";
 
 /**
@@ -17,13 +17,14 @@ import { contentTypeFieldValueShape, isAbsoluteHttpUrl, isCanonicalDate, isCanon
 
 export type CptSeo = Readonly<{ title?: string; description?: string; canonicalPath?: string }>;
 export type CptCustomValue = Readonly<{ fieldId: string; value: JsonValue }>;
-export type CptContentV1 = Readonly<{ contract: "cpt-content/v1"; typeId: string; title: string; blocks: readonly CmsBodyBlock[]; excerpt: string; seo: CptSeo; customValues: readonly CptCustomValue[] }>;
+export type CptContentV1 = Readonly<{ contract: "cpt-content/v1"; typeId: string; title: string; blocks: readonly CmsBodyBlock[]; excerpt: string; seo: CptSeo; featuredMedia?: string; customValues: readonly CptCustomValue[] }>;
 export type CptEntryV1 = Readonly<{
   contract: "cpt-entry/v1";
   entryId: string;
   typeId: string;
   slug: string;
   content: CptContentV1;
+  taxonomyTerms: readonly CurrentEntryTermBinding[];
   status: CurrentEntryStatus;
   publishedAt?: string;
   lastPublishedDigest?: Digest;
@@ -31,15 +32,18 @@ export type CptEntryV1 = Readonly<{
 }>;
 export type CptEntrySummaryV1 = Readonly<{ entryId: string; slug: string; title: string; status: CurrentEntryStatus; publishedAt?: string; stateDigest: Digest }>;
 export type CptEntryCatalogV1 = Readonly<{ contract: "cpt-entry-catalog/v1"; typeId: string; items: readonly CptEntrySummaryV1[]; stateDigest: Digest }>;
-export type CptEntryCreateRequestV1 = Readonly<{ contract: "cpt-entry-create-request/v1"; expectedStateDigest: string; slug?: string | undefined; content: unknown; status: string }>;
-export type CptEntrySaveRequestV1 = Readonly<{ contract: "cpt-entry-save-request/v1"; expectedStateDigest: string; slug: string; content: unknown; status: string }>;
+export type CptEntrySearchRequestV1 = Readonly<{ contract: "entry-search-request/v1"; typeId: string; search: string; statuses: readonly CurrentEntryStatus[]; taxonomyFilters: readonly Readonly<{ taxonomyId: string; termIds: readonly string[] }>[]; page: number }>;
+export type CptEntrySearchResultV1 = Readonly<{ contract: "entry-search-result/v1"; typeId: string; page: number; pageSize: 20; totalItems: number; totalPages: number; items: readonly CptEntrySummaryV1[]; stateDigest: Digest }>;
+export type CptEntryCreateRequestV1 = Readonly<{ contract: "cpt-entry-create-request/v1"; expectedStateDigest: string; slug?: string | undefined; content: unknown; taxonomyTerms: readonly CurrentEntryTermBinding[]; status: string }>;
+export type CptEntrySaveRequestV1 = Readonly<{ contract: "cpt-entry-save-request/v1"; expectedStateDigest: string; slug: string; content: unknown; taxonomyTerms: readonly CurrentEntryTermBinding[]; status: string }>;
 export type CptEntryDeleteRequestV1 = Readonly<{ contract: "cpt-entry-delete-request/v1"; expectedStateDigest: string }>;
 export type CptEntryDeletedV1 = Readonly<{ contract: "cpt-entry-deleted/v1"; entryId: string }>;
-export type CurrentEntryAdministrationFailureCode = "INVALID_ENTRY_CONTENT" | "INVALID_ENTRY_CUSTOM_VALUES" | "ENTRY_NOT_FOUND" | "CONTENT_TYPE_NOT_FOUND" | "ENTRY_STATE_CONFLICT" | "ENTRY_ADMINISTRATION_FAILED";
+export type CurrentEntryAdministrationFailureCode = "INVALID_ENTRY_CONTENT" | "INVALID_ENTRY_CUSTOM_VALUES" | "INVALID_ENTRY_MEDIA" | "INVALID_ENTRY_TAXONOMY" | "INVALID_ENTRY_SEARCH" | "ENTRY_NOT_FOUND" | "CONTENT_TYPE_NOT_FOUND" | "ENTRY_STATE_CONFLICT" | "ENTRY_ADMINISTRATION_FAILED";
 export type CurrentEntryAdministrationFailure = Readonly<{ code: CurrentEntryAdministrationFailureCode; owner: "CurrentEntryAdministration"; subjectIds: readonly string[]; remediation: MessageRemediation }>;
 export type CurrentEntryAdministrationResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: CurrentEntryAdministrationFailure }>;
 export interface CurrentEntryAdministration {
   catalog(input: Readonly<{ typeId: string }>): Promise<CurrentEntryAdministrationResult<CptEntryCatalogV1>>;
+  search(input: Readonly<{ typeId: string; request: CptEntrySearchRequestV1 }>): Promise<CurrentEntryAdministrationResult<CptEntrySearchResultV1>>;
   get(input: Readonly<{ typeId: string; entryId: string }>): Promise<CurrentEntryAdministrationResult<CptEntryV1>>;
   create(input: Readonly<{ typeId: string; request: CptEntryCreateRequestV1 }>): Promise<CurrentEntryAdministrationResult<CptEntryV1>>;
   save(input: Readonly<{ typeId: string; entryId: string; request: CptEntrySaveRequestV1 }>): Promise<CurrentEntryAdministrationResult<CptEntryV1>>;
@@ -47,9 +51,9 @@ export interface CurrentEntryAdministration {
 }
 
 const seoKeys = ["title", "description", "canonicalPath"] as const;
-const contentKeys = ["contract", "typeId", "title", "blocks", "excerpt", "seo", "customValues"] as const;
+const contentKeys = ["contract", "typeId", "title", "blocks", "excerpt", "seo", "featuredMedia", "customValues"] as const;
 const customValueKeys = ["fieldId", "value"] as const;
-type EntryReader = Pick<PersistenceReadSnapshot, "getCurrentContentType" | "getCurrentEntry" | "listCurrentEntries" | "getGlobalSlugClaimByEntity">;
+type EntryReader = Pick<PersistenceReadSnapshot, "getCurrentContentType" | "getCurrentEntry" | "listCurrentEntries" | "getGlobalSlugClaimByEntity" | "listCurrentEntryTermBindings">;
 
 function failure<T>(code: CurrentEntryAdministrationFailureCode, subjectIds: readonly string[] = []): CurrentEntryAdministrationResult<T> {
   return { ok: false, error: { code, owner: "CurrentEntryAdministration", subjectIds, remediation: { kind: "message", message: code === "INVALID_ENTRY_CUSTOM_VALUES" ? "發布前請修正未通過驗證的自訂欄位。" : "內容項目操作未完成。" } } };
@@ -129,10 +133,12 @@ function normalizedContent(value: unknown, typeId: string, stored: boolean): Cpt
   const blocks = parseCmsBodyBlocks(candidate.blocks);
   const seo = normalizedSeo(candidate.seo);
   const customValues = Object.hasOwn(candidate, "customValues") ? decodedCustomValues(candidate.customValues) : stored ? [] : undefined;
+  const featuredMedia = Object.hasOwn(candidate, "featuredMedia") ? candidate.featuredMedia : undefined;
+  if (featuredMedia !== undefined && (typeof featuredMedia !== "string" || !isMediaAssetId(featuredMedia))) return undefined;
   if (title === undefined || excerpt === undefined || blocks === undefined || seo === undefined || customValues === undefined) return undefined;
   const body = blocks.find((block) => block.kind === "article");
   if (body === undefined || body.text.trim() === "") return undefined;
-  return { contract: "cpt-content/v1", typeId, title, blocks, excerpt, seo, customValues };
+  return { contract: "cpt-content/v1", typeId, title, blocks, excerpt, seo, ...(featuredMedia === undefined ? {} : { featuredMedia }), customValues };
 }
 
 function decodedContent(record: CurrentEntryRecord): CptContentV1 | undefined {
@@ -220,15 +226,18 @@ function entryStateDigest(entry: Omit<CptEntryV1, "stateDigest">): Digest | unde
   return bytes.ok ? sha256Digest(bytes.value) : undefined;
 }
 
-function entryDocument(record: CurrentEntryRecord, slug: string): CptEntryV1 | undefined {
+function entryDocument(reader: EntryReader, record: CurrentEntryRecord, slug: string): CptEntryV1 | undefined {
   const content = decodedContent(record);
   if (content === undefined) return undefined;
+  const taxonomyTerms = reader.listCurrentEntryTermBindings(record.entryId);
+  if (!taxonomyTerms.ok) return undefined;
   const base = {
     contract: "cpt-entry/v1" as const,
     entryId: record.entryId,
     typeId: record.typeId,
     slug,
     content,
+    taxonomyTerms: taxonomyTerms.value,
     status: record.status,
     ...(record.publishedAt === undefined ? {} : { publishedAt: record.publishedAt }),
     ...(record.lastPublishedDigest === undefined ? {} : { lastPublishedDigest: record.lastPublishedDigest }),
@@ -250,7 +259,7 @@ function entryDocuments(reader: EntryReader, typeId: string): CurrentEntryAdmini
   for (const record of records.value) {
     const slug = entrySlug(reader, record.entryId);
     if (!slug.ok) return slug;
-    const document = entryDocument(record, slug.value);
+    const document = entryDocument(reader, record, slug.value);
     if (document === undefined) return failure("ENTRY_ADMINISTRATION_FAILED", [record.entryId]);
     documents.push(document);
   }
@@ -269,17 +278,19 @@ function entryStatus(value: unknown): CurrentEntryStatus | undefined {
   return value === "draft" || value === "published" ? value : undefined;
 }
 
-/** 只有 status=`published` 且 publishable content digest 實質改變時才前進 `publishedAt`；改回 draft 或相同 bytes 都保留既有值。 */
-function publishedState(status: CurrentEntryStatus, contentDigest: Digest, previous: CurrentEntryRecord | undefined, now: () => Date): Readonly<{ publishedAt?: string; lastPublishedDigest?: Digest }> {
-  if (status === "published" && previous?.lastPublishedDigest !== contentDigest) return { publishedAt: now().toISOString(), lastPublishedDigest: contentDigest };
+/** 以內容、公開 slug 與 taxonomy binding 一起界定可發布內容。 */
+function publishedState(status: CurrentEntryStatus, publishableDigest: Digest, previous: CurrentEntryRecord | undefined, now: () => Date): Readonly<{ publishedAt?: string; lastPublishedDigest?: Digest }> {
+  if (status === "published" && previous?.lastPublishedDigest !== publishableDigest) return { publishedAt: now().toISOString(), lastPublishedDigest: publishableDigest };
   return previous?.publishedAt === undefined || previous.lastPublishedDigest === undefined ? {} : { publishedAt: previous.publishedAt, lastPublishedDigest: previous.lastPublishedDigest };
 }
 
-function entryRecord(input: Readonly<{ entryId: string; typeId: string; slug: string; content: CptContentV1; status: CurrentEntryStatus; previous?: CurrentEntryRecord; now: () => Date }>): CurrentEntryAdministrationResult<CurrentEntryRecord> {
+function entryRecord(input: Readonly<{ entryId: string; typeId: string; slug: string; content: CptContentV1; taxonomyTerms: readonly CurrentEntryTermBinding[]; status: CurrentEntryStatus; previous?: CurrentEntryRecord; now: () => Date }>): CurrentEntryAdministrationResult<CurrentEntryRecord> {
   const bytes = canonicalJsonBytes(input.content);
   if (!bytes.ok) return failure("INVALID_ENTRY_CONTENT", [input.entryId]);
   const contentDigest = sha256Digest(bytes.value);
-  return { ok: true, value: { entryId: input.entryId, typeId: input.typeId, authoringRoute: `/${input.slug}`, contentBytes: bytes.value, contentDigest, status: input.status, ...publishedState(input.status, contentDigest, input.previous, input.now) } };
+  const publishable = canonicalJsonBytes({ content: input.content, slug: input.slug, taxonomyTerms: input.taxonomyTerms });
+  if (!publishable.ok) return failure("INVALID_ENTRY_CONTENT", [input.entryId]);
+  return { ok: true, value: { entryId: input.entryId, typeId: input.typeId, authoringRoute: `/${input.slug}`, contentBytes: bytes.value, contentDigest, status: input.status, ...publishedState(input.status, sha256Digest(publishable.value), input.previous, input.now) } };
 }
 
 export function createCurrentEntryAdministration(input: Readonly<{ persistence: PersistenceStore; newStableId?: () => string; now?: () => Date }>): CurrentEntryAdministration {
@@ -313,6 +324,62 @@ export function createCurrentEntryAdministration(input: Readonly<{ persistence: 
     }
     return { ok: true, value: { ...content, customValues } };
   };
+  const validatedMedia = (transaction: PersistenceTransaction, definitionRecord: Readonly<{ typeId: string; definitionBytes: Uint8Array; definitionDigest: Digest }>, content: CptContentV1, status: CurrentEntryStatus): CurrentEntryAdministrationResult<readonly string[]> => {
+    const fields = definitionFields(definitionRecord);
+    if (fields === undefined) return failure("ENTRY_ADMINISTRATION_FAILED", [definitionRecord.typeId]);
+    const references = new Set<string>();
+    if (content.featuredMedia !== undefined) references.add(content.featuredMedia);
+    for (const item of content.customValues) {
+      const field = fields.get(item.fieldId);
+      if (field?.kind !== "single-media" && field?.kind !== "multi-media") continue;
+      const ids = typeof item.value === "string" ? [item.value] : Array.isArray(item.value) ? item.value : [];
+      for (const assetId of ids) if (typeof assetId === "string") references.add(assetId);
+    }
+    for (const assetId of references) {
+      const asset = transaction.getCurrentMediaAsset(assetId);
+      if (!asset.ok) return failure("INVALID_ENTRY_MEDIA", [assetId]);
+    }
+    if (status === "published") for (const item of content.customValues) {
+      const field = fields.get(item.fieldId);
+      if (field?.kind !== "single-media" && field?.kind !== "multi-media") continue;
+      const ids = typeof item.value === "string" ? [item.value] : Array.isArray(item.value) ? item.value : [];
+      for (const assetId of ids) {
+        if (typeof assetId !== "string") return failure("INVALID_ENTRY_MEDIA", [item.fieldId]);
+        const asset = transaction.getCurrentMediaAsset(assetId);
+        const mimeTypes = field.constraints.mimeTypes;
+        if (!asset.ok || !Array.isArray(mimeTypes) || !mimeTypes.includes(asset.value.mimeType)) return failure("INVALID_ENTRY_MEDIA", [item.fieldId]);
+      }
+    }
+    return { ok: true, value: [...references].sort() };
+  };
+  const validatedTaxonomy = (transaction: PersistenceTransaction, definitionRecord: Readonly<{ typeId: string; definitionBytes: Uint8Array; definitionDigest: Digest }>, requested: readonly CurrentEntryTermBinding[] | undefined, status: CurrentEntryStatus, previous: readonly CurrentEntryTermBinding[]): CurrentEntryAdministrationResult<readonly CurrentEntryTermBinding[]> => {
+    const definition = readContentTypeDefinition(definitionRecord);
+    if (definition === undefined || !Array.isArray(requested)) return failure("INVALID_ENTRY_TAXONOMY", [definitionRecord.typeId]);
+    const attachments = new Map<string, { cardinality: "one" | "many"; required: boolean }>();
+    for (const raw of definition.taxonomyAttachments) {
+      if (raw === null || typeof raw !== "object" || Array.isArray(raw)) return failure("ENTRY_ADMINISTRATION_FAILED", [definitionRecord.typeId]);
+      const attachment = raw as { taxonomyId?: unknown; cardinality?: unknown; required?: unknown };
+      if (typeof attachment.taxonomyId !== "string" || (attachment.cardinality !== "one" && attachment.cardinality !== "many") || typeof attachment.required !== "boolean") return failure("ENTRY_ADMINISTRATION_FAILED", [definitionRecord.typeId]);
+      attachments.set(attachment.taxonomyId, { cardinality: attachment.cardinality, required: attachment.required });
+    }
+    const sorted = [...requested].sort((a,b) => a.taxonomyId < b.taxonomyId ? -1 : a.taxonomyId > b.taxonomyId ? 1 : a.termId < b.termId ? -1 : a.termId > b.termId ? 1 : 0);
+    const seen = new Set<string>();
+    const count = new Map<string, number>();
+    for (const binding of sorted) {
+      if (binding === null || typeof binding !== "object" || typeof binding.taxonomyId !== "string" || typeof binding.termId !== "string" || !attachments.has(binding.taxonomyId)) return failure("INVALID_ENTRY_TAXONOMY", [definitionRecord.typeId]);
+      const key = `${binding.taxonomyId}\0${binding.termId}`;
+      if (seen.has(key)) return failure("INVALID_ENTRY_TAXONOMY", [binding.termId]);
+      seen.add(key);
+      count.set(binding.taxonomyId, (count.get(binding.taxonomyId) ?? 0) + 1);
+      const term = transaction.getCurrentTaxonomyTerm(binding);
+      if (!term.ok || (term.value.state !== "live" && !previous.some((item) => item.taxonomyId === binding.taxonomyId && item.termId === binding.termId))) return failure("INVALID_ENTRY_TAXONOMY", [binding.termId]);
+    }
+    for (const [taxonomyId, attachment] of attachments) {
+      const size = count.get(taxonomyId) ?? 0;
+      if ((attachment.cardinality === "one" && size > 1) || (status === "published" && attachment.required && size === 0)) return failure("INVALID_ENTRY_TAXONOMY", [taxonomyId]);
+    }
+    return { ok: true, value: sorted };
+  };
   return {
     async catalog(request) {
       return resolved(input.persistence.runReadSnapshot((snapshot) => {
@@ -322,6 +389,32 @@ export function createCurrentEntryAdministration(input: Readonly<{ persistence: 
         return documents.ok ? contentCatalog(request.typeId, documents.value) : documents;
       }));
     },
+    async search(inputRequest) {
+      const request = inputRequest.request;
+      if (request.contract !== "entry-search-request/v1" || request.typeId !== inputRequest.typeId || !Number.isSafeInteger(request.page) || request.page < 1 || typeof request.search !== "string" || !request.search.isWellFormed() || !Array.isArray(request.statuses) || request.statuses.some((status) => status !== "draft" && status !== "published") || new Set(request.statuses).size !== request.statuses.length || !Array.isArray(request.taxonomyFilters)) return failure("INVALID_ENTRY_SEARCH", [inputRequest.typeId]);
+      return resolved(input.persistence.runReadSnapshot((snapshot) => {
+        const type = snapshot.getCurrentContentType(inputRequest.typeId);
+        if (!type.ok) return failure<CptEntrySearchResultV1>(type.error.code === "CURRENT_CONTENT_TYPE_NOT_FOUND" ? "CONTENT_TYPE_NOT_FOUND" : "ENTRY_ADMINISTRATION_FAILED", [inputRequest.typeId]);
+        const definition = readContentTypeDefinition(type.value);
+        if (definition === undefined) return failure<CptEntrySearchResultV1>("ENTRY_ADMINISTRATION_FAILED", [inputRequest.typeId]);
+        const attached = new Set(definition.taxonomyAttachments.map((item) => (item as { taxonomyId?: unknown }).taxonomyId));
+        const filters = new Set<string>();
+        for (const filter of request.taxonomyFilters) {
+          if (filter === null || typeof filter !== "object" || typeof filter.taxonomyId !== "string" || !attached.has(filter.taxonomyId) || filters.has(filter.taxonomyId) || !Array.isArray(filter.termIds) || filter.termIds.length === 0 || new Set(filter.termIds).size !== filter.termIds.length) return failure<CptEntrySearchResultV1>("INVALID_ENTRY_SEARCH", [inputRequest.typeId]);
+          filters.add(filter.taxonomyId);
+          for (const termId of filter.termIds) if (typeof termId !== "string" || !snapshot.getCurrentTaxonomyTerm({ taxonomyId: filter.taxonomyId, termId }).ok) return failure<CptEntrySearchResultV1>("INVALID_ENTRY_SEARCH", [filter.taxonomyId]);
+        }
+        const documents = entryDocuments(snapshot, inputRequest.typeId);
+        if (!documents.ok) return documents;
+        const term = request.search.trim().toLowerCase();
+        const statuses = new Set(request.statuses);
+        const matching = documents.value.filter((document) => (statuses.size === 0 || statuses.has(document.status)) && (term === "" || document.content.title.toLowerCase().includes(term) || document.slug.toLowerCase().includes(term)) && request.taxonomyFilters.every((filter) => document.taxonomyTerms.some((binding) => binding.taxonomyId === filter.taxonomyId && filter.termIds.includes(binding.termId))));
+        const items = matching.slice((request.page - 1) * 20, request.page * 20).map((document) => ({ entryId: document.entryId, slug: document.slug, title: document.content.title, status: document.status, ...(document.publishedAt === undefined ? {} : { publishedAt: document.publishedAt }), stateDigest: document.stateDigest }));
+        const base = { contract: "entry-search-result/v1" as const, typeId: inputRequest.typeId, page: request.page, pageSize: 20 as const, totalItems: matching.length, totalPages: Math.ceil(matching.length / 20), items };
+        const bytes = canonicalJsonBytes(base);
+        return bytes.ok ? { ok: true as const, value: { ...base, stateDigest: sha256Digest(bytes.value) } } : failure<CptEntrySearchResultV1>("ENTRY_ADMINISTRATION_FAILED", [inputRequest.typeId]);
+      }));
+    },
     async get(request) {
       return resolved(input.persistence.runReadSnapshot((snapshot) => {
         const record = snapshot.getCurrentEntry(request.entryId);
@@ -329,7 +422,7 @@ export function createCurrentEntryAdministration(input: Readonly<{ persistence: 
         if (record.value.typeId !== request.typeId) return failure<CptEntryV1>("ENTRY_NOT_FOUND", [request.entryId]);
         const slug = entrySlug(snapshot, request.entryId);
         if (!slug.ok) return slug;
-        const document = entryDocument(record.value, slug.value);
+        const document = entryDocument(snapshot, record.value, slug.value);
         return document === undefined ? failure<CptEntryV1>("ENTRY_ADMINISTRATION_FAILED", [request.entryId]) : { ok: true as const, value: document };
       }));
     },
@@ -346,16 +439,25 @@ export function createCurrentEntryAdministration(input: Readonly<{ persistence: 
         if (status === undefined) return failure<CptEntryV1>("INVALID_ENTRY_CONTENT", [request.typeId]);
         const content = resolvedContent(type.value, request.request.content, status, true, [request.typeId]);
         if (!content.ok) return content;
+        const media = validatedMedia(transaction, type.value, content.value, status);
+        if (!media.ok) return media;
+        if (!Array.isArray(request.request.taxonomyTerms)) return failure<CptEntryV1>("INVALID_ENTRY_TAXONOMY", [request.typeId]);
+        const taxonomy = validatedTaxonomy(transaction, type.value, request.request.taxonomyTerms, status, []);
+        if (!taxonomy.ok) return taxonomy;
         const requestedSlug = request.request.slug === undefined ? suggestGlobalSlug(content.value.title) : globalSlug(request.request.slug);
         if (requestedSlug === undefined) return failure<CptEntryV1>("INVALID_ENTRY_CONTENT", [request.typeId]);
         const entryId = allocate();
         const claim = transaction.allocateGlobalSlug({ requestedSlug: requestedSlug.slug, entityKind: "entry", entityId: entryId });
         if (!claim.ok) return storageFailure<CptEntryV1>(claim.error.code, [entryId]);
-        const record = entryRecord({ entryId, typeId: request.typeId, slug: claim.value.slug, content: content.value, status, now });
+        const record = entryRecord({ entryId, typeId: request.typeId, slug: claim.value.slug, content: content.value, taxonomyTerms: taxonomy.value, status, now });
         if (!record.ok) return record;
         const created = transaction.createCurrentEntry(record.value);
         if (!created.ok) return storageFailure<CptEntryV1>(created.error.code, [entryId]);
-        const document = entryDocument(created.value, claim.value.slug);
+        const linked = transaction.replaceEntryMediaReferences({ entryId, status, assetIds: media.value });
+        if (!linked.ok) return storageFailure<CptEntryV1>(linked.error.code, [entryId]);
+        const bound = transaction.replaceCurrentEntryTermBindings(entryId, taxonomy.value);
+        if (!bound.ok) return failure<CptEntryV1>("INVALID_ENTRY_TAXONOMY", [entryId]);
+        const document = entryDocument(transaction, created.value, claim.value.slug);
         return document === undefined ? failure<CptEntryV1>("ENTRY_ADMINISTRATION_FAILED", [entryId]) : { ok: true as const, value: document };
       }));
     },
@@ -366,7 +468,7 @@ export function createCurrentEntryAdministration(input: Readonly<{ persistence: 
         if (current.value.typeId !== request.typeId) return failure<CptEntryV1>("ENTRY_NOT_FOUND", [request.entryId]);
         const slug = entrySlug(transaction, request.entryId);
         if (!slug.ok) return slug;
-        const before = entryDocument(current.value, slug.value);
+        const before = entryDocument(transaction, current.value, slug.value);
         if (before === undefined) return failure<CptEntryV1>("ENTRY_ADMINISTRATION_FAILED", [request.entryId]);
         // CAS 必須早於 slug 配置與任何 durable write：stale caller 不得推進 content、status、slug 或 route evidence。
         if (request.request.expectedStateDigest !== before.stateDigest) return failure<CptEntryV1>("ENTRY_STATE_CONFLICT", [request.entryId]);
@@ -377,13 +479,22 @@ export function createCurrentEntryAdministration(input: Readonly<{ persistence: 
         if (!type.ok) return failure<CptEntryV1>("ENTRY_ADMINISTRATION_FAILED", [request.typeId]);
         const content = resolvedContent(type.value, request.request.content, status, false, [request.entryId]);
         if (!content.ok) return content;
+        const media = validatedMedia(transaction, type.value, content.value, status);
+        if (!media.ok) return media;
+        if (!Array.isArray(request.request.taxonomyTerms)) return failure<CptEntryV1>("INVALID_ENTRY_TAXONOMY", [request.entryId]);
+        const taxonomy = validatedTaxonomy(transaction, type.value, request.request.taxonomyTerms, status, before.taxonomyTerms);
+        if (!taxonomy.ok) return taxonomy;
         const claim = transaction.allocateGlobalSlug({ requestedSlug: requestedSlug.slug, entityKind: "entry", entityId: request.entryId });
         if (!claim.ok) return storageFailure<CptEntryV1>(claim.error.code, [request.entryId]);
-        const record = entryRecord({ entryId: request.entryId, typeId: request.typeId, slug: claim.value.slug, content: content.value, status, previous: current.value, now });
+        const record = entryRecord({ entryId: request.entryId, typeId: request.typeId, slug: claim.value.slug, content: content.value, taxonomyTerms: taxonomy.value, status, previous: current.value, now });
         if (!record.ok) return record;
         const replaced = transaction.replaceCurrentEntry(record.value);
         if (!replaced.ok) return storageFailure<CptEntryV1>(replaced.error.code, [request.entryId]);
-        const document = entryDocument(replaced.value, claim.value.slug);
+        const linked = transaction.replaceEntryMediaReferences({ entryId: request.entryId, status, assetIds: media.value });
+        if (!linked.ok) return storageFailure<CptEntryV1>(linked.error.code, [request.entryId]);
+        const bound = transaction.replaceCurrentEntryTermBindings(request.entryId, taxonomy.value);
+        if (!bound.ok) return failure<CptEntryV1>("INVALID_ENTRY_TAXONOMY", [request.entryId]);
+        const document = entryDocument(transaction, replaced.value, claim.value.slug);
         return document === undefined ? failure<CptEntryV1>("ENTRY_ADMINISTRATION_FAILED", [request.entryId]) : { ok: true as const, value: document };
       }));
     },
@@ -394,7 +505,7 @@ export function createCurrentEntryAdministration(input: Readonly<{ persistence: 
         if (current.value.typeId !== request.typeId) return failure<CptEntryDeletedV1>("ENTRY_NOT_FOUND", [request.entryId]);
         const slug = entrySlug(transaction, request.entryId);
         if (!slug.ok) return slug;
-        const before = entryDocument(current.value, slug.value);
+        const before = entryDocument(transaction, current.value, slug.value);
         if (before === undefined) return failure<CptEntryDeletedV1>("ENTRY_ADMINISTRATION_FAILED", [request.entryId]);
         if (request.request.expectedStateDigest !== before.stateDigest) return failure<CptEntryDeletedV1>("ENTRY_STATE_CONFLICT", [request.entryId]);
         const removed = transaction.deleteCurrentEntry(request.entryId);

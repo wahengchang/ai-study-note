@@ -1,6 +1,6 @@
 ---
 id: WI-008
-status: pending
+status: cancelled
 title: 執行 Legacy 單一狀態 Cutover
 work_group: null
 depends_on: [WI-002, WI-004, WI-006]
@@ -22,6 +22,7 @@ depends_on: [WI-002, WI-004, WI-006]
 
 ## Notes
 
+- Owner 於 2026-10-07 決定只支援全新安裝及新內容；舊 SQLite／媒體／Astro 文章不遷移。此 Work Item 的 preflight、choice 與 cutover 驗收全部取消；舊資料在任何寫入前拒絕且不得自動刪除。保留本檔作為取消紀錄，不把原 acceptance 視為待交付工作。
 - [規格](../../../../specs/cms-core-data-reset.md)
 - [#315（其既有current/published資料是migration輸入；two-step lifecycle不保留）](https://github.com/wahengchang/ai-study-note/issues/315)
 - 本 Work Item 必須縱切 Persistence→Core/Application→Authoring API→CMS→behavior tests；不遷移歷史Revision或改動public immutable artifacts。

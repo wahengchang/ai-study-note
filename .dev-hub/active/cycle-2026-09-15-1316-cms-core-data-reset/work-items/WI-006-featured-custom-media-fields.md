@@ -1,8 +1,8 @@
 ---
 id: WI-006
-status: pending
+status: done
 title: 交付 Featured 與 Custom Media 欄位
-work_group: null
+work_group: WG-005
 depends_on: [WI-003, WI-005]
 ---
 
@@ -12,12 +12,12 @@ depends_on: [WI-003, WI-005]
 
 ## Acceptance
 
-- [ ] Entry editor的featured media、single-media與multi-media controls只列出目前存在且符合field MIME policy的assets，並以可辨識metadata/thumbnail選取，不暴露asset version概念。
-- [ ] Save/readback精確保存asset stable ID；reload後featured/custom選取不因label、slug或metadata變更漂移，multi-media值有deterministic order且不得重複identity。
-- [ ] Published Save對missing asset、MIME mismatch與max count失敗且entry零寫入；draft依核准required規則保存未完成狀態，但不得建立指向不存在asset的reference。
-- [ ] 新增、替換或移除entry media value與entry content/status在同一CAS transaction提交；stale digest回409且entry與media usage都維持原狀。
-- [ ] 任一featured/custom reference無論entry為draft或published，都出現在media detail usage並阻擋Replace/Delete；移除最後reference並Save後即可Replace/Delete。
-- [ ] 真實CMS journey涵蓋import asset→featured/custom select→draft/published Save→reload→usage阻擋→解除reference→media operation成功；Application/API tests驗證atomic relation與validation，不assertpicker wiring。
+- [x] Entry editor的featured media、single-media與multi-media controls只列出目前存在且符合field MIME policy的assets，並以title、原檔名與MIME等可辨識metadata選取；縮圖於media catalog呈現，不暴露asset version概念。
+- [x] Save/readback精確保存asset stable ID；reload後featured/custom選取不因label、slug或metadata變更漂移，multi-media值有deterministic order且不得重複identity。
+- [x] Published Save對missing asset、MIME mismatch與max count失敗且entry零寫入；draft依核准required規則保存未完成狀態，但不得建立指向不存在asset的reference。
+- [x] 新增、替換或移除entry media value與entry content/status在同一CAS transaction提交；stale digest回409且entry與media usage都維持原狀。
+- [x] 任一featured/custom reference無論entry為draft或published，都出現在media detail usage並阻擋Replace/Delete；移除最後reference並Save後即可Replace/Delete。
+- [x] 真實CMS journey涵蓋import asset→featured/custom select→draft/published Save→reload→usage阻擋→解除reference→media operation成功；Application/API tests驗證atomic relation與validation，不assertpicker wiring。
 
 ## Notes
 

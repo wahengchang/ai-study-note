@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { closeSync, lstatSync, openSync, readFileSync, readSync } from "node:fs";
 
 import { sha256Digest } from "../foundation/index.js";
 
@@ -6,37 +6,28 @@ import type { MigrationSummary, PersistenceResult } from "./contracts.js";
 import { persistenceResultFailure } from "./failures.js";
 import { openSqliteAdapter, type SqliteAdapter, type SqliteRow } from "./sqlite-adapter.js";
 
-const applicationId = 1095324500;
+const legacyApplicationId = 1095324500;
+const applicationId = 1095324501;
 const migrationFilename = /^(\d{4})-([a-z0-9]+(?:-[a-z0-9]+)*)\.sql$/;
 
+/** 在開啟 SQLite 前唯讀檢查 generation，避免舊資料庫觸發 journal 或 migration write。 */
+export function inspectDatabaseGeneration(databasePath: string): "absent" | "current" | "old" | "unknown" {
+  try {
+    const stat = lstatSync(databasePath);
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.size < 100) return "unknown";
+    const fd = openSync(databasePath, "r");
+    try {
+      const header = Buffer.alloc(100);
+      if (readSync(fd, header, 0, 100, 0) !== 100 || header.toString("ascii", 0, 16) !== "SQLite format 3\0") return "unknown";
+      const id = header.readUInt32BE(68);
+      return id === applicationId ? "current" : id === legacyApplicationId ? "old" : "unknown";
+    } finally { closeSync(fd); }
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "ENOENT" ? "absent" : "unknown";
+  }
+}
+
 export type MigrationSource = Readonly<{ filename: string; sqlBytes: Uint8Array }>;
-
-export type SchemaEvidenceReconciliation = Readonly<{ identity: Readonly<{ schemaId: string; version: number }>; schemaBytes: Uint8Array; schemaDigest: string }>;
-
-function equalBytes(left: Uint8Array, right: Uint8Array): boolean {
-  return left.byteLength === right.byteLength && left.every((byte, index) => byte === right[index]);
-}
-
-function reconcileSchemaEvidence(database: SqliteAdapter, evidence: SchemaEvidenceReconciliation): void {
-  const existing = database.get(
-    "SELECT schema_bytes, schema_digest FROM schema_versions WHERE schema_id = ? AND version = ?",
-    evidence.identity.schemaId,
-    evidence.identity.version,
-  );
-  if (existing === undefined) {
-    database.run(
-      "INSERT INTO schema_versions (schema_id, version, schema_bytes, schema_digest) VALUES (?, ?, ?, ?)",
-      evidence.identity.schemaId,
-      evidence.identity.version,
-      evidence.schemaBytes,
-      evidence.schemaDigest,
-    );
-    return;
-  }
-  if (!(existing.schema_bytes instanceof Uint8Array) || existing.schema_digest !== evidence.schemaDigest || !equalBytes(existing.schema_bytes, evidence.schemaBytes)) {
-    throw new Error("schema evidence mismatch");
-  }
-}
 
 type PreparedMigration = Readonly<{
   sequence: number;
@@ -54,20 +45,7 @@ type DatabaseState = Readonly<{
 }>;
 
 const shippedMigrationFilenames: readonly string[] = [
-  "0001-create-persistence-storage.sql",
-  "0002-add-persistence-query-indexes.sql",
-  "0003-add-entry-pointers.sql",
-  "0004-add-route-claims.sql",
-  "0005-add-media-storage.sql",
-  "0006-add-revision-references.sql",
-  "0007-add-plugin-activation-state.sql",
-  "0008-add-schema-migration-lineage.sql",
-  "0009-add-theme-activation-state.sql",
-  "0010-add-plugin-settings-state.sql",
-  "0011-add-taxonomy-storage.sql",
-  "0012-add-current-content-types-and-global-slugs.sql",
-  "0013-add-current-entries.sql",
-  "0014-add-current-media-assets.sql",
+  "0001-create-current-only-storage.sql",
 ];
 
 // 刻意不在 module top-level 讀檔：讀取失敗必須成為 structured failure，
@@ -86,9 +64,11 @@ export function shippedMigrationSources(): readonly MigrationSource[] | null {
 export function migrateDatabaseWithSources(
   input: Readonly<{ databasePath: string }>,
   sources: readonly MigrationSource[],
-  reconciliation?: SchemaEvidenceReconciliation,
 ): PersistenceResult<MigrationSummary> {
   if (!validDatabasePath(input.databasePath)) return persistenceResultFailure("INVALID_DATABASE_PATH");
+  const generation = inspectDatabaseGeneration(input.databasePath);
+  if (generation === "old") return persistenceResultFailure("OLD_DATABASE_UNSUPPORTED");
+  if (generation === "unknown") return persistenceResultFailure("UNKNOWN_DATABASE");
 
   let database: SqliteAdapter;
   try {
@@ -106,25 +86,13 @@ export function migrateDatabaseWithSources(
     if (expectedCurrent === undefined) return persistenceResultFailure("MIGRATION_FAILED");
 
     const isEmpty = state.applicationId === 0 && state.userVersion === 0 && state.userObjects === 0;
+    if (!isEmpty && state.applicationId === legacyApplicationId) return persistenceResultFailure("OLD_DATABASE_UNSUPPORTED");
     if (!isEmpty && state.applicationId !== applicationId) return persistenceResultFailure("UNKNOWN_DATABASE");
     if (!isEmpty && !matchesLedger(state, migrations)) return persistenceResultFailure("MIGRATION_HISTORY_MISMATCH");
 
     const appliedCount = isEmpty ? 0 : state.ledger.length;
     const pending = migrations.slice(appliedCount);
     if (pending.length === 0) {
-      if (reconciliation !== undefined) {
-        try {
-          const existing = database.get(
-            "SELECT schema_bytes, schema_digest FROM schema_versions WHERE schema_id = ? AND version = ?",
-            reconciliation.identity.schemaId,
-            reconciliation.identity.version,
-          );
-          if (existing === undefined) database.transaction(() => reconcileSchemaEvidence(database, reconciliation));
-          else if (!(existing.schema_bytes instanceof Uint8Array) || existing.schema_digest !== reconciliation.schemaDigest || !equalBytes(existing.schema_bytes, reconciliation.schemaBytes)) return persistenceResultFailure("MIGRATION_FAILED");
-        } catch {
-          return persistenceResultFailure("MIGRATION_FAILED");
-        }
-      }
       return { ok: true, value: { appliedMigrationIds: [], currentMigrationId: expectedCurrent.migrationId } };
     }
 
@@ -142,7 +110,6 @@ export function migrateDatabaseWithSources(
         }
         database.exec(`PRAGMA application_id = ${applicationId}`);
         database.exec(`PRAGMA user_version = ${migrations.length}`);
-        if (reconciliation !== undefined) reconcileSchemaEvidence(database, reconciliation);
       });
     } catch {
       return persistenceResultFailure("MIGRATION_FAILED");
@@ -161,8 +128,11 @@ export function migrateDatabaseWithSources(
 
 export function openCurrentDatabase(input: Readonly<{ databasePath: string }>):
   | Readonly<{ ok: true; database: SqliteAdapter }>
-  | Readonly<{ ok: false; code: "INVALID_DATABASE_PATH" | "DATABASE_UNAVAILABLE" | "UNKNOWN_DATABASE" | "MIGRATION_HISTORY_MISMATCH" }> {
+  | Readonly<{ ok: false; code: "INVALID_DATABASE_PATH" | "DATABASE_UNAVAILABLE" | "UNKNOWN_DATABASE" | "OLD_DATABASE_UNSUPPORTED" | "MIGRATION_HISTORY_MISMATCH" }> {
   if (!validDatabasePath(input.databasePath)) return { ok: false, code: "INVALID_DATABASE_PATH" };
+  const generation = inspectDatabaseGeneration(input.databasePath);
+  if (generation === "old") return { ok: false, code: "OLD_DATABASE_UNSUPPORTED" };
+  if (generation === "unknown") return { ok: false, code: "UNKNOWN_DATABASE" };
   let database: SqliteAdapter;
   try {
     database = openSqliteAdapter(input.databasePath);
@@ -179,7 +149,7 @@ export function openCurrentDatabase(input: Readonly<{ databasePath: string }>):
     const state = readState(database);
     if (state.applicationId !== applicationId) {
       database.close();
-      return { ok: false, code: "UNKNOWN_DATABASE" };
+      return { ok: false, code: state.applicationId === legacyApplicationId ? "OLD_DATABASE_UNSUPPORTED" : "UNKNOWN_DATABASE" };
     }
     if (!matchesLedger(state, migrations) || state.ledger.length !== migrations.length) {
       database.close();
