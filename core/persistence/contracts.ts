@@ -41,8 +41,8 @@ export type CompareAndReplaceThemeActivationStateInput = Readonly<{ expectedDige
 export type PluginSettingsStateRecord = Readonly<{ bytes: Uint8Array; digest: Digest }>;
 export type CompareAndReplacePluginSettingsStateInput = Readonly<{ expectedDigest: Digest; next: PluginSettingsStateRecord }>;
 
-export type CurrentContentTypeRecord = Readonly<{ typeId: string; definitionBytes: Uint8Array; definitionDigest: Digest; legacySchemaId?: string }>;
-export type GlobalSlugClaimRecord = Readonly<{ namespaceKey: string; slug: string; entityKind: "content-type" | "taxonomy" | "entry" | "media"; entityId: string }>;
+export type CurrentContentTypeRecord = Readonly<{ typeId: string; definitionBytes: Uint8Array; definitionDigest: Digest }>;
+export type GlobalSlugClaimRecord = Readonly<{ namespaceKey: string; slug: string; entityKind: "content-type" | "taxonomy" | "term" | "entry" | "media"; entityId: string }>;
 export type CreateCurrentContentTypeInput = CurrentContentTypeRecord;
 export type ReplaceCurrentContentTypeInput = CurrentContentTypeRecord;
 export type AllocateGlobalSlugInput = Readonly<{ requestedSlug: string; entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>;
@@ -85,6 +85,9 @@ export type ReplaceCurrentMediaAssetInput = CurrentMediaAssetRecord;
 export type CurrentMediaEntryStatus = "draft" | "published";
 export type CurrentMediaReferenceRecord = Readonly<{ entryId: string; status: CurrentMediaEntryStatus }>;
 export type ReplaceEntryMediaReferencesInput = Readonly<{ entryId: string; status: CurrentMediaEntryStatus; assetIds: readonly string[] }>;
+export type CurrentTaxonomyRecord = Readonly<{ taxonomyId: string; label: string; slug: string; hierarchical: boolean }>;
+export type CurrentTaxonomyTermRecord = Readonly<{ taxonomyId: string; termId: string; label: string; slug: string; parentTermId?: string; order: number; state: "live" | "retired" }>;
+export type CurrentEntryTermBinding = Readonly<{ taxonomyId: string; termId: string }>;
 
 
 export type PersistenceCanonicalState = Readonly<{
@@ -171,6 +174,7 @@ export type PersistenceFailureCode =
   | "INVALID_DATABASE_PATH"
   | "DATABASE_UNAVAILABLE"
   | "UNKNOWN_DATABASE"
+  | "OLD_DATABASE_UNSUPPORTED"
   | "MIGRATION_HISTORY_MISMATCH"
   | "MIGRATION_FAILED"
   | "INVALID_PERSISTENCE_INPUT"
@@ -242,9 +246,21 @@ export interface PersistenceReadSnapshot {
   getGlobalSlugClaimByEntity(identity: GlobalSlugEntityIdentity): PersistenceResult<GlobalSlugClaimRecord>;
   getCurrentEntry(entryId: string): PersistenceResult<CurrentEntryRecord>;
   listCurrentEntries(typeId: string): PersistenceResult<readonly CurrentEntryRecord[]>;
+  getCurrentTaxonomy(taxonomyId: string): PersistenceResult<CurrentTaxonomyRecord>;
+  listCurrentTaxonomies(): PersistenceResult<readonly CurrentTaxonomyRecord[]>;
+  getCurrentTaxonomyTerm(identity: TaxonomyTermIdentity): PersistenceResult<CurrentTaxonomyTermRecord>;
+  listCurrentTaxonomyTerms(taxonomyId: string): PersistenceResult<readonly CurrentTaxonomyTermRecord[]>;
+  listCurrentEntryTermBindings(entryId: string): PersistenceResult<readonly CurrentEntryTermBinding[]>;
+  listCurrentTermUsage(identity: TaxonomyTermIdentity): PersistenceResult<readonly string[]>;
 }
 
 export interface PersistenceTransaction extends PersistenceReadSnapshot {
+  createCurrentTaxonomy(input: CurrentTaxonomyRecord): PersistenceResult<CurrentTaxonomyRecord>;
+  replaceCurrentTaxonomy(input: CurrentTaxonomyRecord): PersistenceResult<CurrentTaxonomyRecord>;
+  createCurrentTaxonomyTerm(input: CurrentTaxonomyTermRecord): PersistenceResult<CurrentTaxonomyTermRecord>;
+  replaceCurrentTaxonomyTerm(input: CurrentTaxonomyTermRecord): PersistenceResult<CurrentTaxonomyTermRecord>;
+  deleteCurrentTaxonomyTerm(identity: TaxonomyTermIdentity): PersistenceResult<void>;
+  replaceCurrentEntryTermBindings(entryId: string, bindings: readonly CurrentEntryTermBinding[]): PersistenceResult<readonly CurrentEntryTermBinding[]>;
   registerSchemaVersion(input: RegisterSchemaVersionInput): PersistenceResult<SchemaVersionRecord>;
   getSchemaVersion(identity: SchemaVersionIdentity): PersistenceResult<SchemaVersionRecord>;
   listSchemaVersions(): PersistenceResult<readonly SchemaVersionRecord[]>;
@@ -309,3 +325,26 @@ export interface PersistenceStore extends PersistenceTransaction {
   executeSchemaMigration(input: SchemaMigrationExecutionInput): PersistenceResult<SchemaMigrationExecutionRecord>;
   getSchemaMigrationExecution(operationId: string): PersistenceResult<SchemaMigrationExecutionRecord>;
 }
+
+/** Fresh-only public seam. Legacy interfaces above remain private implementation types. */
+type CurrentReadKey =
+  | "readPluginActivationState" | "readThemeActivationState" | "readPluginSettingsState"
+  | "getCurrentContentType" | "listCurrentContentTypes" | "getCurrentMediaAsset" | "listCurrentMediaAssets" | "listCurrentMediaReferences"
+  | "getGlobalSlugClaim" | "getGlobalSlugClaimByEntity" | "getCurrentEntry" | "listCurrentEntries"
+  | "getCurrentTaxonomy" | "listCurrentTaxonomies" | "getCurrentTaxonomyTerm" | "listCurrentTaxonomyTerms"
+  | "listCurrentEntryTermBindings" | "listCurrentTermUsage";
+type CurrentWriteKey =
+  | "createCurrentTaxonomy" | "replaceCurrentTaxonomy" | "createCurrentTaxonomyTerm" | "replaceCurrentTaxonomyTerm"
+  | "deleteCurrentTaxonomyTerm" | "replaceCurrentEntryTermBindings"
+  | "createCurrentContentType" | "replaceCurrentContentType" | "allocateGlobalSlug" | "releaseGlobalSlug"
+  | "createCurrentEntry" | "replaceCurrentEntry" | "deleteCurrentEntry"
+  | "createCurrentMediaAsset" | "replaceCurrentMediaAsset" | "deleteCurrentMediaAsset"
+  | "replaceEntryMediaReferences" | "contentTypeHasCurrentEntries" | "canonicalState";
+export type CurrentPersistenceReadSnapshot = Pick<PersistenceReadSnapshot, CurrentReadKey>;
+export type CurrentPersistenceTransaction = CurrentPersistenceReadSnapshot & Pick<PersistenceTransaction, CurrentWriteKey>;
+export type CurrentPersistenceStore = CurrentPersistenceTransaction & Pick<PersistenceStore,
+  "compareAndReplacePluginActivationState" | "compareAndReplaceThemeActivationState" | "compareAndReplacePluginSettingsState" | "ownsActiveReadSnapshot" | "ownsActiveTransaction" | "close"
+> & Readonly<{
+  runReadSnapshot<T, E>(operation: (snapshot: CurrentPersistenceReadSnapshot) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
+  runTransaction<T, E>(operation: (transaction: CurrentPersistenceTransaction) => TransactionDecision<T, E>): TransactionDecision<T, E | PersistenceFailure>;
+}>;

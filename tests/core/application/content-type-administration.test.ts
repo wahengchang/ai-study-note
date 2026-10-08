@@ -4,10 +4,9 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { createContentTypeAdministration } from "../../../core/application/index.js";
+import { createContentTypeAdministration, createCurrentEntryAdministration } from "../../../core/application/index.js";
 import { migrateDatabase, openPersistence } from "../../../core/persistence/index.js";
 import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
-import { getSiteContentSchemaEvidence } from "../../../core/content/index.js";
 
 function databasePath(): Readonly<{ directory: string; databasePath: string }> {
   const directory = mkdtempSync(path.join(tmpdir(), "content-type-administration-"));
@@ -233,13 +232,11 @@ test("populated Article permits an optional field but rejects required tightenin
     const opened = openPersistence({ databasePath: fixture.databasePath });
     assert.equal(opened.ok, true);
     if (!opened.ok) return;
-    const bytes = canonicalJsonBytes({ title: "existing" });
-    assert.equal(bytes.ok, true);
-    if (!bytes.ok) return;
-    const siteContent = getSiteContentSchemaEvidence();
-    assert.equal(opened.value.registerSchemaVersion({ identity: siteContent.identity, schemaBytes: siteContent.schemaBytes, schemaDigest: siteContent.schemaDigest }).ok, true);
-    assert.equal(opened.value.createRevision({ identity: { entryId: "existing-article", revisionId: "r1" }, schemaIdentity: { schemaId: "site-content", version: 1 }, contentBytes: bytes.value, contentDigest: sha256Digest(bytes.value), lineage: { operationId: "seed", operationKind: "SaveRevision" } }).ok, true);
-    assert.equal(opened.value.setEntryPointers({ entryId: "existing-article", currentRevisionId: "r1", lineage: { revisionId: "r1", operationId: "seed", operationKind: "SaveRevision" } }).ok, true);
+    const entries = createCurrentEntryAdministration({ persistence: opened.value, newStableId: () => "00000000-0000-4000-8000-0000000000e1" });
+    const catalog = await entries.catalog({ typeId: "00000000-0000-4000-8000-000000000001" });
+    assert.equal(catalog.ok, true);
+    if (!catalog.ok) return;
+    assert.equal((await entries.create({ typeId: "00000000-0000-4000-8000-000000000001", request: { contract: "cpt-entry-create-request/v1", expectedStateDigest: catalog.value.stateDigest, content: { contract: "cpt-content/v1", typeId: "00000000-0000-4000-8000-000000000001", title: "existing", blocks: [{ kind: "article", text: "body" }], excerpt: "", seo: {}, customValues: [] }, taxonomyTerms: [], status: "draft" } })).ok, true);
     let id = 30;
     const administration = createContentTypeAdministration({ persistence: opened.value, newStableId: () => `00000000-0000-4000-8000-${String(id++).padStart(12, "0")}` });
     const article = await administration.get({ typeId: "00000000-0000-4000-8000-000000000001" });

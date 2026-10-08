@@ -2,7 +2,6 @@ import { randomUUID } from "node:crypto";
 import { canonicalJsonBytes, sha256Digest, type Digest, type JsonValue, type MessageRemediation } from "../foundation/index.js";
 import { isMediaAssetId } from "../media/index.js";
 import { globalSlug, suggestGlobalSlug, type PersistenceReadSnapshot, type PersistenceStore } from "../persistence/index.js";
-import { createContentTypeAdministration as createLegacyAdministration, type ContentTypeDefinitionValidator } from "./authoring-read.js";
 
 const systemFields = ["title", "body", "slug", "excerpt", "featuredMedia", "categories", "tags", "seo", "status", "publishedAt"] as const;
 const categoriesTaxonomyId = "00000000-0000-4000-8000-000000000002";
@@ -74,7 +73,6 @@ export type ContentTypeAdministrationFailureCode = "INVALID_CONTENT_TYPE_DEFINIT
 export type ContentTypeAdministrationFailure = Readonly<{ code: ContentTypeAdministrationFailureCode; owner: "ContentTypeAdministration"; subjectIds: readonly string[]; remediation: MessageRemediation }>;
 export type ContentTypeAdministrationResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: ContentTypeAdministrationFailure }>;
 export interface ContentTypeAdministration {
-  createInitial(input: Readonly<{ schemaId: string; schema: JsonValue }>): Promise<ContentTypeAdministrationResult<unknown>>;
   list(): Promise<ContentTypeAdministrationResult<ContentTypeCatalogV1>>;
   get(input: Readonly<{ typeId: string }>): Promise<ContentTypeAdministrationResult<ContentTypeDefinitionV1>>;
   create(input: ContentTypeCreateRequestV1): Promise<ContentTypeAdministrationResult<ContentTypeDefinitionV1>>;
@@ -433,17 +431,13 @@ function normalizedAttachments(value: readonly unknown[], requireDefaults: boole
   return attachments.sort((left, right) => left.taxonomyId < right.taxonomyId ? -1 : left.taxonomyId > right.taxonomyId ? 1 : 0);
 }
 
-function attachmentTaxonomiesExist(persistence: Pick<PersistenceStore, "getTaxonomy">, attachments: readonly TaxonomyAttachment[]): boolean {
-  return attachments.every((attachment) => persistence.getTaxonomy(attachment.taxonomyId).ok);
+function attachmentTaxonomiesExist(persistence: Pick<PersistenceStore, "getCurrentTaxonomy">, attachments: readonly TaxonomyAttachment[]): boolean {
+  return attachments.every((attachment) => persistence.getCurrentTaxonomy(attachment.taxonomyId).ok);
 }
 
 
-export function createContentTypeAdministration(input: Readonly<{ persistence: PersistenceStore; newStableId?: () => string; validator?: ContentTypeDefinitionValidator }>): ContentTypeAdministration {
-  const legacy = input.validator === undefined ? undefined : createLegacyAdministration({ persistence: input.persistence, validator: input.validator });
+export function createContentTypeAdministration(input: Readonly<{ persistence: PersistenceStore; newStableId?: () => string }>): ContentTypeAdministration {
   return {
-    async createInitial(request) {
-      return legacy === undefined ? failure("INVALID_CONTENT_TYPE_DEFINITION", [request.schemaId]) : legacy.createInitial(request) as unknown as ContentTypeAdministrationResult<unknown>;
-    },
     async list() { return contentTypeCatalog(input.persistence); },
     async get(request) {
       const record = input.persistence.getCurrentContentType(request.typeId);
@@ -497,7 +491,7 @@ export function createContentTypeAdministration(input: Readonly<{ persistence: P
         const bytes = canonicalJsonBytes(base);
         if (!bytes.ok) return failure("INVALID_CONTENT_TYPE_DEFINITION", [before.typeId]);
         const digest = sha256Digest(bytes.value);
-        const replaced = transaction.replaceCurrentContentType({ typeId: before.typeId, definitionBytes: bytes.value, definitionDigest: digest, ...(current.value.legacySchemaId === undefined ? {} : { legacySchemaId: current.value.legacySchemaId }) });
+        const replaced = transaction.replaceCurrentContentType({ typeId: before.typeId, definitionBytes: bytes.value, definitionDigest: digest });
         return replaced.ok ? { ok: true, value: { ...base, stateDigest: digest } } : failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [before.typeId]);
       });
       if (result.ok) return result;

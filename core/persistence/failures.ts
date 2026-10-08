@@ -4,6 +4,7 @@ const messages: Readonly<Record<PersistenceFailureCode, string>> = {
   INVALID_DATABASE_PATH: "請提供有效的 database path。",
   DATABASE_UNAVAILABLE: "無法開啟指定的資料庫檔案；請確認目錄存在且具備讀寫權限。",
   UNKNOWN_DATABASE: "指定的資料庫不屬於此 CMS。",
+  OLD_DATABASE_UNSUPPORTED: "舊版 CMS 資料庫不支援升級；請使用新的資料目錄。原資料未被修改。",
   MIGRATION_HISTORY_MISMATCH: "Storage migration 歷史與目前程式不一致。",
   MIGRATION_FAILED: "Storage migration 未完成。",
   INVALID_PERSISTENCE_INPUT: "請提供有效的 Persistence 輸入。",

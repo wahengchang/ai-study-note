@@ -18,12 +18,7 @@ export const API_KEY_PATTERN = /^asn_v1_[A-Za-z0-9_-]{43}$/u;
 export const SECRET_TEXT_PATTERN = /^[A-Za-z0-9_-]{43}$/u;
 /** `asn_bt_v1_<43-char-unpadded-base64url>` browser bootstrap ticket。 */
 export const BROWSER_TICKET_PATTERN = /^asn_bt_v1_[A-Za-z0-9_-]{43}$/u;
-/**
- * `/v1/entries/:entryId/revisions` 與 `/v1/entries/:entryId/publish` 的 entryId
- * 字面格式：單一 unreserved path segment。client 與 CLI 共用同一份常數，否則兩邊
- * 各自寫死會讓 CLI 接受、client 拒絕（或反之）的 entryId 產生無法解釋的
- * `INVALID_CLIENT_REQUEST`。
- */
+/** Authoring API path parameter 的單一 unreserved segment 格式。 */
 export const AUTHORING_RESOURCE_ID_PATTERN = /^[A-Za-z0-9._~-]+$/u;
 /** diagnostic 輸出前用來遮蔽 credential 與 browser ticket 的 canary pattern。 */
 export const REDACTION_PATTERN = /asn_(?:v1|bt_v1)_[A-Za-z0-9_-]+/gu;

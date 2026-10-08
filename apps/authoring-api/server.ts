@@ -3,23 +3,23 @@ import { Hono } from "hono";
 import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server } from "node:http";
 
-import type { AuthoringReadFacade, CmsEditorBlockResolutionsRequest, CmsSeoAnalysisRequest, ContentTypeAdministration, ContentTypeMigrationAdministration, ContentTypeMigrationImpact, CurrentEntryAdministration, CurrentMediaLibrary, DomainApplication, DomainApplicationFailure, PluginActivationRequest, PluginSettingsReplaceRequest, PublishRevisionSuccess, RestoreRevisionSuccess, SaveRevisionSuccess, TaxonomyCommand } from "../../core/application/index.js";
-import type { JsonValue, MessageRemediation } from "../../core/foundation/index.js";
-import { parsePreviewInput, renderPreviewDocument, type ProjectionPreview } from "../../core/projection/index.js";
+import type { ContentTypeAdministration, CurrentEntryAdministration, CurrentMediaLibrary, CurrentTaxonomyAdministration } from "../../core/application/index.js";
+import type { MessageRemediation } from "../../core/foundation/index.js";
+
 import type { Context } from "hono";
 import type { AuthoringCredentialAuthority } from "./credential-store.js";
-import type { AuthoringReleaseTransport, ReleaseTransportFailureCode } from "./release-transport.js";
-import { releaseBuildSchema, releaseBuildRequestSchema, releaseDiagnosisSchema, releaseDiagnoseRequestSchema, releaseReceiptSchema, releaseRequestSchema, redeliverRequestSchema } from "./transport-contracts.js";
+
+
 import { createBrowserBootstrapState } from "./browser-bootstrap.js";
 import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
-import { authoringEntrySchema, cptEntryCatalogSchema, cptEntryCreateRequestSchema, cptEntryDeleteRequestSchema, cptEntryDeletedSchema, cptEntrySaveRequestSchema, cptEntrySchema, authoringErrorSchema, authoringErrorStatuses, mediaAssetDetailV2Schema, mediaAssetReferencedErrorSchema, mediaAssetV2Schema, mediaCatalogV2Schema, mediaDeleteReceiptSchema, mediaDeleteRequestSchema, mediaImportMetadataSchema, mediaMetadataSaveRequestSchema, mediaReplaceRequestSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, cmsEditorBlockResolutionsSchema, cmsSeoAnalysisRequestSchema, cmsSeoAnalysisResponseSchema, contentTypeCatalogSchema, contentTypeMigrationBlockedErrorSchema, contentTypeMigrationCommandSchema, contentTypeMigrationOutcomeSchema, contentTypeMigrationProposalSchema, contentTypeSchema, createContentTypeRequestSchema, createTaxonomyRequestSchema, entryCatalogSchema, entryDetailSchema, entryRevisionCatalogSchema, pluginActivationRequestSchema, pluginManagementSnapshotSchema, pluginSettingsReplaceRequestSchema, previewDocumentSchema, previewRequestSchema, publishRevisionRequestSchema, restoreRevisionRequestSchema, restoreRevisionSuccessSchema, saveRevisionRequestSchema, serverProofChallengeSchema, taxonomyCatalogSchema, taxonomyCommandResultSchema, taxonomyCommandSchema, taxonomySnapshotSchema } from "./transport-contracts.js";
+import { cptEntryCatalogSchema, cptEntrySearchRequestSchema, cptEntrySearchResultSchema, cptEntryCreateRequestSchema, cptEntryDeleteRequestSchema, cptEntryDeletedSchema, cptEntrySaveRequestSchema, cptEntrySchema, currentTaxonomyCatalogSchema, currentTaxonomySnapshotSchema, currentTaxonomyCreateSchema, currentTaxonomyCommandSchema, authoringErrorSchema, authoringErrorStatuses, mediaAssetDetailV2Schema, mediaAssetReferencedErrorSchema, mediaAssetV2Schema, mediaCatalogV2Schema, mediaDeleteReceiptSchema, mediaDeleteRequestSchema, mediaImportMetadataSchema, mediaMetadataSaveRequestSchema, mediaReplaceRequestSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
 import { prepareMediaUpload, type PreparedMediaUpload } from "./multipart.js";
 import type { DataMediaFailure } from "../../core/media/index.js";
-import type { BrowserSessionDto, BrowserTicketDto, MediaAssetReferencedErrorDto, PublishRevisionSuccessDto, RestoreRevisionSuccessDto, SaveRevisionSuccessDto, TransportCode } from "./transport-contracts.js";
+import type { BrowserSessionDto, BrowserTicketDto, MediaAssetReferencedErrorDto, TransportCode } from "./transport-contracts.js";
 import type { CurrentMediaLibraryResult } from "../../core/application/index.js";
-import type { ChangeRouteRequest, RouteChangeProposalRequest, SiteRouteGraphReadRequest } from "../../core/application/index.js";
-import { changeRouteCommandSchema, changeRouteSuccessSchema, routeChangeProposalRequestSchema, routeChangeProposalSchema, siteRouteGraphSchema } from "./transport-contracts.js";
+
+
 import { replaceContentTypeRequestSchema } from "./transport-contracts.js";
 
 const ORIGIN = AUTHORING_ORIGIN;
@@ -53,29 +53,30 @@ const ERROR_REMEDIATION: Record<TransportCode, string> = {
   INTERNAL_SERVER_ERROR: "Authoring API 暫時無法完成 request，請稍後重試。",
 };
 /** 每個 route 的 body 上限與其 remediation 綁在同一處，避免上限與訊息各自漂移。 */
-const SAVE_BODY_LIMIT = 4_194_304;
 const ENTRY_BODY_LIMIT = 1_048_576;
 const ENTRY_BODY_LIMIT_REMEDIATION = "Entry request 不得超過 1 MiB。";
-const PUBLISH_BODY_LIMIT = 4_096;
 const PROOF_BODY_LIMIT = 4_096;
-const SAVE_BODY_LIMIT_REMEDIATION = "SaveRevision request 不得超過 4 MiB。";
-const PUBLISH_BODY_LIMIT_REMEDIATION = "PublishRevision request 不得超過 4 KiB。";
 const PROOF_BODY_LIMIT_REMEDIATION = "server-proof challenge 不得超過 4 KiB。";
 /** Current media library 的唯一 bytes 上限；檔案以 streaming 寫入 staged file，永不整檔進記憶體。 */
 const MEDIA_UPLOAD_REMEDIATION = "Media 檔案不得超過 400 MiB，metadata envelope 不得超過 64 KiB。";
 export type { TransportCode } from "./transport-contracts.js";
-export type AuthoringApiLogEvent = Readonly<{ requestId: string; stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED"; method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED"; routeTemplate: "/cms" | "/cms/site/routes" | "/cms/plugins" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:typeId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/entries" | "/cms/entries/new" | "/cms/entries/:entryId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/assets/:asset" | "/v1/plugins" | "/v1/plugins/activate" | "/v1/plugins/settings" | "/v1/site/routes" | "/v1/site/routes/change" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/replace" | "/v1/media/:assetId/metadata" | "/v1/media/:assetId/delete" | "/cms/media/:assetId/thumbnail" | "/v1/entries" | "/v1/entries/:entryId" | "/v1/entries/:entryId/revisions" | "/v1/entries/:entryId/publish" | "/v1/entries/:entryId/restore" | "/v1/entries/:entryId/current" | "/v1/entries/:entryId/current/editor-blocks" | "/v1/entries/:entryId/seo-analysis" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/content-types" | "/v1/content-types/:typeId" | "/v1/content-types/:schemaId/migrations" | "/v1/content-types/:schemaId/migrations/preview" | "/v1/preview" | "/v1/release/diagnose" | "/v1/release/build" | "/v1/release" | "/v1/redeliver" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "/v1/content-types/:typeId/entries/:entryId/delete" | "/v1/content-types/:typeId/entries/:entryId" | "/v1/content-types/:typeId/entries" | "/cms/post" | "unmatched"; status: number }>;
+export type AuthoringApiLogEvent = Readonly<{
+  requestId: string;
+  stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED";
+  method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED";
+  routeTemplate: "/cms" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:typeId" | "/cms/content/:typeId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/media/:assetId/thumbnail" | "/cms/assets/:asset" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/replace" | "/v1/media/:assetId/metadata" | "/v1/media/:assetId/delete" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/content-types" | "/v1/content-types/:typeId" | "/v1/content-types/:typeId/entries" | "/v1/content-types/:typeId/entries/search" | "/v1/content-types/:typeId/entries/:entryId" | "/v1/content-types/:typeId/entries/:entryId/delete" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched";
+  status: number;
+}>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
 export interface RunningAuthoringApi { readonly origin: typeof ORIGIN; close(): Promise<void>; }
-export type StartAuthoringApiInput = Readonly<{ domainApplication: DomainApplication; credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; authoringReadFacade: AuthoringReadFacade; contentTypeAdministration: ContentTypeAdministration; contentTypeMigrationAdministration: ContentTypeMigrationAdministration; currentEntryAdministration: CurrentEntryAdministration; currentMediaLibrary: CurrentMediaLibrary; projectionPreview: ProjectionPreview; releaseTransport: AuthoringReleaseTransport }>;
+export type StartAuthoringApiInput = Readonly<{ credentialAuthority: AuthoringCredentialAuthority; cmsAssets: CmsAssets; logger: (event: AuthoringApiLogEvent) => void; contentTypeAdministration: ContentTypeAdministration; currentEntryAdministration: CurrentEntryAdministration; currentTaxonomyAdministration: CurrentTaxonomyAdministration; currentMediaLibrary: CurrentMediaLibrary }>;
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "cms-document" | "cms-asset" | "media-thumbnail" | "plugins" | "plugin-activate" | "plugin-settings" | "site-routes" | "site-route-change" | "media" | "media-import" | "media-replace" | "media-metadata" | "media-delete" | "media-detail" | "entry-current" | "editor-blocks" | "seo-analysis" | "content-types" | "content-type" | "content-type-migrations" | "entries" | "entry" | "entry-revisions" | "publish" | "restore" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "preview" | "release-diagnose" | "release-build" | "release" | "redeliver" | "proof" | "browser-ticket" | "browser-session" | "content-type-entries" | "content-type-entry" | "content-type-entry-delete" | "unknown";
-const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "site-routes", "media", "media-detail", "media-thumbnail", "entry-current", "editor-blocks", "content-types", "content-type", "entries", "entry", "entry-revisions", "taxonomies", "taxonomy", "content-type-entries", "content-type-entry"]);
-const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "entry-revisions", "taxonomies", "content-type-entries", "content-type-entry"]);
-const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["plugins", "plugin-activate", "plugin-settings", "site-routes", "site-route-change", "media", "media-import", "media-replace", "media-metadata", "media-delete", "media-detail", "entry-current", "editor-blocks", "seo-analysis", "content-types", "content-type", "content-type-migrations", "entries", "entry", "entry-revisions", "publish", "restore", "taxonomies", "taxonomy", "taxonomy-commands", "preview", "release-diagnose", "release-build", "release", "redeliver", "content-type-entries", "content-type-entry", "content-type-entry-delete"]);
-
+type RouteClass = "cms-document" | "cms-asset" | "media-thumbnail" | "media" | "media-import" | "media-replace" | "media-metadata" | "media-delete" | "media-detail" | "content-types" | "content-type" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "proof" | "browser-ticket" | "browser-session" | "content-type-entries" | "content-type-entry" | "content-type-entry-delete" | "content-type-entry-search" | "unknown";
+const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["media", "media-detail", "media-thumbnail", "content-types", "content-type", "taxonomies", "taxonomy", "content-type-entries", "content-type-entry"]);
+const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "taxonomies", "content-type-entries", "content-type-entry", "content-type-entry-search"]);
+const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["media", "media-import", "media-replace", "media-metadata", "media-delete", "media-detail", "content-types", "content-type", "taxonomies", "taxonomy", "taxonomy-commands", "content-type-entries", "content-type-entry", "content-type-entry-delete", "content-type-entry-search"]);
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
   const map = new Map<string, string[]>();
@@ -90,17 +91,12 @@ function values(headers: HeaderMap, name: string): readonly string[] { return he
 function one(headers: HeaderMap, name: string): string | undefined { const found = values(headers, name); return found.length === 1 ? found[0] : undefined; }
 /** dynamic ID 與 asset path 都不接受 percent encoding，防止 URL 與 canonical identity 脫節。 */
 function routeFor(pathname: string): RouteClass {
-  if (pathname === "/cms" || pathname === "/cms/post" || pathname === "/cms/site/routes" || pathname === "/cms/plugins" || pathname === "/cms/release" || pathname === "/cms/entries" || pathname === "/cms/entries/new" || pathname === "/cms/media" || pathname === "/cms/media/import" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:entries|content-types|taxonomies|media)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
+  if (pathname === "/cms" || pathname === "/cms/media" || pathname === "/cms/media/import" || pathname === "/cms/content-types" || pathname === "/cms/content-types/new" || pathname === "/cms/taxonomies" || pathname === "/cms/taxonomies/new" || (/^\/cms\/(?:content|content-types|taxonomies|media)\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1)))) return "cms-document";
   if (/^\/cms\/media\/[^/%?#/]+\/thumbnail$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/cms/media/".length, -"/thumbnail".length))) return "media-thumbnail";
   if (/^\/cms\/assets\/[A-Za-z0-9][A-Za-z0-9._-]*$/u.test(pathname)) return "cms-asset";
   if (pathname === "/_local/server-proof") return "proof";
   if (pathname === "/_local/browser-tickets") return "browser-ticket";
   if (pathname === "/_local/browser-session") return "browser-session";
-  if (pathname === "/v1/plugins") return "plugins";
-  if (pathname === "/v1/plugins/activate") return "plugin-activate";
-  if (pathname === "/v1/plugins/settings") return "plugin-settings";
-  if (pathname === "/v1/site/routes") return "site-routes";
-  if (pathname === "/v1/site/routes/change") return "site-route-change";
   if (pathname === "/v1/media") return "media";
   if (pathname === "/v1/media/import") return "media-import";
   const mediaSubRoute = (suffix: string): boolean => /^\/v1\/media\/[^/%?#/]+\/[a-z]+$/u.test(pathname) && pathname.endsWith(`/${suffix}`) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length, -(`/${suffix}`).length));
@@ -108,38 +104,20 @@ function routeFor(pathname: string): RouteClass {
   if (mediaSubRoute("metadata")) return "media-metadata";
   if (mediaSubRoute("delete")) return "media-delete";
   if (/^\/v1\/media\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length))) return "media-detail";
-  if (/^\/v1\/entries\/[^/%?#/]+\/current$/u.test(pathname)) return "entry-current";
-  if (/^\/v1\/entries\/[^/%?#/]+\/current\/editor-blocks$/u.test(pathname)) return "editor-blocks";
-  if (/^\/v1\/entries\/[^/%?#/]+\/seo-analysis$/u.test(pathname)) return "seo-analysis";
   if (pathname === "/v1/content-types") return "content-types";
+  if (/^\/v1\/content-types\/[^/%?#/]+\/entries\/search$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length, -"/entries/search".length))) return "content-type-entry-search";
   if (/^\/v1\/content-types\/[^/%?#/]+\/entries\/[^/%?#/]+\/delete$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "") && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(0, -"/delete".length).split("/").at(-1) ?? "")) return "content-type-entry-delete";
   if (/^\/v1\/content-types\/[^/%?#/]+\/entries\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "") && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1))) return "content-type-entry";
   if (/^\/v1\/content-types\/[^/%?#/]+\/entries$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "")) return "content-type-entries";
-  if (/^\/v1\/content-types\/[^/%?#/]+\/migrations(?:\/preview)?$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "")) return "content-type-migrations";
   if (/^\/v1\/content-types\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length))) return "content-type";
-  if (pathname === "/v1/entries") return "entries";
-  if (/^\/v1\/entries\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length))) return "entry";
-  if (/^\/v1\/entries\/[^/%?#/]+\/revisions$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length, -"/revisions".length))) return "entry-revisions";
   if (pathname === "/v1/taxonomies") return "taxonomies";
   if (/^\/v1\/taxonomies\/[^/%?#/]+\/commands$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/taxonomies/".length, -"/commands".length))) return "taxonomy-commands";
   if (/^\/v1\/taxonomies\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/taxonomies/".length))) return "taxonomy";
-  if (/^\/v1\/entries\/[^/%?#/]+\/restore$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length, -"/restore".length))) return "restore";
-  if (pathname === "/v1/release/diagnose") return "release-diagnose";
-  if (pathname === "/v1/release/build") return "release-build";
-  if (pathname === "/v1/release") return "release";
-  if (pathname === "/v1/redeliver") return "redeliver";
-  if (pathname === "/v1/preview") return "preview";
-  return /^\/v1\/entries\/[^/%?#/]+\/publish$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/entries/".length, -"/publish".length)) ? "publish" : "unknown";
+  return "unknown";
 }
 function templateFor(route: RouteClass, pathname: string): RouteTemplate {
   if (route === "cms-document") {
     if (pathname === "/cms") return "/cms";
-    if (pathname === "/cms/site/routes") return "/cms/site/routes";
-    if (pathname === "/cms/plugins") return "/cms/plugins";
-    if (pathname === "/cms/post") return "/cms/post";
-    if (pathname === "/cms/release") return "/cms/release" as RouteTemplate;
-    if (pathname === "/cms/entries") return "/cms/entries";
-    if (pathname === "/cms/entries/new") return "/cms/entries/new";
     if (pathname === "/cms/media") return "/cms/media";
     if (pathname === "/cms/media/import") return "/cms/media/import";
     if (pathname === "/cms/content-types") return "/cms/content-types";
@@ -147,45 +125,31 @@ function templateFor(route: RouteClass, pathname: string): RouteTemplate {
     if (pathname === "/cms/taxonomies") return "/cms/taxonomies";
     if (pathname === "/cms/taxonomies/new") return "/cms/taxonomies/new";
     if (pathname.startsWith("/cms/content-types/")) return "/cms/content-types/:typeId";
+    if (pathname.startsWith("/cms/content/")) return "/cms/content/:typeId";
     if (pathname.startsWith("/cms/taxonomies/")) return "/cms/taxonomies/:taxonomyId";
-    if (pathname.startsWith("/cms/media/")) return "/cms/media/:assetId";
-    return "/cms/entries/:entryId";
+    return "/cms/media/:assetId";
   }
   if (route === "cms-asset") return "/cms/assets/:asset";
   if (route === "media-thumbnail") return "/cms/media/:assetId/thumbnail";
-  if (route === "plugins") return "/v1/plugins";
-  if (route === "plugin-activate") return "/v1/plugins/activate";
-  if (route === "plugin-settings") return "/v1/plugins/settings";
-  if (route === "site-routes") return "/v1/site/routes";
-  if (route === "site-route-change") return "/v1/site/routes/change";
   if (route === "media") return "/v1/media";
   if (route === "media-import") return "/v1/media/import";
   if (route === "media-replace") return "/v1/media/:assetId/replace";
   if (route === "media-metadata") return "/v1/media/:assetId/metadata";
   if (route === "media-delete") return "/v1/media/:assetId/delete";
   if (route === "media-detail") return "/v1/media/:assetId";
-  if (route === "entry-current") return "/v1/entries/:entryId/current";
-  if (route === "editor-blocks") return "/v1/entries/:entryId/current/editor-blocks";
-  if (route === "seo-analysis") return "/v1/entries/:entryId/seo-analysis";
   if (route === "content-types") return "/v1/content-types";
   if (route === "content-type") return "/v1/content-types/:typeId";
   if (route === "content-type-entries") return "/v1/content-types/:typeId/entries";
+  if (route === "content-type-entry-search") return "/v1/content-types/:typeId/entries/search";
   if (route === "content-type-entry") return "/v1/content-types/:typeId/entries/:entryId";
   if (route === "content-type-entry-delete") return "/v1/content-types/:typeId/entries/:entryId/delete";
-  if (route === "content-type-migrations") return pathname.endsWith("/preview") ? "/v1/content-types/:schemaId/migrations/preview" : "/v1/content-types/:schemaId/migrations";
-  if (route === "entries") return "/v1/entries";
-  if (route === "entry") return "/v1/entries/:entryId";
-  if (route === "entry-revisions") return "/v1/entries/:entryId/revisions";
   if (route === "taxonomies") return "/v1/taxonomies";
   if (route === "taxonomy") return "/v1/taxonomies/:taxonomyId";
   if (route === "taxonomy-commands") return "/v1/taxonomies/:taxonomyId/commands";
-  if (route === "restore") return "/v1/entries/:entryId/restore";
-  if (route === "release-diagnose") return "/v1/release/diagnose";
-  if (route === "release-build") return "/v1/release/build";
-  if (route === "release") return "/v1/release";
-  if (route === "redeliver") return "/v1/redeliver";
-  if (route === "preview") return "/v1/preview";
-  return route === "publish" ? "/v1/entries/:entryId/publish" : route === "proof" ? "/_local/server-proof" : route === "browser-ticket" ? "/_local/browser-tickets" : route === "browser-session" ? "/_local/browser-session" : "unmatched";
+  if (route === "proof") return "/_local/server-proof";
+  if (route === "browser-ticket") return "/_local/browser-tickets";
+  if (route === "browser-session") return "/_local/browser-session";
+  return "unmatched";
 }
 function methodFor(method: string | undefined): AuthoringApiLogEvent["method"] { return method === "GET" ? "GET" : method === "POST" ? "POST" : method === "OPTIONS" ? "OPTIONS" : "OTHER"; }
 /** 所有 JSON response 在送出前一律 redact；success DTO 也會回吐呼叫端提供的 route／ID。 */
@@ -224,21 +188,12 @@ function canonicalRequestTarget(incoming: IncomingMessage): boolean {
   }
 }
 
-/**
- * canonical entry document 的查詢 admission：Article 只有 `/cms/post`，其他 CPT 只有
- * `/cms/post?cpt=<非 Article 的 canonical UUID>`。少值、重複、額外參數、`%` 編碼、引號、fragment
- * 或非 canonical UUID 都不是 alias，一律 fail closed。
- */
-const articleTypeId = "00000000-0000-4000-8000-000000000001";
+/** 內容工作台只接受無 query 的 `/cms/content/:typeId` canonical UUID。 */
 const canonicalUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/u;
 function cmsDocumentTargetOk(route: RouteClass, pathname: string, target: string | undefined): boolean {
   if (target === undefined || target.includes("#")) return false;
   if (route === "cms-asset") return !target.includes("?");
-  const query = target.indexOf("?");
-  if (query === -1) return true;
-  if (pathname !== "/cms/post") return false;
-  const value = target.slice(query + 1);
-  return value.startsWith("cpt=") && canonicalUuid.test(value.slice("cpt=".length)) && value.slice("cpt=".length) !== articleTypeId;
+  return !target.includes("?") && (!pathname.startsWith("/cms/content/") || canonicalUuid.test(pathname.slice("/cms/content/".length)));
 }
 
 function hostOk(headers: HeaderMap): boolean { return one(headers, "host") === AUTHORING_AUTHORITY && values(headers, "forwarded").length === 0 && [...headers.keys()].every((name) => !name.startsWith("x-forwarded-")); }
@@ -295,19 +250,6 @@ function credentialError(requestId: string, admission: Awaited<ReturnType<Author
   if (!admission.ok && admission.error.code === "CREDENTIAL_REVOKED") return errorResponse(requestId, "AUTHORIZATION_REVOKED", 401, "AuthoringCredential");
   return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 503, "AuthoringCredential", "請修復本機 Authoring API credential store 後重試。");
 }
-function domainError(requestId: string, error: DomainApplicationFailure): Response {
-  const descriptor = Object.getOwnPropertyDescriptors(error); const code = descriptor.code?.value; const owner = descriptor.owner?.value; const subjectIds = descriptor.subjectIds?.value; const remediation = descriptor.remediation?.value; const restoreCommands = descriptor.restoreCommands?.value;
-  if (typeof code !== "string" || typeof owner !== "string" || !Array.isArray(subjectIds) || !subjectIds.every((id) => typeof id === "string") || typeof remediation !== "object" || remediation === null || Object.getPrototypeOf(remediation) !== Object.prototype) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const rem = Object.getOwnPropertyDescriptors(remediation); if (rem.kind?.value !== "message" || typeof rem.message?.value !== "string") return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const status = authoringErrorStatuses(code)?.[0];
-  if (status === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const safe = { requestId, code, owner, subjectIds, remediation: { kind: "message" as const, message: rem.message.value } };
-  const specialized = mediaError(safe, descriptor);
-  if (specialized !== undefined) return response(specialized, status);
-  const body = { contract: "authoring-error/v1" as const, ...safe, ...(restoreCommands === undefined ? {} : { restoreCommands }) };
-  return authoringErrorSchema.safeParse(body).success ? response(body, status) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-}
-
 /**
  * 兩個 Media failure 必須投影它們的 remediation evidence；evidence 缺失或不符 strict schema 時
  * 退回 redacted `authoring-error/v1`（同一 status），不得以 generic 500 抹掉安全的 Media error。
@@ -324,50 +266,6 @@ function mediaError(
   const parsed = mediaAssetReferencedErrorSchema.safeParse({ contract: "media-asset-referenced/v2", ...safe, usage: descriptor.usage?.value });
   return parsed.success ? parsed.data : undefined;
 }
-function saveSuccess(value: SaveRevisionSuccess): SaveRevisionSuccessDto { return {
-  contract: "save-revision-success/v1", entryId: value.revision.identity.entryId,
-  revision: { revisionId: value.revision.identity.revisionId, schemaIdentity: value.revision.schemaIdentity, contentDigest: value.revision.contentDigest, lineage: value.revision.lineage },
-  references: value.references.map((item) => ({ assetId: item.assetVersion.assetId, assetVersionId: item.assetVersion.assetVersionId })).sort((a, b) => a.assetId === b.assetId ? a.assetVersionId < b.assetVersionId ? -1 : a.assetVersionId > b.assetVersionId ? 1 : 0 : a.assetId < b.assetId ? -1 : 1),
-  pointer: value.currentPointer.publishedRevisionId === undefined ? { currentRevisionId: value.currentPointer.currentRevisionId } : { currentRevisionId: value.currentPointer.currentRevisionId, publishedRevisionId: value.currentPointer.publishedRevisionId },
-  currentRoute: { normalizedRoute: value.currentClaim.normalizedRoute, owner: value.currentClaim.owner, sourceRevisionId: value.currentClaim.sourceRevisionId }, lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest, activePluginStateDigest: value.activePluginStateDigest,
-}; }
-
-function restoreSuccess(value: RestoreRevisionSuccess): RestoreRevisionSuccessDto | undefined {
-  if (value.revision.restoredFromRevisionId === undefined) return undefined;
-  return {
-    contract: "restore-revision-success/v1", entryId: value.revision.identity.entryId,
-    revision: { revisionId: value.revision.identity.revisionId, schemaIdentity: value.revision.schemaIdentity, contentDigest: value.revision.contentDigest, lineage: value.revision.lineage, restoredFromRevisionId: value.revision.restoredFromRevisionId },
-    references: value.references.map((item) => ({ assetId: item.assetVersion.assetId, assetVersionId: item.assetVersion.assetVersionId })).sort((a, b) => a.assetId === b.assetId ? a.assetVersionId < b.assetVersionId ? -1 : a.assetVersionId > b.assetVersionId ? 1 : 0 : a.assetId < b.assetId ? -1 : 1),
-    pointer: value.currentPointer.publishedRevisionId === undefined ? { currentRevisionId: value.currentPointer.currentRevisionId } : { currentRevisionId: value.currentPointer.currentRevisionId, publishedRevisionId: value.currentPointer.publishedRevisionId },
-    currentRoute: { normalizedRoute: value.currentClaim.normalizedRoute, owner: value.currentClaim.owner, sourceRevisionId: value.currentClaim.sourceRevisionId }, lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest,
-  };
-}
-
-/**
- * receipt 以 DTO type 標註，client 的 strict schema 與 server 投影一旦漂移就是 compile
- * error，而不是 runtime 的 `INVALID_SERVER_RESPONSE`。`publishedRevisionId` 在
- * `EntryPointerRecord` 上是 optional，缺值時只能 fail closed，不得送出缺欄位的 receipt。
- */
-function publishSuccess(value: PublishRevisionSuccess): PublishRevisionSuccessDto | undefined {
-  const publishedRevisionId = value.publishedPointer.publishedRevisionId;
-  if (publishedRevisionId === undefined) return undefined;
-  return {
-    contract: "publish-revision-success/v1", entryId: value.revision.identity.entryId,
-    revision: { revisionId: value.revision.identity.revisionId, schemaIdentity: value.revision.schemaIdentity, contentDigest: value.revision.contentDigest, lineage: value.revision.lineage },
-    publishedPointer: { currentRevisionId: value.publishedPointer.currentRevisionId, publishedRevisionId },
-    publishedRoute: { normalizedRoute: value.publishedClaim.normalizedRoute, owner: value.publishedClaim.owner, sourceRevisionId: value.publishedClaim.sourceRevisionId },
-    lineageIdentity: value.lineageIdentity, stateDigest: value.stateDigest,
-  };
-}
-
-function exactSiteRouteSelection(incoming: IncomingMessage): "current" | "published" | undefined {
-  return incoming.url === "/v1/site/routes?selection=current"
-    ? "current"
-    : incoming.url === "/v1/site/routes?selection=published"
-      ? "published"
-      : undefined;
-}
-
 async function authenticatedJson(context: Context, input: StartAuthoringApiInput, bodyLimit: number, oversizedRemediation: string, handle: (requestId: string, entryId: string, body: unknown) => Promise<Response>): Promise<Response> {
   const requestId = randomUUID(); const headers = headersOf((context.env as { incoming: IncomingMessage }).incoming);
   if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
@@ -432,8 +330,7 @@ function currentMediaError(requestId: string, failure: DataMediaFailure): Respon
 
 async function authenticatedRead(context: Context, input: StartAuthoringApiInput, handle: (requestId: string) => Promise<Response>): Promise<Response> {
   const requestId = randomUUID(); const incoming = (context.env as { incoming: IncomingMessage }).incoming; const headers = headersOf(incoming);
-  const allowedSiteRouteQuery = exactSiteRouteSelection(incoming) !== undefined;
-  if (values(headers, "cookie").length > 0 || (!allowedSiteRouteQuery && new URL(context.req.url).search.length > 0)) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
+  if (values(headers, "cookie").length > 0 || new URL(context.req.url).search.length > 0) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
   if (values(headers, "authorization").length === 0) return handle(requestId);
   const parsedAuthorization = authorization(headers); if (!parsedAuthorization.ok) return errorResponse(requestId, parsedAuthorization.code, 401);
   const admission = await input.credentialAuthority.openAdmission(); if (!admission.ok) return credentialError(requestId, admission);
@@ -443,40 +340,6 @@ function facadeError(requestId: string, error: Readonly<{ code: string; owner: s
   const status = authoringErrorStatuses(error.code)?.[0];
   return status === undefined ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : response({ contract: "authoring-error/v1", requestId, code: error.code, owner: error.owner, subjectIds: error.subjectIds, remediation: error.remediation }, status);
 }
-function migrationBlockedError(requestId: string, impact: ContentTypeMigrationImpact): Response {
-  const body = {
-    contract: "content-type-migration-blocked/v1" as const,
-    requestId,
-    code: "CONTENT_TYPE_MIGRATION_BLOCKED" as const,
-    owner: "ContentTypeMigration" as const,
-    subjectIds: [impact.sourceSchemaIdentity.schemaId],
-    remediation: { kind: "message" as const, message: "請補齊每個受影響 pointer 的 policy 與 moved Revision 的 replacement JSON。" },
-    impact,
-  };
-  return contentTypeMigrationBlockedErrorSchema.safeParse(body).success ? response(body, 422) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-}
-function projectionError(requestId: string, error: unknown): Response {
-  if (error === null || typeof error !== "object") return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const descriptor = Object.getOwnPropertyDescriptors(error);
-  const code = descriptor.code?.value;
-  const owner = descriptor.owner?.value;
-  const subjectIds = descriptor.subjectIds?.value;
-  const remediation = descriptor.remediation?.value;
-  if (typeof code !== "string" || typeof owner !== "string" || !Array.isArray(subjectIds) || !subjectIds.every((id) => typeof id === "string") || remediation === null || typeof remediation !== "object" || Object.getPrototypeOf(remediation) !== Object.prototype) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const remediationDescriptor = Object.getOwnPropertyDescriptors(remediation);
-  if (remediationDescriptor.kind?.value !== "message" || typeof remediationDescriptor.message?.value !== "string") return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const status = authoringErrorStatuses(code)?.[0];
-  return status === undefined ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : response({ contract: "authoring-error/v1", requestId, code, owner, subjectIds, remediation: { kind: "message", message: remediationDescriptor.message.value } }, status);
-}
-
-
-function releaseError(requestId: string, code: ReleaseTransportFailureCode): Response {
-  const status = authoringErrorStatuses(code)?.[0];
-  if (status === undefined) return errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  const body = { contract: "authoring-error/v1" as const, requestId, code, owner: "Delivery" as const, subjectIds: [], remediation: { kind: "message" as const, message: "Release 無法安全完成。" } };
-  return authoringErrorSchema.safeParse(body).success ? response(body, status) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-}
-
 export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<AuthoringApiResult<RunningAuthoringApi>> {
   const app = new Hono();
   const bootstrap = createBrowserBootstrapState();
@@ -535,26 +398,6 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
       return bootstrapSecretResponse(dto, 200);
     } finally { admission.value.dispose(); }
   });
-  app.get("/v1/site/routes", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const selection = exactSiteRouteSelection((context.env as { incoming: IncomingMessage }).incoming);
-    if (selection === undefined) return errorResponse(requestId, "AUTHORIZATION_ALTERNATE_TRANSPORT", 401);
-    const result = await input.domainApplication.readSiteRouteGraph({ contract: "site-route-graph-read-request/v1", selection } satisfies SiteRouteGraphReadRequest);
-    return result.ok && siteRouteGraphSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-  }));
-  app.post("/v1/site/routes/change", async (context) => authenticatedJson(context, input, 65_536, "ChangeRoute request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
-    if ((context.env as { incoming: IncomingMessage }).incoming.url !== "/v1/site/routes/change") return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const proposal = routeChangeProposalRequestSchema.safeParse(body);
-    if (proposal.success) {
-      const result = await input.domainApplication.prepareRouteChange(proposal.data as RouteChangeProposalRequest);
-      return result.ok && routeChangeProposalSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-    }
-    const command = changeRouteCommandSchema.safeParse(body);
-    if (!command.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.domainApplication.changeRoute(command.data as ChangeRouteRequest);
-    if (!result.ok) return domainError(requestId, result.error);
-    const receipt = { contract: "change-route-success/v1" as const, ...result.value };
-    return changeRouteSuccessSchema.safeParse(receipt).success ? response(receipt, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  }));
   app.get("/v1/media", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.currentMediaLibrary.list();
     return result.ok && mediaCatalogV2Schema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : currentMediaError(requestId, result.error);
@@ -597,81 +440,36 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const result = await input.currentMediaLibrary.deleteAsset(parsed.data);
     return result.ok && mediaDeleteReceiptSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : currentMediaError(requestId, result.error);
   }));
-  app.get("/v1/plugins", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.domainApplication.listPlugins();
-    return result.ok && pluginManagementSnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-  }));
-  app.post("/v1/plugins/activate", async (context) => authenticatedJson(context, input, 65_536, "Plugin activation request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
-    const parsed = pluginActivationRequestSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.domainApplication.activatePlugin(parsed.data as PluginActivationRequest);
-    return result.ok && pluginManagementSnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-  }));
-  app.post("/v1/plugins/settings", async (context) => authenticatedJson(context, input, 65_536, "Plugin settings request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
-    const parsed = pluginSettingsReplaceRequestSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.domainApplication.replacePluginSettings(parsed.data as PluginSettingsReplaceRequest);
-    return result.ok && pluginManagementSnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-  }));
-  app.get("/v1/entries/:entryId/current", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.domainApplication.readCurrentEntry(context.req.param("entryId") ?? "");
-    return result.ok && authoringEntrySchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-  }));
-  app.get("/v1/entries/:entryId/current/editor-blocks", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.domainApplication.resolveCurrentCmsEditorBlocks({ contract: "cms-editor-block-resolutions-request/v1", entryId: context.req.param("entryId") ?? "" } satisfies CmsEditorBlockResolutionsRequest);
-    return result.ok && cmsEditorBlockResolutionsSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-  }));
-  app.post("/v1/entries/:entryId/seo-analysis", async (context) => authenticatedJson(context, input, 4_194_304, "SEO analysis request 不得超過 4 MiB。", async (requestId, entryId, body) => {
-    const parsed = cmsSeoAnalysisRequestSchema.safeParse(body);
-    if (!parsed.success || parsed.data.entryId !== entryId) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.domainApplication.analyzeCmsSeo({ ...parsed.data, content: parsed.data.content as JsonValue } as CmsSeoAnalysisRequest);
-    return result.ok && cmsSeoAnalysisResponseSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
-  }));
-  app.post("/v1/entries/:entryId/revisions", async (context) => authenticatedJson(context, input, SAVE_BODY_LIMIT, SAVE_BODY_LIMIT_REMEDIATION, async (requestId, entryId, body) => {
-    const parsed = saveRevisionRequestSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const command = await input.domainApplication.saveRevision({ entryId, ...parsed.data, content: parsed.data.content as JsonValue });
-    return command.ok ? response(saveSuccess(command.value), 200) : domainError(requestId, command.error);
-  }));
-  app.post("/v1/entries/:entryId/publish", async (context) => authenticatedJson(context, input, PUBLISH_BODY_LIMIT, PUBLISH_BODY_LIMIT_REMEDIATION, async (requestId, entryId, body) => {
-    const parsed = publishRevisionRequestSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const command = await input.domainApplication.publishRevision({ entryId, expectedCurrentRevisionId: parsed.data.expectedCurrentRevisionId, operationId: parsed.data.operationId });
-    if (!command.ok) return domainError(requestId, command.error);
-    const receipt = publishSuccess(command.value);
-    return receipt === undefined ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : response(receipt, 200);
-  }));
-  app.post("/v1/entries/:entryId/restore", async (context) => authenticatedJson(context, input, PUBLISH_BODY_LIMIT, "RestoreRevision request 不得超過 4 KiB。", async (requestId, entryId, body) => {
-    const parsed = restoreRevisionRequestSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const command = await input.domainApplication.restoreRevision({ entryId, sourceRevisionId: parsed.data.sourceRevisionId, revisionId: parsed.data.newRevisionId, operationId: parsed.data.operationId });
-    if (!command.ok) return domainError(requestId, command.error);
-    const receipt = restoreSuccess(command.value);
-    return receipt === undefined || !restoreRevisionSuccessSchema.safeParse(receipt).success ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : response(receipt, 201);
-  }));
   app.get("/v1/taxonomies", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.domainApplication.listTaxonomies();
-    return result.ok && taxonomyCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+    const result = await input.currentTaxonomyAdministration.list();
+    return result.ok && currentTaxonomyCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
   app.post("/v1/taxonomies", async (context) => authenticatedJson(context, input, 65_536, "Taxonomy create request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
-    const parsed = createTaxonomyRequestSchema.safeParse(body);
+    const parsed = currentTaxonomyCreateSchema.safeParse(body);
     if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.domainApplication.createTaxonomy(parsed.data);
-    return result.ok && taxonomySnapshotSchema.safeParse(result.value).success ? response(result.value, 201) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+    const result = await input.currentTaxonomyAdministration.create(parsed.data);
+    return result.ok && currentTaxonomySnapshotSchema.safeParse(result.value).success ? response(result.value, 201) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
   app.get("/v1/taxonomies/:taxonomyId", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.domainApplication.getTaxonomy(context.req.param("taxonomyId") ?? "");
-    return result.ok && taxonomySnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+    const result = await input.currentTaxonomyAdministration.get(context.req.param("taxonomyId") ?? "");
+    return result.ok && currentTaxonomySnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
-  app.post("/v1/taxonomies/:taxonomyId/commands", async (context) => authenticatedJson(context, input, 1_048_576, "Taxonomy command request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
-    const parsed = taxonomyCommandSchema.safeParse(body);
+  app.post("/v1/taxonomies/:taxonomyId/commands", async (context) => authenticatedJson(context, input, 65_536, "Taxonomy command request 不得超過 64 KiB。", async (requestId, _entryId, body) => {
+    const parsed = currentTaxonomyCommandSchema.safeParse(body);
     if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.domainApplication.executeTaxonomyCommand(context.req.param("taxonomyId") ?? "", parsed.data as TaxonomyCommand);
-    return result.ok && taxonomyCommandResultSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : domainError(requestId, result.error);
+    const result = await input.currentTaxonomyAdministration.command(context.req.param("taxonomyId") ?? "", parsed.data);
+    return result.ok && currentTaxonomySnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
   app.get("/v1/content-types/:typeId/entries", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.currentEntryAdministration.catalog({ typeId: context.req.param("typeId") ?? "" });
     return result.ok && cptEntryCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
+  }));
+  app.post("/v1/content-types/:typeId/entries/search", async (context) => authenticatedJson(context, input, ENTRY_BODY_LIMIT, ENTRY_BODY_LIMIT_REMEDIATION, async (requestId, _entryId, body) => {
+    const typeId = context.req.param("typeId") ?? "";
+    const parsed = cptEntrySearchRequestSchema.safeParse(body);
+    if (!parsed.success || parsed.data.typeId !== typeId) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.currentEntryAdministration.search({ typeId, request: parsed.data });
+    return result.ok && cptEntrySearchResultSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
   app.post("/v1/content-types/:typeId/entries", async (context) => authenticatedJson(context, input, ENTRY_BODY_LIMIT, ENTRY_BODY_LIMIT_REMEDIATION, async (requestId, _entryId, body) => {
     const typeId = context.req.param("typeId") ?? "";
@@ -705,22 +503,6 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const result = await input.contentTypeAdministration.get({ typeId: context.req.param("typeId") ?? "" });
     return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
-  app.post("/v1/content-types/:schemaId/migrations/preview", async (context) => authenticatedJson(context, input, 1_048_576, "Content type migration request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
-    const parsed = contentTypeMigrationProposalSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.contentTypeMigrationAdministration.preview(context.req.param("schemaId") ?? "", parsed.data);
-    if (!result.ok) return facadeError(requestId, result.error);
-    if (result.value.kind === "blocked") return migrationBlockedError(requestId, result.value);
-    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  }));
-  app.post("/v1/content-types/:schemaId/migrations", async (context) => authenticatedJson(context, input, 1_048_576, "Content type migration request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
-    const parsed = contentTypeMigrationCommandSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const result = await input.contentTypeMigrationAdministration.execute(context.req.param("schemaId") ?? "", parsed.data);
-    if (!result.ok) return facadeError(requestId, result.error);
-    if (result.value.kind === "blocked") return migrationBlockedError(requestId, result.value);
-    return contentTypeMigrationOutcomeSchema.safeParse(result.value).success ? response(result.value, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  }));
   app.post("/v1/content-types", async (context) => authenticatedJson(context, input, 1_048_576, "Content type request 不得超過 1 MiB。", async (requestId, _entryId, body) => {
     const parsed = createContentTypeRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const result = await input.contentTypeAdministration.create(parsed.data);
@@ -730,58 +512,6 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const parsed = replaceContentTypeRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const result = await input.contentTypeAdministration.replace({ typeId: context.req.param("typeId") ?? "", definition: parsed.data });
     return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
-  }));
-  app.get("/v1/entries", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.authoringReadFacade.listEntries();
-    return result.ok && entryCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
-  }));
-  app.get("/v1/entries/:entryId", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.authoringReadFacade.getEntry({ entryId: context.req.param("entryId") ?? "" });
-    return result.ok && entryDetailSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
-  }));
-  app.get("/v1/entries/:entryId/revisions", async (context) => authenticatedRead(context, input, async (requestId) => {
-    const result = await input.authoringReadFacade.listEntryRevisions({ entryId: context.req.param("entryId") ?? "" });
-    return result.ok && entryRevisionCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
-  }));
-  app.post("/v1/release/diagnose", async (context) => authenticatedJson(context, input, 4_096, "Release diagnose request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
-    if (!releaseDiagnoseRequestSchema.safeParse(body).success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const diagnosis = await input.releaseTransport.diagnose();
-    const dto = { contract: "release-diagnosis/v1" as const, ...diagnosis };
-    return releaseDiagnosisSchema.safeParse(dto).success ? response(dto, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  }));
-  app.post("/v1/release/build", async (context) => authenticatedJson(context, input, 4_096, "Release build request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
-    if (!releaseBuildRequestSchema.safeParse(body).success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const built = await input.releaseTransport.build();
-    if (!built.ok) return releaseError(requestId, built.error.code);
-    const dto = { contract: "release-build/v1" as const, ...built.value };
-    return releaseBuildSchema.safeParse(dto).success ? response(dto, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  }));
-  app.post("/v1/release", async (context) => authenticatedJson(context, input, 4_096, "Release request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
-    const parsed = releaseRequestSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const released = input.releaseTransport.release(parsed.data);
-    if (!released.ok) return releaseError(requestId, released.error.code);
-    const dto = { contract: "release-receipt/v1" as const, ...released.value };
-    return releaseReceiptSchema.safeParse(dto).success ? response(dto, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  }));
-  app.post("/v1/redeliver", async (context) => authenticatedJson(context, input, 4_096, "Redeliver request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
-    const parsed = redeliverRequestSchema.safeParse(body);
-    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const released = input.releaseTransport.redeliver(parsed.data);
-    if (!released.ok) return releaseError(requestId, released.error.code);
-    const dto = { contract: "release-receipt/v1" as const, ...released.value };
-    return releaseReceiptSchema.safeParse(dto).success ? response(dto, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
-  }));
-  app.post("/v1/preview", async (context) => authenticatedJson(context, input, 4_096, "Preview request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
-    const parsed = previewRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
-    const artifact = await input.projectionPreview.preview({ selection: parsed.data.selection, subject: parsed.data.subject });
-    if (!artifact.ok) return projectionError(requestId, artifact.error);
-    const preview = parsePreviewInput(artifact.value.bytes);
-    if (!preview.ok) return projectionError(requestId, preview.error);
-    const rendered = renderPreviewDocument(preview.value);
-    if (!rendered.ok) return projectionError(requestId, rendered.error);
-    const document = { selection: parsed.data.selection, ...rendered.value };
-    return previewDocumentSchema.safeParse(document).success ? response(document, 200) : errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500);
   }));
 
   const server = createAdaptorServer({ fetch: async (request, env) => {

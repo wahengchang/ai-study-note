@@ -12,7 +12,11 @@
 
 Content Type definition、entry、taxonomy／term 與 media asset 改為單一 mutable current record。Entry 以一次 Save 寫入完整 content 與 `draft|published` status；不保留 Revision history、Restore、獨立 Publish、雙 snapshot、schema-version migration 或 media version/archive/restore。
 
-所有可命名 entity 使用 server-generated stable ID、可變 slug 與 NFC/full-case-fold global slug namespace。所有 current mutation 使用 `expectedStateDigest` CAS；stale input 與任何 validation failure 都必須零寫入。Legacy `site-content@1` 先完成全量 divergent-entry decision，再原子 cutover成單一 content/status。
+所有可命名 entity 使用 server-generated stable ID、可變 slug 與 NFC/full-case-fold global slug namespace。所有 current mutation 使用 `expectedStateDigest` CAS；stale input 與任何 validation failure 都必須零寫入。
+
+### 2026-10-07 Owner 補充決策
+
+只支援全新安裝與新內容，不遷移舊 SQLite、媒體或 Astro 文章，也不自動刪除舊資料。舊資料目錄在任何寫入前拒絕。WI-008 的 legacy cutover 決策與驗收取消；CMS data/authoring 在一個整合 PR 收斂。依賴舊 Revision 的 Preview、`site:build` 與 Release 暫停，新內容公開站接線留給後續 PR。
 
 ## 被取代範圍
 
@@ -22,6 +26,6 @@ Content Type definition、entry、taxonomy／term 與 media asset 改為單一 m
 
 ## 後果
 
-- Contract與spec必須明確區分approved target和clean cutover前的implemented baseline。
-- 實作以Dev Hub垂直Work Items遷移所有Persistence、Application、Authoring API、CMS、tests與文件caller；最後才刪除舊contract/routes，不保留alias或shim。
+- Contract與spec以 current-only fresh runtime 作為現行 authoring boundary；舊契約只供歷史追溯。
+- Persistence、Application、Authoring API、CMS、測試與文件在同一 Work Group 收斂；舊 authoring route 不保留 alias 或 shim。
 - Projection、Renderer、archive、canonical public URL、Release、Public UI與視覺重設另案處理，不得擴張本決策。

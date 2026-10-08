@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
 
-import { sha256Digest } from "../../../core/foundation/index.js";
+import { canonicalJsonBytes, sha256Digest } from "../../../core/foundation/index.js";
 import { migrateDatabase, openPersistence, type CurrentMediaAssetRecord, type PersistenceStore, type ReplaceEntryMediaReferencesInput } from "../../../core/persistence/index.js";
 
 function temporaryDatabase(): Readonly<{ directory: string; databasePath: string }> {
@@ -20,6 +20,10 @@ function withStore(run: (store: PersistenceStore) => void): void {
   assert.equal(opened.ok, true);
   if (!opened.ok) return;
   try {
+    const content = canonicalJsonBytes({ contract: "cpt-content/v1", typeId: "00000000-0000-4000-8000-000000000001", title: "媒體引用", blocks: [{ kind: "article", text: "內文" }], excerpt: "", seo: {}, customValues: [] });
+    assert.equal(content.ok, true);
+    if (!content.ok) return;
+    for (const suffix of ["01", "02", "03"]) assert.equal(opened.value.createCurrentEntry({ entryId: `00000000-0000-4000-8000-0000000000${suffix}`, typeId: "00000000-0000-4000-8000-000000000001", authoringRoute: `/entry-${suffix}`, contentBytes: content.value, contentDigest: sha256Digest(content.value), status: "draft" }).ok, true);
     run(opened.value);
   } finally {
     opened.value.close();
@@ -44,19 +48,19 @@ function asset(assetId: string, overrides: Partial<CurrentMediaAssetRecord> = {}
   };
 }
 
-test("0014 migration creates current media asset storage and reference ledger", () => {
+test("fresh migration creates current media asset storage and reference ledger", () => {
   const fixture = temporaryDatabase();
   try {
     const migrated = migrateDatabase({ databasePath: fixture.databasePath });
     assert.equal(migrated.ok, true);
     if (!migrated.ok) return;
-    assert.deepEqual(migrated.value.appliedMigrationIds.slice(-1), ["0014-add-current-media-assets"]);
-    assert.equal(migrated.value.currentMigrationId, "0014-add-current-media-assets");
+    assert.deepEqual(migrated.value.appliedMigrationIds, ["0001-create-current-only-storage"]);
+    assert.equal(migrated.value.currentMigrationId, "0001-create-current-only-storage");
 
     const rerun = migrateDatabase({ databasePath: fixture.databasePath });
     assert.equal(rerun.ok, true);
     if (!rerun.ok) return;
-    assert.deepEqual(rerun.value, { appliedMigrationIds: [], currentMigrationId: "0014-add-current-media-assets" });
+    assert.deepEqual(rerun.value, { appliedMigrationIds: [], currentMigrationId: "0001-create-current-only-storage" });
   } finally {
     rmSync(fixture.directory, { recursive: true, force: true });
   }
@@ -143,45 +147,45 @@ test("current media references are ordered, deduplicated, and block deletion", (
     assert.equal(store.createCurrentMediaAsset(asset("asset-a")).ok, true);
     assert.equal(store.createCurrentMediaAsset(asset("asset-b")).ok, true);
 
-    const replaced = store.replaceEntryMediaReferences({ entryId: "entry-2", status: "published", assetIds: ["asset-b", "asset-a"] });
+    const replaced = store.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000002", status: "published", assetIds: ["asset-b", "asset-a"] });
     assert.equal(replaced.ok, true);
     if (!replaced.ok) return;
     assert.deepEqual(replaced.value, [
-      { entryId: "entry-2", status: "published" },
-      { entryId: "entry-2", status: "published" },
+      { entryId: "00000000-0000-4000-8000-000000000002", status: "published" },
+      { entryId: "00000000-0000-4000-8000-000000000002", status: "published" },
     ]);
-    assert.equal(store.replaceEntryMediaReferences({ entryId: "entry-1", status: "draft", assetIds: ["asset-a"] }).ok, true);
+    assert.equal(store.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000001", status: "draft", assetIds: ["asset-a"] }).ok, true);
 
     const usage = store.listCurrentMediaReferences("asset-a");
     assert.equal(usage.ok, true);
     if (!usage.ok) return;
     assert.deepEqual(usage.value, [
-      { entryId: "entry-1", status: "draft" },
-      { entryId: "entry-2", status: "published" },
+      { entryId: "00000000-0000-4000-8000-000000000001", status: "draft" },
+      { entryId: "00000000-0000-4000-8000-000000000002", status: "published" },
     ]);
 
     // entry 重新 Save 時整批覆寫，舊 reference 立即釋放。
-    assert.equal(store.replaceEntryMediaReferences({ entryId: "entry-1", status: "published", assetIds: [] }).ok, true);
+    assert.equal(store.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000001", status: "published", assetIds: [] }).ok, true);
     const released = store.listCurrentMediaReferences("asset-a");
     assert.equal(released.ok, true);
     if (!released.ok) return;
-    assert.deepEqual(released.value, [{ entryId: "entry-2", status: "published" }]);
+    assert.deepEqual(released.value, [{ entryId: "00000000-0000-4000-8000-000000000002", status: "published" }]);
 
     const blocked = store.deleteCurrentMediaAsset("asset-a");
     assert.equal(blocked.ok, false);
     if (!blocked.ok) assert.equal(blocked.error.code, "CURRENT_MEDIA_REFERENCE_CONFLICT");
     assert.equal(store.getCurrentMediaAsset("asset-a").ok, true);
 
-    const duplicated = store.replaceEntryMediaReferences({ entryId: "entry-3", status: "draft", assetIds: ["asset-a", "asset-a"] });
+    const duplicated = store.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000003", status: "draft", assetIds: ["asset-a", "asset-a"] });
     assert.equal(duplicated.ok, false);
-    const foreign = store.replaceEntryMediaReferences({ entryId: "entry-3", status: "draft", assetIds: ["absent"] });
+    const foreign = store.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000003", status: "draft", assetIds: ["absent"] });
     assert.equal(foreign.ok, false);
     if (!foreign.ok) assert.equal(foreign.error.code, "CURRENT_MEDIA_ASSET_NOT_FOUND");
     // boundary 輸入不受型別保護：非 canonical status 必須 fail closed。
-    const invalidStatus: unknown = { entryId: "entry-3", status: "unknown", assetIds: [] };
+    const invalidStatus: unknown = { entryId: "00000000-0000-4000-8000-000000000003", status: "unknown", assetIds: [] };
     assert.equal(store.replaceEntryMediaReferences(invalidStatus as ReplaceEntryMediaReferencesInput).ok, false);
 
-    assert.equal(store.replaceEntryMediaReferences({ entryId: "entry-2", status: "draft", assetIds: [] }).ok, true);
+    assert.equal(store.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000002", status: "draft", assetIds: [] }).ok, true);
     assert.equal(store.deleteCurrentMediaAsset("asset-a").ok, true);
     assert.equal(store.getCurrentMediaAsset("asset-a").ok, false);
     assert.equal(store.deleteCurrentMediaAsset("asset-a").ok, false);
@@ -215,7 +219,7 @@ test("failed current media mutation leaves the canonical state unchanged", () =>
 
     const decision = store.runTransaction<true, string>((transaction) => {
       assert.equal(transaction.createCurrentMediaAsset(asset("asset-b")).ok, true);
-      assert.equal(transaction.replaceEntryMediaReferences({ entryId: "entry-1", status: "draft", assetIds: ["asset-b"] }).ok, true);
+      assert.equal(transaction.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000001", status: "draft", assetIds: ["asset-b"] }).ok, true);
       return { ok: false, error: "ABORT" };
     });
     assert.equal(decision.ok, false);
@@ -237,7 +241,7 @@ test("canonical state binds current media records and references", () => {
     assert.equal(empty.value.counts.currentMediaReferences, 0);
 
     assert.equal(store.createCurrentMediaAsset(asset("asset-a")).ok, true);
-    assert.equal(store.replaceEntryMediaReferences({ entryId: "entry-1", status: "published", assetIds: ["asset-a"] }).ok, true);
+    assert.equal(store.replaceEntryMediaReferences({ entryId: "00000000-0000-4000-8000-000000000001", status: "published", assetIds: ["asset-a"] }).ok, true);
     const populated = store.canonicalState();
     assert.equal(populated.ok, true);
     if (!populated.ok) return;

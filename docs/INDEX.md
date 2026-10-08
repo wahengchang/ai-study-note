@@ -1,72 +1,32 @@
 # AI Study Note Reset 文件導覽
 
-這是從任務或 domain 前往權威文件、現行程式入口與測試的最短路徑。程式碼與對應測試是已實作行為的 SSOT；文件只說明已核准範圍、決策背景與導航。
+程式碼與對應測試是已實作行為的 SSOT；[implementation contract](../contracts/README.md) 固定核准範圍。[CMS Core/Data reset 規格](../specs/cms-core-data-reset.md) 說明本輪資料模型與驗收。[Dev Hub workflow](dev-hub-workflow.md) 說明大型工作的 PR 與 Cycle 收尾。
 
-## 先從任務開始
+## 現行 CMS：全新安裝與新內容
 
-| 我要進行 | 先讀 | 程式入口 | 測試或驗證 |
-| --- | --- | --- | --- |
-| 理解系統與核准範圍 | [implementation contract](../contracts/README.md)、[長期原則](../MEMORY.md) | [core/](../core/)、[apps/](../apps/)、[extensions/](../extensions/) | [architecture checker](../scripts/check-architecture.ts)、[checker test](../tests/core/foundation/check-architecture.test.ts)、`npm run check:architecture` |
-| 修改 repository 結構、owner 依賴或 public entrypoint | [implementation contract 的 repository architecture](../contracts/README.md) | [architecture checker](../scripts/check-architecture.ts) | [checker test](../tests/core/foundation/check-architecture.test.ts)、`npm run check:architecture` |
-| 修改 Foundation 的 result、canonical JSON、digest 或 byte-copy 行為 | [implementation contract](../contracts/README.md) | [Foundation public entry](../core/foundation/index.ts) | [canonical JSON](../tests/core/foundation/canonical-json.test.ts)、[digest](../tests/core/foundation/digest.test.ts)、[result](../tests/core/foundation/result.test.ts) |
-| 修改 Persistence、schema/revision 或 SQL migration | [CMS-DB-01 Persistence 規格](../specs/cms-basic-contracts-v1/01-persistence-and-schema-migrations.md)；它定義核准範圍，不得覆蓋現行程式／測試行為 | [Persistence public entry](../core/persistence/index.ts)、[Persistence contracts](../core/persistence/contracts.ts)、[SQL migrations](../db/migrations/) | [migration runner](../tests/core/persistence/migration-runner.test.ts)、[revision store](../tests/core/persistence/revision-store.test.ts)、[schema migration impact](../tests/core/persistence/schema-migration-impact.test.ts)、[atomicity and failures](../tests/core/persistence/atomicity-and-failures.test.ts)、[locale-independent ordering](../tests/core/persistence/locale-independent-ordering.test.ts) |
-| 執行或修改資料庫 migration CLI | [CMS-DB-01 Persistence 規格](../specs/cms-basic-contracts-v1/01-persistence-and-schema-migrations.md) | [db-migrate CLI](../apps/cli/db-migrate.ts)、[db:migrate script](../package.json) | [CLI test](../tests/apps/cli/db-migrate.test.ts)、`npm run db:migrate -- --database /tmp/ai-study-note-reset-cms.sqlite` |
-| 修改 Plugin discovery／activation | [CMS-CORE-05 Plugin Host 規格](../specs/cms-basic-contracts-v1/05-plugin-host-core.md) | [Plugin Host public entry](../core/plugin-host/index.ts)、[Plugin Host contracts](../core/plugin-host/contracts.ts) | [Plugin Host test](../tests/core/plugin-host/plugin-host.test.ts)、[locale determinism](../tests/core/plugin-host/locale-determinism.test.ts)；[activation-probe](../extensions/plugins/activation-probe/) 是測試 fixture，不是正式範本 |
-| 開始尚未實作的 CMS domain | [implementation contract](../contracts/README.md)、[CMS 工作包 router](../specs/cms-basic-contracts-v1/README.md) 中對應工作包 | 依規格的 primary seam 建立真實垂直切片；禁止建立 stub、`.gitkeep` 或假成功入口 | 依同一 primary seam 建立可觀察的契約測試 |
-| 規劃或實作 current-only CMS/Core data reset | [implementation contract](../contracts/README.md)、[架構決策](adr/2026-09-15-current-only-cms-core-data.md)、[CMS Core/Data reset 規格](../specs/cms-core-data-reset.md) | [Persistence contracts](../core/persistence/contracts.ts)、[Application](../core/application/)、[Authoring API](../apps/authoring-api/)、[CMS workspace](../apps/cms/workspace.tsx) | [Persistence tests](../tests/core/persistence/)、[Application tests](../tests/core/application/)、[Authoring API contract](../tests/apps/authoring-api/http-contract.test.ts)、[CMS browser tests](../tests/apps/cms/)；新 target 尚未實作，現行程式與測試仍是 baseline |
-| 延續大型工作 | [Dev Hub workflow](dev-hub-workflow.md)，再只讀 [active Cycle](../.dev-hub/active/) 中對應記錄 | 由對應 Cycle 已記錄範圍決定 | 依 Cycle 的 `hub.md` 與連結狀態確認 |
-| 修改 AI 指令、技能或同步輸出 | [Rulesync canonical source](../.rulesync/rules/CLAUDE.md)、[技能 canonical source](../.rulesync/skills/)、[Rulesync 設定](../rulesync.jsonc) | 根目錄 [AGENTS.md](../AGENTS.md)、[CLAUDE.md](../CLAUDE.md) 與 `.agents/skills/`、`.claude/skills/`、`.opencode/skills/` 都是 generated outputs，不得直接編輯 | `npm run sync:ai`、`npm run check:ai-sync` |
+| 任務 | 程式入口 | 驗證 |
+| --- | --- | --- |
+| 全新安裝、拒絕舊 SQLite／媒體、重複 `cms:init` | [migration runner](../core/persistence/migrations.ts)、[current-only SQL](../db/migrations/0001-create-current-only-storage.sql)、[CMS launcher](../apps/authoring-api/cms-local-cli.ts) | [migration test](../tests/core/persistence/migration-runner.test.ts)、[launcher test](../tests/apps/cli/cms-local-cli.test.ts) |
+| Content Type、custom fields、Article seed | [Application](../core/application/content-type-administration.ts)、[Persistence](../core/persistence/index.ts) | [Content Type test](../tests/core/application/content-type-administration.test.ts) |
+| current taxonomy、term hierarchy、entry binding | [taxonomy administration](../core/application/current-taxonomy-administration.ts)、[entry administration](../core/application/entry-administration.ts) | [taxonomy test](../tests/core/application/current-taxonomy-administration.test.ts)、[entry test](../tests/core/application/entry-administration.test.ts) |
+| current media、featured／custom media usage、streaming upload | [media library](../core/application/current-media-library.ts)、[object store](../core/media/current-object-store.ts) | [media test](../tests/core/application/current-media-library.test.ts)、[persistence test](../tests/core/persistence/current-media-assets.test.ts) |
+| 本機 HTTP 與 CMS browser 操作 | [Authoring API](../apps/authoring-api/server.ts)、[CMS workspace](../apps/cms/workspace.tsx) | [完整 API／Playwright journey](../tests/apps/authoring-api/current-only-journey.test.ts) |
+| 架構與完整驗證 | [architecture checker](../scripts/check-architecture.ts)、[package scripts](../package.json) | `npm run check`、`npm run check:ai-sync` |
 
-## 先從 Domain 開始
+`npm run cms:init` 只接受全新或本版 current-only runtime。舊資料不遷移、不刪除；需另存原目錄。`npm run cms:start` 提供新內容的編輯資料流。Preview、`site:build`、Release 尚未接上新資料；`site:build` 明確回 `CURRENT_CONTENT_PUBLIC_BUILD_PAUSED`。Renderer、Delivery 與 Public UI 的獨立 artifact 能力保留，後續 PR 才接上新內容的公開站流程。
 
-| Domain | 責任與現況 | 先讀 | 現行程式與測試入口 |
-| --- | --- | --- | --- |
-| Foundation | 共用 result、canonical JSON、digest 與 byte-copy runtime。 | [implementation contract](../contracts/README.md) | [public entry](../core/foundation/index.ts)；[canonical JSON test](../tests/core/foundation/canonical-json.test.ts)、[digest test](../tests/core/foundation/digest.test.ts)、[result test](../tests/core/foundation/result.test.ts) |
-| Persistence | migration ledger、schema version、revision、operation lineage，以及 schema migration 的 preflight／原子 execution durable lineage；production `db:migrate` 會 reconcile exact `site-content@1` evidence，`runReadSnapshot()` 提供 capability-safe 同 generation 唯讀讀取。 | [CMS-DB-01](../specs/cms-basic-contracts-v1/01-persistence-and-schema-migrations.md) | [public entry](../core/persistence/index.ts)；[migration runner](../tests/core/persistence/migration-runner.test.ts)、[read snapshot](../tests/core/persistence/read-snapshot.test.ts)。 |
-| Current Content Type | `0012` durable current definitions 與 cross-kind global slug claims、current catalog/Create/Replace CAS、nested field ID/default normalization 與 existing-entry non-breaking gate，以及 Builder 的 field group／11 種 custom field 編輯（含排序與 constraints）已實作；legacy schema-version lifecycle 尚未移除。 | [CMS Core/Data reset](../specs/cms-core-data-reset.md) | [Persistence](../core/persistence/index.ts)、[Application](../core/application/index.ts)、[Authoring API](../apps/authoring-api/)、[CMS Builder](../apps/cms/workspace.tsx)；[persistence](../tests/core/persistence/current-content-types.test.ts)、[application](../tests/core/application/content-type-administration.test.ts)、[HTTP](../tests/apps/authoring-api/http-contract.test.ts)、[browser](../tests/apps/cms/runtime-browser-gate.test.ts) |
-| Current Entry | `0013` durable current entries 與 authoring route evidence、type-scoped catalog/Create/Save（CAS）/real Delete、`publishedAt` transition、`cpt-content/v1` 的 field-ID 排序 custom values（create default initialization、draft 寬鬆／published 完整驗證）及 CMS `/cms/post[?cpt=]` workspace 已實作；taxonomy 與 media binding、search/pagination 與 legacy `/cms/entries*` 移除仍由後續 Work Item 交付。 | [CMS Core/Data reset](../specs/cms-core-data-reset.md) | [Persistence](../core/persistence/index.ts)、[Application](../core/application/index.ts)、[Authoring API](../apps/authoring-api/)、[CMS workspace](../apps/cms/workspace.tsx)；[persistence](../tests/core/persistence/current-entries.test.ts)、[application](../tests/core/application/entry-administration.test.ts)、[HTTP](../tests/apps/authoring-api/http-contract.test.ts)、[browser](../tests/apps/cms/runtime-browser-gate.test.ts) |
-| Plugin Host | durable exact-identity activation／deactivation／drift latch、canonical HTTPS Plugin settings、CMS SEO／editor-block resolution、SaveRevision validator 與 sealed public renderer snapshot 已實作；CMS SEO callback path 必須為 normalized fixed point，public SEO site contribution 保留 `indexing` evidence。 | [CMS-CORE-05](../specs/cms-basic-contracts-v1/05-plugin-host-core.md) | [public entry](../core/plugin-host/index.ts)；[Plugin Host test](../tests/core/plugin-host/plugin-host.test.ts)、[public snapshot](../tests/core/plugin-host/public-build-snapshot.test.ts)、[CMS SEO analysis](../tests/core/plugin-host/seo-analysis.test.ts)。 |
-| Content + Application | `SaveRevision` 在 canonical write 前以 real PluginHost snapshot 執行 validator，並從 required `taxonomyTerms` materialize immutable taxonomy evidence；`analyzeCmsSeo` 在 callback 前驗 entry/current revision/schema/content/current route，並只經 SiteDefinition 建立 absolute canonical URL。Publish／Restore／ChangeRoute 保有各自既有的 atomic state boundary。 | [CMS-CORE-02](../specs/cms-basic-contracts-v1/02-content-application-core.md) | [public entry](../core/application/index.ts)；[SEO admission](../tests/core/application/seo-analysis.test.ts)、[SaveRevision](../tests/core/application/save-revision.test.ts)、[PublishRevision](../tests/core/application/publish-revision.test.ts)。 |
-| Taxonomy | flat catalog、immutable term/term-ID ledger、revision taxonomy evidence materialization、lifecycle usage impact 與 append-only revision migration 已實作；migration 搬動 current／published pointer 時會在同一 transaction 內把對應 graph 的 route claim 一併改指 replacement Revision。Projection 只信任 published Revision 的 immutable bindings。 | [implementation contract 的 Taxonomy](../contracts/README.md#8-291-contract--taxonomy)；[accepted limitations ADR](adr/2026-09-10-taxonomy-accepted-limitations.md) | [public entry](../core/taxonomy/index.ts)；[administration](../tests/core/taxonomy/administration.test.ts)、[revision store](../tests/core/persistence/revision-store.test.ts)、[projection strict parse](../tests/core/projection/strict-parse.test.ts)。 |
-| Site Definition | current/published route normalization、claim proposal、configured-store active transaction-bound token，以及 route/source replacement 的完整 retained impact 已實作；`resolvePublicRouteUrl()` 是 canonical HTTPS public URL 的唯一 builder。 | [CMS-CORE-03](../specs/cms-basic-contracts-v1/03-route-graph-application-core.md) | [public entry](../core/site-definition/index.ts)；[public route URL](../tests/core/site-definition/public-route-url.test.ts)、[route replacement](../tests/core/site-definition/route-claim-replacement.test.ts) |
-| DataMedia | current-only 媒體庫：`media-asset/v2` 單一 mutable record、streaming multipart import／replace（raw ≤400 MiB、metadata envelope ≤64 KiB）、MIME sniff 與 raster thumbnail、CAS metadata Save 與 real Delete、entry usage 阻擋；v1 asset-version lifecycle 只保留為既有 entry/revision 的內部依賴。 | [implementation contract 的 WI-005 media public contract](../contracts/README.md#wi-005-media-public-contract) | [current media library](../core/application/current-media-library.ts)、[streaming object store](../core/media/current-object-store.ts)、[sniff](../core/media/sniff.ts)、[raster](../core/media/raster.ts)；[library contract](../tests/core/application/current-media-library.test.ts)、[persistence](../tests/core/persistence/current-media-assets.test.ts)、[HTTP/multipart](../tests/apps/authoring-api/http-contract.test.ts)、[browser journey](../tests/apps/cms/runtime-browser-gate.test.ts) |
-| External Authoring API | local credential lifecycle、fixed-origin server proof、one-time browser ticket／memory-only session bootstrap，以及 finite Content Type、Plugin、Taxonomy、current entry／SEO analysis、Save／Publish／RestoreRevision 與 current media library 的 catalog／streaming multipart import／replace／metadata save／real Delete routes 已實作；RestoreRevision 只接受 exact versioned DTO，回傳 strict current/provenance receipt 並保留 published pointer；CMS Media workspace 提供 catalog、兩檔並行上傳 queue（progress／cancel／retry）、asset detail、metadata CAS Save、streaming Replace 與 confirmation-protected real Delete 及 usage 阻擋。 | [implementation contract](../contracts/README.md) | [public entry](../apps/authoring-api/index.ts)；[HTTP contract](../tests/apps/authoring-api/http-contract.test.ts)、[CMS browser bootstrap](../tests/apps/authoring-api/cms-browser-bootstrap.test.ts)、[CMS runtime browser gate](../tests/apps/cms/runtime-browser-gate.test.ts)。 |
-| Theme Host | repository-external Theme identity、manifest/evidence 與 self-contained runtime import graph validation、durable activation CAS 與 active Theme resolution 已實作；Renderer 只執行 Projection 封存後的 verified bytes。 | [implementation contract](../contracts/README.md) | [public entry](../core/theme-host/index.ts)；[Theme Host contract test](../tests/core/theme-host/theme-host.test.ts)。 |
-| Projection + Preview | published-only `renderer-input/v1` artifact、single-subject current/published Preview、canonical parser 與 sandboxed preview document 已實作；Projection 準備並驗證一次 Plugin public snapshot，materialize exact Theme／Plugin／SEO evidence，不讓 current/draft 進入 public build。 | [implementation contract](../contracts/README.md) | [public entry](../core/projection/index.ts)；[published isolation](../tests/core/projection/preview-isolation.test.ts)；[strict parse 與 capture 診斷](../tests/core/projection/strict-parse.test.ts)。 |
-| Renderer + Delivery + Public UI／Release | static Renderer 僅接受 strict parsed artifact；Delivery 產生並重新驗證 immutable artifact；Public UI 只服務 verified snapshot；Authoring API release transport 固定交付至 repository 外 local root，build read-back verified artifact，release/redeliver 只接受 artifact digest。 | [implementation contract](../contracts/README.md) | [Renderer](../core/renderer/index.ts)、[Delivery](../core/delivery/index.ts)、[Authoring API](../apps/authoring-api/index.ts)、[Public UI](../apps/public-ui/index.ts)；[Renderer](../tests/core/renderer/renderer.test.ts)、[Delivery](../tests/core/delivery/delivery.test.ts)、[Authoring API](../tests/apps/authoring-api/http-contract.test.ts)、[Public UI](../tests/apps/public-ui/server.test.ts)。 |
+## 其他獨立模組
 
-## 文件權威
+| 模組 | 現行入口 | 測試 |
+| --- | --- | --- |
+| Foundation、canonical JSON、digest | [public entry](../core/foundation/index.ts) | [Foundation tests](../tests/core/foundation/) |
+| Plugin Host、Theme Host | [Plugin Host](../core/plugin-host/index.ts)、[Theme Host](../core/theme-host/index.ts) | [Plugin tests](../tests/core/plugin-host/)、[Theme tests](../tests/core/theme-host/) |
+| Renderer、Delivery、Public UI | [Renderer](../core/renderer/index.ts)、[Delivery](../core/delivery/index.ts)、[Public UI](../apps/public-ui/index.ts) | [Renderer tests](../tests/core/renderer/)、[Delivery tests](../tests/core/delivery/)、[Public UI tests](../tests/apps/public-ui/) |
 
-- 程式碼與對應測試是已實作行為的 SSOT；文件不得把規劃誤寫成現況。
-- [contracts/README.md](../contracts/README.md) 是已核准範圍與設計約束的唯一 contract，供尚未實作或準備變更的工作使用。
-- [specs/cms-basic-contracts-v1/](../specs/cms-basic-contracts-v1/) 只拆分已核准工作，不得擴張範圍。
-- [MEMORY.md](../MEMORY.md) 只保存長期原則與文件指標。
-- [ADR](adr/README.md) 保存已確認、跨時間影響架構邊界或工作方式的 Owner 決策；每份 ADR 連回其 canonical contract 或工作摘要。
-- [.dev-hub/active/](../.dev-hub/active/) 是進行中狀態；[logs/](../logs/) 是完成 provenance；兩者都不是行為或 architecture contract。
-
-## 目前工作
-
-恢復大型工作時，先讀 [Dev Hub workflow](dev-hub-workflow.md)，再直接選取 [active Cycle](../.dev-hub/active/) 中的對應記錄，讀取其 `hub.md`／連結狀態；歷史 handoff 目錄維持唯讀。
-
-## 閱讀規則
-
-1. 只選當前任務列。
-2. 跟隨該列的文件路徑。
-3. 閱讀列出的 public source 與測試。
-4. 只有任務需要才擴大。
-
-## 文件與圖表原則
-
-- 核心文件在需要跨時間或跨 AI 交接時，於開頭加入簡短的「決策背景」：當時的設定、選擇與原因；不為沒有交接價值的文件增添固定模板。
-- ASCII 圖是給人快速理解架構與流程使用，不是裝飾或程式碼替身。只有流程不容易直接從程式碼看懂時才畫。
-- 依形態選圖：module／owner 封裝用元件與依賴箭頭；同步 command 或資料流用由輸入到結果的線性流程；事件流或 stateful lifecycle 用狀態轉移與事件箭頭。圖只保留核心流程。
-- 圖放在相關 module、class 或主要函式附近的註解或文件；詳細原因連回 architecture 文件。程式碼改變時同步更新圖；過期的圖比沒有圖更糟。
-- 只有在資料夾內有多個責任、公開入口或跨 AI 交接資訊而無法從一次導覽理解時，才建立 `README.md`。內容只做責任、入口與權威連結的 router，不複製程式或 contract。
+歷史的 Revision／Version、Preview、Release 與 schema migration 規格仍留在 [舊工作包](../specs/cms-basic-contracts-v1/) 供追溯；它們不再是 CMS authoring 入口。新公開站接線請從 [current-only contract](../contracts/README.md) 和現行 source 開始。
 
 ## 維護規則
 
-- 每項事實只保留一個 canonical source，以連結取代複製。
-- 所有維護中文件必須在兩個連結內可達。
-- 行為、邊界、資料流、公開介面或維運程序變更時，在同一變更更新受影響的文件與鄰近 ASCII flow 註解。
-- 刪除 stale route。
-- 目前不新增 `docs/domains/`：現有文件量小，[docs/INDEX.md](INDEX.md) 加既有 [CMS 工作包 router](../specs/cms-basic-contracts-v1/README.md) 已足夠。
+- 行為、邊界、資料流、公開介面或維運程序改變時，同步更新相關文件與鄰近流程註解。
+- 根目錄 `AGENTS.md`、`CLAUDE.md` 與代理技能目錄是 Rulesync 生成輸出；只修改 [canonical 規則](../.rulesync/rules/) 或 [技能來源](../.rulesync/skills/)，再執行 `npm run sync:ai` 與 `npm run check:ai-sync`。
+- 長期 Owner 決策放入 [ADR](adr/README.md)；Dev Hub active state 與 [logs](../logs/) 記錄工作進度和完成摘要，不取代 contract。
