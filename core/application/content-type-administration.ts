@@ -69,7 +69,9 @@ export type ContentTypeDefinitionV1 = Readonly<{ contract: "content-type-definit
 export type ContentTypeCatalogV1 = Readonly<{ contract: "content-type-catalog/v1"; items: readonly Readonly<{ typeId: string; label: string; slug: string; order: number; showInMenu: boolean; stateDigest: Digest }>[]; stateDigest: Digest }>;
 export type ContentTypeCreateRequestV1 = Readonly<{ contract: "content-type-create-request/v1"; expectedStateDigest: string; label: string; slug?: string | undefined; help: string; order: number; showInMenu: boolean; fieldGroups: readonly unknown[]; taxonomyAttachments: readonly unknown[] }>;
 export type ContentTypeReplaceRequestV1 = Readonly<{ contract: "content-type-replace-request/v1"; expectedStateDigest: string; label: string; slug: string; help: string; order: number; showInMenu: boolean; fieldGroups: readonly unknown[]; taxonomyAttachments: readonly unknown[] }>;
-export type ContentTypeAdministrationFailureCode = "INVALID_CONTENT_TYPE_DEFINITION" | "CONTENT_TYPE_NOT_FOUND" | "CONTENT_TYPE_STATE_CONFLICT" | "CONTENT_TYPE_BREAKING_CHANGE" | "CONTENT_TYPE_ADMINISTRATION_FAILED";
+export type ContentTypeDeleteRequestV1 = Readonly<{ contract: "content-type-delete-request/v1"; expectedStateDigest: string }>;
+export type ContentTypeDeletedV1 = Readonly<{ contract: "content-type-deleted/v1"; typeId: string; releasedSlug: string }>;
+export type ContentTypeAdministrationFailureCode = "INVALID_CONTENT_TYPE_DEFINITION" | "CONTENT_TYPE_NOT_FOUND" | "CONTENT_TYPE_STATE_CONFLICT" | "CONTENT_TYPE_BREAKING_CHANGE" | "CONTENT_TYPE_IN_USE" | "CONTENT_TYPE_PROTECTED" | "CONTENT_TYPE_ADMINISTRATION_FAILED";
 export type ContentTypeAdministrationFailure = Readonly<{ code: ContentTypeAdministrationFailureCode; owner: "ContentTypeAdministration"; subjectIds: readonly string[]; remediation: MessageRemediation }>;
 export type ContentTypeAdministrationResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: ContentTypeAdministrationFailure }>;
 export interface ContentTypeAdministration {
@@ -77,10 +79,12 @@ export interface ContentTypeAdministration {
   get(input: Readonly<{ typeId: string }>): Promise<ContentTypeAdministrationResult<ContentTypeDefinitionV1>>;
   create(input: ContentTypeCreateRequestV1): Promise<ContentTypeAdministrationResult<ContentTypeDefinitionV1>>;
   replace(input: Readonly<{ typeId: string; definition: ContentTypeReplaceRequestV1 }>): Promise<ContentTypeAdministrationResult<ContentTypeDefinitionV1>>;
+  delete(input: Readonly<{ typeId: string; request: ContentTypeDeleteRequestV1 }>): Promise<ContentTypeAdministrationResult<ContentTypeDeletedV1>>;
 }
 
 function failure<T>(code: ContentTypeAdministrationFailureCode, subjectIds: readonly string[] = []): ContentTypeAdministrationResult<T> {
-  return { ok: false, error: { code, owner: "ContentTypeAdministration", subjectIds, remediation: { kind: "message", message: "內容類型操作未完成。" } } };
+  const message = code === "CONTENT_TYPE_IN_USE" ? "內容類型仍有內容，請先刪除內容。" : code === "CONTENT_TYPE_PROTECTED" ? "系統文章類型不可刪除。" : "內容類型操作未完成。";
+  return { ok: false, error: { code, owner: "ContentTypeAdministration", subjectIds, remediation: { kind: "message", message } } };
 }
 
 /**
@@ -493,6 +497,25 @@ export function createContentTypeAdministration(input: Readonly<{ persistence: P
         const digest = sha256Digest(bytes.value);
         const replaced = transaction.replaceCurrentContentType({ typeId: before.typeId, definitionBytes: bytes.value, definitionDigest: digest });
         return replaced.ok ? { ok: true, value: { ...base, stateDigest: digest } } : failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [before.typeId]);
+      });
+      if (result.ok) return result;
+      return result.error.owner === "ContentTypeAdministration" ? { ok: false, error: result.error } : failure("CONTENT_TYPE_ADMINISTRATION_FAILED");
+    },
+    async delete(inputRequest) {
+      const result = input.persistence.runTransaction((transaction): ContentTypeAdministrationResult<ContentTypeDeletedV1> => {
+        const current = transaction.getCurrentContentType(inputRequest.typeId);
+        if (!current.ok) return failure(current.error.code === "CURRENT_CONTENT_TYPE_NOT_FOUND" ? "CONTENT_TYPE_NOT_FOUND" : "CONTENT_TYPE_ADMINISTRATION_FAILED", [inputRequest.typeId]);
+        const before = readContentTypeDefinition(current.value);
+        if (before === undefined || before.typeId !== inputRequest.typeId) return failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [inputRequest.typeId]);
+        if (inputRequest.request.contract !== "content-type-delete-request/v1" || inputRequest.request.expectedStateDigest !== before.stateDigest) return failure("CONTENT_TYPE_STATE_CONFLICT", [inputRequest.typeId]);
+        if (before.typeId === "00000000-0000-4000-8000-000000000001") return failure("CONTENT_TYPE_PROTECTED", [before.typeId]);
+        const hasEntries = transaction.contentTypeHasCurrentEntries(before.typeId);
+        if (!hasEntries.ok) return failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [before.typeId]);
+        if (hasEntries.value) return failure("CONTENT_TYPE_IN_USE", [before.typeId]);
+        const deleted = transaction.deleteCurrentContentType(before.typeId);
+        if (!deleted.ok) return failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [before.typeId]);
+        const released = transaction.releaseGlobalSlug({ entityKind: "content-type", entityId: before.typeId });
+        return released.ok ? { ok: true, value: { contract: "content-type-deleted/v1", typeId: before.typeId, releasedSlug: before.slug } } : failure("CONTENT_TYPE_ADMINISTRATION_FAILED", [before.typeId]);
       });
       if (result.ok) return result;
       return result.error.owner === "ContentTypeAdministration" ? { ok: false, error: result.error } : failure("CONTENT_TYPE_ADMINISTRATION_FAILED");

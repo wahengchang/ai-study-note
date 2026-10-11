@@ -1,0 +1,9 @@
+.term-layout { display:grid; grid-template-columns:minmax(0,1.65fr) minmax(17rem,1fr); gap:1.4rem; align-items:start; }
+.taxonomy-settings-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 1rem; align-items:end; }
+.taxonomy-settings-grid>button { justify-self:start; }
+.term-layout>* { min-width:0; }
+.term-layout>section,main>section[aria-labelledby="taxonomy-settings-heading"] { padding:1rem 1.2rem 1.2rem; border:1px solid var(--border); border-radius:.4rem; }
+.term-layout>section h2,main>section[aria-labelledby="taxonomy-settings-heading"] h2 { margin-top:0; }
+.term-editor-panel { padding:1rem 1.2rem; border:1px solid var(--border); border-radius:.4rem; background:#fbfcfe; }
+.term-editor-panel h2 { margin-top:0; }
+.term-table td:last-child { white-space:nowrap; }

@@ -13,7 +13,7 @@ import type { AuthoringCredentialAuthority } from "./credential-store.js";
 import { createBrowserBootstrapState } from "./browser-bootstrap.js";
 import type { CmsAsset, CmsAssets } from "./cms-assets.js";
 import { API_KEY_PATTERN, AUTHORING_AUTHORITY, AUTHORING_HOST, AUTHORING_ORIGIN, AUTHORING_PORT, AUTHORING_RESOURCE_ID_PATTERN, redactSecrets } from "./origin.js";
-import { cptEntryCatalogSchema, cptEntrySearchRequestSchema, cptEntrySearchResultSchema, cptEntryCreateRequestSchema, cptEntryDeleteRequestSchema, cptEntryDeletedSchema, cptEntrySaveRequestSchema, cptEntrySchema, currentTaxonomyCatalogSchema, currentTaxonomySnapshotSchema, currentTaxonomyCreateSchema, currentTaxonomyCommandSchema, authoringErrorSchema, authoringErrorStatuses, mediaAssetDetailV2Schema, mediaAssetReferencedErrorSchema, mediaAssetV2Schema, mediaCatalogV2Schema, mediaDeleteReceiptSchema, mediaDeleteRequestSchema, mediaImportMetadataSchema, mediaMetadataSaveRequestSchema, mediaReplaceRequestSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, contentTypeCatalogSchema, contentTypeSchema, createContentTypeRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
+import { cptEntryCatalogSchema, cptEntrySearchRequestSchema, cptEntrySearchResultSchema, cptEntryCreateRequestSchema, cptEntryDeleteRequestSchema, cptEntryDeletedSchema, cptEntrySaveRequestSchema, cptEntrySchema, currentTaxonomyCatalogSchema, currentTaxonomySnapshotSchema, currentTaxonomyCreateSchema, currentTaxonomyCommandSchema, currentTaxonomyDeleteSchema, currentTaxonomyDeletedSchema, authoringErrorSchema, authoringErrorStatuses, mediaAssetDetailV2Schema, mediaAssetReferencedErrorSchema, mediaAssetV2Schema, mediaCatalogV2Schema, mediaDeleteReceiptSchema, mediaDeleteRequestSchema, mediaImportMetadataSchema, mediaMetadataSaveRequestSchema, mediaReplaceRequestSchema, browserSessionExchangeSchema, browserSessionSchema, browserTicketMintRequestSchema, browserTicketSchema, contentTypeCatalogSchema, contentTypeSchema, contentTypeDeleteRequestSchema, contentTypeDeletedSchema, createContentTypeRequestSchema, serverProofChallengeSchema } from "./transport-contracts.js";
 import { prepareMediaUpload, type PreparedMediaUpload } from "./multipart.js";
 import type { DataMediaFailure } from "../../core/media/index.js";
 import type { BrowserSessionDto, BrowserTicketDto, MediaAssetReferencedErrorDto, TransportCode } from "./transport-contracts.js";
@@ -64,7 +64,7 @@ export type AuthoringApiLogEvent = Readonly<{
   requestId: string;
   stableEventCode: "AUTHORING_REQUEST_OK" | "AUTHORING_REQUEST_REJECTED" | "AUTHORING_REQUEST_FAILED";
   method: "GET" | "POST" | "OPTIONS" | "OTHER" | "UNPARSED";
-  routeTemplate: "/cms" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:typeId" | "/cms/content/:typeId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/media/:assetId/thumbnail" | "/cms/assets/:asset" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/replace" | "/v1/media/:assetId/metadata" | "/v1/media/:assetId/delete" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/content-types" | "/v1/content-types/:typeId" | "/v1/content-types/:typeId/entries" | "/v1/content-types/:typeId/entries/search" | "/v1/content-types/:typeId/entries/:entryId" | "/v1/content-types/:typeId/entries/:entryId/delete" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched";
+  routeTemplate: "/cms" | "/cms/content-types" | "/cms/content-types/new" | "/cms/content-types/:typeId" | "/cms/content/:typeId" | "/cms/taxonomies" | "/cms/taxonomies/new" | "/cms/taxonomies/:taxonomyId" | "/cms/media" | "/cms/media/import" | "/cms/media/:assetId" | "/cms/media/:assetId/thumbnail" | "/cms/assets/:asset" | "/v1/media" | "/v1/media/import" | "/v1/media/:assetId" | "/v1/media/:assetId/replace" | "/v1/media/:assetId/metadata" | "/v1/media/:assetId/delete" | "/v1/taxonomies" | "/v1/taxonomies/:taxonomyId" | "/v1/taxonomies/:taxonomyId/commands" | "/v1/taxonomies/:taxonomyId/delete" | "/v1/content-types" | "/v1/content-types/:typeId" | "/v1/content-types/:typeId/delete" | "/v1/content-types/:typeId/entries" | "/v1/content-types/:typeId/entries/search" | "/v1/content-types/:typeId/entries/:entryId" | "/v1/content-types/:typeId/entries/:entryId/delete" | "/_local/server-proof" | "/_local/browser-tickets" | "/_local/browser-session" | "unmatched";
   status: number;
 }>;
 export type AuthoringApiResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: Readonly<{ code: "AUTHORING_SERVER_START_FAILED"; owner: "AuthoringApi"; subjectIds: readonly []; remediation: MessageRemediation }> }>;
@@ -73,10 +73,10 @@ export type StartAuthoringApiInput = Readonly<{ credentialAuthority: AuthoringCr
 
 type RouteTemplate = AuthoringApiLogEvent["routeTemplate"];
 type HeaderMap = ReadonlyMap<string, readonly string[]>;
-type RouteClass = "cms-document" | "cms-asset" | "media-thumbnail" | "media" | "media-import" | "media-replace" | "media-metadata" | "media-delete" | "media-detail" | "content-types" | "content-type" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "proof" | "browser-ticket" | "browser-session" | "content-type-entries" | "content-type-entry" | "content-type-entry-delete" | "content-type-entry-search" | "unknown";
+type RouteClass = "cms-document" | "cms-asset" | "media-thumbnail" | "media" | "media-import" | "media-replace" | "media-metadata" | "media-delete" | "media-detail" | "content-types" | "content-type" | "content-type-delete" | "taxonomies" | "taxonomy" | "taxonomy-commands" | "taxonomy-delete" | "proof" | "browser-ticket" | "browser-session" | "content-type-entries" | "content-type-entry" | "content-type-entry-delete" | "content-type-entry-search" | "unknown";
 const READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["media", "media-detail", "media-thumbnail", "content-types", "content-type", "taxonomies", "taxonomy", "content-type-entries", "content-type-entry"]);
 const POST_READ_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["content-types", "content-type", "taxonomies", "content-type-entries", "content-type-entry", "content-type-entry-search"]);
-const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["media", "media-import", "media-replace", "media-metadata", "media-delete", "media-detail", "content-types", "content-type", "taxonomies", "taxonomy", "taxonomy-commands", "content-type-entries", "content-type-entry", "content-type-entry-delete", "content-type-entry-search"]);
+const AUTHENTICATED_ROUTES: ReadonlySet<RouteClass> = new Set<RouteClass>(["media", "media-import", "media-replace", "media-metadata", "media-delete", "media-detail", "content-types", "content-type", "content-type-delete", "taxonomies", "taxonomy", "taxonomy-commands", "taxonomy-delete", "content-type-entries", "content-type-entry", "content-type-entry-delete", "content-type-entry-search"]);
 
 function headersOf(incoming: IncomingMessage): HeaderMap {
   const map = new Map<string, string[]>();
@@ -105,12 +105,14 @@ function routeFor(pathname: string): RouteClass {
   if (mediaSubRoute("delete")) return "media-delete";
   if (/^\/v1\/media\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/media/".length))) return "media-detail";
   if (pathname === "/v1/content-types") return "content-types";
+  if (/^\/v1\/content-types\/[^/%?#/]+\/delete$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length, -"/delete".length))) return "content-type-delete";
   if (/^\/v1\/content-types\/[^/%?#/]+\/entries\/search$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length, -"/entries/search".length))) return "content-type-entry-search";
   if (/^\/v1\/content-types\/[^/%?#/]+\/entries\/[^/%?#/]+\/delete$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "") && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(0, -"/delete".length).split("/").at(-1) ?? "")) return "content-type-entry-delete";
   if (/^\/v1\/content-types\/[^/%?#/]+\/entries\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "") && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice(pathname.lastIndexOf("/") + 1))) return "content-type-entry";
   if (/^\/v1\/content-types\/[^/%?#/]+\/entries$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length).split("/")[0] ?? "")) return "content-type-entries";
   if (/^\/v1\/content-types\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/content-types/".length))) return "content-type";
   if (pathname === "/v1/taxonomies") return "taxonomies";
+  if (/^\/v1\/taxonomies\/[^/%?#/]+\/delete$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/taxonomies/".length, -"/delete".length))) return "taxonomy-delete";
   if (/^\/v1\/taxonomies\/[^/%?#/]+\/commands$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/taxonomies/".length, -"/commands".length))) return "taxonomy-commands";
   if (/^\/v1\/taxonomies\/[^/%?#/]+$/u.test(pathname) && AUTHORING_RESOURCE_ID_PATTERN.test(pathname.slice("/v1/taxonomies/".length))) return "taxonomy";
   return "unknown";
@@ -139,6 +141,7 @@ function templateFor(route: RouteClass, pathname: string): RouteTemplate {
   if (route === "media-detail") return "/v1/media/:assetId";
   if (route === "content-types") return "/v1/content-types";
   if (route === "content-type") return "/v1/content-types/:typeId";
+  if (route === "content-type-delete") return "/v1/content-types/:typeId/delete";
   if (route === "content-type-entries") return "/v1/content-types/:typeId/entries";
   if (route === "content-type-entry-search") return "/v1/content-types/:typeId/entries/search";
   if (route === "content-type-entry") return "/v1/content-types/:typeId/entries/:entryId";
@@ -146,6 +149,7 @@ function templateFor(route: RouteClass, pathname: string): RouteTemplate {
   if (route === "taxonomies") return "/v1/taxonomies";
   if (route === "taxonomy") return "/v1/taxonomies/:taxonomyId";
   if (route === "taxonomy-commands") return "/v1/taxonomies/:taxonomyId/commands";
+  if (route === "taxonomy-delete") return "/v1/taxonomies/:taxonomyId/delete";
   if (route === "proof") return "/_local/server-proof";
   if (route === "browser-ticket") return "/_local/browser-tickets";
   if (route === "browser-session") return "/_local/browser-session";
@@ -460,6 +464,12 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const result = await input.currentTaxonomyAdministration.command(context.req.param("taxonomyId") ?? "", parsed.data);
     return result.ok && currentTaxonomySnapshotSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
+  app.post("/v1/taxonomies/:taxonomyId/delete", async (context) => authenticatedJson(context, input, 4_096, "Taxonomy delete request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
+    const parsed = currentTaxonomyDeleteSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.currentTaxonomyAdministration.delete(context.req.param("taxonomyId") ?? "", parsed.data);
+    return result.ok && currentTaxonomyDeletedSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
+  }));
   app.get("/v1/content-types/:typeId/entries", async (context) => authenticatedRead(context, input, async (requestId) => {
     const result = await input.currentEntryAdministration.catalog({ typeId: context.req.param("typeId") ?? "" });
     return result.ok && cptEntryCatalogSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
@@ -512,6 +522,12 @@ export async function startAuthoringApi(input: StartAuthoringApiInput): Promise<
     const parsed = replaceContentTypeRequestSchema.safeParse(body); if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
     const result = await input.contentTypeAdministration.replace({ typeId: context.req.param("typeId") ?? "", definition: parsed.data });
     return result.ok && contentTypeSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
+  }));
+  app.post("/v1/content-types/:typeId/delete", async (context) => authenticatedJson(context, input, 4_096, "Content type delete request 不得超過 4 KiB。", async (requestId, _entryId, body) => {
+    const parsed = contentTypeDeleteRequestSchema.safeParse(body);
+    if (!parsed.success) return errorResponse(requestId, "INVALID_REQUEST_BODY", 400);
+    const result = await input.contentTypeAdministration.delete({ typeId: context.req.param("typeId") ?? "", request: parsed.data });
+    return result.ok && contentTypeDeletedSchema.safeParse(result.value).success ? response(result.value, 200) : result.ok ? errorResponse(requestId, "INTERNAL_SERVER_ERROR", 500) : facadeError(requestId, result.error);
   }));
 
   const server = createAdaptorServer({ fetch: async (request, env) => {

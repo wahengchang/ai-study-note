@@ -74,6 +74,7 @@ Media 改為單一 current asset，透過 400 MiB 單次 streaming multipart 匯
 ## Implementation Decisions
 
 - **Scope status**：本規格的 fresh-only CMS/Core authoring target 已在本次 Work Group 落地；新內容的公開站 Projection／Release 接線仍是下一項工作。
+- **後續擴充（2026-10-12）**：依使用者要求，原第一版「Content Type delete 不提供」限制已由 [current implementation contract](../contracts/README.md#content-type-definition-and-content-payload) 的受保護刪除契約取代；自訂 taxonomy 定義也可在零 term、零 attachment 時刪除。下方第一版敘述保留原交付範圍供追溯。
 - **Owner boundaries**：Persistence 擁有 current records、transaction 與 durable CAS；Application 是 CMS authoring 唯一 façade；Authoring API 是唯一 HTTP composition root；CMS 只呼叫 Authoring API。Taxonomy、Media 或 Persistence 不得直接暴露給 browser code。
 - **Current Content Type DTO**：WI-001 的 exact public definition、catalog、command、normalization、digest、default option ref 與 non-breaking matrix 以 [implementation contract](../contracts/README.md#wi-001-content-type-public-contract) 為唯一來源；本規格只固定垂直切片與後續 lifecycle 邊界。
 - **Content Type lifecycle**：第一版不提供 deactivate 或 delete。建立後 definition 永遠可由 catalog/direct URL 管理；`showInMenu` 只控制動態 navigation。已有 entries 後由 Application 對新舊完整 definition 做 non-breaking comparison，任何未核准收緊或刪除都在 transaction 前拒絕。
