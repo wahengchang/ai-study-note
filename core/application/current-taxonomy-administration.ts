@@ -1,17 +1,20 @@
 import { randomUUID } from "node:crypto";
 import { canonicalJsonBytes, sha256Digest, type Digest, type MessageRemediation } from "../foundation/index.js";
+import { readContentTypeDefinition } from "./content-type-administration.js";
 import { globalSlug, suggestGlobalSlug, type CurrentTaxonomyRecord, type CurrentTaxonomyTermRecord, type PersistenceFailure, type PersistenceReadSnapshot, type PersistenceStore, type PersistenceTransaction, type TransactionDecision } from "../persistence/index.js";
 
 export type CurrentTaxonomySnapshot = Readonly<{ contract: "taxonomy/v2"; taxonomy: CurrentTaxonomyRecord; terms: readonly CurrentTaxonomyTermRecord[]; stateDigest: Digest }>;
 export type CurrentTaxonomyCatalog = Readonly<{ contract: "taxonomy-catalog/v2"; taxonomies: readonly Readonly<{ taxonomy: CurrentTaxonomyRecord; stateDigest: Digest }>[]; stateDigest: Digest }>;
 export type CurrentTaxonomyCreateRequest = Readonly<{ contract: "taxonomy-create-request/v2"; expectedStateDigest: string; label: string; slug?: string | undefined; hierarchical: boolean }>;
+export type CurrentTaxonomyDeleteRequest = Readonly<{ contract: "taxonomy-delete-request/v1"; expectedStateDigest: string }>;
+export type CurrentTaxonomyDeleted = Readonly<{ contract: "taxonomy-deleted/v1"; taxonomyId: string; releasedSlug: string }>;
 export type CurrentTaxonomyCommand = Readonly<{ contract: "taxonomy-command/v2"; expectedStateDigest: string } & (
   { kind: "replace-taxonomy"; label: string; slug: string; hierarchical: boolean } |
   { kind: "create-term"; label: string; slug?: string | undefined; parentTermId?: string | undefined; order: number } |
   { kind: "replace-term"; termId: string; label: string; slug: string; parentTermId?: string | undefined; order: number; state: "live" | "retired" } |
   { kind: "delete-term"; termId: string }
 )>;
-export type CurrentTaxonomyFailureCode = "INVALID_TAXONOMY" | "TAXONOMY_NOT_FOUND" | "TAXONOMY_STATE_CONFLICT" | "TERM_NOT_FOUND" | "TERM_IN_USE" | "TAXONOMY_FAILED";
+export type CurrentTaxonomyFailureCode = "INVALID_TAXONOMY" | "TAXONOMY_NOT_FOUND" | "TAXONOMY_STATE_CONFLICT" | "TAXONOMY_IN_USE" | "TAXONOMY_PROTECTED" | "TERM_NOT_FOUND" | "TERM_IN_USE" | "TAXONOMY_FAILED";
 export type CurrentTaxonomyFailure = Readonly<{ code: CurrentTaxonomyFailureCode; owner: "CurrentTaxonomyAdministration"; subjectIds: readonly string[]; remediation: MessageRemediation }>;
 export type CurrentTaxonomyResult<T> = Readonly<{ ok: true; value: T }> | Readonly<{ ok: false; error: CurrentTaxonomyFailure }>;
 export interface CurrentTaxonomyAdministration {
@@ -19,10 +22,12 @@ export interface CurrentTaxonomyAdministration {
   get(taxonomyId: string): Promise<CurrentTaxonomyResult<CurrentTaxonomySnapshot>>;
   create(request: CurrentTaxonomyCreateRequest): Promise<CurrentTaxonomyResult<CurrentTaxonomySnapshot>>;
   command(taxonomyId: string, command: CurrentTaxonomyCommand): Promise<CurrentTaxonomyResult<CurrentTaxonomySnapshot>>;
+  delete(taxonomyId: string, request: CurrentTaxonomyDeleteRequest): Promise<CurrentTaxonomyResult<CurrentTaxonomyDeleted>>;
 }
 
 function fail<T>(code: CurrentTaxonomyFailureCode, ids: readonly string[] = []): CurrentTaxonomyResult<T> {
-  return { ok: false, error: { code, owner: "CurrentTaxonomyAdministration", subjectIds: ids, remediation: { kind: "message", message: "請重新載入並檢查分類與 term 設定。" } } };
+  const message = code === "TAXONOMY_IN_USE" ? "Taxonomy 仍有 term 或被內容類型附掛，請先移除引用。" : code === "TAXONOMY_PROTECTED" ? "系統分類與標籤不可刪除。" : "請重新載入並檢查分類與 term 設定。";
+  return { ok: false, error: { code, owner: "CurrentTaxonomyAdministration", subjectIds: ids, remediation: { kind: "message", message } } };
 }
 function currentResult<T>(result: TransactionDecision<T, CurrentTaxonomyFailure | PersistenceFailure>): CurrentTaxonomyResult<T> {
   if (result.ok || result.error.owner === "CurrentTaxonomyAdministration") return result as CurrentTaxonomyResult<T>;
@@ -130,6 +135,29 @@ export function createCurrentTaxonomyAdministration(input: Readonly<{ persistenc
           if (!released.ok) return fail("TAXONOMY_FAILED", [command.termId]);
         } else return fail("INVALID_TAXONOMY", [taxonomyId]);
         return snapshot(transaction, taxonomyId);
+      }));
+    },
+    async delete(taxonomyId, request) {
+      return currentResult(input.persistence.runTransaction((transaction) => {
+        const before = snapshot(transaction, taxonomyId);
+        if (!before.ok) return before;
+        if (request.contract !== "taxonomy-delete-request/v1" || request.expectedStateDigest !== before.value.stateDigest) return fail("TAXONOMY_STATE_CONFLICT", [taxonomyId]);
+        if (taxonomyId === "00000000-0000-4000-8000-000000000002" || taxonomyId === "00000000-0000-4000-8000-000000000003") return fail("TAXONOMY_PROTECTED", [taxonomyId]);
+        if (before.value.terms.length > 0) return fail("TAXONOMY_IN_USE", before.value.terms.map((term) => term.termId));
+        const types = transaction.listCurrentContentTypes();
+        if (!types.ok) return fail("TAXONOMY_FAILED", [taxonomyId]);
+        for (const record of types.value) {
+          const definition = readContentTypeDefinition(record);
+          if (definition === undefined) return fail("TAXONOMY_FAILED", [taxonomyId]);
+          for (const attachment of definition.taxonomyAttachments) {
+            if (typeof attachment !== "object" || attachment === null || Array.isArray(attachment) || !("taxonomyId" in attachment) || typeof attachment.taxonomyId !== "string") return fail("TAXONOMY_FAILED", [taxonomyId]);
+            if (attachment.taxonomyId === taxonomyId) return fail("TAXONOMY_IN_USE", [record.typeId]);
+          }
+        }
+        const deleted = transaction.deleteCurrentTaxonomy(taxonomyId);
+        if (!deleted.ok) return fail("TAXONOMY_FAILED", [taxonomyId]);
+        const released = transaction.releaseGlobalSlug({ entityKind: "taxonomy", entityId: taxonomyId });
+        return released.ok ? { ok: true, value: { contract: "taxonomy-deleted/v1" as const, taxonomyId, releasedSlug: before.value.taxonomy.slug } } : fail("TAXONOMY_FAILED", [taxonomyId]);
       }));
     },
   };

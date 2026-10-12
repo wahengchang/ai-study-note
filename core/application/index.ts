@@ -3,7 +3,7 @@ export { createPersistencePluginSettingsStatePort } from "./plugin-settings-stat
 export { createContentTypeAdministration } from "./content-type-administration.js";
 export { createCurrentEntryAdministration } from "./entry-administration.js";
 export { createCurrentTaxonomyAdministration } from "./current-taxonomy-administration.js";
-export type { CurrentTaxonomyAdministration, CurrentTaxonomyCatalog, CurrentTaxonomySnapshot, CurrentTaxonomyCreateRequest, CurrentTaxonomyCommand, CurrentTaxonomyFailure, CurrentTaxonomyFailureCode, CurrentTaxonomyResult } from "./current-taxonomy-administration.js";
+export type { CurrentTaxonomyAdministration, CurrentTaxonomyCatalog, CurrentTaxonomySnapshot, CurrentTaxonomyCreateRequest, CurrentTaxonomyCommand, CurrentTaxonomyDeleteRequest, CurrentTaxonomyDeleted, CurrentTaxonomyFailure, CurrentTaxonomyFailureCode, CurrentTaxonomyResult } from "./current-taxonomy-administration.js";
 export { createCurrentMediaLibrary, MEDIA_FILE_CEILING, MEDIA_THUMBNAIL_MAX_EDGE } from "./current-media-library.js";
 export type {
   ContentTypeAdministration,
@@ -12,6 +12,8 @@ export type {
   ContentTypeAdministrationResult,
   ContentTypeCatalogV1,
   ContentTypeCreateRequestV1,
+  ContentTypeDeleteRequestV1,
+  ContentTypeDeletedV1,
   ContentTypeDefinitionV1,
   ContentTypeFieldDefinition,
   ContentTypeFieldGroup,

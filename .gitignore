@@ -32,7 +32,10 @@ yarn-error.log*
 # Handoff artifacts
 dev-hub-*/
 project-*/
-draft*/
+draft/
+
+# Local design and audit drafts
+draft_*
 
 # AI research sidecars
 .research/

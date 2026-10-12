@@ -1,0 +1,13 @@
+.builder-general { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 1.3rem; }
+.builder-general>label { margin:.4rem 0; }
+.builder-general textarea { min-height:4.5rem; }
+.field-group { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 1rem; padding:1rem; background:#fbfcfe; }
+.field-group>label { margin:.35rem 0; }
+.field-group>p,.field-group>.field-definition,.field-group>button { grid-column:1/-1; }
+.field-group>p:has(button) { margin-top:.7rem; }
+.field-definition { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:0 1rem; margin:1rem 0; background:#fff; }
+.field-definition>p,.field-definition>fieldset,.field-definition>.field-issue { grid-column:1/-1; }
+.field-definition>label { margin:.35rem 0; }
+.field-definition textarea { min-height:4.5rem; }
+.field-definition>p { display:flex; flex-wrap:wrap; gap:.5rem; }
+.field-definition>p>label { flex:1 1 12rem; margin:0; }

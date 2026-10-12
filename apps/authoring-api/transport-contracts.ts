@@ -14,6 +14,8 @@ export const contentTypeSchema = contentTypeDefinitionBaseSchema.extend({ stateD
 export const contentTypeCatalogSchema = z.object({ contract: z.literal("content-type-catalog/v1"), items: z.array(contentTypeSummarySchema), stateDigest: digestSchema }).strict();
 export const createContentTypeRequestSchema = z.object({ contract: z.literal("content-type-create-request/v1"), expectedStateDigest: digestSchema, label: z.string(), slug: z.string().optional(), help: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), fieldGroups: z.array(jsonContent), taxonomyAttachments: z.array(z.object({ taxonomyId: z.string().min(1), cardinality: z.enum(["one", "many"]), required: z.boolean(), allowTermCreation: z.boolean() }).strict()) }).strict();
 export const replaceContentTypeRequestSchema = z.object({ contract: z.literal("content-type-replace-request/v1"), expectedStateDigest: digestSchema, label: z.string(), slug: z.string(), help: z.string(), order: z.number().int().safe(), showInMenu: z.boolean(), fieldGroups: z.array(jsonContent), taxonomyAttachments: z.array(z.object({ taxonomyId: z.string().min(1), cardinality: z.enum(["one", "many"]), required: z.boolean(), allowTermCreation: z.boolean() }).strict()) }).strict();
+export const contentTypeDeleteRequestSchema = z.object({ contract: z.literal("content-type-delete-request/v1"), expectedStateDigest: digestSchema }).strict();
+export const contentTypeDeletedSchema = z.object({ contract: z.literal("content-type-deleted/v1"), typeId: z.string().uuid(), releasedSlug: z.string().min(1) }).strict();
 const cptArticleBlockSchema = z.object({ kind: z.literal("article"), text: z.string().min(1) }).strict();
 const cptInteractiveDemoBlockSchema = z.object({
   kind: z.literal("interactive-demo"),
@@ -59,6 +61,8 @@ const currentTermRecordSchema = z.object({ taxonomyId: z.string().uuid(), termId
 export const currentTaxonomySnapshotSchema = z.object({ contract: z.literal("taxonomy/v2"), taxonomy: currentTaxonomyRecordSchema, terms: z.array(currentTermRecordSchema), stateDigest: digestSchema }).strict();
 export const currentTaxonomyCatalogSchema = z.object({ contract: z.literal("taxonomy-catalog/v2"), taxonomies: z.array(z.object({ taxonomy: currentTaxonomyRecordSchema, stateDigest: digestSchema }).strict()), stateDigest: digestSchema }).strict();
 export const currentTaxonomyCreateSchema = z.object({ contract: z.literal("taxonomy-create-request/v2"), expectedStateDigest: digestSchema, label: z.string().min(1), slug: z.string().optional(), hierarchical: z.boolean() }).strict();
+export const currentTaxonomyDeleteSchema = z.object({ contract: z.literal("taxonomy-delete-request/v1"), expectedStateDigest: digestSchema }).strict();
+export const currentTaxonomyDeletedSchema = z.object({ contract: z.literal("taxonomy-deleted/v1"), taxonomyId: z.string().uuid(), releasedSlug: z.string().min(1) }).strict();
 export const currentTaxonomyCommandSchema = z.discriminatedUnion("kind", [
   z.object({ contract: z.literal("taxonomy-command/v2"), kind: z.literal("replace-taxonomy"), expectedStateDigest: digestSchema, label: z.string().min(1), slug: z.string(), hierarchical: z.boolean() }).strict(),
   z.object({ contract: z.literal("taxonomy-command/v2"), kind: z.literal("create-term"), expectedStateDigest: digestSchema, label: z.string().min(1), slug: z.string().optional(), parentTermId: z.string().uuid().optional(), order: z.number().int().nonnegative() }).strict(),
@@ -133,9 +137,9 @@ const transportStatuses: Readonly<Record<TransportCode, readonly number[]>> = {
   SERVER_PROOF_GENERATION_MISMATCH: [401], BROWSER_BOOTSTRAP_INVALID: [401], INVALID_REQUEST_BODY: [400], REQUEST_BODY_TOO_LARGE: [400],
   ROUTE_NOT_FOUND: [404], METHOD_NOT_ALLOWED: [405], UNSUPPORTED_MEDIA_TYPE: [415], INTERNAL_SERVER_ERROR: [500, 503],
 };
-const contentTypeAdministrationStatuses: Readonly<Record<ContentTypeAdministrationFailureCode, readonly number[]>> = { INVALID_CONTENT_TYPE_DEFINITION: [422], CONTENT_TYPE_NOT_FOUND: [404], CONTENT_TYPE_STATE_CONFLICT: [409], CONTENT_TYPE_BREAKING_CHANGE: [422], CONTENT_TYPE_ADMINISTRATION_FAILED: [500] };
+const contentTypeAdministrationStatuses: Readonly<Record<ContentTypeAdministrationFailureCode, readonly number[]>> = { INVALID_CONTENT_TYPE_DEFINITION: [422], CONTENT_TYPE_NOT_FOUND: [404], CONTENT_TYPE_STATE_CONFLICT: [409], CONTENT_TYPE_BREAKING_CHANGE: [422], CONTENT_TYPE_IN_USE: [409], CONTENT_TYPE_PROTECTED: [409], CONTENT_TYPE_ADMINISTRATION_FAILED: [500] };
 const entryAdministrationStatuses: Readonly<Record<CurrentEntryAdministrationFailureCode, readonly number[]>> = { INVALID_ENTRY_CONTENT: [422], INVALID_ENTRY_CUSTOM_VALUES: [422], INVALID_ENTRY_MEDIA: [422], INVALID_ENTRY_TAXONOMY: [422], INVALID_ENTRY_SEARCH: [422], ENTRY_NOT_FOUND: [404], CONTENT_TYPE_NOT_FOUND: [404], ENTRY_STATE_CONFLICT: [409], ENTRY_ADMINISTRATION_FAILED: [500] };
-const currentTaxonomyStatuses: Readonly<Record<CurrentTaxonomyFailureCode, readonly number[]>> = { INVALID_TAXONOMY: [422], TAXONOMY_NOT_FOUND: [404], TAXONOMY_STATE_CONFLICT: [409], TERM_NOT_FOUND: [404], TERM_IN_USE: [409], TAXONOMY_FAILED: [500] };
+const currentTaxonomyStatuses: Readonly<Record<CurrentTaxonomyFailureCode, readonly number[]>> = { INVALID_TAXONOMY: [422], TAXONOMY_NOT_FOUND: [404], TAXONOMY_STATE_CONFLICT: [409], TAXONOMY_IN_USE: [409], TAXONOMY_PROTECTED: [409], TERM_NOT_FOUND: [404], TERM_IN_USE: [409], TAXONOMY_FAILED: [500] };
 /**
  * Current media library 只會回傳這些 DataMedia code；逐一列出可讓 status 與 wire contract 對齊，
  * 不必讓整個 v1 DataMedia failure union 進入 transport status 表。

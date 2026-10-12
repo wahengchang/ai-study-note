@@ -172,11 +172,13 @@ export function createPersistenceStore(database: SqliteAdapter): PersistenceStor
     createCurrentContentType(input) { return atomic((transaction) => transaction.createCurrentContentType(input)); },
     createCurrentTaxonomy(input) { return atomic((transaction) => transaction.createCurrentTaxonomy(input)); },
     replaceCurrentTaxonomy(input) { return atomic((transaction) => transaction.replaceCurrentTaxonomy(input)); },
+    deleteCurrentTaxonomy(taxonomyId) { return atomic((transaction) => transaction.deleteCurrentTaxonomy(taxonomyId)); },
     createCurrentTaxonomyTerm(input) { return atomic((transaction) => transaction.createCurrentTaxonomyTerm(input)); },
     replaceCurrentTaxonomyTerm(input) { return atomic((transaction) => transaction.replaceCurrentTaxonomyTerm(input)); },
     deleteCurrentTaxonomyTerm(identity) { return atomic((transaction) => transaction.deleteCurrentTaxonomyTerm(identity)); },
     replaceCurrentEntryTermBindings(entryId, bindings) { return atomic((transaction) => transaction.replaceCurrentEntryTermBindings(entryId, bindings)); },
     replaceCurrentContentType(input) { return atomic((transaction) => transaction.replaceCurrentContentType(input)); },
+    deleteCurrentContentType(typeId) { return atomic((transaction) => transaction.deleteCurrentContentType(typeId)); },
     allocateGlobalSlug(input) { return atomic((transaction) => transaction.allocateGlobalSlug(input)); },
     releaseGlobalSlug(input) { return atomic((transaction) => transaction.releaseGlobalSlug(input)); },
     createCurrentEntry(input) { return atomic((transaction) => transaction.createCurrentEntry(input)); },
@@ -327,6 +329,12 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       database.run("UPDATE current_taxonomies SET label=?,slug=?,hierarchical=? WHERE taxonomy_id=?", input.label, input.slug, input.hierarchical ? 1 : 0, input.taxonomyId);
       return { ok: true, value: input };
     }); },
+    deleteCurrentTaxonomy(taxonomyId) { return guarded(() => {
+      if (!validStableId(taxonomyId)) return failed("INVALID_PERSISTENCE_INPUT");
+      if (database.get("SELECT 1 FROM current_taxonomy_terms WHERE taxonomy_id=? LIMIT 1", taxonomyId) !== undefined) return failed("CONSTRAINT_VIOLATION");
+      database.run("DELETE FROM current_taxonomies WHERE taxonomy_id=?", taxonomyId);
+      return { ok: true, value: undefined };
+    }, "CONSTRAINT_VIOLATION"); },
     createCurrentTaxonomyTerm(input) { return guarded(() => {
       if (!validCurrentTerm(input)) return failed("INVALID_PERSISTENCE_INPUT");
       database.run("INSERT INTO current_taxonomy_terms (taxonomy_id,term_id,label,slug,parent_term_id,term_order,state) VALUES (?,?,?,?,?,?,?)", input.taxonomyId, input.termId, input.label, input.slug, input.parentTermId ?? null, input.order, input.state);
@@ -601,6 +609,12 @@ function createOperations(database: SqliteAdapter, live: () => boolean = () => t
       database.run("UPDATE current_content_types SET definition_bytes=?,definition_digest=? WHERE type_id=?", record.value.definitionBytes, record.value.definitionDigest, record.value.typeId);
       return { ok: true, value: record.value };
     }); },
+    deleteCurrentContentType(typeId) { return guarded(() => {
+      if (!validStableId(typeId)) return failed("INVALID_PERSISTENCE_INPUT");
+      if (database.get("SELECT 1 FROM current_entries WHERE type_id=? LIMIT 1", typeId) !== undefined) return failed("CONSTRAINT_VIOLATION");
+      database.run("DELETE FROM current_content_types WHERE type_id=?", typeId);
+      return { ok: true, value: undefined };
+    }, "CONSTRAINT_VIOLATION"); },
     allocateGlobalSlug(input) { return guarded(() => {
       if (input === null || typeof input !== "object" || !validText(input.entityId) || !validGlobalEntityKind(input.entityKind)) return failed("INVALID_PERSISTENCE_INPUT");
       const base = globalSlug(input.requestedSlug); if (base === undefined) return failed("INVALID_PERSISTENCE_INPUT");

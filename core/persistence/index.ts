@@ -53,8 +53,8 @@ const currentReadMethods = new Set<string>([
 ]);
 const currentTransactionMethods = new Set<string>([
   ...currentReadMethods,
-  "createCurrentTaxonomy", "replaceCurrentTaxonomy", "createCurrentTaxonomyTerm", "replaceCurrentTaxonomyTerm",
-  "deleteCurrentTaxonomyTerm", "replaceCurrentEntryTermBindings", "createCurrentContentType", "replaceCurrentContentType",
+  "createCurrentTaxonomy", "replaceCurrentTaxonomy", "deleteCurrentTaxonomy", "createCurrentTaxonomyTerm", "replaceCurrentTaxonomyTerm",
+  "deleteCurrentTaxonomyTerm", "replaceCurrentEntryTermBindings", "createCurrentContentType", "replaceCurrentContentType", "deleteCurrentContentType",
   "allocateGlobalSlug", "releaseGlobalSlug", "createCurrentEntry", "replaceCurrentEntry", "deleteCurrentEntry",
   "createCurrentMediaAsset", "replaceCurrentMediaAsset", "deleteCurrentMediaAsset", "replaceEntryMediaReferences",
   "contentTypeHasCurrentEntries", "canonicalState",

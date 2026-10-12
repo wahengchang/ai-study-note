@@ -257,6 +257,7 @@ export interface PersistenceReadSnapshot {
 export interface PersistenceTransaction extends PersistenceReadSnapshot {
   createCurrentTaxonomy(input: CurrentTaxonomyRecord): PersistenceResult<CurrentTaxonomyRecord>;
   replaceCurrentTaxonomy(input: CurrentTaxonomyRecord): PersistenceResult<CurrentTaxonomyRecord>;
+  deleteCurrentTaxonomy(taxonomyId: string): PersistenceResult<void>;
   createCurrentTaxonomyTerm(input: CurrentTaxonomyTermRecord): PersistenceResult<CurrentTaxonomyTermRecord>;
   replaceCurrentTaxonomyTerm(input: CurrentTaxonomyTermRecord): PersistenceResult<CurrentTaxonomyTermRecord>;
   deleteCurrentTaxonomyTerm(identity: TaxonomyTermIdentity): PersistenceResult<void>;
@@ -297,6 +298,7 @@ export interface PersistenceTransaction extends PersistenceReadSnapshot {
   listTaxonomyTermUsages(identity: TaxonomyTermIdentity): PersistenceResult<readonly RevisionTaxonomyBindingUsage[]>;
   createCurrentContentType(input: CreateCurrentContentTypeInput): PersistenceResult<CurrentContentTypeRecord>;
   replaceCurrentContentType(input: ReplaceCurrentContentTypeInput): PersistenceResult<CurrentContentTypeRecord>;
+  deleteCurrentContentType(typeId: string): PersistenceResult<void>;
   allocateGlobalSlug(input: AllocateGlobalSlugInput): PersistenceResult<GlobalSlugClaimRecord>;
   releaseGlobalSlug(input: Readonly<{ entityKind: GlobalSlugClaimRecord["entityKind"]; entityId: string }>): PersistenceResult<void>;
   createCurrentEntry(input: CreateCurrentEntryInput): PersistenceResult<CurrentEntryRecord>;
@@ -334,9 +336,9 @@ type CurrentReadKey =
   | "getCurrentTaxonomy" | "listCurrentTaxonomies" | "getCurrentTaxonomyTerm" | "listCurrentTaxonomyTerms"
   | "listCurrentEntryTermBindings" | "listCurrentTermUsage";
 type CurrentWriteKey =
-  | "createCurrentTaxonomy" | "replaceCurrentTaxonomy" | "createCurrentTaxonomyTerm" | "replaceCurrentTaxonomyTerm"
+  | "createCurrentTaxonomy" | "replaceCurrentTaxonomy" | "deleteCurrentTaxonomy" | "createCurrentTaxonomyTerm" | "replaceCurrentTaxonomyTerm"
   | "deleteCurrentTaxonomyTerm" | "replaceCurrentEntryTermBindings"
-  | "createCurrentContentType" | "replaceCurrentContentType" | "allocateGlobalSlug" | "releaseGlobalSlug"
+  | "createCurrentContentType" | "replaceCurrentContentType" | "deleteCurrentContentType" | "allocateGlobalSlug" | "releaseGlobalSlug"
   | "createCurrentEntry" | "replaceCurrentEntry" | "deleteCurrentEntry"
   | "createCurrentMediaAsset" | "replaceCurrentMediaAsset" | "deleteCurrentMediaAsset"
   | "replaceEntryMediaReferences" | "contentTypeHasCurrentEntries" | "canonicalState";
